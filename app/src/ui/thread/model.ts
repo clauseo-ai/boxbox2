@@ -56,6 +56,8 @@ export interface Step {
   /** an edit's hunk, a write's content as additions */
   diff?: string;
   agent?: Agent;
+  /** a wait for one reply (cmx2's `correlation_id`), not for whatever comes */
+  reply?: boolean;
   todos?: Todo[];
   questions?: Question[];
   /** a permission the daemon is waiting on for this call (joined from the pending list) */
@@ -126,6 +128,28 @@ const FAMILY: Record<string, Family> = {
   todowrite: "plan",
   skill: "skill",
 };
+/** who a finished wait heard from, in words, from cmx2's `items` (each a `kind` and a `from` path): "helper",
+    "a, b and 2 more agents", "a background job", "root", "helper and a background job". a report with no sender is
+    a pool's, a system note is the daemon's. empty when nothing came or the daemon said nothing */
+export function arrivalsOf(items: readonly unknown[]): string {
+  const name = (from: string) => from.replace(/^\/root\/?/, "") || "root";
+  const senders: string[] = [];
+  let jobs = 0, daemon = false;
+  for (const it of items) {
+    const r = record(it);
+    if (!r) continue;
+    const kind = string(r["kind"]) ?? "", from = string(r["from"]);
+    if (kind === "job") jobs++;
+    else if (from) { if (!senders.includes(name(from))) senders.push(name(from)); }
+    else if (kind === "report") { if (!senders.includes("a pool")) senders.push("a pool"); }
+    else daemon = true;
+  }
+  const parts = senders.length > 3 ? [...senders.slice(0, 2), `${senders.length - 2} more agents`] : [...senders];
+  if (jobs) parts.push(jobs === 1 ? "a background job" : `${jobs} background jobs`);
+  if (daemon) parts.push("the daemon");
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : (parts[0] ?? "");
+}
+
 export const familyOf = (tool: string): Family => FAMILY[tool] ?? (/search/.test(tool) ? "web" : "other");
 
 const lineCount = (s: string | undefined): number => (s ? s.split("\n").length : 0);
@@ -268,6 +292,8 @@ function stepOf(part: ToolPart, root: string, messageAt: number): Base {
       break;
     case "wait":
       step.result = boolean(meta["timed_out"]) ? "timed out" : "";
+      step.object = arrivalsOf(list(meta["items"]));
+      if (string(input["correlation_id"])) step.reply = true;
       break;
     case "agents":
       step.object = tool === "close_agent" ? `close ${(string(meta["target"]) ?? "").replace(/^\/root\//, "")}` : "list agents";

@@ -41,7 +41,8 @@ const EDITS = new Set(["edit", "write", "patch", "multiedit"]);
 const COMMANDS = new Set(["shell", "bash"]);
 /** starting an agent: "agent" and its name when the title carries one (the pinned daemon titles it "spawn", ask a24) */
 const SPAWNS = new Set(["spawn", "spawn_agent", "spawn_pool"]);
-/** waiting on agents' reports: the window says what for, since the daemon's title is the tool's name */
+/** a wait: the daemon titles every one "wait for agents", whatever it waits on, and the tail has no more than the
+    title, so the line is the verb alone (the thread's row and status line say what it waits on) */
 const WAITS = new Set(["wait", "wait_agent", "wait_for_reply"]);
 /** tools whose work is shown elsewhere: the ask rises out of the window, todos are the agent's own notes */
 const HIDDEN = new Set(["question", "todowrite", "todoread"]);
@@ -94,7 +95,7 @@ function toolLine(id: string, tool: string, state: string, title: string): TailL
   if (EDITS.has(name)) return { kind: "tool", id, verb: "edit", object: baseName(title), result, status };
   if (COMMANDS.has(name)) return { kind: "tool", id, verb: "run", object: shortCommand(title), result, status };
   if (SPAWNS.has(name)) return { kind: "tool", id, verb: "agent", object: SPAWNS.has(title.toLowerCase()) ? "" : title, result, status };
-  if (WAITS.has(name)) return { kind: "tool", id, verb: "wait", object: "for agents", result, status };
+  if (WAITS.has(name)) return { kind: "tool", id, verb: "wait", object: "", result, status };
   return { kind: "tool", id, verb: name || "tool", object: title, result, status };
 }
 

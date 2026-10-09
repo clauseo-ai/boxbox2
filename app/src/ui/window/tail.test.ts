@@ -47,7 +47,7 @@ describe("the tail's grammar", () => {
   test("starting an agent reads agent, never spawn spawn: the daemon's title names the tool, not the agent (ask a24)", () => {
     expect(tailLines([tool("spawn", "spawn", "running")])).toMatchObject([{ kind: "tool", verb: "agent", object: "", status: "running" }]);
     expect(tailLines([tool("spawn", "helper")])).toMatchObject([{ kind: "tool", verb: "agent", object: "helper" }]);
-    expect(tailLines([tool("wait", "wait", "running")])).toMatchObject([{ kind: "tool", verb: "wait", object: "for agents", status: "running" }]);
+    expect(tailLines([tool("wait", "wait", "running")])).toMatchObject([{ kind: "tool", verb: "wait", object: "", status: "running" }]);
   });
 
   test("another agent's report is named by its sender, not shown as your prompt", () => {

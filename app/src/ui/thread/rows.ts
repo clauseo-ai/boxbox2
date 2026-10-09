@@ -241,6 +241,16 @@ export type AskQuestion = { header: string; question: string; options: Array<{ l
 /** an ask the daemon is waiting on, keyed by the tool call that raised it (the fleet's `asks`) */
 export type PendingAsk = { id: string; kind: "permission" | "question"; request: Record<string, unknown> };
 
+/** what a running wait waits on, in words, from what is known while it runs: the agents under it at work, a reply it
+    asked for (by correlation id, or the agent it just messaged), else a background job's notice or a message. the daemon
+    says nothing of the wait's own target, so this never names agents that are not at work (docs/thread.md, the status line) */
+export function waitingOn(w: { agents: number; reply: boolean; replyFrom?: string }): string {
+  if (w.agents) return plural(w.agents, "agent");
+  if (w.replyFrom) return `a reply from ${w.replyFrom}`;
+  if (w.reply) return "a reply";
+  return "a job or a message";
+}
+
 /** the context a row is painted in */
 export type RowCtx = {
   /** the turns of the thread, so an agent row can find its report */
@@ -409,7 +419,15 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
     }
     case "skill": content = [{ t: "text", s: s.object }]; text = s.object; break;
     case "message": content = [{ t: "lead", s: "to " }, { t: "text", s: s.object || "parent" }]; text = `to ${s.object || "parent"}`; break;
-    case "wait": content = [{ t: "lead", s: "for agents" }]; text = "for agents"; break;
+    case "wait": {
+      /* what it waits on while it runs, who it heard from once it has (docs/thread.md, the rows) */
+      let working = 0;
+      if (running) for (const c of ctx.children.values()) if (c.state === "working") working++;
+      if (running) { text = `for ${waitingOn({ agents: working, reply: !!s.reply })}`; content = [{ t: "lead", s: text }]; }
+      else if (s.object) { content = [{ t: "lead", s: "from " }, { t: "text", s: s.object }]; text = `from ${s.object}`; }
+      else if (s.result === "timed out") { content = [{ t: "lead", s: "nothing came" }]; text = "nothing came"; }
+      break;
+    }
     default: content = [{ t: "text", s: s.object }]; text = s.object;
   }
   if (bad && s.error && body === undefined) body = { k: "error", error: s.error };

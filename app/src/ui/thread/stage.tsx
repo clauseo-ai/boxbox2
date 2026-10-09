@@ -32,7 +32,7 @@ import { createLapse } from "./focus-lapse";
 import { createCaughtUp } from "../caught-up";
 import type { Turn } from "./model";
 import { flip, installMotion, reducedMotion } from "./motion";
-import { clock, clockDur, dur, plural } from "./rows";
+import { clock, clockDur, dur, plural, waitingOn } from "./rows";
 import { AskContext, CachesContext, ChildWatchContext, FollowContext, LandingContext, LiveTapeContext, MeasureContext, NamesContext, OpenAgentContext, READING, type Settle, SettleContext, ThreadKeyContext, TurnView, WindowContext, bring, light } from "./thread";
 import { createStageWindow } from "./stage-window";
 import { paintSource } from "./paint-source";
@@ -172,11 +172,17 @@ export function Stage(props: StageProps) {
     if (asks) return { text: asks === 1 ? "wants you" : `wants you, ${asks} asks`, live: true, agents: false };
     if (s?.type === "retry") return { text: `retrying, attempt ${s.attempt}: ${s.message}`, live: true, agents: false };
     if (data.working() && last) {
-      /* a turn sitting in a wait for its agents is not working: it says what it waits on (design.md, the live line) */
+      /* a turn sitting in a wait is not working: it says what it waits on (design.md, the live line). the agents at
+         work under it when there are any, else the agent it messaged just before, else a job's notice or a message */
       const cur = last.items.at(-1);
-      const waiting = cur?.k === "step" && cur.family === "wait" && cur.status === "running";
-      const n = agentsWorking();
-      if (waiting) return { text: `waiting on ${n ? plural(n, "agent") : "agents"} for ${clockDur(Math.max(0, data.now() - cur.at))}`, live: true, agents: true };
+      if (cur?.k === "step" && cur.family === "wait" && cur.status === "running") {
+        const n = agentsWorking();
+        const steps = last.items.filter((x) => x.k === "step");
+        const before = steps.at(-2);
+        const replyFrom = before?.k === "step" && before.family === "message" ? (before.object && before.object !== "parent" ? before.object : "its parent") : undefined;
+        const on = waitingOn({ agents: n, reply: !!cur.reply, ...(replyFrom ? { replyFrom } : {}) });
+        return { text: `waiting on ${on} for ${clockDur(Math.max(0, data.now() - cur.at))}`, live: true, agents: n > 0 };
+      }
       return { text: `working ${clockDur(Math.max(0, data.now() - last.at))}, ${plural(stepsOfLast(), "step")}`, live: true, agents: false };
     }
     if (s?.type === "idle" && s.parked) {

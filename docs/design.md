@@ -310,8 +310,9 @@ the tail's grammar, so it reads at a glance and never floods:
   result (`cargo test 118 passed`, `bun test 3 failed`).
 - a subagent is a tile in the footer, lit while it runs; its own work
   never floods the parent's tail. in the tail it is one line, "agent
-  helper" when it starts, "wait for agents" while the parent waits on
-  it, "helper reported" when its report lands (never your prompt's
+  helper" when it starts, "wait" while the parent waits (the verb alone:
+  the daemon titles every wait "wait for agents", whatever it waits on,
+  and the tail has only the title), "helper reported" when its report lands (never your prompt's
   bubble: the report is the agent's, not yours).
 - prose shows the last two sentences; older lines fade out under the top
   mask.

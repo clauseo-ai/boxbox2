@@ -162,7 +162,7 @@ what each kind shows, and what opens beneath it:
 | plan | the current item | `2 of 5` | every item with its state |
 | skill | its name | | |
 | note | `to parent` | | |
-| wait | `for agents` | a duration | |
+| wait | running: what it waits on, `for 2 agents` (the agents at work under it), `for a reply` (a correlation id) or `for a job or a message`; done: who it heard from, `from helper`, `from a background job`, `from root`, or `nothing came` | a duration; `timed out` | |
 | thought | the first sentence, sans 13.5 px at 60%; "8 thoughts: " leads a fold | the time spent | every thought in full, each with its clock and duration |
 | (said) | the prose, sans 15.5 px (16 at strip and rail), spanning the whole row, as markdown | | nothing; it is not a button |
 | files | `changed 19 files` | `+4,391 -25` | every file with its counts and file line; each opens its combined diff |
@@ -351,12 +351,17 @@ the same scroll position. as built:
   moved every tool behind one plus key, `composer.md`). one panel is open
   at a time; opening it closes the turns.
 - **the status line** tells waiting from working: a turn sitting in a
-  running `wait` says "waiting on 2 agents for 3:12" (the agents at work
-  under it, or "agents" when none is), with the stop control; a
+  running `wait` says what it waits on: "waiting on 2 agents for 3:12"
+  (the agents at work under it, and a door to the agents panel), else
+  "waiting on a reply from its parent" when the step before it messaged
+  an agent, "waiting on a reply" for a correlation id, else "waiting on a
+  job or a message". it never says agents when none is at work: an agent
+  waiting on its own background jobs is not waiting on agents. with the
+  stop control; a
   session the daemon calls parked on agents says "working 0:41, 2 agents",
   since its agents are its work; parked on jobs alone, "parked, waiting on
   2 jobs". the live line on
-  home's window says "wait for agents" for the same step.
+  home's window says "wait" for the same step.
 
 ## the tape
 
