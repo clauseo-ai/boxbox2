@@ -1,0 +1,119 @@
+name: release
+# a tag like v0.1.0 publishes a release (docs/deploy.md, releases): `just
+# check`, then a static linux binary built natively on each architecture
+# by ops/release/build.sh, installed with install.sh on that architecture
+# as proof it runs, then the tarballs, install.sh and SHA256SUMS published
+# with the tag's CHANGELOG.md section as the notes.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: the tag names the version in server/Cargo.toml
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' server/Cargo.toml | head -n 1)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::the tag is $GITHUB_REF_NAME but server/Cargo.toml says $version; tag v$version, or bump the version"
+            exit 1
+          fi
+          if ! grep -qx "## $version" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no \"## $version\" section to publish as the notes"
+            exit 1
+          fi
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+      # rustup reads rust-toolchain.toml and installs 1.92.0 with rustfmt and clippy
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: extractions/setup-just@v2
+        with:
+          just-version: 1.51.0
+      - run: just setup
+      - run: just check
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: build ${{ matrix.arch }}
+        run: ops/release/build.sh ${{ matrix.arch }}
+        env:
+          BOXBOX_REPO: ${{ github.repository }}
+      - name: install it with install.sh into a clean HOME, and run it
+        run: |
+          home=$(mktemp -d)
+          HOME="$home" sh target/dist/install.sh --from target/dist
+          "$home/.local/bin/boxbox" --version
+          printf 'a release smoke password\n' | HOME="$home" "$home/.local/bin/boxbox" init --password-file - --listen 127.0.0.1:3041
+          HOME="$home" "$home/.local/bin/boxbox" doctor
+          stat -c '%a %n' "$home/.config/boxbox/boxbox.toml"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: |
+            target/dist/*.tar.gz
+            target/dist/install.sh
+          if-no-files-found: error
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: checksums over exactly one tarball per architecture
+        working-directory: dist
+        run: |
+          version="${{ needs.check.outputs.version }}"
+          for arch in x86_64 aarch64; do
+            test -f "boxbox-$version-$arch-linux.tar.gz" || { echo "::error::no $arch tarball"; exit 1; }
+          done
+          set -- ./*.tar.gz
+          test "$#" -eq 2 || { echo "::error::expected 2 tarballs, found $#"; exit 1; }
+          sha256sum ./*.tar.gz install.sh | sed 's|  \./|  |' >SHA256SUMS
+          cat SHA256SUMS
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ needs.check.outputs.version }}"
+          awk -v heading="## $version" '$0 == heading { on = 1; next } /^## / { on = 0 } on' CHANGELOG.md >notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --title "boxbox $version" \
+            --notes-file notes.md

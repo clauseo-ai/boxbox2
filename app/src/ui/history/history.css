@@ -1,0 +1,158 @@
+/* the history screen's own materials; the column, the head and the field are the machines screen's (styles.css) */
+
+.history-find {
+  display: grid;
+  gap: 10px;
+}
+
+.history-machines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* the machine filter: pills that stay lit while on, as home's pills are shaped */
+.chipbtn {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--pill);
+  box-shadow: var(--pill-edge);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+}
+
+/* a finger's size without a taller pill */
+.chipbtn::after {
+  content: "";
+  position: absolute;
+  inset: -5px -3px;
+}
+
+/* on: ink on paper in dark; in light the app's deep violet with near-white ink, so a filter that is on is the
+   accent and not a black pill */
+.chipbtn[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) calc(var(--L) * 100%), var(--text));
+  color: color-mix(in srgb, var(--on-accent) calc(var(--L) * 100%), var(--ground));
+  box-shadow: none;
+}
+
+.chipbtn:focus-visible,
+.history-row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.history-note {
+  margin: 0;
+  font-size: var(--meta);
+  color: var(--text-2);
+}
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+/* a row is a button across the column: the repo's mark, the title and where it was, and the state and when */
+.history-row {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 6px;
+  border-radius: 14px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (hover: hover) {
+  .history-row:hover {
+    background: var(--hover);
+  }
+}
+
+.history-row:active {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.history-row[aria-busy="true"] {
+  opacity: 0.6;
+}
+
+.history-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.history-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--body);
+  font-weight: 560;
+}
+
+.history-meta,
+.history-when {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.history-side {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  text-align: right;
+}
+
+.history-state {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+/* the row's repo colour: its light tone on a dark ground, its deep top colour on a light one */
+.history-state[data-state="wants"] {
+  color: color-mix(in srgb, var(--c1) calc(var(--L) * 100%), var(--hi));
+}
+
+.history-state[data-state="failed"] {
+  color: var(--red);
+}
+
+.history-row[data-cleared] .history-title {
+  color: var(--text-2);
+}
+
+.history-stuck {
+  margin: 2px 6px 8px;
+}
+
+.history-more {
+  justify-self: center;
+}
+
+.history-end {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: var(--meta);
+  color: var(--text-3);
+}

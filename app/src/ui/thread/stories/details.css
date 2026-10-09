@@ -1,0 +1,7 @@
+/* the stages the details story stands on: the ground with home's inspector column, and a stage's flood with the panel
+   docked or raised as the stage does it */
+.dt-ground { min-height: 100vh; display: flex; justify-content: center; background: var(--ground); }
+.dt-column { width: 330px; padding: 26px 22px; --measure: 680px; }
+.dt-stage { position: relative; height: 100vh; min-height: 640px; display: flex; flex-direction: column; overflow: hidden; isolation: isolate; background: var(--ground); color: var(--text); --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; }
+.dt-stage.wide { flex-direction: row; justify-content: flex-end; }
+.dt-host { display: contents; }

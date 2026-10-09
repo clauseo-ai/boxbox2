@@ -1,0 +1,55 @@
+/* the shell's own materials (app/src/shell/shell.tsx). home, the stage,
+   the machines, settings and the terminal style themselves; this is what
+   sits between them: the screens' column, a screen's way back, the deck's
+   edge for the swipe back, and the one line a launch shows when the server
+   cannot be reached. */
+
+/* the machines or settings: one column on the ground, the frame's own pane
+   the scroller (decision 19) */
+.signed-in {
+  display: grid;
+  align-content: start;
+  min-height: 100%;
+}
+
+/* `‹ windows`, `‹ machines`: a quiet control at the head of its screen. the
+   chevron is drawn as the stage's `‹` is (ui/home/home.css, `.back`), two
+   strokes of 2 px, in the control's own colour, so it follows hover */
+.screen-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 18px;
+}
+
+.screen-back .chevron {
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  transform: translateX(1.5px) rotate(45deg);
+}
+
+/* the deck's edge: a strip on the left a swipe back starts from. it sits
+   above the screens and the terminal, as home's own edge sits above the
+   stage (ui/home/home.css), and takes no taps from the content, which keeps
+   a 22 px gutter (the terminal's bed keeps 8 px; the strip is narrower) */
+.shell-edge {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  width: 16px;
+  touch-action: none;
+}
+
+/* the gate could not ask the server, and there is nothing cached to show */
+.unreached {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}

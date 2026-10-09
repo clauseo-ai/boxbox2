@@ -1,0 +1,29 @@
+/* the stories' own frames: each window at the size its arrangement gives it */
+
+.story-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  align-items: flex-start;
+  padding: 28px;
+}
+
+.story-frame {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+  --window-width: 330px;
+}
+
+.story-frame[data-arrangement="deck"] {
+  height: 580px;
+}
+
+.story-frame[data-arrangement="rail"] {
+  width: 300px;
+}
+
+.story-frame figcaption {
+  font-size: 13px;
+  color: var(--text-3);
+}

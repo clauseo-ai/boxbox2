@@ -1,0 +1,22 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      # rustup reads rust-toolchain.toml and installs 1.92.0 with rustfmt and clippy
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: extractions/setup-just@v2
+        with:
+          just-version: 1.51.0
+      - run: just setup
+      # the vendored cmx2 files are proven by their git blob ids and the board
+      # by its recorded hashes, so neither needs the cmx2 or v1 repo here
+      - run: just check

@@ -1,0 +1,741 @@
+/* home (docs/design.md, one layout law for three devices; depth). the
+   arrangement is `data-arrangement` on `.home`, chosen from the window's
+   size in home.tsx. html never scrolls: the windows row, the rail and the
+   stage's transcript are the only scrollers (decision 19).
+
+   at the rail the stage card spans the grid and takes its edges from two custom properties, `--stage-left` and
+   `--stage-right`, which the rail's fold and the inspector's move between (edge.ts): the column on the left keeps
+   its open width whether it is shown or not, so it is laid out once and only ever uncovered, and the inspector is
+   not in the grid at all but sits under the card's right edge. `data-rail` and `data-inspector` are the committed
+   layout, which trails what the person asked for while the card's edge is still gliding (`data-moving`). */
+
+.home {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  overflow: hidden;
+  --window-width: min(340px, calc(100vw - 56px));
+  /* the stage card's corners at the strip and the rail: the card, its shadow and its rim all draw them */
+  --card-radius: 30px;
+  --inset-top: max(env(safe-area-inset-top, 0px), 0px);
+  --inset-bottom: max(env(safe-area-inset-bottom, 0px), 0px);
+}
+
+.home[data-arrangement="deck"] {
+  /* a column that may be narrower than its content: the page dots of two dozen windows were wider than a phone, and the
+     column grew to them, pushing the bar's pills off the screen */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+.home[data-arrangement="strip"] {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.home[data-arrangement="rail"] {
+  grid-template-columns: 318px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  --stage-left: 318px;
+  --stage-right: 14px;
+}
+
+.home[data-arrangement="rail"][data-rail="folded"] {
+  --stage-left: 76px;
+}
+
+.home[data-arrangement="rail"][data-inspector="shown"] {
+  --stage-right: 330px;
+}
+
+/* the ground's soft glow of the window in view (deck only): its deep top colour on the dark ground, its light tone on the
+   light one, where a deep colour would be a dark smudge. with no window in view it is the ground itself */
+.home .ambient {
+  --c1: #0b0c0f;
+  --hi: #f3f3f1;
+  position: fixed;
+  inset: -80px;
+  pointer-events: none;
+  background: radial-gradient(55% 42% at 50% 46%, color-mix(in srgb, var(--hi) calc(var(--L) * 100%), var(--c1)), transparent 72%);
+  filter: blur(30px);
+  opacity: 0.5;
+}
+
+/* —— the bar —— */
+
+.home .bar {
+  position: relative;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.home[data-arrangement="deck"] .bar {
+  padding: calc(var(--inset-top) + 18px) 26px 12px;
+}
+
+.home[data-arrangement="strip"] .bar {
+  padding: 18px 26px 12px;
+}
+
+/* the first row (the wordmark, history, machines, the fold toggle) sits on the line of the stage bar's own controls,
+   14 px of card margin and half of its 64 px bar down: 46 px to the middle of both */
+.home[data-arrangement="rail"] .bar {
+  grid-column: 1;
+  grid-row: 1;
+  flex-wrap: wrap;
+  row-gap: 12px;
+  padding: 29px 18px 14px 22px;
+}
+
+@media (pointer: coarse) {
+  /* its pills are 44 tall here, so the row's middle is 22 below the padding, not 17 */
+  .home[data-arrangement="rail"] .bar {
+    padding-top: 24px;
+  }
+}
+
+.home .mark {
+  font-size: 24px;
+  font-weight: 720;
+  font-stretch: 122%;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.home .bar .grow {
+  flex: 1;
+}
+
+.home[data-arrangement="rail"] .bar .grow {
+  display: none;
+}
+
+/* the deck's and the rail's bar are too narrow for the wordmark, the line and every pill on one row, and a pill that wraps
+   by chance is left alone on a row of its own at some count or other. so the bar is three rows by rule, at any count:
+   the wordmark with where you go (history, machines), then what you do (new thread, clear done), then the line. the strip
+   has the width for one row */
+.home[data-arrangement="deck"] .bar .mark,
+.home[data-arrangement="rail"] .bar .mark {
+  order: 1;
+}
+
+/* the wordmark gives way to the pills beside it, never the pills to it (a pill that wraps is left alone on a row) */
+.home[data-arrangement="rail"] .bar .mark {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.home[data-arrangement="deck"] .bar .grow {
+  order: 2;
+}
+
+.home[data-arrangement="deck"] .bar .nav,
+.home[data-arrangement="rail"] .bar .nav {
+  order: 3;
+}
+
+.home[data-arrangement="deck"] .bar .acts,
+.home[data-arrangement="rail"] .bar .acts {
+  order: 4;
+  flex: 1 0 100%;
+}
+
+/* the line is text, not a row of boxes: it wraps where words do, after a part's comma, never before one */
+/* one line height whether or not the line holds the button, so the bar never changes height when something starts or
+   stops wanting you (perf.shift): the button reaches past its line for the finger by a pseudo-element, not padding */
+.home .sum {
+  min-width: 0;
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--text-2);
+}
+
+/* the deck's and the rail's bar are too narrow for the line beside the wordmark and the pills: it takes its own row
+   under them, the width of the bar, so a long repo name has the whole row before it wraps */
+.home[data-arrangement="deck"] .bar {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.home[data-arrangement="deck"] .sum,
+.home[data-arrangement="rail"] .sum {
+  order: 5;
+  width: 100%;
+}
+
+.home .sum:empty {
+  display: none;
+}
+
+/* the window's light tone is a word on the dark ground and nothing on the light one: there its deep top colour, which holds
+   contrast on both. `--ink` is that, for what the repo's colour draws on the ground itself (this call, the pager's dots,
+   the edge's glow) */
+.home .sum .call,
+.home .pager i,
+.home .cue {
+  --ink: color-mix(in srgb, var(--c1) calc(var(--L) * 100%), var(--hi));
+}
+
+.home .sum .call {
+  all: unset;
+  position: relative;
+  color: var(--ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.home .sum .call::before {
+  content: "";
+  position: absolute;
+  inset: -6px 0;
+}
+
+.home .sum .call .comma {
+  color: var(--text-2);
+  font-weight: 400;
+}
+
+.home .sum .call:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* a part is one box on the line: it moves to the next line whole, so the phrase wraps between parts. a part longer
+   than the whole line (a long repo name beside the pills on a phone) wraps inside its own box, at its spaces first and
+   anywhere in a word only when a word alone is wider than the line, so it never runs out of the bar's line and under
+   a pill, and nothing is cut */
+.home .sum .part {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.home .sum .off {
+  color: var(--text-3);
+}
+
+.home .sum .update {
+  display: block;
+  color: var(--text-3);
+}
+
+.home .pill {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--pill);
+  /* light, a hairline of ink holds the pill's shape on the pale ground, where its fill alone is a smudge */
+  box-shadow: var(--pill-edge);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.home .pill.solid {
+  background: var(--text);
+  color: var(--ground);
+  box-shadow: none;
+}
+
+/* the pills sit together: the deck's bar fits a mark and three pills only when the new thread pill is a plus */
+.home .pills {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* machines is a mark: the pill's own material and height, a square, its name kept for a screen reader and the drive */
+.home .pill.icon {
+  width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+.home .pill.icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home .pill.new svg {
+  width: 16px;
+  height: 16px;
+  margin-right: -2px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+.home .pill.new .new-word {
+  margin-left: 8px;
+}
+
+@media (pointer: coarse) {
+  .home .pill.icon {
+    width: 44px;
+  }
+}
+
+/* the fold toggle is a 34 px round on every device. the bar's other marks grow to 44 on a touch screen, and the rail's
+   first row has no room for one more of them beside the wordmark; a finger's 44 is reached by what surrounds it */
+.home .pill.fold-toggle {
+  position: relative;
+}
+
+/* the glyph says the state: the pane is filled while the rail is open */
+.home .pill.fold-toggle .pane {
+  fill: currentColor;
+  stroke: none;
+}
+
+@media (pointer: coarse) {
+  .home .pill.fold-toggle {
+    width: 34px;
+    min-height: 34px;
+  }
+
+  .home .pill.fold-toggle::before {
+    content: "";
+    position: absolute;
+    inset: -5px;
+  }
+}
+
+.home .pill:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
+@media (pointer: coarse) {
+  .home .pill {
+    min-height: 44px;
+  }
+}
+
+/* —— the windows —— */
+
+.home .wins {
+  position: relative;
+  z-index: 4;
+  scrollbar-width: none;
+}
+
+.home .wins::-webkit-scrollbar {
+  display: none;
+}
+
+/* a window's shadow falls 55 px below it, and the scroller clips what leaves its box: with the windows flush with its foot the
+   shadow was cut flat under every card, a seam. the room is the scroller's own padding at its foot, taken back by a negative margin
+   so the windows keep their size and the pager and the dock keep their places (they paint over the room, which is only shadow) */
+.home[data-arrangement="deck"] .wins {
+  --cast-room: 64px;
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+  padding: 6px calc((100vw - var(--window-width)) / 2) var(--cast-room);
+  margin-bottom: calc(-1 * var(--cast-room));
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+}
+
+/* the row is as tall as a window rests: an asking window keeps that size (design.md, one layout law), so the stage
+   below it never moves for an ask */
+.home[data-arrangement="strip"] .wins {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  gap: 12px;
+  height: 232px;
+  padding: 2px 26px 18px;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+}
+
+.home[data-arrangement="rail"] .wins {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 2px 14px 28px 18px;
+  overflow: hidden auto;
+  overscroll-behavior-y: contain;
+}
+
+/* the empty deck's ghost is not a window, it is where one will be: no material, a hairline on the page */
+.home .win.ghost {
+  /* the highlight, quieter: a white corner on the bare ground is a smudge, and there is no card for it to light */
+  --win-glow: color-mix(in srgb, rgb(255 255 255 / 0.35) calc(var(--L) * 100%), rgb(255 255 255 / 0.13));
+  padding: 22px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  color: var(--text);
+}
+
+.home .win.ghost h2 {
+  font-size: 20px;
+}
+
+.home .win.ghost .win-note {
+  color: var(--text-2);
+}
+
+/* —— the pager: one dot per window in its light tone —— */
+
+.home .pager {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  height: calc(var(--inset-bottom) + 44px);
+  padding-bottom: var(--inset-bottom);
+}
+
+.home .pager i {
+  flex: 0 1 6px;
+  min-width: 2px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ink);
+  opacity: 0.42;
+  transition:
+    transform var(--snap-ms) var(--snap),
+    opacity var(--fade-ms) var(--fade);
+}
+
+.home .pager i[data-on] {
+  opacity: 1;
+  transform: scaleX(2.4);
+}
+
+/* —— the stage —— */
+
+.home .stage {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.home[data-arrangement="deck"] .stage {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.home[data-arrangement="deck"] .stage[data-open] {
+  pointer-events: auto;
+}
+
+/* the card at the strip and the rail is clipped to its rounded corners and, by the folds, to its moving edge, and a clip
+   takes its own shadow with it: the shadow is a box of the same place and size drawn under it (`.lift`), the lit edge and
+   the 1 px rim a box on it (`.rim`, inside the card, above the thread). a fold moves the card's edge, and the shadow follows it
+   by scale and the rim by a cap and a clip (edge.ts) */
+.home[data-arrangement="strip"] .stage,
+.home[data-arrangement="strip"] .lift {
+  grid-column: 1;
+  grid-row: 3;
+  margin: 0 14px 14px;
+  border-radius: var(--card-radius);
+}
+
+.home[data-arrangement="rail"] .stage,
+.home[data-arrangement="rail"] .lift {
+  grid-column: 1 / -1;
+  grid-row: 1 / span 2;
+  margin: 14px var(--stage-right) 14px var(--stage-left);
+  border-radius: var(--card-radius);
+}
+
+/* above the open rail's bar and windows, which the card covers while it grows over them and uncovers as it recedes */
+.home[data-arrangement="rail"] .stage {
+  z-index: 7;
+}
+
+/* the card's shadow and rim are its own colour in light (the thread on top of the stage sets --c1 and --c2 on them), as a
+   window's are: the deep colour at a whisper for the rim, a soft cast of it for the shadow, never the page's grey. none on
+   the stage (no thread) leaves them the page's, and dark is the page's black and white as it always was */
+.home .lift,
+.home .rim,
+.home .rim-cap {
+  --card-lift: 0 30px 60px -16px color-mix(in srgb, color-mix(in srgb, var(--c2, #101114) 30%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.8));
+  --card-edge: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.9) calc(var(--L) * 100%), rgb(255 255 255 / 0.12)),
+    inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--c1, #101114) 16%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.04));
+}
+
+.home .lift {
+  z-index: 3;
+  pointer-events: none;
+  box-shadow: var(--card-lift);
+}
+
+/* with no thread on the stage (first run: nothing is running) the card has nothing to draw, and its shadow and rim would be an
+   empty outline on the ground */
+.home:not(:has(.stage .layer)) :is(.lift, .rim, .rim-cap) {
+  visibility: hidden;
+}
+
+.home .rim {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: var(--card-edge);
+}
+
+/* the end of the rim that travels while the card's edge moves (edge.ts): the ring's corner arcs and the line between them,
+   a box two radii wide cut to its outer half, which a scale of the whole ring would turn into ellipses. it is on screen only
+   while the edge is moving, and only at that edge: the rail's is the card's left, the inspector's its right */
+.home .rim-cap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 50;
+  display: none;
+  width: calc(var(--card-radius) * 2);
+  border-radius: var(--card-radius);
+  pointer-events: none;
+  box-shadow: var(--card-edge);
+}
+
+.home[data-moving="rail"] .rim-cap {
+  display: block;
+  left: 0;
+  clip-path: inset(0 var(--card-radius) 0 0);
+}
+
+.home[data-moving="inspector"] .rim-cap {
+  display: block;
+  right: 0;
+  clip-path: inset(0 0 0 var(--card-radius));
+}
+
+.home .layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  --measure: 100%;
+}
+
+.home[data-arrangement="strip"] .layer {
+  --measure: 640px;
+}
+
+.home[data-arrangement="rail"] .layer {
+  --measure: 680px;
+}
+
+/* the window's own gradient over the stage, clear at rest: the deck's card is the colour of the window it grows out of, and of the one
+   it shrinks into, whatever the flood is (parts.ts) */
+.home .veil {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  /* a surface of the plane (stage.tsx gives it `plane-window`), so it is the window's own material, never a copy of it */
+  background: linear-gradient(170deg, var(--win-1), var(--win-2));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.home .edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  width: 22px;
+  touch-action: none;
+}
+
+/* the stage's way back on the deck: a quiet disc on the flood and a chevron in the stage's own ink, which is dark on the
+   light flood */
+.home .back {
+  all: unset;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.home .back::before {
+  content: "";
+  width: 36px;
+  height: 36px;
+  grid-area: 1 / 1;
+  border-radius: 50%;
+  background: var(--knob);
+}
+
+.home .back::after {
+  content: "";
+  grid-area: 1 / 1;
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  transform: translateX(1.5px) rotate(45deg);
+}
+
+.home .back:focus-visible::before {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* —— the inspector: the thread's details beside the stage at the rail, 1400 wide and up —— */
+
+/* flat on the ground and under the card, whose right edge slides over it. its content is the stage's, portalled in
+   (app/src/ui/thread/inspector.ts); it is drawn only where it is on show, or while the card's edge is moving over it */
+.home .inspector {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  width: 330px;
+  padding: 26px 22px;
+  overflow: hidden auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
+  color: var(--text);
+  visibility: hidden;
+}
+
+.home .inspector::-webkit-scrollbar {
+  display: none;
+}
+
+.home[data-inspector="shown"] .inspector,
+.home[data-moving="inspector"] .inspector {
+  visibility: visible;
+}
+
+/* the open rail's bar and windows are laid out under the card while it is folded, and are not drawn then */
+.home[data-arrangement="rail"][data-rail="folded"]:not([data-moving="rail"]) .bar,
+.home[data-arrangement="rail"][data-rail="folded"]:not([data-moving="rail"]) .wins {
+  visibility: hidden;
+}
+
+/* —— the edge cue, the capsule, the reload screen —— */
+
+.home .cue {
+  position: fixed;
+  top: 20%;
+  bottom: 20%;
+  right: 0;
+  z-index: 5;
+  width: 26px;
+  pointer-events: none;
+  background: radial-gradient(60% 50% at 100% 50%, var(--ink), transparent);
+  opacity: 0.9;
+}
+
+.home .capsule {
+  all: unset;
+  position: fixed;
+  top: calc(var(--inset-top) + 8px);
+  right: 12px;
+  left: 12px;
+  z-index: 55;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  box-sizing: border-box;
+  height: 50px;
+  padding: 0 8px;
+  border-radius: 25px;
+  /* a window's material on a slant (the plane's tokens, styles.css): the deep pair on dark, the lit card of its hue on light.
+     the cast is its own, not the window's: the capsule floats over the stage, so its shadow is shorter and stronger (20 px
+     down, 38% of the deep colour on light) to lift it off the stage's flood, which a window's long soft one would not */
+  background: linear-gradient(100deg, var(--win-1), var(--win-2));
+  box-shadow:
+    var(--win-lit),
+    var(--win-rim),
+    0 20px 40px -12px color-mix(in srgb, color-mix(in srgb, var(--p2) 38%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.8));
+  color: var(--text);
+  font-size: 14.5px;
+  cursor: pointer;
+}
+
+.home .capsule > span:not(.rm) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.home .capsule span b {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.home .capsule em {
+  display: grid;
+  place-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-style: normal;
+  font-weight: 650;
+}
+
+.home .reload {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 18px;
+  background: var(--ground);
+  font-size: 20px;
+  font-weight: 620;
+}
+
+.home .reload p {
+  margin: 0;
+  /* the older-tab notice is a sentence and a half: it keeps off the screen's edges and breaks evenly */
+  padding-inline: 24px;
+  max-width: 30rem;
+  text-align: center;
+  text-wrap: balance;
+}
+
+/* the composer's dock under the deck (docs/composer.md, the component); its slot under a thread is the stage's */
+.home .home-dock {
+  position: relative;
+  z-index: 6;
+}

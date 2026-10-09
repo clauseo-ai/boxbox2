@@ -1,0 +1,190 @@
+/* the thread's panel (docs/thread.md, navigation; design.md, the thread menu and
+   details): what the thread holds beside its transcript, its details and its
+   turns. one component (./details.tsx) in three places: flat on the ground in
+   home's inspector at the rail 1400 wide and up (./inspector.ts), a card docked
+   in the stage from strip width, a sheet from the bottom on the phone. every
+   class here is the panel's own. the colours are the page's tokens and the
+   stage's (styles.css), so both appearances read from the same lines. */
+
+/* ---------- the bar's toggle and the facts line under the title ---------- */
+
+.details-toggle { position: relative; }
+.details-toggle svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* the state is in the glyph: the right pane is filled while the details show, an outline when they do not */
+.details-toggle .pane { fill: none; stroke: none; }
+.details-toggle[aria-expanded="true"] .pane { fill: currentColor; }
+@media (hover: hover) { .thread-stage .details-toggle:hover { box-shadow: var(--knob-edge), inset 0 0 0 1px color-mix(in srgb, var(--text) 24%, transparent); } }
+@media (pointer: coarse) { .details-toggle::after { content: ""; position: absolute; inset: -4px; } }
+
+/* one button: the model it runs on, how full its context is, what it has cost. quiet until a pointer is over it; the
+   hit area is the line's own box grown to the target size by a pseudo-element, so the title block keeps its rhythm */
+.tb-facts { position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 0; padding: 0; margin-top: 2px; border-radius: 6px; background: none; color: var(--text-2); font-size: 13px; line-height: 20px; text-align: left; font-variant-numeric: tabular-nums; }
+.tb-facts span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-facts svg { flex: none; width: 6px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; opacity: 0.7; }
+.tb-facts::after { content: ""; position: absolute; inset: -4px -8px; }
+.tb-facts:focus-visible { outline-color: var(--accent); outline-offset: 4px; }
+@media (pointer: coarse) { .tb-facts::after { inset: -4px -8px -20px; } }
+@media (hover: hover) { .tb-facts:hover { color: var(--text); } }
+
+/* ---------- the panel: a head, then the body ---------- */
+
+.details {
+  position: relative; min-width: 0; color: var(--text); font-size: 14px; line-height: 1.35;
+  /* what a figure and a list are drawn on: dark, the quiet ink fill they always had; light, the stage's paper (styles.css,
+     --paper-*): a lit card of the repo's hue, so the panel is made of the same material as the stage beside it */
+  --tile-1: color-mix(in srgb, var(--paper-1) calc(var(--L) * 100%), color-mix(in srgb, var(--text) 4%, transparent));
+  --tile-2: color-mix(in srgb, var(--paper-2) calc(var(--L) * 100%), color-mix(in srgb, var(--text) 4%, transparent));
+  --tile-lit: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), transparent), inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--window-top) 15%, transparent) calc(var(--L) * 100%), transparent), 0 8px 16px -12px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), transparent);
+}
+.details .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dt-hd { display: flex; align-items: center; gap: 12px; }
+.dt-hd h2 { flex: 1; min-width: 0; margin: 0; }
+/* the heading takes focus when the panel opens, so a keyboard person lands in it; it is not a control and wears no ring */
+.dt-hd h2:focus { outline: none; }
+.dt-hd h2 small { display: block; font-weight: 450; color: var(--text-2); letter-spacing: 0; font-stretch: 100%; }
+.details .cx { position: relative; width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: var(--pill); color: var(--text-2); font-size: 18px; line-height: 1; flex: none; }
+.details .cx:focus-visible { outline-color: var(--accent); }
+@media (hover: hover) { .details .cx:hover { color: var(--text); } }
+@media (pointer: coarse) { .details .cx::after { content: ""; position: absolute; inset: -6px; } }
+
+/* docked beside the log from strip width, a well pressed into the stage's flood (light: a lit card of the stage's colour, as an open row is); on the phone a sheet of glass that
+   rises from the bottom over a scrim */
+.turns { flex: none; width: 0; overflow: hidden; display: flex; flex-direction: column; }
+.thread-stage.wide .turns.on { width: 324px; }
+.details.docked { width: 312px; margin: 12px 12px 12px 0; flex: 1; min-height: 0; display: flex; flex-direction: column; border-radius: 22px; background: color-mix(in srgb, rgb(255 255 255 / 0.5) calc(var(--L) * 100%), rgb(0 0 0 / 0.26)); box-shadow: inset 0 0 0 1px var(--hairline), inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.9) calc(var(--L) * 100%), transparent), 0 10px 20px -14px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), transparent); }
+.details.sheet { display: flex; flex-direction: column; flex: 1; min-height: 0; width: auto; border-radius: 30px; background: var(--glass-deep); -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5); box-shadow: var(--glass-edge), var(--lift); }
+.details:is(.docked, .sheet) .dt-hd { padding: 16px 12px 8px 20px; }
+.details:is(.docked, .sheet) .dt-hd h2 { font-size: 16px; font-weight: 650; font-stretch: 108%; letter-spacing: -0.015em; }
+.details:is(.docked, .sheet) .dt-hd h2 small { font-size: 12px; margin-top: 1px; }
+.details:is(.docked, .sheet) .dt-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 20px 28px; scrollbar-width: none; -webkit-mask-image: linear-gradient(transparent, #000 14px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(transparent, #000 14px, #000 calc(100% - 28px), transparent); }
+.details:is(.docked, .sheet) .dt-body::-webkit-scrollbar { display: none; }
+.thread-stage:not(.wide) .turns { position: absolute; z-index: 8; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); width: auto; height: 74%; overflow: visible; transform: translateY(calc(100% + 30px)); transition: transform var(--sheetd, 560ms) var(--sheet, ease); visibility: hidden; }
+.thread-stage:not(.wide) .turns.on { transform: none; visibility: visible; }
+/* the sheet's title is the thread's, as large as the prototype's details sheet sets it, with where it runs under it */
+.details.sheet .dt-hd { position: relative; margin-top: 16px; align-items: flex-start; }
+.details.sheet .dt-hd::before { content: ""; position: absolute; left: 50%; top: -9px; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--text-3); }
+.details.sheet[data-panel="details"] .dt-hd h2 { font-size: 20px; font-weight: 660; font-stretch: 112%; letter-spacing: -0.03em; line-height: 1.15; }
+.details.sheet[data-panel="details"] .dt-hd h2 small { margin-top: 4px; font-size: 13.5px; letter-spacing: 0; }
+
+/* flat: on the ground beside the stage, quieter than it. the title is a section heading where it is drawn */
+.details.flat .dt-hd:has(h2.sr) { display: contents; }
+.details.flat .dt-hd h2 { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 620; color: var(--text-2); }
+.details.flat .dt-hd h2 small { font-size: 12px; font-weight: 450; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.details.flat .dt-hd { margin-bottom: 10px; }
+.details.flat .dt-hd .cx { width: 28px; height: 28px; font-size: 16px; }
+
+/* ---------- the details ---------- */
+
+.dt-sec + .dt-sec { margin-top: 24px; }
+.dt-sh { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.dt-sh h3 { margin: 0; font-size: 13px; font-weight: 620; color: var(--text-2); }
+.dt-sum { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dt-empty { margin: 0; padding: 2px 0; font-size: 13.5px; color: var(--text-2); }
+.details .add { color: var(--add); }
+.details .del { color: var(--del); }
+
+/* the four figures: faint ink with a hairline, the number first */
+.dt-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.dt-tile { display: flex; flex-direction: column; min-width: 0; padding: 12px; border-radius: 16px; background: linear-gradient(180deg, var(--tile-1), var(--tile-2)); box-shadow: var(--tile-lit), inset 0 0 0 1px color-mix(in srgb, transparent calc(var(--L) * 100%), var(--hairline)); }
+.dt-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.dt-tile > b { font-size: 20px; line-height: 1.2; font-weight: 650; font-stretch: 110%; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.dt-tile > span { margin-top: 2px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+/* the context window: a slim track, the fill scaled from its left end (width is never animated), and the daemon's
+   compaction point as a tick across it */
+.dt-meter { position: relative; display: block; height: 4px; margin-top: 12px; border-radius: 2px; background: color-mix(in srgb, var(--text) 10%, transparent); }
+.dt-meter .fill { position: absolute; inset: 0; border-radius: inherit; background: var(--accent); transform-origin: 0 50%; }
+.dt-meter .tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--text-2); }
+.dt-tile > .dt-aside { margin-top: 2px; }
+/* the spend tile of a thread with agents is a button: the tile's own look, the door's hover and ring */
+.dt-tile.dt-door { min-height: 0; text-align: left; font: inherit; color: inherit; }
+.dt-tile.dt-door:focus-visible { outline-color: var(--accent); outline-offset: 2px; }
+@media (hover: hover) { .dt-tile.dt-door:hover { background: var(--hover); } }
+.dt-meter + .dt-aside { margin-top: 8px; }
+
+.dt-branch { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 2px 12px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }
+.dt-branch .dt-mono { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.dt-note { grid-column: 1 / -1; font-size: 12.5px; color: var(--text-2); }
+
+/* rows: 14 px, a hairline between them; figures and paths in mono */
+/* light, a list (the models, agents and files; the turns) is a card of paper, as the figures are: its rows keep their
+   hairlines and gain 10 px of room each side. dark, no card and no padding, so the rows sit where they always did */
+.dt-list, .turns-list { border-radius: 16px; background: linear-gradient(180deg, color-mix(in srgb, var(--paper-1) calc(var(--L) * 100%), transparent), color-mix(in srgb, var(--paper-2) calc(var(--L) * 100%), transparent)); box-shadow: var(--tile-lit); }
+.dt-list { margin: 0; padding: 0 calc(var(--L) * 10px); list-style: none; }
+.dt-list > li + li { border-top: 1px solid var(--hairline); }
+.dt-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; align-items: baseline; padding: 9px 0; width: 100%; min-height: 0; text-align: left; font-size: 14px; }
+.dt-main { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-main em { margin-left: 6px; font-style: normal; font-size: 12.5px; color: var(--text-2); }
+.dt-figure, .dt-mono, .dt-file .dt-counts { font-family: var(--mono); font-stretch: 90%; font-size: 12px; font-variant-numeric: tabular-nums; }
+.dt-figure { color: var(--text-2); }
+.dt-sub { grid-column: 1 / -1; margin-top: 2px; font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.dt-sub.live { color: var(--accent); }
+.dt-sub .dot, .ti-text .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: 1px; }
+/* an agent's row is the door to its thread: the hover is a pill that reaches past the text, the hairline stays put */
+.dt-row.door { margin: 0 -10px; padding: 9px 10px; width: calc(100% + 20px); border-radius: 12px; background: none; }
+.details.flat .dt-row.door { margin: 0 -8px; padding-inline: 8px; width: calc(100% + 16px); }
+.dt-row.door:focus-visible { outline-color: var(--accent); outline-offset: -2px; }
+@media (hover: hover) { .dt-row.door:hover { background: var(--hover); } }
+.dt-row.gone { color: var(--text-2); }
+/* a changed file: its folder on a line of its own, cut from the start so what is left is nearest the name, then the
+   name whole (it wraps rather than cut, the end of a name is what tells two files apart) and its counts */
+.dt-file { grid-template-columns: minmax(0, 1fr) auto; font-family: var(--mono); font-stretch: 90%; font-size: 12px; }
+.dt-file .dt-dir { grid-column: 1 / -1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; color: var(--text-2); }
+.dt-file .dt-dir bdi { direction: ltr; unicode-bidi: plaintext; }
+.dt-file .dt-base { min-width: 0; overflow-wrap: anywhere; }
+
+/* ---------- the turns ---------- */
+
+.turns-list { margin: 0 calc((1 - var(--L)) * -12px); padding: calc(var(--L) * 4px); }
+/* dark, the rows' pill reaches 12 px past the text, and on the ground it stops short of the stage's edge, which is 12 px
+   from the column; light, the list is a card at the column's edge (above), so it has no negative margin and the rows
+   are inset 4 px within it, so the current turn's pill sits inside the card's corners rather than flush against them */
+.details.flat .turns-list { margin: 0 calc((1 - var(--L)) * -8px); }
+.details.flat .ti { padding-inline: calc(8px + var(--L) * 2px); }
+.details .ti { width: 100%; min-height: 0; display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 8px; padding: 10px 12px; border-radius: 14px; background: none; text-align: left; }
+.details .ti:focus-visible { outline-color: var(--accent); outline-offset: -2px; }
+@media (hover: hover) { .details .ti:hover { background: var(--hover); } }
+.details .ti.here { background: var(--pill); }
+.ti-time { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; padding-top: 2px; }
+.ti-text { font-size: 13.5px; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ti.quiet .ti-text { color: var(--text-2); }
+.ti-sub { grid-column: 2; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-2); margin-top: 5px; font-variant-numeric: tabular-nums; }
+.ti-sub .ti-bar { flex: 1; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--text) 10%, transparent); position: relative; overflow: hidden; }
+.ti-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.ti-bar i.bad { background: var(--red); left: auto; right: 0; width: 3px; }
+.ti.here .ti-bar i { background: var(--accent); }
+.ti-sub > span:last-child { flex: none; }
+/* where the model changed, said on the turn that changed it */
+.ti-model { grid-column: 2; margin-top: 4px; font-size: 11.5px; font-weight: 600; color: var(--accent); }
+.ti-model + .ti-sub { margin-top: 3px; }
+
+/* ---------- the spend, part by part ---------- */
+
+/* a card of glass in the top layer over a dimmed page, the sheet's surface; it scrolls inside its card when long */
+.dt-spend { width: min(420px, calc(100vw - 24px)); max-width: none; max-height: min(640px, calc(100dvh - 48px)); padding: 0; border: none; border-radius: 26px; overflow: hidden; background: var(--glass-deep); -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5); box-shadow: var(--glass-edge), var(--lift); color: var(--text); font-size: 14px; line-height: 1.35; }
+/* the page dims under it: black on dark; on light the thread's own deep colour, lightly, as the stage's scrim is, so the
+   page is dimmed into its colour and not greyed. --L and the palette fall back to dark's black where a browser does not
+   let ::backdrop inherit from its dialog */
+.dt-spend::backdrop { background: color-mix(in srgb, color-mix(in srgb, var(--window-bottom, #101114) 20%, transparent) calc(var(--L, 0) * 100%), rgb(0 0 0 / 0.32)); }
+.dt-spend[open] { display: flex; }
+.sp-card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sp-hd { display: flex; align-items: flex-start; gap: 12px; padding: 18px 14px 6px 22px; }
+.sp-hd h2 { flex: 1; min-width: 0; margin: 0; font-size: 16px; font-weight: 650; font-stretch: 108%; letter-spacing: -0.015em; }
+.sp-hd h2 small { display: block; margin-top: 2px; font-size: 12px; font-weight: 450; color: var(--text-2); letter-spacing: 0; font-stretch: 100%; }
+.sp-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 22px 22px; }
+.sp-total { display: flex; flex-direction: column; margin: 0 0 14px; }
+.sp-total b { font-size: 28px; line-height: 1.15; font-weight: 650; font-stretch: 110%; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+.sp-total span { margin-top: 2px; font-size: 12.5px; color: var(--text-2); }
+.sp-sh { margin-top: 20px; }
+/* an agent's row sits under the agent that started it, 14 px in a level */
+.sp-row { padding-left: calc(var(--depth, 0) * 14px); }
+/* not the details' .door: the dialog sits inside the panel's dom, and the flat panel's door rule would reach it */
+.sp-row.sp-door { margin: 0 -10px; padding: 9px 10px 9px calc(10px + var(--depth, 0) * 14px); width: calc(100% + 20px); border-radius: 12px; background: none; color: inherit; font: inherit; }
+.sp-row.sp-door:focus-visible { outline-color: var(--accent); outline-offset: -2px; }
+@media (hover: hover) { .sp-row.sp-door:hover { background: var(--hover); } }
+.sp-row.gone { color: var(--text-2); }
+.sp-note { margin: 14px 0 0; font-size: 12.5px; color: var(--text-2); }
+
+@media (prefers-reduced-motion: reduce) { .turns { transition: none; } }
+
+/* while the thread is still coming in its sections count what is shown and grow by the block: the body is there, and not drawn, until it is whole */
+.details[data-filling] .dt-body { visibility: hidden; }

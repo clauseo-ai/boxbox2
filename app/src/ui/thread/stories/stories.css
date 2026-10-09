@@ -1,0 +1,16 @@
+/* the ground a story stands on: the stage's own flood (stage.css, .stage-bg) read for the appearance, its gutters and
+   measure, and its scroller with the same foot, so a running turn's tape sticks to the foot of the sample as it does to the
+   stage's. the sample says its width the way the stage's scroller does (measure.ts), so the ledger's clock hangs in the
+   margin here exactly where it does on the stage */
+.stage-sample { position: relative; height: 100vh; overflow-y: auto; scrollbar-width: none; --foot: 40px; padding: 24px 20px var(--foot); background: linear-gradient(180deg, var(--flood-1) 0%, var(--flood-2) 40%, var(--flood-3) 100%); color: var(--text); --gutter: 20px; }
+.stage-sample.wide { padding: 24px 32px var(--foot); --gutter: 32px; }
+.stage-sample > .mount > .thread { max-width: 680px; margin: 0 auto; }
+.stage-sample:where([data-clock]) > .mount > .thread.wide { max-width: min(680px, calc(var(--scroll-w) - 2 * (var(--clock-reach) + var(--clock-w) - var(--gutter)))); }
+.stage-sample .story-note { max-width: 680px; margin: 0 auto 16px; font-size: 12.5px; color: var(--text-3); }
+.stage-sample .problem { font-size: 14px; color: var(--red); }
+.coverage { max-width: 680px; margin: 0 auto; font-size: 13.5px; line-height: 1.5; }
+.coverage table { border-collapse: collapse; width: 100%; }
+.coverage th, .coverage td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--hairline); }
+.coverage th { color: var(--text-2); font-weight: 600; }
+.coverage td.none { color: var(--text-3); }
+.ladle-ground { min-height: 100vh; background: var(--ground); }

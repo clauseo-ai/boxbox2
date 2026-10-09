@@ -1,0 +1,535 @@
+/* the machines screen (design.md, the machines). a machine is a window of
+   the plane, so everything on it reads the plane's tokens (ink, accent, the
+   material: styles.css, the window plane): dark is the deep violet pair,
+   light is a lit card of the violet with deep accents. the screen's head is
+   the shared one (styles.css, .machines-head); the rest is here. */
+
+/* the windows sit in a grid of one size: a column on the phone and beside the terminal, two on the ipad, three on the
+   mac, so a machine looks the same wherever it is and a person with three sees all three at once. the grid follows the
+   screen's own width (a container), not the device's, since beside the terminal the screen is a 356 px rail. each
+   window is as tall as what it holds: a confirmation or a note opening in one grows that one alone, and the ghost
+   after them never weighs what a machine does */
+.hosts {
+  width: min(1080px, 100%);
+  container: hosts / inline-size;
+  gap: 22px;
+}
+
+/* settings, a pill on the ground as home's bar has them; the head's row hangs past the column by the back control's own
+   padding (styles.css, --head-overhang), so the pill steps back in by as much and ends where the windows end */
+.head-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  margin-right: var(--head-overhang);
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--pill);
+  box-shadow: var(--pill-edge);
+  font-size: var(--meta);
+  font-weight: 600;
+}
+
+@media (pointer: coarse) {
+  .head-pill {
+    min-height: 44px;
+  }
+}
+
+/* a pointer's tint laid over the pill's own fill, so its edge stays as it was */
+@media (hover: hover) {
+  .head-pill:hover {
+    box-shadow: var(--pill-edge), inset 0 0 0 100px var(--hover);
+  }
+}
+
+.hosts-empty {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.host-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+/* —— a machine —— */
+
+.host {
+  --host-line: color-mix(in srgb, color-mix(in srgb, var(--p1) 12%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.08));
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 20px 20px 6px;
+  border-radius: 24px;
+  background: linear-gradient(170deg, var(--win-1), var(--win-2));
+  box-shadow:
+    var(--win-edge),
+    0 24px 48px -24px color-mix(in srgb, color-mix(in srgb, var(--p2) 32%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.6)),
+    0 1px 3px color-mix(in srgb, color-mix(in srgb, var(--p2) 12%, transparent) calc(var(--L) * 100%), transparent);
+  color: var(--text);
+}
+
+/* a window is its own stacking context (isolation, for the highlight under its content), so the shell menu it opens
+   rises with it above the window below */
+.host:has(.shell-menu) {
+  z-index: 2;
+}
+
+/* the highlight falling from the top left, as a window's (ui/window/window.css); the card is positioned for it, and
+   every cell of the grid is, so no card's cast paints over its neighbour */
+.host::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(90% 55% at 15% 0%, var(--win-glow), transparent 62%);
+  pointer-events: none;
+}
+
+/* what the machine is and says, above its foot */
+.host-main {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 18px;
+}
+
+.host-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+}
+
+.host-name {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 22px;
+  font-weight: 650;
+  font-stretch: 112%;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* the connection, in a window's chip (ui/window/window.css, .chip): a 34 px capsule of the window's quiet fill with a
+   dot of the accent. connecting rings the dot and leaves it empty; not answering is the chip's failure tone. nothing
+   pulses (design.md, motion: never animates) */
+.host-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px 0 11px;
+  border-radius: 999px;
+  background: var(--win-fill);
+  font-family: "Boxbox Sans Chip", var(--sans);
+  font-size: var(--chip);
+  font-weight: 620;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.host-chip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.host[data-connection="connecting"] .host-chip {
+  color: var(--text-2);
+}
+
+.host[data-connection="connecting"] .host-chip i {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.host[data-connection="down"] .host-chip {
+  /* the window chip's red breath: 16% on the deep pair, 10% on the light card (ui/window/plane.test.ts) */
+  background: color-mix(in srgb, color-mix(in srgb, var(--red) 10%, transparent) calc(var(--L) * 100%), color-mix(in srgb, var(--red) 16%, transparent));
+  color: var(--red);
+}
+
+.host[data-connection="down"] .host-chip i {
+  background: var(--red);
+}
+
+.host-meta {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: var(--chip);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.host-mismatch,
+.host-error {
+  color: var(--red);
+}
+
+/* why it is down, in words: the window's prose size, in red because it is a failure */
+.host-error {
+  margin: 12px 0 0;
+  font-size: var(--meta);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  animation: machines-fade var(--fade) both;
+}
+
+.host-since {
+  white-space: nowrap;
+}
+
+.host-error + .host-error {
+  margin-top: 4px;
+}
+
+/* three figures, the number first and large, its word under it, parted by hairlines of the window's ink */
+.host-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 22px 0 0;
+}
+
+.host-figure {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.host-figure + .host-figure {
+  padding-left: 14px;
+  border-left: 1px solid var(--host-line);
+}
+
+.host-figure:not(:last-child) {
+  padding-right: 10px;
+}
+
+/* 20 px, as the details' figures (ui/thread/details.css): under the window's name, never over it */
+.host-figure dd {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  font-stretch: 110%;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.host-figure dd small {
+  font-size: var(--meta);
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text-2);
+}
+
+.host-figure dt {
+  margin-top: 3px;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* an ask waiting on you is the one figure in the accent */
+.host-figure[data-lit] dd {
+  color: var(--accent);
+}
+
+/* the last the machine said, while it says nothing: the numbers in the second ink, the accent too, so they read as
+   past and still hold their contrast */
+.host-figures[data-stale] dd {
+  color: var(--text-2);
+}
+
+/* the foot: the verbs, quiet words that take a fill under a pointer */
+.host-foot {
+  padding-top: 2px;
+  border-top: 1px solid var(--host-line);
+}
+
+.host-verbs {
+  display: flex;
+  margin-left: -12px;
+}
+
+.host-verb {
+  padding: 0 12px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--meta);
+  font-weight: 600;
+}
+
+@media (pointer: fine) {
+  .host-verb {
+    min-height: 38px;
+    margin: 3px 0;
+  }
+}
+
+@media (hover: hover) {
+  .host-verb:not(:disabled):hover {
+    background: var(--win-fill-hover);
+    color: var(--text);
+  }
+}
+
+/* restart and forget, confirmed in place: the foot becomes the consequence in words, pressed into the window as an
+   ask is, with the verb sitting on it in the accent and the way out beside it in words (design.md, the terminal's
+   kill: never red) */
+.host-confirm {
+  margin-bottom: 14px;
+  padding: 14px 14px 10px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--win-press) calc(var(--L) * 100%), rgb(0 0 0 / 0.24));
+  box-shadow: var(--win-press-edge);
+  animation: machines-fade var(--fade) both;
+}
+
+.host-confirm p {
+  margin: 0;
+  font-size: var(--meta);
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.host-confirm code,
+.host-add-note code,
+.pair-how code {
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 0.92em;
+}
+
+.host-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.host-choices button {
+  font-size: var(--meta);
+}
+
+@media (pointer: fine) {
+  .host-choices button {
+    min-height: 38px;
+  }
+}
+
+.host-choices .on-window {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 650;
+  box-shadow: var(--win-raise);
+}
+
+.host-choices .quiet {
+  color: var(--text);
+  font-weight: 550;
+}
+
+@media (hover: hover) {
+  .host-choices .quiet:not(:disabled):hover {
+    background: var(--win-fill-hover);
+  }
+}
+
+.host-note {
+  margin: 2px 0 14px;
+  font-size: var(--meta);
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 80%, transparent);
+  animation: machines-fade var(--fade) both;
+}
+
+.host-note.failed {
+  color: var(--red);
+}
+
+/* —— the place the next machine goes —— */
+
+/* at rest a ghost window, as home's empty deck has: no material, a hairline on the ground, a plus in a round pill and
+   two lines. the button is its one control, and its hit area covers the whole ghost */
+.host-add {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 168px;
+  padding: 24px;
+  border-radius: 24px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--window-top) 22%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.1));
+  text-align: center;
+}
+
+.host-add-plus {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background: var(--pill);
+  box-shadow: var(--pill-edge);
+  color: var(--text);
+}
+
+.host-add-plus::before,
+.host-add-plus::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 2px;
+  margin: -1px 0 0 -8px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.host-add-plus::after {
+  transform: rotate(90deg);
+}
+
+.host-add-open {
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 17px;
+  font-weight: 650;
+  font-stretch: 110%;
+  letter-spacing: -0.01em;
+}
+
+.host-add-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+/* the ring goes round the ghost, the whole of what is pressed */
+.host-add-open:focus-visible {
+  outline: none;
+}
+
+.host-add:has(.host-add-open:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.host-add-note {
+  max-width: 32ch;
+  margin: 0;
+  text-wrap: balance;
+  font-size: var(--meta);
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.host-add-note[data-done] {
+  color: var(--accent);
+  animation: machines-fade var(--fade) both;
+}
+
+@media (hover: hover) {
+  .host-add:not([data-open]):hover {
+    background: var(--hover);
+  }
+}
+
+/* open, it is a sheet in the ghost's own place, a deeper card of the window plane as the new-thread sheet is (design.md,
+   depth): a violet card among violet windows, not a grey slab on the bare page */
+.host-add[data-open] {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  box-shadow: none;
+  text-align: left;
+}
+
+.pair-sheet {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 24px;
+  background: linear-gradient(170deg, var(--win-deep-1), var(--win-deep-2));
+  box-shadow: var(--win-edge), var(--win-cast);
+  color: var(--text);
+  animation: machines-fade var(--fade) both;
+}
+
+.pair-intro h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  font-stretch: 110%;
+  letter-spacing: -0.02em;
+}
+
+.pair-how {
+  margin: 4px 0 0;
+  font-size: var(--meta);
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.pair-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.pair-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* the page's foot: this device's session */
+.hosts-foot {
+  margin-top: 8px;
+}
+
+.hosts-foot .quiet {
+  margin-left: -18px;
+}
+
+@keyframes machines-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) :is(.host-note, .host-error, .host-confirm, .host-add-note, .pair-sheet) {
+    animation-duration: 120ms;
+  }
+}
+
+:root[data-motion="reduced"] :is(.host-note, .host-error, .host-confirm, .host-add-note, .pair-sheet) {
+  animation-duration: 120ms;
+}

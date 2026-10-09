@@ -1,0 +1,595 @@
+/* a window (docs/design.md, anatomy of a window; depth: the windows
+   plane). the arrangement (deck, strip, rail) is set on the home root and
+   sizes everything; the window is made of its repo's colour in both
+   appearances, from the plane's tokens (styles.css: --win-*, --accent).
+   motion lives in the components, never in transitions on layout
+   properties. */
+
+.win {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--text);
+  text-align: left;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  background: linear-gradient(170deg, var(--win-1), var(--win-2));
+  box-shadow: var(--win-edge), var(--win-cast);
+}
+
+/* the highlight falling from the top left */
+.win::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(90% 50% at 20% 0%, var(--win-glow), transparent 60%);
+  pointer-events: none;
+}
+
+.win .sheen {
+  position: absolute;
+  inset: -20% -60%;
+  z-index: 3;
+  background: linear-gradient(105deg, transparent 40%, color-mix(in srgb, rgb(255 255 255 / 0.85) calc(var(--L) * 100%), rgb(255 255 255 / 0.2)) 50%, transparent 60%);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+
+/* as tall as the chip (34 px, below) whether or not a chip shows, so a chip arriving as a thread starts working never
+   moves the title under it, nor in the rail the windows below (perf.shift) */
+.win .wh {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+
+/* the mark leads the name (design.md, the repo mark); the name keeps the ellipsis, the mark never shrinks */
+.win .who {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.win .name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 620;
+  font-stretch: 110%;
+  color: var(--accent);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.win .name em {
+  font-style: normal;
+  font-weight: 450;
+  opacity: 0.62;
+}
+
+.win .chip {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  /* 34 px, the compromise for a control inside a row; a one-line pill takes line-height 1, so its text box
+     is the glyph size and sits centred in the chip rather than in prose spacing */
+  height: 34px;
+  line-height: 1;
+  font-family: "Boxbox Sans Chip", "Boxbox Sans", system-ui, sans-serif;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--win-fill);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.win .chip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.win .chip[data-tone="lit"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.win .chip[data-tone="fail"] {
+  /* a red breath under red words: 16% on the deep pair, 10% on the light card, where more would sink the deep red
+     under 4.5:1 on violet, rose and plum (plane.test.ts) */
+  background: color-mix(in srgb, color-mix(in srgb, var(--red) 10%, transparent) calc(var(--L) * 100%), color-mix(in srgb, var(--red) 16%, transparent));
+  color: var(--red);
+}
+
+.win .chip .tick {
+  width: 13px;
+  height: 13px;
+  margin-left: -2px;
+}
+
+/* the title is the window's one control; its hit area stretches over the whole window */
+.win h2 {
+  margin: 0;
+  font-weight: 650;
+  font-stretch: 108%;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+}
+
+.win-open {
+  all: unset;
+  display: block;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+}
+
+.win-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.win-open:focus-visible::after {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.win .win-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+.win .win-note[data-tone="fail"] {
+  color: var(--red);
+}
+
+/* the live tail stands on its bottom edge; older lines fade out under the top mask */
+.win .tail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 36%);
+  mask-image: linear-gradient(to bottom, transparent, #000 36%);
+}
+
+.win .tail > * {
+  flex: none;
+}
+
+.win .tool {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--mono);
+  font-stretch: 90%;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.win .tool > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.win .tool b {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.win .tool[data-status="failed"] .res {
+  color: var(--red);
+}
+
+.win .res {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.win .say {
+  line-height: 1.48;
+  /* the prose a touch quieter than the stage's, so the title stays the loudest words in a small window */
+  color: color-mix(in srgb, var(--prose) calc(var(--L) * 100%), rgb(255 255 255 / 0.9));
+}
+
+.win .say .arriving {
+  display: inline;
+}
+
+/* your prompt sits on the right, in the prototype's bubble */
+.win .me {
+  align-self: flex-end;
+  max-width: 88%;
+  line-height: 1.38;
+  color: var(--win-me-ink);
+  background: var(--win-me);
+  border-radius: 14px 14px 4px 14px;
+  overflow-wrap: anywhere;
+}
+
+/* the ask's preview: what is waiting, in the window's own words, and the one pill that opens the thread to it
+   (design.md, the inbox in the windows). the preview has no stacking of its own, so a tap on its words reaches the
+   window's stretched open button; only the pill sits above it. the question clamps to --ask-lines, set per arrangement */
+.win .wask {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.win .wask-label {
+  margin: 0;
+  overflow: hidden;
+  color: var(--accent);
+  font-weight: 620;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.win .wask-text {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: var(--ask-lines);
+  -webkit-box-orient: vertical;
+}
+
+.win .wask-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.win .wask-waiting {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* the "wants you" chip's material, as a control: the repo's light tone with its ink, 34 px tall like the chip, a
+   finger's 44 by the pseudo-element so the row keeps its height */
+.win .wask-go {
+  all: unset;
+  position: relative;
+  z-index: 2;
+  flex: none;
+  box-sizing: border-box;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: "Boxbox Sans Chip", "Boxbox Sans", system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 620;
+  line-height: 34px;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+}
+
+.win .wask-go::before {
+  content: "";
+  position: absolute;
+  inset: -5px -4px;
+}
+
+.win .wask-go:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.win .wf {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* a window's own clear: a quiet word at the foot, above the stretched open button, a finger's size on a touch screen
+   by a pseudo-element so the footer keeps its height */
+.win .wclear {
+  all: unset;
+  position: relative;
+  z-index: 2;
+  padding: 2px 8px;
+  margin: -2px -8px -2px 0;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--text) 78%, transparent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.win .wclear::before {
+  content: "";
+  position: absolute;
+  inset: -12px -6px;
+}
+
+.win .wclear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+@media (hover: hover) {
+  .win .wclear:hover {
+    color: var(--text);
+    background: color-mix(in srgb, var(--win-fill-hover) calc(var(--L) * 100%), rgb(255 255 255 / 0.12));
+  }
+}
+
+.win .add {
+  color: var(--add);
+}
+
+.win .del {
+  color: var(--del);
+}
+
+.win .tiles {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.win .tiles i {
+  width: 9px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+.win .sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* idle and seen: the last exchange, dimmed */
+.win[data-state="idle"] .tail,
+.win[data-state="idle"] h2 {
+  opacity: 0.62;
+}
+
+/* —— the deck: one full-height window per screen —— */
+
+[data-arrangement="deck"] .win {
+  width: var(--window-width);
+  height: 100%;
+  padding: 20px 20px 18px;
+  border-radius: 34px;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
+}
+
+[data-arrangement="deck"] .win h2 {
+  margin-top: 12px;
+  font-size: 22px;
+}
+
+[data-arrangement="deck"] .win .tail {
+  flex: 1;
+  min-height: 0;
+  margin-top: 14px;
+  gap: 10px;
+}
+
+[data-arrangement="deck"] .win .tool {
+  font-size: 11.5px;
+}
+
+[data-arrangement="deck"] .win .say {
+  font-size: 15.5px;
+}
+
+/* boxbox sans' glyph box is taller than the bubble's 1.38 line and rides high in it, so the prototype's 8 px top
+   would leave the letters 7 px from the edge: one more pixel above holds them 8 px clear on both sides */
+[data-arrangement="deck"] .win .me {
+  padding: 9px 11px 8px;
+  font-size: 13.5px;
+}
+
+[data-arrangement="deck"] .win .wask {
+  --ask-lines: 6;
+  flex: none;
+  padding-top: 14px;
+}
+
+[data-arrangement="deck"] .win .wask-label {
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+[data-arrangement="deck"] .win .wask-text {
+  font-size: 17px;
+  line-height: 1.28;
+}
+
+[data-arrangement="deck"] .win .wask-foot {
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+[data-arrangement="deck"] .win .wf {
+  margin-top: 16px;
+  font-size: 11.5px;
+}
+
+/* —— the strip and the rail: small windows, tails live —— */
+
+[data-arrangement="strip"] .win,
+[data-arrangement="rail"] .win {
+  padding: 14px 15px 12px;
+}
+
+[data-arrangement="strip"] .win {
+  width: 264px;
+  height: 212px;
+  border-radius: 24px;
+}
+
+[data-arrangement="rail"] .win {
+  width: 100%;
+  border-radius: 22px;
+}
+
+[data-arrangement="strip"] .win[data-current],
+[data-arrangement="rail"] .win[data-current] {
+  box-shadow:
+    var(--win-lit),
+    0 0 0 2px var(--accent),
+    var(--win-cast);
+}
+
+@media (hover: hover) {
+  [data-arrangement="strip"] .win:not([data-current]):hover,
+  [data-arrangement="rail"] .win:not([data-current]):hover {
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.2)),
+      inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--p1) 24%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.12)),
+      var(--win-cast);
+  }
+}
+
+/* the title never gives way: the tail is what shrinks to make room, and an h2 that clips its overflow would
+   otherwise take every pixel the window is short and leave its button 0 px tall */
+[data-arrangement="strip"] .win h2,
+[data-arrangement="rail"] .win h2 {
+  flex: none;
+  display: -webkit-box;
+  margin-top: 7px;
+  overflow: hidden;
+  font-size: 15.5px;
+  line-height: 1.2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+[data-arrangement="strip"] .win .tail {
+  flex: 1;
+  min-height: 0;
+  margin-top: 8px;
+  gap: 5px;
+}
+
+[data-arrangement="rail"] .win .tail {
+  height: 74px;
+  margin-top: 8px;
+  gap: 5px;
+}
+
+[data-arrangement="rail"] .win[data-current] .tail {
+  height: 42px;
+}
+
+/* an asking window keeps the size it rests at: its preview takes the place of the tail and the footer, and the title
+   holds one line above it */
+[data-arrangement="strip"] .win[data-asking] h2,
+[data-arrangement="rail"] .win[data-asking] h2 {
+  -webkit-line-clamp: 1;
+}
+
+[data-arrangement="strip"] .win[data-asking] .tail,
+[data-arrangement="strip"] .win[data-asking] .wf,
+[data-arrangement="strip"] .win[data-asking] .win-note,
+[data-arrangement="rail"] .win[data-asking] .tail,
+[data-arrangement="rail"] .win[data-asking] .wf,
+[data-arrangement="rail"] .win[data-asking] .win-note {
+  display: none;
+}
+
+[data-arrangement="strip"] .win .tool,
+[data-arrangement="rail"] .win .tool {
+  font-size: 10.5px;
+}
+
+[data-arrangement="strip"] .win .say,
+[data-arrangement="rail"] .win .say {
+  font-size: 12.5px;
+  line-height: 1.42;
+}
+
+[data-arrangement="strip"] .win .me,
+[data-arrangement="rail"] .win .me {
+  max-width: 92%;
+  padding: 4px 8px;
+  overflow: hidden;
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-radius: 10px 10px 3px 10px;
+}
+
+[data-arrangement="strip"] .win .win-note,
+[data-arrangement="rail"] .win .win-note {
+  margin-top: 5px;
+  font-size: 11.5px;
+}
+
+[data-arrangement="strip"] .win .wask,
+[data-arrangement="rail"] .win .wask {
+  --ask-lines: 3;
+  flex: none;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+[data-arrangement="strip"] .win .wask-label,
+[data-arrangement="rail"] .win .wask-label {
+  margin-bottom: 3px;
+  font-size: 11px;
+}
+
+[data-arrangement="strip"] .win .wask-text,
+[data-arrangement="rail"] .win .wask-text {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+[data-arrangement="strip"] .win .wask-foot,
+[data-arrangement="rail"] .win .wask-foot {
+  margin-top: 8px;
+  font-size: 11.5px;
+}
+
+[data-arrangement="strip"] .win .wf,
+[data-arrangement="rail"] .win .wf {
+  margin-top: 9px;
+  font-size: 10.5px;
+}

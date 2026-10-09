@@ -1,0 +1,48 @@
+{
+ "terminal": {
+  "host": "bench",
+  "id": "pty_mup8wozzc57up2"
+ },
+ "frames": [
+  {
+   "text": "\r\nThe default interactive shell is now zsh.\r\nTo update your account to use zsh, please run `chsh -s /bin/zsh`.\r\nFor more details, please visit https://support.apple.com/kb/HT208050.\r\n\u001b[?1034hbash-3.2$ \r\u001b[Kbash-3.2$ "
+  },
+  {
+   "bytes": [
+    0,
+    123,
+    34,
+    99,
+    117,
+    114,
+    115,
+    111,
+    114,
+    34,
+    58,
+    50,
+    49,
+    53,
+    125
+   ]
+  },
+  {
+   "text": "echo the shell,"
+  },
+  {
+   "text": " as rec"
+  },
+  {
+   "text": "o"
+  },
+  {
+   "text": "rd"
+  },
+  {
+   "text": "ed\r\nthe shell, as recorded\r\nbash-3.2$ printf '%s\\n' one two three\r\none\r\ntwo\r\nthree\r\nbash-3.2$ stty size\r\n"
+  },
+  {
+   "text": "24 44\r\nbash-3.2$ "
+  }
+ ]
+}

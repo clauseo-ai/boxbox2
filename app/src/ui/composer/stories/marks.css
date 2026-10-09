@@ -1,0 +1,11 @@
+/* the contact sheet of the provider marks: every mark as a tile and as a bare glyph, then the monogram */
+
+.cz-story-marks { position: fixed; inset: 0; overflow: auto; padding: 28px 24px 40px; background: linear-gradient(180deg, var(--win-1) 0%, var(--win-2) 40%, var(--ground) 100%); color: color-mix(in srgb, var(--text) calc(var(--L) * 100%), rgb(244 244 246 / 0.9)); }
+.cz-story-marks h2 { margin: 18px 0 10px; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: color-mix(in srgb, var(--text-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.5)); }
+.cz-story-marks h2:first-child { margin-top: 0; }
+.cz-story-marks ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 10px 14px; }
+.cz-story-marks li { display: flex; align-items: center; gap: 10px; }
+.cz-story-marks li > span:first-child { display: contents; }
+.cz-story-marks li > span:nth-child(2):not(:last-child) { display: flex; }
+.cz-story-marks li svg { width: 16px; height: 16px; flex: none; }
+.cz-story-marks li code { font-family: var(--mono); font-stretch: 90%; font-size: 11.5px; color: color-mix(in srgb, var(--text-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.7)); }

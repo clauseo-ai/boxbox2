@@ -1,0 +1,167 @@
+/* the stage around a thread (docs/thread.md, navigation; docs/design.md, the
+   stage). it fills the layer home gives it (app/src/ui/home/stage.tsx): the
+   whole screen on the deck, the panel below the strip or beside the rail.
+   every class here is the stage's own; home's `.stage` is its container. */
+
+.thread-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* the keyboard's height while an editable on the stage holds focus (decision 19); 0 otherwise */
+  bottom: var(--keyboard, 0px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--ground);
+  color: var(--text);
+  --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --gutter: 20px;
+}
+.thread-stage.wide { --gutter: 32px; }
+/* the flood (design.md, colour): the repo's colour pours from the top to the foot, which stays tinted so the stage is a
+   surface to its last pixel. every stop holds 4.5:1 for the stage's text in both appearances (stage-flood.test.ts) */
+.stage-bg { position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, var(--flood-1) 0%, var(--flood-2) 40%, var(--flood-3) 100%); }
+/* the light falling from the top left, as on every window; dark it is a breath (the test holds the text above it) */
+.stage-bg::after { content: ""; position: absolute; inset: 0; background: radial-gradient(80% 22% at 18% 0%, color-mix(in srgb, rgb(255 255 255 / 0.5) calc(var(--L) * 100%), rgb(255 255 255 / 0.08)), transparent 62%); }
+.stage-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.stage-col { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* the bar sits on the flood, with no glass of its own: the log dissolves under it (the scroller's mask, below), so
+   nothing is ever legible behind it and nothing smears. its title arrives once the big title has gone by */
+.stage-bar { position: absolute; z-index: 6; left: 0; right: 0; top: 0; height: 60px; display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s4); padding-top: env(safe-area-inset-top); }
+.thread-stage.wide .stage-bar { padding-left: 22px; padding-right: 22px; height: 64px; }
+.stage-bar.still .stage-bar-title { transition: none; }
+.stage-bar :focus-visible, .menu :focus-visible, .new-below:focus-visible, .pinned:focus-visible { outline-color: var(--accent); }
+.thread-stage .round { width: 36px; height: 36px; min-height: 0; padding: 0; border-radius: 50%; background: var(--knob); box-shadow: var(--knob-edge); display: grid; place-items: center; flex: none; }
+/* the back button is home's (`.home .back`); on the deck the bar is the handle for pulling the thread down */
+.stage-bar[data-deck] { touch-action: none; }
+.thread-stage .more { display: flex; gap: 3px; justify-content: center; align-items: center; }
+.thread-stage .more i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.stage-bar-title { flex: 1; min-width: 0; opacity: 0; transform: translateY(6px); transition: opacity 200ms, transform var(--snapd, 420ms) var(--snap, ease); }
+.stage-bar.on .stage-bar-title { opacity: 1; transform: none; }
+.stage-bar-title b { display: block; font-size: 15px; font-weight: 650; font-stretch: 108%; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stage-bar-title span { display: block; font-size: 12px; color: color-mix(in srgb, var(--text) 78%, transparent); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.stage-bar-title span i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 6px; vertical-align: 1px; }
+
+/* the big title is the first thing in the log */
+.title-block { padding: calc(var(--bar) + 38px + env(safe-area-inset-top)) 0 var(--s2); }
+.tb-repo { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 620; font-stretch: 110%; color: var(--accent); }
+/* a subagent's stage says whose agent it is, after the repo */
+.tb-parent { font-weight: 450; color: var(--text-2); font-stretch: 100%; }
+.tb-parent::before { content: " · "; color: var(--text-3); }
+.tb-h1 { font-weight: 660; font-stretch: 112%; letter-spacing: -0.035em; line-height: 1.12; margin: 3px 0 0; font-size: 24px; overflow-wrap: anywhere; }
+.thread-stage.wide .tb-h1 { font-size: 28px; }
+.tb-status { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s2); font-size: 13px; color: var(--text-2); min-height: 26px; font-variant-numeric: tabular-nums; }
+.tb-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+.tb-status .stop { height: 26px; min-height: 0; padding: 0 11px; border-radius: 999px; background: var(--knob); box-shadow: var(--knob-edge); font-size: 12.5px; font-weight: 600; color: var(--text); }
+/* the line about the agents is the door to them: the same words, underlined in the accent, no box */
+.tb-status .tb-agents { min-height: 0; padding: 0; font: inherit; color: var(--text); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent); text-underline-offset: 3px; }
+@media (hover: hover) { .tb-status .tb-agents:hover { text-decoration-color: var(--accent); } }
+.stage-empty { margin: var(--s4) 0; color: var(--text-2); }
+
+/* the scroller: the one place the transcript scrolls. its width reaches the stylesheet as attributes (measure.ts), not as a
+   container: a containing ancestor of the transcript makes webkit's scroll range disagree with the layout (docs/gotchas.md).
+   a rule of its own, since every part of it is about the same box */
+.stage-scroll {
+  --bar: 60px;
+  /* its end padding is the foot: the 14 px fade below and 26 px of air, where the last row rests when the reader is at the end
+     and where a running turn's tape holds. a plain length, since the tape reads it (thread.tsx) and a custom property keeps a
+     calc() as written */
+  --foot: 40px;
+  /* the log dissolves into the flood under the bar the way an ios scroll edge does: clear just above the bar's bottom,
+     whole 40 px lower, on an ease-in ramp (3, 12, 33 and 66% at each fifth of the band), so the edge of a bubble or a bed
+     passing through the first half is barely there and nothing shows as a sliver under the bar. the big title's resting
+     top (the bar plus 38 px) is below the band. the foot fades over the last 14 px, which is padding at rest, so a row leaves
+     above the composer instead of being cut at its edge */
+  --band: 40px;
+  --dissolve-from: calc(var(--bar) + env(safe-area-inset-top) - 4px);
+  --dissolve-foot: #000 calc(100% - 14px), transparent;
+  --dissolve-mask: linear-gradient(180deg,
+    transparent var(--dissolve-from),
+    rgb(0 0 0 / 0.03) calc(var(--dissolve-from) + var(--band) * 0.2),
+    rgb(0 0 0 / 0.12) calc(var(--dissolve-from) + var(--band) * 0.4),
+    rgb(0 0 0 / 0.33) calc(var(--dissolve-from) + var(--band) * 0.6),
+    rgb(0 0 0 / 0.66) calc(var(--dissolve-from) + var(--band) * 0.8),
+    #000 calc(var(--dissolve-from) + var(--band)),
+    var(--dissolve-foot));
+  -webkit-mask-image: var(--dissolve-mask);
+  mask-image: var(--dissolve-mask);
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* the stage owns where the view is: it follows the end while the reader is there and holds still through a change of theirs
+     (stage.tsx, the scroll law). the browser's own anchoring would add to that: a row the reader opens grows below the
+     anchor it picked, and it scrolled by the growth, moving the tapped row up the screen */
+  overflow-anchor: none;
+  scrollbar-width: none;
+  padding: 0 var(--gutter) calc(var(--foot) + var(--hold, 0px) + var(--ask-pad, 0px));
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.stage-scroll::-webkit-scrollbar { display: none; }
+.thread-stage.wide .stage-scroll { --bar: 64px; }
+/* while a running turn's tape is stuck (stage.tsx) the log ends where its card does, hard, at the line the card's foot is held
+   at: the card is part of what the mask covers, so it must stay whole to its edge, and what scrolls past it leaves no
+   reading in the band between the card and the composer. at the thread's end that band is only padding. the narrow stage's
+   card is drawn to the same line (thread.css), so one line serves both */
+.thread-stage[data-tape-stuck] .stage-scroll { --dissolve-foot: #000 calc(100% - var(--foot)), transparent calc(100% - var(--foot)); }
+.stage-scroll > .thread { display: flex; flex-direction: column; gap: var(--s4); }
+/* the end marker takes back the gap above it, so the foot alone says where the last row rests */
+.thread-end { margin-top: calc(-1 * var(--s4)); }
+/* the prose measure is the arrangement's (design.md: 640 at the strip, 680 at the rail), set by home on its layer */
+.thread-stage.wide .stage-scroll > .thread { max-width: var(--measure, 680px); margin: 0 auto; }
+.stage-scroll .row { scroll-margin-top: 96px; }
+.stage-scroll .report { scroll-margin-top: 80px; }
+
+/* the ruler: one hairline per prompt, appearing while you scroll, scrubbing when held */
+.ruler { position: absolute; z-index: 5; right: 3px; top: 50%; width: 16px; padding: 10px 0; transform: translate(10px, -50%); opacity: 0; transition: opacity 240ms cubic-bezier(0.2, 0.8, 0.2, 1), transform var(--snapd, 420ms) var(--snap, ease); touch-action: none; cursor: grab; }
+.ruler.show, .ruler.drag { opacity: 1; transform: translate(0, -50%); }
+.ruler.drag { cursor: grabbing; }
+.ruler::before { content: ""; position: absolute; inset: 0; border-radius: 8px; background: var(--glass); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); box-shadow: var(--glass-edge); }
+.ruler b { display: block; height: var(--gap); position: relative; }
+.ruler b::after { content: ""; position: absolute; right: 4px; top: 50%; width: 6px; height: 1.5px; border-radius: 1px; background: color-mix(in srgb, var(--text) 40%, transparent); transform: translateY(-50%); transform-origin: 100% 50%; transition: transform var(--snapd, 420ms) var(--snap, ease); }
+.ruler b.k-ask::after { background: var(--accent); }
+/* the current turn's tick is longer by a scale from its right end: width is never animated (design.md, motion) */
+.ruler b.k-cur::after { transform: translateY(-50%) scaleX(1.3334); background: var(--text); height: 2px; }
+.ruler.drag b.k-cur::after { background: var(--accent); }
+.rcard { position: absolute; z-index: 6; right: 26px; width: 232px; padding: 10px 13px 11px; border-radius: 16px; background: var(--glass-deep); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); box-shadow: var(--glass-edge), var(--drop); pointer-events: none; transform: translateY(-50%); }
+.rcard small { display: block; font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.rcard span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13.5px; line-height: 1.35; margin-top: 3px; }
+.rcard em { display: block; font-style: normal; font-size: 11.5px; color: var(--text-3); margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+/* the new-below pill and the pinned ask are the dock's children and ride its top edge, so they float above the composer
+   and its queue at any height, never on them, and above the live tape while it sticks there (--live-tape, set by the
+   stage from the tape's height, 0 otherwise) */
+.new-below { position: absolute; z-index: 5; left: 50%; bottom: calc(100% + 10px + var(--live-tape, 0px)); transform: translateX(-50%); height: 32px; min-height: 0; padding: 0 14px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 13px; font-weight: 650; box-shadow: var(--drop); white-space: nowrap; }
+.stage-dock { position: relative; z-index: 4; flex: none; }
+/* with the pinned ask on screen too, the pill rides above it: the ask is 44 px tall and sits 10 px over the dock */
+.new-below:has(~ .pinned) { bottom: calc(100% + 64px + var(--live-tape, 0px)); }
+/* the ask the thread is waiting on, carried above the dock while its row is out of view */
+.thread-stage .pinned { position: absolute; z-index: 5; left: var(--gutter); right: var(--gutter); bottom: calc(100% + 10px + var(--live-tape, 0px)); min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 18px; background: var(--glass-deep); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); box-shadow: var(--glass-edge), var(--drop); font-size: 14px; line-height: 1.35; text-align: left; }
+.thread-stage.wide .pinned { left: 50%; right: auto; width: min(680px, 100%); transform: translateX(-50%); }
+.thread-stage .pinned i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.thread-stage .pinned span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-stage .pinned b { color: var(--accent); font-weight: 620; margin-right: 6px; }
+
+.scrim { position: absolute; inset: 0; z-index: 7; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity 250ms; }
+.scrim.on { opacity: 1; pointer-events: auto; }
+.menu { position: absolute; z-index: 9; right: 14px; top: calc(58px + env(safe-area-inset-top)); min-width: 232px; padding: 6px; border-radius: 18px; background: var(--glass-deep); -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5); box-shadow: var(--glass-edge), var(--lift); transform-origin: top right; opacity: 0; transform: scale(0.94); pointer-events: none; transition: opacity 140ms, transform var(--snapd, 420ms) var(--snap, ease); }
+.menu.on { opacity: 1; transform: none; pointer-events: auto; }
+.thread-stage .menu button { width: 100%; min-height: 0; padding: 10px var(--s3); border-radius: 12px; font-size: 14.5px; display: flex; justify-content: space-between; align-items: center; gap: 18px; background: none; }
+@media (hover: hover) { .thread-stage .menu button:hover { background: var(--hover); } }
+.thread-stage .menu .menu-ask { padding: 8px var(--s3) 6px; display: grid; gap: 10px; width: min(300px, calc(100vw - 60px)); }
+.thread-stage .menu .menu-ask p { margin: 0; font-size: 13.5px; line-height: 1.4; color: var(--text-2); }
+.thread-stage .menu .menu-ask .menu-ask-note { color: var(--red); }
+.thread-stage .menu .menu-ask-do { display: flex; gap: 8px; }
+.thread-stage .menu .menu-ask-do button { justify-content: center; min-height: 40px; background: var(--pill); font-weight: 600; }
+.thread-stage .menu .menu-ask-do .menu-ask-go { background: var(--text); color: var(--ground); }
+.thread-stage .menu .menu-ask-do button:disabled { opacity: 0.5; }
+.thread-stage .menu button em { font-style: normal; color: var(--text-2); font-size: 13px; }
+.thread-stage .menu button[aria-checked="true"] em { color: var(--accent); }
+
+@media (prefers-reduced-motion: reduce) { .ruler, .stage-bar-title, .menu, .scrim { transition: none; } }

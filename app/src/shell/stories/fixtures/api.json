@@ -1,0 +1,280 @@
+{
+ "GET /api/hosts": {
+  "status": 200,
+  "body": [
+   {
+    "name": "bench",
+    "url": "http://127.0.0.1:4984/",
+    "origin": "config",
+    "connection": "connected",
+    "since": 1790841650587,
+    "health": {
+     "healthy": true,
+     "version": "0.8.3-dev",
+     "contract": 4,
+     "contractMatches": true,
+     "checkedAt": 1790841650569,
+     "latencyMs": 2
+    },
+    "lastError": null,
+    "connects": 1,
+    "frames": {
+     "decoded": 3291,
+     "undecodable": 0,
+     "duplicates": 0
+    },
+    "memory": {
+     "rss": 116047872,
+     "liveSessions": 0,
+     "uptimeS": 2,
+     "sampledAt": 1790841650588
+    },
+    "cursor": "fd7e66466a88:0"
+   }
+  ]
+ },
+ "GET /api/prefs": {
+  "status": 200,
+  "body": {
+   "devices": {},
+   "repos": []
+  }
+ },
+ "GET /api/push": {
+  "status": 200,
+  "body": {
+   "publicKey": "BAAEfelopmHceO9A6LJ3xmlSAT7Es0Fj8WaNBRT-d9BdorTvaXPQbFizIyCiUsReUclYWF3Yo1IsXvxrjZm2Lis",
+   "devices": []
+  }
+ },
+ "GET /api/hosts/bench/pty/shells": {
+  "status": 200,
+  "body": [
+   {
+    "path": "/bin/bash",
+    "name": "bash",
+    "acceptable": true
+   },
+   {
+    "path": "/bin/csh",
+    "name": "csh",
+    "acceptable": true
+   },
+   {
+    "path": "/bin/dash",
+    "name": "dash",
+    "acceptable": true
+   },
+   {
+    "path": "/bin/ksh",
+    "name": "ksh",
+    "acceptable": true
+   },
+   {
+    "path": "/bin/sh",
+    "name": "sh",
+    "acceptable": true
+   },
+   {
+    "path": "/bin/tcsh",
+    "name": "tcsh",
+    "acceptable": true
+   },
+   {
+    "path": "/bin/zsh",
+    "name": "zsh",
+    "acceptable": true
+   }
+  ]
+ },
+ "GET /api/hosts/bench/models": {
+  "status": 200,
+  "body": {
+   "models": [
+    {
+     "id": "anthropic/claude-fable-5",
+     "name": "Claude Fable 5",
+     "provider": "anthropic",
+     "efforts": [
+      "xhigh",
+      "max"
+     ]
+    },
+    {
+     "id": "anthropic/claude-fable-5-1",
+     "name": "Claude Fable 5.1",
+     "provider": "anthropic",
+     "efforts": [
+      "xhigh",
+      "max"
+     ]
+    },
+    {
+     "id": "anthropic/claude-haiku-4-5",
+     "name": "Claude Haiku 4.5 (latest)",
+     "provider": "anthropic",
+     "efforts": [
+      "low",
+      "medium",
+      "high"
+     ]
+    },
+    {
+     "id": "anthropic/claude-haiku-4-5-20251001",
+     "name": "Claude Haiku 4.5",
+     "provider": "anthropic",
+     "efforts": [
+      "low",
+      "medium",
+      "high"
+     ]
+    },
+    {
+     "id": "anthropic/claude-opus-4-5",
+     "name": "Claude Opus 4.5 (latest)",
+     "provider": "anthropic",
+     "efforts": [
+      "low",
+      "medium",
+      "high"
+     ]
+    },
+    {
+     "id": "anthropic/claude-opus-4-5-20251101",
+     "name": "Claude Opus 4.5",
+     "provider": "anthropic",
+     "efforts": [
+      "low",
+      "medium",
+      "high"
+     ]
+    },
+    {
+     "id": "anthropic/claude-opus-4-6",
+     "name": "Claude Opus 4.6",
+     "provider": "anthropic",
+     "efforts": [
+      "max"
+     ]
+    },
+    {
+     "id": "anthropic/claude-opus-4-7",
+     "name": "Claude Opus 4.7",
+     "provider": "anthropic",
+     "efforts": [
+      "xhigh",
+      "max"
+     ]
+    },
+    {
+     "id": "anthropic/claude-opus-4-8",
+     "name": "Claude Opus 4.8",
+     "provider": "anthropic",
+     "efforts": [
+      "xhigh",
+      "max"
+     ]
+    },
+    {
+     "id": "anthropic/claude-opus-5",
+     "name": "Claude Opus 5",
+     "provider": "anthropic",
+     "efforts": [
+      "xhigh",
+      "max"
+     ]
+    },
+    {
+     "id": "anthropic/claude-opus-5-5",
+     "name": "Claude Opus 5.5",
+     "provider": "anthropic",
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ]
+    },
+    {
+     "id": "anthropic/claude-sonnet-4-5",
+     "name": "Claude Sonnet 4.5 (latest)",
+     "provider": "anthropic",
+     "efforts": [
+      "low",
+      "medium",
+      "high"
+     ]
+    },
+    {
+     "id": "anthropic/claude-sonnet-4-5-20250929",
+     "name": "Claude Sonnet 4.5",
+     "provider": "anthropic",
+     "efforts": [
+      "low",
+      "medium",
+      "high"
+     ]
+    },
+    {
+     "id": "anthropic/claude-sonnet-4-6",
+     "name": "Claude Sonnet 4.6",
+     "provider": "anthropic",
+     "efforts": [
+      "max"
+     ]
+    },
+    {
+     "id": "anthropic/claude-sonnet-5",
+     "name": "Claude Sonnet 5",
+     "provider": "anthropic",
+     "efforts": [
+      "xhigh",
+      "max"
+     ]
+    },
+    {
+     "id": "anthropic/claude-sonnet-5-5",
+     "name": "Claude Sonnet 5.5",
+     "provider": "anthropic",
+     "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+     ]
+    }
+   ],
+   "default": "anthropic/claude-opus-5-5"
+  }
+ },
+ "PUT /api/hosts/bench/pty/pty_mup8wozzc57up2": {
+  "status": 200,
+  "body": {
+   "id": "pty_mup8wozzc57up2",
+   "title": "bash",
+   "command": "/bin/bash '--noprofile' '--norc'",
+   "args": [],
+   "cwd": "/private/tmp",
+   "status": "running",
+   "pid": 95502,
+   "origin": "tui"
+  }
+ },
+ "GET /api/hosts/bench/pty": {
+  "status": 200,
+  "body": [
+   {
+    "id": "pty_mup8wozzc57up2",
+    "title": "bash",
+    "command": "/bin/bash '--noprofile' '--norc'",
+    "args": [],
+    "cwd": "/private/tmp",
+    "status": "running",
+    "pid": 95502,
+    "origin": "tui"
+   }
+  ]
+ }
+}

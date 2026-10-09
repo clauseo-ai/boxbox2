@@ -1,0 +1,14 @@
+/* the frame a composer story stands in: the thread's flood above, the
+   composer at the foot, and for the keyboard story a block the height of
+   the ios keyboard, which the frame stands on the way the stage does */
+
+.cz-story { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--ground); }
+/* the same flood the stage paints (stage.css), from the repo's colours the story sets */
+.cz-story-stage { --tone: var(--hi); --window-top: var(--c1); --window-bottom: var(--c2); position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; background: linear-gradient(180deg, var(--flood-1) 0%, var(--flood-2) 40%, var(--flood-3) 100%); }
+.cz-story-log { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 16px; padding: 24px 20px 12px; max-width: 724px; width: 100%; margin: 0 auto; }
+.cz-story-you { align-self: flex-end; max-width: 84%; background: linear-gradient(var(--you-1), var(--you-2)); color: var(--you-ink); border-radius: 20px 20px 6px 20px; padding: 11px 15px; font-size: 15.5px; line-height: 1.42; }
+.cz-story-say { font-size: 16px; line-height: 1.55; color: var(--prose); }
+.cz-story-keyboard { flex: none; height: 336px; background: rgb(43 43 46); }
+.home-story { justify-content: flex-end; }
+/* a window standing in for the deck, in the green of the repo palette, made of the plane's material like the real one */
+.cz-story-deck { --c1: #1b4a33; --c2: #0c2419; --hi: #8fe6a5; flex: 1; margin: 72px 28px 16px; border-radius: 34px; background: linear-gradient(170deg, var(--win-1), var(--win-2)); box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.16)), 0 26px 50px -22px color-mix(in srgb, color-mix(in srgb, var(--p2) 32%, transparent) calc(var(--L) * 100%), transparent); }

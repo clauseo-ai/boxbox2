@@ -1,0 +1,246 @@
+/* settings: hairline rows on the ground, the controls pressed into it */
+
+.settings {
+  width: min(680px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 26px;
+  /* the track a control is pressed into: dark, white at a whisper; light, the app's violet at a few percent, so the well
+     takes the page's hue and does not read as a grey slab. its shade is the deep violet, and its ring a clearer
+     violet, so the control's edge holds against the ground */
+  --track: color-mix(in srgb, color-mix(in srgb, var(--window-top) 8%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.05));
+  --track-shade: color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 22%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.32));
+  --track-ring: color-mix(in srgb, color-mix(in srgb, var(--window-top) 30%, transparent) calc(var(--L) * 100%), var(--hairline));
+  --track-edge: inset 0 1px 2px var(--track-shade), inset 0 0 0 1px var(--track-ring);
+}
+
+.settings-group {
+  display: grid;
+}
+
+.settings-group h2 {
+  margin: 0 0 4px;
+  font-size: var(--meta);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 60px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.setting-label {
+  display: grid;
+  gap: 3px;
+}
+
+.setting-hint {
+  font-size: var(--meta);
+  color: var(--text-2);
+  line-height: 1.35;
+}
+
+.link {
+  min-height: 0;
+  padding: 0;
+  background: none;
+  border-radius: 4px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+/* the track is pressed into the ground; the chosen option sits on it in
+   the accent (the light tone on dark, the deep violet on light) */
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 14px;
+  background: var(--track);
+  box-shadow: var(--track-edge);
+}
+
+.segmented button {
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--meta);
+  font-weight: 550;
+  transition:
+    background-color var(--fade),
+    color var(--fade);
+}
+
+.segmented button[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.2) calc(var(--L) * 100%), rgb(255 255 255 / 0.3)) inset,
+    0 4px 12px -6px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 75%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.6));
+}
+
+.toggle {
+  position: relative;
+  flex: none;
+  width: 52px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 16px;
+  background: var(--track);
+  box-shadow: var(--track-edge);
+  transition: background-color var(--fade);
+}
+
+/* off, light: the track is a clear violet tint, so the knob (white) stands out of it and the switch holds its edge */
+.toggle {
+  --off: color-mix(in srgb, color-mix(in srgb, var(--window-top) 26%, var(--ground)) calc(var(--L) * 100%), var(--track));
+  background: var(--off);
+}
+
+.toggle[aria-checked="true"] {
+  background: var(--accent);
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: color-mix(in srgb, #fff calc(var(--L) * 100%), #f4f4f6);
+  box-shadow: 0 2px 6px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.35));
+  transition: transform var(--snap);
+}
+
+.toggle[aria-checked="true"] .toggle-knob {
+  transform: translateX(20px);
+}
+
+/* touch targets are 44 pt on touch (design.md); the switch keeps its
+   look and grows its hit area */
+@media (pointer: coarse) {
+  .toggle::after {
+    content: "";
+    position: absolute;
+    inset: -6px -4px;
+  }
+}
+
+.other-devices {
+  list-style: none;
+  margin: 12px 0 6px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.other-devices li {
+  display: grid;
+  gap: 2px;
+}
+
+.repo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.repo {
+  display: grid;
+  gap: 10px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* the repo's mark leads its name and where it lives (design.md, the repo mark) */
+.repo-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.repo-name {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  font-weight: 600;
+}
+
+.repo-where {
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: var(--meta);
+  font-weight: 400;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.repo-choices {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 700px) {
+  .repo-choices {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+
+/* 16 px or larger on touch, or ios zooms the page on focus. the native chevron and its grey bevel are dropped for one
+   drawn here in the second ink, so a select is the same paper field as the rest of the page (styles.css, --field) in
+   both appearances */
+.repo select {
+  --chevron: var(--text-2);
+  font: inherit;
+  font-size: max(16px, 1rem);
+  color: inherit;
+  min-height: 44px;
+  /* 16 on the left: the native control kept 12 and put 4 more of its own inside, which appearance: none takes away */
+  padding: 0 38px 0 16px;
+  border-radius: 14px;
+  border: 1px solid var(--field-edge);
+  /* dark keeps the track it had (white 5%, its own shade); light is the page's paper field */
+  background-color: color-mix(in srgb, var(--field) calc(var(--L) * 100%), var(--track));
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--chevron) 50%),
+    linear-gradient(135deg, var(--chevron) 50%, transparent 50%);
+  background-position:
+    calc(100% - 20px) 50%,
+    calc(100% - 15px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--field-shade) calc(var(--L) * 100%), var(--track-shade));
+  -webkit-appearance: none;
+  appearance: none;
+  text-overflow: ellipsis;
+}
+
+/* a disabled one is dimmed whole (the chevron too), whatever the ground */
+.repo select:disabled {
+  color: var(--text-3);
+  --chevron: var(--text-3);
+}
+
+/* springs become instant under reduced motion (design.md) */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) .toggle-knob {
+    transition: none;
+  }
+}
+
+:root[data-motion="reduced"] .toggle-knob {
+  transition: none;
+}

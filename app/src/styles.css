@@ -1,0 +1,569 @@
+/* the design law's tokens (docs/design.md: visual system) and the ios
+   viewport law (decision 19). the real surfaces arrive in m3 and m5; this
+   is the ground they stand on. */
+
+/* boxbox sans is mona sans, subset to latin with optical size pinned and
+   renamed as its licence asks of a modified version (scripts/fonts.sh) */
+@font-face {
+  font-family: "Boxbox Sans";
+  src: url("./fonts/boxbox-sans.woff2") format("woff2");
+  font-weight: 300 800;
+  font-stretch: 75% 125%;
+  font-display: swap;
+}
+
+/* the same face with a one-line control's metrics: a window's chip is a 34 px capsule, and the font's own content
+   area (ascent plus descent, 1.456 em) is prose spacing. this face keeps the font's 79 to 21 split of ascent to
+   descent at 1.12 em, so the text box is close to the glyphs and the craft check's 8 px holds above and below.
+   only the chip uses it; every other text box keeps the font's metrics */
+@font-face {
+  font-family: "Boxbox Sans Chip";
+  src: url("./fonts/boxbox-sans.woff2") format("woff2");
+  font-weight: 300 800;
+  font-stretch: 75% 125%;
+  font-display: swap;
+  ascent-override: 88.5%;
+  descent-override: 23.5%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Martian Mono";
+  src: url("./fonts/martian-mono.woff2") format("woff2");
+  font-weight: 100 800;
+  font-stretch: 75% 112.5%;
+  font-display: swap;
+}
+
+/* the appearance is one number, --L: 0 dark, 1 light. every colour token is
+   written once as `color-mix(in srgb, <light> calc(var(--L) * 100%), <dark>)`,
+   which is exactly the dark value at 0 and exactly the light one at 1, so a
+   token cannot be set for one appearance and forgotten for the other. the
+   light appearance is the system's unless this device chose dark, or chosen
+   outright (settings, data-theme on the root). */
+:root {
+  --L: 0;
+  color-scheme: dark light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --L: 1;
+  }
+}
+
+:root[data-theme="light"] {
+  --L: 1;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* the window plane (design.md, the two appearances): a window, the composer's window and what it raises, the
+   new-thread sheet, the capsule, a machine and a folded rail's swatch. each is made of its repo's colour in both
+   appearances: dark, the deep pair with the light tone for accents; light, the light tone washed into white paper
+   with the deep top colour for accents, so a window on a light page is a lit card of its hue and never a dark slab
+   dropped onto it. the material is built from the surface's own palette (--c1, --c2, --hi, or the page's violet
+   --window-top, --window-bottom, --tone where a surface has no repo), so it is declared on the surfaces themselves,
+   and the base tokens are declared again on them below so a window inside the stage reads the plane's and not the
+   flood's. a new surface of the plane takes `plane-window` */
+.plane-window,
+.win,
+.host,
+.capsule,
+.cz-window,
+.cz-card,
+.cz-menu,
+.cz-sheet {
+  /* the surface's palette, whichever names it came in */
+  --p1: var(--c1, var(--window-top));
+  --p2: var(--c2, var(--window-bottom));
+  --p3: var(--hi, var(--tone));
+  /* an accent on a window (its name, a lit chip, the first option, a ring): the light tone on the deep pair, the deep
+     top colour on the light card; ink on an accent is the window's bottom colour, or near-white on the deep accent */
+  --accent: color-mix(in srgb, var(--p1) calc(var(--L) * 100%), var(--p3));
+  --on-accent: color-mix(in srgb, #f7f7f5 calc(var(--L) * 100%), var(--p2));
+  /* the material, top of the gradient to its foot: the deep pair, or the light tone at 30% and 12% in near-white, a
+     touch lighter than the stage's flood so a window over the stage still reads as raised from it */
+  --win-1: color-mix(in srgb, color-mix(in srgb, var(--p3) 30%, #fff) calc(var(--L) * 100%), var(--p1));
+  --win-2: color-mix(in srgb, color-mix(in srgb, var(--p3) 12%, #fbfbfa) calc(var(--L) * 100%), var(--p2));
+  /* the lit top edge and the 1 px edge that follows the corners; light, the edge is the window's own deep colour at a
+     whisper, so a pale card holds its shape on the pale ground without a grey border */
+  --win-lit: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.16));
+  --win-rim: inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--p1) 13%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.05));
+  --win-edge: var(--win-lit), var(--win-rim);
+  /* the highlight falling from the top left */
+  --win-glow: color-mix(in srgb, rgb(255 255 255 / 0.7) calc(var(--L) * 100%), rgb(255 255 255 / 0.13));
+  /* a quiet fill resting on the window (a chip, a key hint, a hovered word): the light tone's ink on the dark pair, the
+     deep colour at a few percent on the light card, so it takes the window's hue rather than reading grey */
+  --win-fill: color-mix(in srgb, color-mix(in srgb, var(--p1) 9%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.1));
+  --win-fill-hover: color-mix(in srgb, color-mix(in srgb, var(--p1) 14%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.14));
+  /* a surface pressed into the window (an option, a field, a row), and its inner edge: shadow above, light below */
+  --win-press: color-mix(in srgb, color-mix(in srgb, var(--p1) 6%, rgb(255 255 255 / 0.55)) calc(var(--L) * 100%), rgb(0 0 0 / 0.28));
+  --win-press-edge: inset 0 1px 2px color-mix(in srgb, color-mix(in srgb, var(--p1) 16%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.35)),
+    inset 0 -1px 0 color-mix(in srgb, rgb(255 255 255 / 0.9) calc(var(--L) * 100%), rgb(255 255 255 / 0.07));
+  /* something sitting on the window (the first option, a lit key): its drop, and on the light card a lit top so the
+     deep fill reads as raised and not as a hole; dark keeps the drop alone, as it always had */
+  --win-raise: 0 8px 20px -8px color-mix(in srgb, color-mix(in srgb, var(--p1) 45%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.6)),
+    inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.22) calc(var(--L) * 100%), transparent);
+  /* your words in a window: white glass on the deep pair; the deep pair on the light card, as on the stage */
+  --win-me: color-mix(in srgb, var(--p1) calc(var(--L) * 100%), rgb(255 255 255 / 0.14));
+  --win-me-ink: color-mix(in srgb, #f7f7f5 calc(var(--L) * 100%), #fff);
+  /* the long soft shadow the window casts on the page: black on dark; on light the window's own deep colour, softer,
+     with a short contact shadow so the card sits on the ground rather than hovering in a haze */
+  --win-cast: 0 26px 50px -22px color-mix(in srgb, color-mix(in srgb, var(--p2) 32%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.75)),
+    0 1px 3px color-mix(in srgb, color-mix(in srgb, var(--p2) 12%, transparent) calc(var(--L) * 100%), transparent);
+  /* a lifted piece of the plane that floats (the composer's menus and sheet, a queued card): a deeper card than a window,
+     the deep pair darkened on dark, near-white paper with the light tone's breath on light */
+  --win-deep-1: color-mix(in srgb, color-mix(in srgb, var(--p3) 16%, #fff) calc(var(--L) * 100%), color-mix(in srgb, var(--p1) 62%, #0b0c0f));
+  --win-deep-2: color-mix(in srgb, color-mix(in srgb, var(--p3) 6%, #fdfdfc) calc(var(--L) * 100%), color-mix(in srgb, var(--p2) 80%, #0b0c0f));
+}
+
+:root,
+.plane-window,
+.win,
+.host,
+.capsule,
+.cz-window,
+.cz-card,
+.cz-menu,
+.cz-sheet {
+  --ground: color-mix(in srgb, #f3f3f1 calc(var(--L) * 100%), #0b0c0f);
+  --text: color-mix(in srgb, #101114 calc(var(--L) * 100%), #f4f4f6);
+  /* the second and third inks. light holds both at 4.5:1 on the ground and on a window's lightest material, as the
+     stage's do (74 and 66% of the ink), so a word set in the third ink is never a contrast bug on a pale surface; dark
+     keeps its third ink for decoration (a placeholder, a separator) */
+  --text-2: color-mix(in srgb, rgb(16 17 20 / 0.74) calc(var(--L) * 100%), rgb(244 244 246 / 0.62));
+  --text-3: color-mix(in srgb, rgb(16 17 20 / 0.66) calc(var(--L) * 100%), rgb(244 244 246 / 0.38));
+  --hairline: color-mix(in srgb, rgb(16 17 20 / 0.1) calc(var(--L) * 100%), rgb(255 255 255 / 0.08));
+  /* red means failure and nothing else */
+  --red: color-mix(in srgb, #ad2323 calc(var(--L) * 100%), #ff6b6b);
+  /* the agent's prose: a touch under full ink, so the bubble and the titles stay the loudest words */
+  --prose: color-mix(in srgb, rgb(16 17 20 / 0.9) calc(var(--L) * 100%), rgb(255 255 255 / 0.93));
+  /* diff lines and +/- counts; each holds 4.5:1 on every stop of its appearance's flood and on a bed laid over it
+     (app/src/ui/window/stage-flood.test.ts) */
+  --add: color-mix(in srgb, #0d6329 calc(var(--L) * 100%), #9ff0b3);
+  --del: color-mix(in srgb, #a8233b calc(var(--L) * 100%), #ffa3a3);
+  /* a quiet control resting on a plane (round buttons, the stop and turns pills) */
+  --knob: color-mix(in srgb, rgb(16 17 20 / 0.06) calc(var(--L) * 100%), rgb(0 0 0 / 0.24));
+  /* what a pointer over a quiet row or item paints */
+  --hover: color-mix(in srgb, rgb(16 17 20 / 0.045) calc(var(--L) * 100%), rgb(255 255 255 / 0.05));
+  /* a surface pressed into its plane (an open row, an option, a field), and its inner edge */
+  --well: color-mix(in srgb, rgb(16 17 20 / 0.05) calc(var(--L) * 100%), rgb(0 0 0 / 0.22));
+  --well-edge: inset 0 1px 2px color-mix(in srgb, rgb(16 17 20 / 0.08) calc(var(--L) * 100%), rgb(0 0 0 / 0.3));
+  /* a bed: command output, a diff, a file's lines, code */
+  --bed: color-mix(in srgb, rgb(16 17 20 / 0.045) calc(var(--L) * 100%), rgb(0 0 0 / 0.3));
+  /* glass (design.md, depth): thin over the stage's own bar, deep for menus, sheets and floating cards */
+  --glass: color-mix(in srgb, rgb(246 246 244 / 0.62) calc(var(--L) * 100%), rgb(8 9 12 / 0.34));
+  --glass-deep: color-mix(in srgb, rgb(251 251 249 / 0.88) calc(var(--L) * 100%), rgb(28 30 36 / 0.9));
+  --glass-edge: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.9) calc(var(--L) * 100%), rgb(255 255 255 / 0.12)),
+    inset 0 0 0 1px color-mix(in srgb, rgb(16 17 20 / 0.07) calc(var(--L) * 100%), rgb(255 255 255 / 0.04));
+  /* the long soft shadow under anything that floats */
+  --lift: 0 30px 60px -16px color-mix(in srgb, rgb(16 17 20 / 0.22) calc(var(--L) * 100%), rgb(0 0 0 / 0.8));
+  --scrim: color-mix(in srgb, rgb(16 17 20 / 0.18) calc(var(--L) * 100%), rgb(0 0 0 / 0.38));
+  /* a quiet pill resting on the ground (home's bar, a filter chip) and its edge: a lit top on dark, an ink hairline on
+     light so the pill holds its shape on the pale ground */
+  --pill: color-mix(in srgb, rgb(16 17 20 / 0.07) calc(var(--L) * 100%), rgb(255 255 255 / 0.08));
+  --pill-edge: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0) calc(var(--L) * 100%), rgb(255 255 255 / 0.07)),
+    inset 0 0 0 1px color-mix(in srgb, rgb(16 17 20 / 0.07) calc(var(--L) * 100%), transparent);
+  /* the focus ring: the violet light tone on dark grounds and windows, the deep violet on a light ground (3:1 or more) */
+  --focus: color-mix(in srgb, #34298a calc(var(--L) * 100%), #b7abff);
+}
+
+/* the stage's tokens: the repo's palette (--tone, --window-top, --window-bottom,
+   which the stage, the details panel and a story set on themselves) read for the
+   appearance. dark, the thread floods with the deep pair and its accents are the
+   light tone; light, the flood is the light tone's tint and the accents are the
+   deep top colour, so every accent holds its contrast on the ground under it. the
+   page's base tokens are declared again here with the repo's hue in them on light
+   (ink, hairlines, quiet fills, the glass's edge, shadows), so nothing on the
+   stage reads as the page's grey; each one is exactly the page's dark value at
+   --L: 0 */
+:where(.thread-stage, .thread, .details, .stage-sample, .cz-story-stage) {
+  /* a word, a glyph or a mark in the repo's colour, and a fill for the primary control with the ink on it */
+  --accent: color-mix(in srgb, var(--window-top) calc(var(--L) * 100%), var(--tone));
+  --on-accent: color-mix(in srgb, #f4f4f6 calc(var(--L) * 100%), var(--window-bottom));
+  /* the flood: three stops from the top of the stage to its foot. it never quite reaches the ground, so the stage
+     reads as a surface to its last pixel and its rounded corners hold at the strip and the rail. light, the tone is
+     poured in at 62, 40 and 28% and the deep top colour breathes into the foot, so the repo's colour is the colour of
+     the stage and not a tint of the page */
+  --flood-1: color-mix(in srgb, color-mix(in srgb, var(--tone) 62%, #fff) calc(var(--L) * 100%), var(--window-top));
+  --flood-2: color-mix(in srgb, color-mix(in srgb, var(--tone) 40%, #f7f7f5) calc(var(--L) * 100%), var(--window-bottom));
+  --flood-3: color-mix(in srgb, color-mix(in srgb, var(--window-top) 4%, color-mix(in srgb, var(--tone) 28%, #f3f3f1)) calc(var(--L) * 100%), color-mix(in srgb, var(--tone) 4%, var(--window-bottom)));
+  /* ink: the page's, with the deep bottom colour in it on light (a hue-black, not neutral). the second and third inks
+     are steps of it; on light the third holds 4.5:1 too, since words read in it (a dismiss, a placeholder, a time) */
+  --text: color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 12%, #101114) calc(var(--L) * 100%), #f4f4f6);
+  --text-2: color-mix(in srgb, color-mix(in srgb, var(--text) 74%, transparent) calc(var(--L) * 100%), rgb(244 244 246 / 0.62));
+  --text-3: color-mix(in srgb, color-mix(in srgb, var(--text) 66%, transparent) calc(var(--L) * 100%), rgb(244 244 246 / 0.38));
+  /* a line and a pointer's tint are the deep top colour at a few percent on light, a pill the light tone at a third, so they take the repo's hue */
+  --hairline: color-mix(in srgb, color-mix(in srgb, var(--window-top) 17%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.08));
+  --hover: color-mix(in srgb, color-mix(in srgb, var(--window-top) 7%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.05));
+  --pill: color-mix(in srgb, color-mix(in srgb, var(--tone) 34%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.08));
+  /* a round control on the stage: light, a lit white knob with the repo's edge; dark, the page's black 24% */
+  --knob: color-mix(in srgb, rgb(255 255 255 / 0.6) calc(var(--L) * 100%), rgb(0 0 0 / 0.24));
+  --knob-edge: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.9) calc(var(--L) * 100%), transparent),
+    inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--window-top) 16%, transparent) calc(var(--L) * 100%), transparent);
+  /* glass and what floats: the lit top and a 1 px edge in the repo's hue, the shadow in its bottom colour */
+  --glass-edge: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.12)),
+    inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--window-top) 16%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.04));
+  --lift: 0 30px 60px -16px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 34%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.8)),
+    0 2px 6px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 10%, transparent) calc(var(--L) * 100%), transparent);
+  --drop: 0 14px 30px -12px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 38%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.7)),
+    0 1px 3px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 12%, transparent) calc(var(--L) * 100%), transparent);
+  --scrim: color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 20%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.38));
+  /* your message: the light bubble on the dark flood; on the light flood it is the deep pair, so it stays the
+     strongest thing on the page in both appearances (designed, not inverted) */
+  --you-1: color-mix(in srgb, var(--window-top) calc(var(--L) * 100%), rgb(255 255 255 / 0.93));
+  --you-2: color-mix(in srgb, var(--window-bottom) calc(var(--L) * 100%), rgb(255 255 255 / 0.93));
+  --you-ink: color-mix(in srgb, #f4f4f6 calc(var(--L) * 100%), #14131c);
+  --you-meta: color-mix(in srgb, rgb(244 244 246 / 0.6) calc(var(--L) * 100%), rgb(20 19 28 / 0.5));
+  /* paper: the lit card of the repo's hue that light draws a figure and a list on (the details' tiles and lists): the
+     tone washed into white, a touch deeper at the top. its edge, lit top and short shadow are the panel's (details.css).
+     dark has no paper: the surfaces that wear it keep their quiet ink fills */
+  --paper-1: color-mix(in srgb, var(--tone) 24%, #fff);
+  --paper-2: color-mix(in srgb, var(--tone) 9%, #fdfdfc);
+  /* a well is a pressed surface (an open row, a report, an ask's option, the tape at rest). dark, the page's black 22%.
+     light, a translucent white over the flood so it is lit paper of the stage's own colour, edged in the repo's hue */
+  --well: color-mix(in srgb, rgb(255 255 255 / 0.52) calc(var(--L) * 100%), rgb(0 0 0 / 0.22));
+  --well-edge: inset 0 1px 2px color-mix(in srgb, transparent calc(var(--L) * 100%), rgb(0 0 0 / 0.3)),
+    inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.9) calc(var(--L) * 100%), transparent),
+    inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--window-top) 14%, transparent) calc(var(--L) * 100%), transparent),
+    0 6px 14px -12px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), transparent);
+  /* a bed (command output, a diff, code) lifts toward white paper with a trace of the hue, pressed into whatever it lies
+     on. dark, the page's black. its light shade and hue ring are --bed-lit (nothing in dark); --bed-edge adds the hairline
+     ring a bed always had in dark, for the beds that had one (a report's code block never did, and takes --bed-lit alone) */
+  --bed: color-mix(in srgb, color-mix(in srgb, var(--window-top) 4%, rgb(255 255 255 / 0.74)) calc(var(--L) * 100%), rgb(0 0 0 / 0.3));
+  --bed-lit: inset 0 1px 2px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 14%, transparent) calc(var(--L) * 100%), transparent),
+    inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--window-top) 15%, transparent) calc(var(--L) * 100%), transparent);
+  --bed-edge: var(--bed-lit), inset 0 0 0 1px color-mix(in srgb, transparent calc(var(--L) * 100%), var(--hairline));
+}
+
+:root {
+  /* the app's own accent on the page (the machines, settings, history, the gate): the violet pair read for the
+     appearance, as the stage reads its repo's (the stage tokens above) */
+  --accent: color-mix(in srgb, var(--window-top) calc(var(--L) * 100%), var(--tone));
+  --on-accent: color-mix(in srgb, #f4f4f6 calc(var(--L) * 100%), var(--window-bottom));
+  --lit-edge: inset 0 1px 0 rgb(255 255 255 / 0.16);
+  /* the violet pair from the repo palette, the app's own accent */
+  --window-top: #34298a;
+  --window-bottom: #171240;
+  --tone: #b7abff;
+  --sans: "Boxbox Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --body: 16.5px;
+  --chip: 12.5px;
+  --meta: 13.5px;
+  --title: 28px;
+  --fade: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* the snap spring (stiffness 380, damping 32; design.md, motion law), sampled into linear() */
+  --snap: 420ms
+    linear(0, 0.048, 0.16, 0.298, 0.438, 0.568, 0.681, 0.773, 0.846, 0.901, 0.941, 0.969, 0.988, 1, 1.007, 1.01, 1.011, 1.011, 1.009, 1.008, 1.006, 1.005, 1.004, 1.003, 1.002, 1);
+}
+
+@media (min-width: 700px) {
+  :root {
+    --body: 17px;
+    --title: 34px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* html never scrolls; the app frame's own panes are the only scrollers */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: var(--body);
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  height: 100%;
+}
+
+.frame {
+  /* the page's controls (the gate's, the pair sheet's, the history search, the terminal's rename) are made once here and
+     inherited. a field: dark, the ink at 4% and a hairline; light, white paper edged in the app's violet, so it reads as
+     paper laid on the ground and not as a grey slab (design.md, the two appearances). its inner shade is the deep violet,
+     not black */
+  --field: color-mix(in srgb, rgb(255 255 255 / 0.86) calc(var(--L) * 100%), color-mix(in srgb, var(--text) 4%, transparent));
+  --field-edge: color-mix(in srgb, color-mix(in srgb, var(--window-top) 34%, transparent) calc(var(--L) * 100%), var(--hairline));
+  --field-shade: color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 10%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.3));
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* no viewport-fit=cover, so insets read 0; every inset takes a floor */
+  padding: max(22px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right))
+    max(22px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left));
+}
+
+h1 {
+  margin: 0;
+  font-size: var(--title);
+  font-weight: 650;
+  font-stretch: 115%;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  -webkit-touch-callout: none;
+  cursor: pointer;
+  min-height: 44px;
+  border-radius: 14px;
+  border: 0;
+  padding: 0 18px;
+  transition: opacity var(--fade);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.quiet {
+  background: transparent;
+  color: var(--text-2);
+  min-height: 44px;
+}
+
+@media (hover: hover) {
+  .quiet:hover {
+    color: var(--text);
+  }
+}
+
+.problem {
+  min-height: 1.45em;
+  margin: 0;
+  color: var(--red);
+  font-size: var(--meta);
+}
+
+.empty {
+  color: var(--text-2);
+}
+
+/* the gate */
+
+.gate {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  gap: 28px;
+  justify-items: stretch;
+}
+
+.wordmark {
+  font-size: 44px;
+  font-stretch: 122%;
+  font-weight: 700;
+  text-align: center;
+}
+
+.gate-form {
+  width: min(340px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field-label {
+  color: var(--text-2);
+  font-size: var(--meta);
+}
+
+/* 16 px or larger on touch, or ios zooms the page on focus */
+.field input {
+  font-size: max(16px, 1rem);
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid var(--field-edge);
+  background: var(--field);
+  box-shadow: inset 0 1px 2px var(--field-shade);
+}
+
+
+/* machines */
+
+.machines {
+  width: min(680px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+}
+
+/* a screen's head (the machines, settings): its way back and its verbs on one
+   row, the title under them, as a large title sits under a navigation bar */
+.machines-head {
+  display: grid;
+  gap: 6px;
+}
+
+/* the row hangs past the column by the back control's padding (shell.css, .screen-back), so its word lines up with the
+   title; a control at the row's other end steps back in by as much */
+.head-row {
+  --head-overhang: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0 calc(-1 * var(--head-overhang));
+}
+
+.machines-head h1:focus {
+  outline: none;
+}
+
+.machines-head h1:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 6px;
+  border-radius: 6px;
+}
+
+/* a chip's words beside a setting (settings, notifications); a machine's chip is its window's (ui/machines) */
+.chip {
+  font-size: var(--chip);
+  color: var(--text-2);
+}
+
+
+/* notifications: a setting on the ground, quieter than the windows */
+
+.notify {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 16px 20px;
+  border-radius: 22px;
+  /* a setting on the ground, quieter than the windows: dark, a hairline; light, a paper card edged in violet with a
+     short soft shadow, so it is a surface and not an outline */
+  border: 1px solid color-mix(in srgb, color-mix(in srgb, var(--window-top) 18%, transparent) calc(var(--L) * 100%), var(--hairline));
+  background: color-mix(in srgb, rgb(255 255 255 / 0.62) calc(var(--L) * 100%), transparent);
+  box-shadow: 0 10px 24px -18px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 40%, transparent) calc(var(--L) * 100%), transparent);
+}
+
+.notify-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notify h2 {
+  margin: 0;
+  font-size: var(--body);
+  font-weight: 600;
+}
+
+.notify[data-state="on"] .chip {
+  color: var(--accent);
+}
+
+.notify[data-state="blocked"] .chip {
+  color: var(--red);
+}
+
+.notify-why {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--meta);
+}
+
+.notify button {
+  justify-self: start;
+}
+
+/* reduced motion: the system's, unless this device chose full motion; or
+   chosen outright (settings, data-motion on the root). the law: springs
+   become instant, content swaps keep a 120 ms fade. so only opacity may
+   still transition, briefly; a duration alone would give every element a
+   120 ms transition of every property (the initial transition-property is
+   all), and a margin or a width would animate by layout */
+/* pseudo-elements carry transitions of their own (the ruler's ticks) and cannot sit inside :is(), so they are listed */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) *,
+  :root:not([data-motion="full"]) *::before,
+  :root:not([data-motion="full"]) *::after {
+    transition-property: opacity !important;
+    transition-duration: 120ms !important;
+  }
+}
+
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  transition-property: opacity !important;
+  transition-duration: 120ms !important;
+}
+
+/* the kinds that push here: plain checkboxes, 44 pt rows on touch */
+.notify-kinds {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.notify-kinds legend {
+  padding: 0 0 4px;
+  font-size: var(--meta);
+  color: var(--text-2);
+}
+
+.notify-kind {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-size: var(--meta);
+}
+
+.notify-kind input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+@media (pointer: fine) {
+  .notify-kind {
+    min-height: 28px;
+  }
+}

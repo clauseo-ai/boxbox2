@@ -1,0 +1,6887 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "boxbox",
+    "description": "the boxbox server: a password gate, the hosts it watches, the fleet as one stream with a cursor, transcripts read through it, the verbs a person answers asks and starts turns with (each with a clientID), the rest of a session's write path (queue, steer, commands, shells, unsend), terminals relayed through it, push and presence, needs and read state, and the telemetry ingest. every route but login and logout needs the session cookie.",
+    "license": {
+      "name": "MIT"
+    },
+    "version": "1"
+  },
+  "paths": {
+    "/api/clear": {
+      "post": {
+        "tags": [
+          "super::threads"
+        ],
+        "summary": "clears threads off home on every device. a thread comes back on its own\nwhen it works again, asks, or is updated; it stays in history.",
+        "operationId": "clear",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClearBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "which threads left home and which could not",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cleared"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a clear",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet": {
+      "get": {
+        "tags": [
+          "super::fleet"
+        ],
+        "summary": "the fleet model now.",
+        "operationId": "snapshot",
+        "responses": {
+          "200": {
+            "description": "every host, session and ask, and the window order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetSnapshot"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/history": {
+      "get": {
+        "tags": [
+          "super::history"
+        ],
+        "summary": "a page of history: every machine's threads older than the cursor, newest\nfirst, with the cleared ones marked.",
+        "operationId": "page",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "matches a thread's title or its repo, any case.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "host",
+            "in": "query",
+            "description": "only this machine's threads.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "the cursor a page answered with (`next`): threads after it, newest first.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "threads in the page, 1 to 100; 30 when absent.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "a page, and the cursor for the next",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "a search or limit out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such machine",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts": {
+      "get": {
+        "tags": [
+          "super::hosts"
+        ],
+        "summary": "each host, configured ones in `boxbox.toml` order, then paired ones.",
+        "operationId": "list",
+        "responses": {
+          "200": {
+            "description": "every host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HostStatus"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/pair": {
+      "post": {
+        "tags": [
+          "super::hosts"
+        ],
+        "summary": "trades a one-time token for the host's bearer credential, keeps it\nserver-side and starts watching the host.",
+        "operationId": "pair",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Pair"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "paired; the host is being watched",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairedHost"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "the address, token or name is not usable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the name or the address is already here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the daemon refused the token, or does not pair",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the daemon did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}": {
+      "delete": {
+        "tags": [
+          "super::hosts"
+        ],
+        "summary": "forgets a paired host: its credential is deleted and its watcher stops.\nthe daemon keeps its record until `cmx2 pair --revoke boxbox` there.",
+        "operationId": "forget",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "forgotten"
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the host is set in boxbox.toml",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/commands": {
+      "get": {
+        "tags": [
+          "super::compose"
+        ],
+        "summary": "the `/` commands the thread's directory offers.",
+        "operationId": "commands",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "description": "the session's directory on the host.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the commands, by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CommandChoice"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/find/file": {
+      "get": {
+        "tags": [
+          "super::session"
+        ],
+        "summary": "files in a project matching what was typed after `@`, relative paths.",
+        "operationId": "find_file",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "description": "what the person typed after `@`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "description": "the project directory to search.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "at most this many, 1 to 200; the daemon's default is 10.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cmx2's paths, byte for byte",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "malformed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/folders": {
+      "get": {
+        "tags": [
+          "super::compose"
+        ],
+        "summary": "the folders inside a folder on the host, so a thread can start in a place no thread has been in yet.",
+        "operationId": "folders",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "absolute, `~` or `~/...`; the host's home when left out.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hidden",
+            "in": "query",
+            "description": "also list the folders whose names start with a dot.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "description": "only the folders whose names start with this, case aside: the server narrows a big folder\nbefore it answers, so a typed word never pulls the whole list to a phone.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the folders inside it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folders"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "nothing at that path on the host, a file, or not readable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/models": {
+      "get": {
+        "tags": [
+          "super::hosts"
+        ],
+        "summary": "the models a host can run, for the per-repo defaults.",
+        "operationId": "models",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the host's models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostModels"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer, refused the credential or failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/permissions/{ask}": {
+      "post": {
+        "tags": [
+          "super::asks"
+        ],
+        "summary": "answers a permission. an ask already settled is 409 with who settled it\nand when; an ask the daemon does not know is 404.",
+        "operationId": "permission",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ask",
+            "in": "path",
+            "description": "the permission's id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PermissionAnswer"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "answered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not an answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, or the ask is gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already settled; `error.settled` says by whom and when",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/projects": {
+      "get": {
+        "tags": [
+          "super::compose"
+        ],
+        "summary": "the repos a new thread can start in, newest activity first.",
+        "operationId": "projects",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the repos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectChoice"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/providers": {
+      "get": {
+        "tags": [
+          "super::session"
+        ],
+        "summary": "the host's providers and models, and its defaults, for the composer's\nmodel and effort row.",
+        "operationId": "providers",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "directory",
+            "in": "query",
+            "description": "the project directory the list is for.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cmx2's `{providers, default}`, byte for byte",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/pty": {
+      "get": {
+        "tags": [
+          "crate::pty::routes"
+        ],
+        "summary": "the host's open terminals: running ones, and exited ones a session\nstarted (cmx2 drops a person's once it exits).",
+        "operationId": "terminals",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cmx2's `PtyInfo` list, byte for byte",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or refused the credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "crate::pty::routes"
+        ],
+        "summary": "opens a terminal on the host, as a person's (it goes when it exits).",
+        "operationId": "createTerminal",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewTerminal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "the new terminal, cmx2's `PtyInfo`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a new terminal, or the directory does not exist",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or refused the credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/pty/shells": {
+      "get": {
+        "tags": [
+          "crate::pty::routes"
+        ],
+        "summary": "the login shells the host lists, the host user's own first.",
+        "operationId": "terminalShells",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cmx2's `{path, name, acceptable}` list, byte for byte",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or refused the credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/pty/{id}": {
+      "get": {
+        "tags": [
+          "crate::pty::routes"
+        ],
+        "summary": "one terminal.",
+        "operationId": "terminal",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "the terminal's id on the host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cmx2's `PtyInfo`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or terminal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or refused the credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::pty::routes"
+        ],
+        "summary": "renames or resizes a terminal.",
+        "operationId": "changeTerminal",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "the terminal's id on the host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "the terminal after the change, cmx2's `PtyInfo`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a change, or a size out of range",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or terminal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or refused the credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "crate::pty::routes"
+        ],
+        "summary": "kills a terminal and has the host forget it.",
+        "operationId": "killTerminal",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "the terminal's id on the host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "`true`: killed, or already gone",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or refused the credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/pty/{id}/connect": {
+      "get": {
+        "tags": [
+          "crate::pty::routes"
+        ],
+        "summary": "the terminal's bytes, as a websocket: cmx2's pty stream relayed, plus\nthe relay's replay and heartbeat frames (docs/terminal.md).",
+        "operationId": "connectTerminal",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "the terminal's id on the host",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "path",
+            "description": "resume from here, in utf-16 units: the cursor of the last output\napplied. `-1` is from now on; absent replays everything retained.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "device",
+            "in": "path",
+            "description": "the pane's device id, for the relay's telemetry rows.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "class",
+            "in": "path",
+            "description": "the pane's device class, for the same.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "the websocket; every later outcome is a close code (docs/terminal.md)"
+          },
+          "400": {
+            "description": "not a websocket request, or a cursor below -1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "the page asking is not boxbox's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/questions/{ask}": {
+      "post": {
+        "tags": [
+          "super::asks"
+        ],
+        "summary": "answers a question.",
+        "operationId": "question",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ask",
+            "in": "path",
+            "description": "the question's id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestionAnswer"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "answered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not an answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, or the ask is gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already settled; `error.settled` says by whom and when",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/questions/{ask}/reject": {
+      "post": {
+        "tags": [
+          "super::asks"
+        ],
+        "summary": "dismisses a question without an answer.",
+        "operationId": "reject",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ask",
+            "in": "path",
+            "description": "the question's id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verb"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "dismissed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, or the ask is gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already settled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/reload": {
+      "post": {
+        "tags": [
+          "super::hosts"
+        ],
+        "summary": "the daemon re-reads its config and flushes skills, agents, commands,\nthe model list and language servers, and reconnects mcp servers.\nsessions are untouched.",
+        "operationId": "reload",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "reloaded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reloaded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer, refused the credential or failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/repo-icon": {
+      "get": {
+        "tags": [
+          "super::repo_icon"
+        ],
+        "summary": "a repo's favicon from its host, or 404 when there is none to show.",
+        "operationId": "repo_icon",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "root",
+            "in": "query",
+            "description": "the repo's project root on the host, absolute. a worktree's directory finds no icon: ask for the root.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the image, with its content type found from its bytes; `cache-control: private, max-age=21600` and an `etag`",
+            "content": {
+              "image/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "the `if-none-match` etag is current"
+          },
+          "400": {
+            "description": "root is not an absolute path, or is `/`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no icon to show, with no body (an unknown host answers the usual json error instead). `x-repo-icon` says why (none, unproven, unsupported, refused, retry) and `cache-control` how long to believe it: 30 minutes when the repo was searched, 60 seconds for a root the host has not shown to be real, 5 minutes when the host cannot read files yet, an hour for the host user's home or a directory above it (never listed), `no-store` when the search could not finish"
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/restart": {
+      "post": {
+        "tags": [
+          "super::hosts"
+        ],
+        "summary": "the daemon aborts every running turn, closes its streams and exits for\nits supervisor to start a fresh one. the host's watcher sees the stream\nend and reconnects to the new daemon from its cursor.",
+        "operationId": "restart",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "the daemon is restarting",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Restarting"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer, refused the credential or failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions": {
+      "post": {
+        "tags": [
+          "super::compose"
+        ],
+        "summary": "starts a thread in a repo with its first message: a fresh worktree first when asked, then the\nsession, then the prompt, armed for \"done\". a retry with the same client id answers the thread\nthe first try made.",
+        "operationId": "start",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewThread"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "a retry: the thread the first try made",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Born"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "the new thread",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Born"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a thread, or no folder there on the host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer, or refused the worktree",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/abort": {
+      "post": {
+        "tags": [
+          "super::asks"
+        ],
+        "summary": "stops the running turn. a fault that follows within 15 s is the\nperson's own action, never pushed.",
+        "operationId": "abort",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verb"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/adopt": {
+      "post": {
+        "tags": [
+          "super::threads"
+        ],
+        "summary": "reads a thread from its daemon and lets the fleet adopt it, for a thread\nopened from history that the fleet does not hold. the fleet's stream\nthen carries its entry like any session's.",
+        "operationId": "adopt",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "the fleet holds the thread now"
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or thread, or it was archived",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/archive": {
+      "post": {
+        "tags": [
+          "super::threads"
+        ],
+        "summary": "archives a thread through its daemon: it leaves every listing and its\nhistory stays on disk. a turn that is running is stopped first, by the\ndaemon.",
+        "operationId": "archive",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "archived",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Archived"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or thread",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the daemon refused, with its own words (`host-said`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/command": {
+      "post": {
+        "tags": [
+          "super::compose"
+        ],
+        "summary": "runs a `/` command as a prompt. the daemon holds its answer until the command's turn settles, so\nthis answers 202 once the daemon has taken it and leaves the rest to the stream (the echo of the\nclient id), keeping the request alive in the background so the daemon is never cut off mid-turn.",
+        "operationId": "command",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlashCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "taken; the stream carries the rest",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a command",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, session, or command",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/compact": {
+      "post": {
+        "tags": [
+          "super::asks"
+        ],
+        "summary": "compacts the thread now, on the model it already uses. the daemon answers once the summary is in, so a thread with\na turn running is refused (stop it first), and a failed compaction leaves the thread as it was.",
+        "operationId": "compact",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verb"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "compacted; the summary is in the thread",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a verb",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the daemon refused: a turn is running, or the thread is imported history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer within five minutes, or the compaction failed and the thread is unchanged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/loop": {
+      "post": {
+        "tags": [
+          "super::session"
+        ],
+        "summary": "runs what is queued now, on an idle session (\"run now\" after a stop).",
+        "operationId": "run_now",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "started",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "a turn is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/messages": {
+      "get": {
+        "tags": [
+          "super::transcript"
+        ],
+        "summary": "the session's messages, as cmx2's `GET /session/{session}/message`\nanswers them, the one still streaming included (cmx2-asks a5).",
+        "operationId": "messages",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "path",
+            "description": "at most this many messages, newest last; all of them when absent.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "before",
+            "in": "path",
+            "description": "the `x-next-cursor` of the page after this one.",
+            "required": true,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cmx2's message list, byte for byte, with `x-cmx2-seq`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, or the daemon has no such session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/messages/{message}": {
+      "get": {
+        "tags": [
+          "super::transcript"
+        ],
+        "summary": "one message of the session, `{info, parts}`, streaming or finished; a\nclient re-reads a part through this when a delta shows it missed text.",
+        "operationId": "message",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "message",
+            "in": "path",
+            "description": "the daemon's message id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cmx2's `{info, parts}`, byte for byte, with `x-cmx2-seq`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, session or message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "super::session"
+        ],
+        "summary": "takes back a queued prompt before the model sees it (\"unsend\").",
+        "operationId": "unsend",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "message",
+            "in": "path",
+            "description": "the queued message's id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "taken back",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, session or queued message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the model already has it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/prompt": {
+      "post": {
+        "tags": [
+          "super::asks"
+        ],
+        "summary": "sends a prompt (it starts a turn, or queues behind the running one) and\narms that turn: when it is done, the device's person hears of it.",
+        "operationId": "prompt",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Prompt"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "taken; the daemon's `{messageID, queued}`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a prompt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/queue": {
+      "post": {
+        "tags": [
+          "super::session"
+        ],
+        "summary": "a prompt for after the running turn; on an idle session it starts one.",
+        "operationId": "queue",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Send"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "accepted: cmx2's answer, byte for byte, with `messageID`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "the send was malformed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the daemon refused it: cmx2's `{name, data}`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/review": {
+      "get": {
+        "tags": [
+          "super::review"
+        ],
+        "summary": "what the branch of a session's checkout holds beyond its base: commits,\nfiles with line counts, the patch, and whether it merges clean.",
+        "operationId": "show",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "cmx2's diff of the checkout, byte for byte, with `checkout`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorktreeReview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, session or checkout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the daemon refused, with its own words (`host-said`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/review/discard": {
+      "post": {
+        "tags": [
+          "super::review"
+        ],
+        "summary": "removes the session's checkout and its branch without merging. when it\nheld work, its last state is kept first under a ref the answer names.",
+        "operationId": "discard",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "discarded: cmx2's answer, byte for byte",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorktreeDiscarded"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, session or checkout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "a turn is running in the checkout: `busy`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutRefusal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the daemon refused, with its own words (`host-said`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/review/merge": {
+      "post": {
+        "tags": [
+          "super::review"
+        ],
+        "summary": "squash-merges the session's checkout into its base on its machine, then\nremoves the checkout and its branch. nothing is pushed.",
+        "operationId": "merge",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "the commit message; optional",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "merged: cmx2's answer, byte for byte",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorktreeMerged"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "the message was too long",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host, session or checkout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the daemon would not merge it: `busy`, `conflict` (with `files`) or `refused` (with `reason`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutRefusal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the daemon refused, with its own words (`host-said`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/shell": {
+      "post": {
+        "tags": [
+          "super::compose"
+        ],
+        "summary": "runs a `!` line in the thread's directory. it starts no turn; the agent reads the output on its\nnext one. the daemon answers when the line has finished, with the shell message.",
+        "operationId": "shell",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Shell"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "ran; the daemon's shell message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "an empty line",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/hosts/{host}/sessions/{session}/steer": {
+      "post": {
+        "tags": [
+          "super::compose"
+        ],
+        "summary": "steers text into the running turn: the agent reads it at its next step. on an idle thread it\nstarts a turn, which is then armed for \"done\" like any prompt.",
+        "operationId": "steer",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Steer"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "taken; the daemon's `{result, messageID}`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Done"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a message",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/login": {
+      "post": {
+        "tags": [
+          "super::login"
+        ],
+        "summary": "exchanges the password for the session cookie.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Login"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "signed in; the session cookie is set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "the body is not a login",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "wrong password, answered after the flat delay",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "tags": [
+          "super::login"
+        ],
+        "summary": "clears the session cookie.",
+        "operationId": "logout",
+        "responses": {
+          "200": {
+            "description": "signed out; the session cookie is cleared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/needs": {
+      "get": {
+        "tags": [
+          "super::needs"
+        ],
+        "summary": "the open needs and the ones served lately, with `x-boxbox-seq`: the\njournal position they reflect, so a stream resumed from it carries\nevery later move and nothing twice.",
+        "operationId": "needs",
+        "responses": {
+          "200": {
+            "description": "the needs, with `x-boxbox-seq: <epoch>:<seq>`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NeedsList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prefs": {
+      "get": {
+        "tags": [
+          "super::prefs"
+        ],
+        "summary": "every preference: each device's appearance, each repo's defaults, the\nfavourite models.",
+        "operationId": "all",
+        "responses": {
+          "200": {
+            "description": "every preference",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prefs"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the store is not answering",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prefs/devices/{device}": {
+      "put": {
+        "tags": [
+          "super::prefs"
+        ],
+        "summary": "sets one device's theme and motion.",
+        "operationId": "device",
+        "parameters": [
+          {
+            "name": "device",
+            "in": "path",
+            "description": "the device id the app minted",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DevicePrefs"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevicePrefs"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a device id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the store is not answering",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prefs/models": {
+      "put": {
+        "tags": [
+          "super::prefs"
+        ],
+        "summary": "sets the favourite models, in order. repeats are dropped, keeping the\nfirst; the answer is the list as saved.",
+        "operationId": "favorite_models",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelPrefs"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "saved, without repeats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelPrefs"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "an id is empty, too long or has control characters, or there are more than 64",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the store is not answering",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/prefs/repos": {
+      "put": {
+        "tags": [
+          "super::prefs"
+        ],
+        "summary": "sets the model and effort a new thread in one repo starts with; with\nneither, the daemon's defaults apply again.",
+        "operationId": "repo",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoPrefs"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoPrefs"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "the host is unknown, or a value is not usable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the store is not answering",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/presence": {
+      "post": {
+        "tags": [
+          "super::push"
+        ],
+        "summary": "what this device is showing; sent on every change and every 30 s while\nthe app is visible and focused.",
+        "operationId": "presence",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PresenceReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "noted"
+          },
+          "400": {
+            "description": "not a presence report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/push": {
+      "get": {
+        "tags": [
+          "super::push"
+        ],
+        "summary": "the push key and every subscribed device.",
+        "operationId": "state",
+        "responses": {
+          "200": {
+            "description": "the vapid key and the subscribed devices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the store is not answering",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/push/subscribe": {
+      "post": {
+        "tags": [
+          "super::push"
+        ],
+        "summary": "saves this device's subscription (replacing any it had).",
+        "operationId": "subscribe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Subscribe"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "subscribed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushDevice"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a subscription boxbox can push to; the message says which part",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the store is not answering",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/push/test": {
+      "post": {
+        "tags": [
+          "super::push"
+        ],
+        "summary": "pushes a test notice to one device, through the same decision, rate\nand dedupe as every other.",
+        "operationId": "test",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushTest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "queued; `push.decided` says what became of it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestQueued"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a test the server can send",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/push/unsubscribe": {
+      "post": {
+        "tags": [
+          "super::push"
+        ],
+        "summary": "forgets this device's subscription.",
+        "operationId": "unsubscribe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Unsubscribe"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "the device is no longer pushed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unsubscribed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not an unsubscribe",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the store is not answering",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/read": {
+      "post": {
+        "tags": [
+          "super::needs"
+        ],
+        "summary": "marks a session seen by one device, through the message it shows. the\nmark never moves back, and the session's mark is the furthest of its\ndevices' (`design.md`, unread from here).",
+        "operationId": "read",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "marked"
+          },
+          "400": {
+            "description": "not a read mark",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such session in the fleet",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream": {
+      "get": {
+        "tags": [
+          "super::stream"
+        ],
+        "summary": "the fleet, live.",
+        "operationId": "stream",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "path",
+            "description": "the cursor, `<epoch>:<seq>`, for clients that cannot set\n`Last-Event-ID`; the header wins when both are sent.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "description": "the id of the last frame applied, `<epoch>:<seq>`",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "an sse stream: `hello`, then a replay or a `reset`, then live entries; each frame's data is one of these",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamFrame"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/telemetry": {
+      "post": {
+        "tags": [
+          "super::telemetry"
+        ],
+        "operationId": "ingest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelemetryBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "normalized and queued for the day file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a telemetry batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "more than 500 events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the writer is backed up; send again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Accepted": {
+        "type": "object",
+        "required": [
+          "accepted",
+          "dropped"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "description": "events stored.",
+            "minimum": 0
+          },
+          "dropped": {
+            "type": "integer",
+            "description": "events dropped whole (unknown kind, or a kind the server owns).",
+            "minimum": 0
+          }
+        }
+      },
+      "Archived": {
+        "type": "object",
+        "description": "the daemon's answer to an archive.",
+        "required": [
+          "archived"
+        ],
+        "properties": {
+          "archived": {
+            "type": "number",
+            "format": "double",
+            "description": "when the daemon archived it, ms since the epoch on its clock."
+          }
+        }
+      },
+      "Ask": {
+        "type": "object",
+        "description": "a permission or a question waiting on a person.",
+        "required": [
+          "key",
+          "host",
+          "id",
+          "kind",
+          "request"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "the session's key, `<host>:<sessionID>`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AskKind"
+          },
+          "request": {
+            "type": "object",
+            "description": "cmx2's `PermissionRequest` or `QuestionRequest`, as the daemon wrote it."
+          }
+        }
+      },
+      "AskKind": {
+        "type": "string",
+        "enum": [
+          "permission",
+          "question"
+        ]
+      },
+      "Born": {
+        "type": "object",
+        "description": "the thread a birth made.",
+        "required": [
+          "session",
+          "directory",
+          "repeat"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string",
+            "description": "where it runs: the checkout, or the fresh worktree."
+          },
+          "repeat": {
+            "type": "boolean",
+            "description": "true when this answers a retry of a birth already made."
+          },
+          "session": {
+            "type": "string",
+            "description": "the new session's id; with the host it is the thread's key."
+          }
+        }
+      },
+      "By": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "a boxbox device, by its id, with the class it named itself by\n(\"iphone\", \"mac\") so a surface can say where.",
+            "required": [
+              "device",
+              "deviceClass",
+              "by"
+            ],
+            "properties": {
+              "by": {
+                "type": "string",
+                "enum": [
+                  "device"
+                ]
+              },
+              "device": {
+                "type": "string"
+              },
+              "deviceClass": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a person, through a client that is not boxbox; the daemon's `by`.",
+            "required": [
+              "who",
+              "by"
+            ],
+            "properties": {
+              "by": {
+                "type": "string",
+                "enum": [
+                  "elsewhere"
+                ]
+              },
+              "who": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "nobody: the agent or the daemon.",
+            "required": [
+              "by"
+            ],
+            "properties": {
+              "by": {
+                "type": "string",
+                "enum": [
+                  "agent"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "who served a need: a person on one of their devices, a person somewhere\nboxbox cannot name (another client of the daemon), or nobody (the agent\nmoved on, the daemon dropped it)."
+      },
+      "Change": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "a host's connection or health changed.",
+            "required": [
+              "host",
+              "type"
+            ],
+            "properties": {
+              "host": {
+                "$ref": "#/components/schemas/HostStatus"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "host"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a host left `boxbox.toml`; everything the fleet held for it goes.",
+            "required": [
+              "host",
+              "type"
+            ],
+            "properties": {
+              "host": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "host.removed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the host was read afresh (a cold connect, or the daemon's\n`stream.reset`): these replace every session and ask the fleet held\nfor it. a client re-reads any open transcript on this host.",
+            "required": [
+              "host",
+              "sessions",
+              "asks",
+              "type"
+            ],
+            "properties": {
+              "asks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Ask"
+                }
+              },
+              "host": {
+                "type": "string"
+              },
+              "sessions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SessionEntry"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "host.reset"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a session appeared or changed: the whole entry, replacing the last.",
+            "required": [
+              "session",
+              "type"
+            ],
+            "properties": {
+              "session": {
+                "$ref": "#/components/schemas/SessionEntry"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "session"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "session.removed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a permission or question now waits on a person.",
+            "required": [
+              "ask",
+              "type"
+            ],
+            "properties": {
+              "ask": {
+                "$ref": "#/components/schemas/Ask"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ask"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "an ask was answered, rejected, or dropped with its turn.",
+            "required": [
+              "host",
+              "id",
+              "type"
+            ],
+            "properties": {
+              "host": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ask.settled"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the window order changed: every key, first first.",
+            "required": [
+              "keys",
+              "type"
+            ],
+            "properties": {
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "order"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a message was created or changed (cmx2 `message.updated`).",
+            "required": [
+              "key",
+              "info",
+              "type"
+            ],
+            "properties": {
+              "info": {
+                "type": "object",
+                "description": "cmx2's `MessageInfo`, as the daemon wrote it."
+              },
+              "key": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "message"
+                ]
+              },
+              "upstream": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "the daemon's seq for this event; apply it only past the seq of\nthe transcript read it lands on. null when the daemon did not\nlog it, which makes it newer than any read.",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a part was created or replaced whole (cmx2 `message.part.updated`).",
+            "required": [
+              "key",
+              "part",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "part": {
+                "type": "object",
+                "description": "cmx2's `Part`, as the daemon wrote it."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "part"
+                ]
+              },
+              "upstream": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "null on the daemon's resume re-send of a part still streaming,\nwhich carries its full text so far and no seq.",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "streamed text for a part (cmx2 `message.part.delta`, never logged\nby the daemon, so it has no seq).",
+            "required": [
+              "key",
+              "messageID",
+              "partID",
+              "field",
+              "delta",
+              "offset",
+              "type"
+            ],
+            "properties": {
+              "delta": {
+                "type": "string"
+              },
+              "field": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer",
+                "format": "int64",
+                "description": "utf-16 units of the part's text before this delta: a client\nappends only when it equals what it holds, skips what it\nalready has, and re-reads the part on a gap.",
+                "minimum": 0
+              },
+              "partID": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "delta"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "messageID",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "message.removed"
+                ]
+              },
+              "upstream": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "a change to the fleet model, discriminated on `type`."
+      },
+      "CheckoutRefusal": {
+        "type": "object",
+        "description": "why the daemon would not merge or discard a checkout, as the review card reads it.",
+        "required": [
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/RefusalKind",
+            "description": "`busy` (a turn runs in the checkout), `conflict` (the branch conflicts with its\nbase) or `refused` (see `reason`)."
+          },
+          "files": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "on `conflict`: the files that conflict."
+          },
+          "message": {
+            "type": "string",
+            "description": "the daemon's words."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "on `refused`: `dirty`, `nothing`, `detached` or `target_dirty`."
+          }
+        }
+      },
+      "ClearBody": {
+        "type": "object",
+        "description": "threads to clear off home, and from which control.",
+        "required": [
+          "device",
+          "deviceClass",
+          "keys",
+          "source"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`host:session`, at most 300."
+          },
+          "source": {
+            "$ref": "#/components/schemas/ClearSource"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClearSource": {
+        "type": "string",
+        "description": "which control cleared them, for telemetry.",
+        "enum": [
+          "window",
+          "done"
+        ]
+      },
+      "Cleared": {
+        "type": "object",
+        "description": "how a clear went: the threads now off home, and the ones that could not be.",
+        "required": [
+          "cleared",
+          "refused"
+        ],
+        "properties": {
+          "cleared": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "the threads that left home."
+          },
+          "refused": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotCleared"
+            }
+          }
+        }
+      },
+      "CommandChoice": {
+        "type": "object",
+        "description": "a `/` command a menu can offer.",
+        "required": [
+          "name",
+          "hints",
+          "source"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`$1`, `$ARGUMENTS`: what it takes after its name."
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "`command` (a command file) or `skill`."
+          }
+        }
+      },
+      "Connection": {
+        "type": "string",
+        "enum": [
+          "connecting",
+          "connected",
+          "down"
+        ]
+      },
+      "Control": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "the first frame of every connection; it carries no id.",
+            "required": [
+              "epoch",
+              "head",
+              "build",
+              "protocol",
+              "type"
+            ],
+            "properties": {
+              "build": {
+                "type": "string",
+                "description": "the server's build; a newer one lights \"update ready\"."
+              },
+              "epoch": {
+                "type": "string",
+                "description": "the journal this server holds; a restart mints a new one."
+              },
+              "head": {
+                "type": "integer",
+                "format": "int64",
+                "description": "the journal's newest seq.",
+                "minimum": 0
+              },
+              "protocol": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "hello"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the client's cursor cannot be replayed: this snapshot replaces\neverything it holds, and live entries follow from `seq`.",
+            "required": [
+              "seq",
+              "epoch",
+              "reason",
+              "fleet",
+              "type"
+            ],
+            "properties": {
+              "epoch": {
+                "type": "string"
+              },
+              "fleet": {
+                "$ref": "#/components/schemas/FleetSnapshot"
+              },
+              "reason": {
+                "$ref": "#/components/schemas/ResetReason"
+              },
+              "seq": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "reset"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "the stream's frames that are not journal entries."
+      },
+      "DevicePrefs": {
+        "type": "object",
+        "description": "one device's appearance.",
+        "properties": {
+          "motion": {
+            "$ref": "#/components/schemas/Motion",
+            "default": "system"
+          },
+          "theme": {
+            "$ref": "#/components/schemas/Theme",
+            "default": "system"
+          }
+        }
+      },
+      "Done": {
+        "type": "object",
+        "description": "the daemon took the verb.",
+        "required": [
+          "repeat",
+          "answer"
+        ],
+        "properties": {
+          "answer": {
+            "type": "object",
+            "description": "the daemon's answer, as it wrote it."
+          },
+          "repeat": {
+            "type": "boolean",
+            "description": "true when the daemon had already acted on this `clientID` and\nrepeated its first answer."
+          }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "the body of every error answer.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one)."
+          },
+          "message": {
+            "type": "string",
+            "description": "for people, in the interface's voice."
+          },
+          "settled": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SettledBy",
+                "description": "on `settled`: who answered first, and when."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "FleetSnapshot": {
+        "type": "object",
+        "description": "the whole fleet model, as `reset` and `GET /api/fleet` carry it.",
+        "required": [
+          "hosts",
+          "sessions",
+          "asks",
+          "order"
+        ],
+        "properties": {
+          "asks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Ask"
+            }
+          },
+          "hosts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HostStatus"
+            }
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "the window order: session keys, first first."
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionEntry"
+            }
+          }
+        }
+      },
+      "Folder": {
+        "type": "object",
+        "description": "a folder on the host, for the new-thread sheet's picker.",
+        "required": [
+          "name",
+          "directory",
+          "repo"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string",
+            "description": "its absolute path on the host."
+          },
+          "name": {
+            "type": "string",
+            "description": "the folder's own name."
+          },
+          "repo": {
+            "type": "boolean",
+            "description": "it holds a `.git`, so a fresh worktree can be made from it."
+          }
+        }
+      },
+      "Folders": {
+        "type": "object",
+        "description": "the folders inside one folder on a host.",
+        "required": [
+          "path",
+          "home",
+          "children",
+          "truncated"
+        ],
+        "properties": {
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Folder"
+            },
+            "description": "the folders inside it that start with the prefix asked, visible first, then by name; at most 500."
+          },
+          "home": {
+            "type": "string",
+            "description": "the host user's home, where a walk starts."
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the folder above it; none at the root."
+          },
+          "path": {
+            "type": "string",
+            "description": "the folder read, absolute and resolved."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "more folders matched than `children` holds: type more of the name to narrow it."
+          }
+        }
+      },
+      "FrameCounts": {
+        "type": "object",
+        "description": "frames read from the host since the server started.",
+        "required": [
+          "decoded",
+          "undecodable",
+          "duplicates"
+        ],
+        "properties": {
+          "decoded": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "duplicates": {
+            "type": "integer",
+            "format": "int64",
+            "description": "events a resume replayed at or below the cursor, dropped so none\napplies twice.",
+            "minimum": 0
+          },
+          "undecodable": {
+            "type": "integer",
+            "format": "int64",
+            "description": "frames that did not decode into the generated `Event` union, or were\nover the frame cap; each was logged and skipped.",
+            "minimum": 0
+          }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "required": [
+          "healthy",
+          "version",
+          "contract",
+          "contractMatches",
+          "checkedAt",
+          "latencyMs"
+        ],
+        "properties": {
+          "checkedAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when this answer arrived, ms since the epoch."
+          },
+          "contract": {
+            "type": "integer",
+            "format": "int64",
+            "description": "the contract version the daemon speaks."
+          },
+          "contractMatches": {
+            "type": "boolean",
+            "description": "whether that is the contract boxbox's types were generated from."
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "latencyMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "HistoryPage": {
+        "type": "object",
+        "required": [
+          "rows",
+          "unreached"
+        ],
+        "properties": {
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "where the next page starts (`before`); absent at the end. opaque: send\nit back as it came. a page can be empty with a cursor: a search that\nmatched nothing yet."
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HistoryRow"
+            },
+            "description": "newest first."
+          },
+          "unreached": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Unreached"
+            },
+            "description": "machines left out of this page."
+          }
+        }
+      },
+      "HistoryRow": {
+        "type": "object",
+        "description": "one thread of history. its status, asks and tail are the fleet's, for a\nthread the fleet holds; the rest is the daemon's listing.",
+        "required": [
+          "key",
+          "host",
+          "info",
+          "cleared"
+        ],
+        "properties": {
+          "cleared": {
+            "type": "boolean",
+            "description": "the thread is cleared off home now."
+          },
+          "host": {
+            "type": "string"
+          },
+          "info": {
+            "type": "object",
+            "description": "cmx2's `SessionInfo`, as the daemon wrote it."
+          },
+          "key": {
+            "type": "string",
+            "description": "`<host>:<sessionID>`."
+          }
+        }
+      },
+      "HostMemory": {
+        "type": "object",
+        "description": "what the daemon says about its own memory.",
+        "required": [
+          "rss",
+          "liveSessions",
+          "uptimeS",
+          "sampledAt"
+        ],
+        "properties": {
+          "liveSessions": {
+            "type": "integer",
+            "format": "int32",
+            "description": "sessions the daemon holds in memory; none means it is idle.",
+            "minimum": 0
+          },
+          "rss": {
+            "type": "integer",
+            "format": "int64",
+            "description": "resident set size, in bytes.",
+            "minimum": 0
+          },
+          "sampledAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when the sample was taken, ms since the epoch."
+          },
+          "uptimeS": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "HostModels": {
+        "type": "object",
+        "required": [
+          "models"
+        ],
+        "properties": {
+          "default": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`<provider>/<model>` the daemon starts a thread with, when it says."
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelChoice"
+            }
+          }
+        }
+      },
+      "HostOrigin": {
+        "type": "string",
+        "description": "where a host came from, which decides who may change it.",
+        "enum": [
+          "config",
+          "paired"
+        ]
+      },
+      "HostStatus": {
+        "type": "object",
+        "description": "what `GET /api/hosts` says about one host.",
+        "required": [
+          "name",
+          "url",
+          "origin",
+          "connection",
+          "since",
+          "connects",
+          "frames"
+        ],
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/Connection"
+          },
+          "connects": {
+            "type": "integer",
+            "format": "int64",
+            "description": "connections made since the server started.",
+            "minimum": 0
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the watcher's cursor, `<epoch>:<seq>`, as of the last connection\nchange: where that connection resumed from, or where the one before\nit stopped. null before the host was first read."
+          },
+          "frames": {
+            "$ref": "#/components/schemas/FrameCounts"
+          },
+          "health": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Health",
+                "description": "the last `/global/health` answer; kept while the host is down so the\nui can say which version was last seen."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "why the last connection ended or failed, in plain words."
+          },
+          "memory": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HostMemory",
+                "description": "the daemon's own memory report, sampled while connected; null until\nthe first sample, and for a daemon that does not report it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "the host's name, from `boxbox.toml` or given when it was paired."
+          },
+          "origin": {
+            "$ref": "#/components/schemas/HostOrigin"
+          },
+          "since": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when `connection` last changed, ms since the epoch."
+          },
+          "url": {
+            "type": "string",
+            "description": "the daemon's address (never its credential)."
+          }
+        }
+      },
+      "How": {
+        "type": "string",
+        "description": "how a need was served. the names are telemetry values.",
+        "enum": [
+          "answered",
+          "seen",
+          "continued",
+          "settled",
+          "dropped",
+          "gone",
+          "expired"
+        ]
+      },
+      "JournalEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Change"
+          },
+          {
+            "type": "object",
+            "required": [
+              "seq"
+            ],
+            "properties": {
+              "seq": {
+                "type": "integer",
+                "format": "int64",
+                "description": "contiguous within an epoch; the entry's sse id is `<epoch>:<seq>`.",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "one journal entry: a change to the fleet model, at its place in the\njournal."
+      },
+      "Login": {
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "McpServer": {
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "`connecting`, `connected`, `failed`, `disabled` or `needs_auth`."
+          }
+        }
+      },
+      "MergeBody": {
+        "type": "object",
+        "description": "the squash commit's message.",
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "made from the branch's commits when absent or blank."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ModelChoice": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "provider",
+          "efforts"
+        ],
+        "properties": {
+          "efforts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "the model's variants: its efforts, then the profile's named ones."
+          },
+          "id": {
+            "type": "string",
+            "description": "`<provider>/<model>`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
+      "ModelPrefs": {
+        "type": "object",
+        "description": "the models a person keeps at the top of every picker, on every device.",
+        "properties": {
+          "favorites": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`<provider>/<model>` ids, in the order the person put them. an id no\nhost lists any more stays until they unpin it.",
+            "default": []
+          }
+        }
+      },
+      "ModelRef": {
+        "type": "object",
+        "description": "a model, as cmx2 names one.",
+        "required": [
+          "providerID",
+          "modelID"
+        ],
+        "properties": {
+          "modelID": {
+            "type": "string"
+          },
+          "providerID": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Motion": {
+        "type": "string",
+        "enum": [
+          "system",
+          "reduced",
+          "full"
+        ]
+      },
+      "Need": {
+        "type": "object",
+        "description": "one need, open or served.",
+        "required": [
+          "id",
+          "kind",
+          "key",
+          "rank",
+          "raisedAt",
+          "title",
+          "body"
+        ],
+        "properties": {
+          "ask": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the ask's id, on a permission or a question."
+          },
+          "body": {
+            "type": "string",
+            "description": "the question, the command it wants to run, the result line, the\nreason; at most 240 characters."
+          },
+          "checkout": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the checkout's name, on a review."
+          },
+          "how": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/How"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "stable per event: `ask:<host>:<ask id>`, `done:<key>:<message id>`,\n`fault:<key>:<message id or seq>`, `review:<key>:<checkout>:<event seq or t<ms>>` (one per request),\n`job:<key>:<process id>:<reason>`. the push notice for it carries\nthe same id."
+          },
+          "key": {
+            "type": "string",
+            "description": "the session, `<host>:<sessionID>`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/NeedKind"
+          },
+          "raisedAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when boxbox raised it, ms since the epoch on the server's clock."
+          },
+          "rank": {
+            "type": "integer",
+            "format": "int32",
+            "description": "its place in the inbox: 0 wants you, 1 failed, 2 done or news.",
+            "minimum": 0
+          },
+          "servedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "when it was served; absent while open."
+          },
+          "servedBy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/By"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "\"ledger wants you\", \"api is done\", in the voice."
+          }
+        }
+      },
+      "NeedKind": {
+        "type": "string",
+        "description": "what a need is about. the names are the telemetry `need` values and\nnever change.",
+        "enum": [
+          "permission",
+          "question",
+          "fault",
+          "review",
+          "job",
+          "done"
+        ]
+      },
+      "NeedsList": {
+        "type": "object",
+        "description": "what waits on the person, and what was served lately.",
+        "required": [
+          "open",
+          "served"
+        ],
+        "properties": {
+          "open": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Need"
+            },
+            "description": "open needs in inbox order: wants you (oldest first), failed, then\ndone and news (newest first)."
+          },
+          "served": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Need"
+            },
+            "description": "needs served lately, newest first, with who served them and when."
+          }
+        }
+      },
+      "NewTerminal": {
+        "type": "object",
+        "description": "a new terminal. with no command it is the host's login shell.",
+        "properties": {
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "its arguments."
+          },
+          "command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "a program to run instead of the login shell, such as another\nshell's path from `/shells`."
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "where it starts; the host's home when absent."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "NewThread": {
+        "type": "object",
+        "description": "a new thread in a repo, with its first message.",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID",
+          "directory",
+          "place",
+          "text"
+        ],
+        "properties": {
+          "clientID": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          },
+          "directory": {
+            "type": "string",
+            "description": "the repo's directory on the host."
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Photo"
+            }
+          },
+          "place": {
+            "$ref": "#/components/schemas/Place"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotCleared": {
+        "type": "object",
+        "description": "a thread that stayed on home, and why, in words a window can show.",
+        "required": [
+          "key",
+          "why",
+          "message"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "why": {
+            "$ref": "#/components/schemas/NotClearedWhy"
+          }
+        }
+      },
+      "NotClearedWhy": {
+        "type": "string",
+        "enum": [
+          "working",
+          "asking",
+          "subagent",
+          "unknown"
+        ]
+      },
+      "Pair": {
+        "type": "object",
+        "description": "what `cmx2 pair` printed, and what to call the machine.",
+        "required": [
+          "url",
+          "token"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "lowercase letters, digits and dashes; from the address when absent."
+          },
+          "token": {
+            "type": "string",
+            "description": "the one-time token, the `token` line."
+          },
+          "url": {
+            "type": "string",
+            "description": "the daemon's address, the `url` line."
+          }
+        },
+        "additionalProperties": false
+      },
+      "PairedHost": {
+        "type": "object",
+        "required": [
+          "name",
+          "url",
+          "version",
+          "contract",
+          "contractMatches"
+        ],
+        "properties": {
+          "contract": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "contractMatches": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "PermissionAnswer": {
+        "type": "object",
+        "description": "an answer to a permission.",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID",
+          "reply"
+        ],
+        "properties": {
+          "clientID": {
+            "type": "string",
+            "description": "a uuid the device picks once per answer and reuses on a retry."
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "with reject: what the agent should do instead."
+          },
+          "reply": {
+            "$ref": "#/components/schemas/PermissionReply"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PermissionReply": {
+        "type": "string",
+        "enum": [
+          "once",
+          "always",
+          "reject"
+        ]
+      },
+      "Photo": {
+        "type": "object",
+        "description": "a photo on a message.",
+        "required": [
+          "mime",
+          "url"
+        ],
+        "properties": {
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mime": {
+            "type": "string",
+            "description": "`image/png`, `image/jpeg`, `image/webp`, `image/gif`, or `image/heic` or `image/heif` (the\noriginal of a photo the browser could not decode; the host converts it to jpeg)."
+          },
+          "url": {
+            "type": "string",
+            "description": "`data:<mime>;base64,...`: at most 1.5 mb, or for heic and heif a file of at most 9 mb; the photos of\none message at most 18 mb of files together."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Place": {
+        "type": "string",
+        "description": "where a new thread runs.",
+        "enum": [
+          "checkout",
+          "fresh"
+        ]
+      },
+      "Prefs": {
+        "type": "object",
+        "required": [
+          "devices",
+          "repos",
+          "models"
+        ],
+        "properties": {
+          "devices": {
+            "type": "object",
+            "description": "by device id.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DevicePrefs"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "models": {
+            "$ref": "#/components/schemas/ModelPrefs",
+            "description": "shared by every device."
+          },
+          "repos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RepoPrefs"
+            },
+            "description": "by host, then directory."
+          }
+        }
+      },
+      "PresenceReport": {
+        "type": "object",
+        "description": "`POST /api/presence`: what one device is showing right now.",
+        "required": [
+          "device",
+          "visible",
+          "focused"
+        ],
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "the device id the app minted once for this browser profile."
+          },
+          "focused": {
+            "type": "boolean",
+            "description": "`document.hasFocus()`: boxbox is the app in front, not behind another."
+          },
+          "thread": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the thread on stage, `host:session`, or null on home."
+          },
+          "visible": {
+            "type": "boolean",
+            "description": "`document.visibilityState === \"visible\"`."
+          },
+          "windowsInView": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "threads whose windows are in view, `host:session` each."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectChoice": {
+        "type": "object",
+        "description": "a repo a new thread can start in, newest activity first.",
+        "required": [
+          "directory"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string",
+            "description": "the repo's main checkout on the host."
+          },
+          "updated": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "last activity, ms since the epoch."
+          }
+        }
+      },
+      "Prompt": {
+        "type": "object",
+        "description": "a prompt from a device; the turn it starts is armed for \"done\".",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID",
+          "text"
+        ],
+        "properties": {
+          "clientID": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "one of the model's efforts; cmx2 makes it the thread's effort from\nthis message on."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`provider/model`, from `/api/hosts/{host}/models`; cmx2 makes it the\nthread's model from this message on."
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Photo"
+            },
+            "description": "photos, resized on the device, as `data:` urls."
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PushDevice": {
+        "type": "object",
+        "required": [
+          "device",
+          "deviceClass",
+          "kinds",
+          "since"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushKind"
+            },
+            "description": "the kinds this device is pushed."
+          },
+          "since": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when it first subscribed, ms since the epoch."
+          }
+        }
+      },
+      "PushKind": {
+        "type": "string",
+        "description": "the kinds a person turns on per device (`design.md`, attention: \"which\nof the four kinds push. that is the whole settings page for push\").",
+        "enum": [
+          "ask",
+          "done",
+          "fault",
+          "ready"
+        ]
+      },
+      "PushState": {
+        "type": "object",
+        "required": [
+          "publicKey",
+          "devices"
+        ],
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushDevice"
+            },
+            "description": "every subscribed device, oldest first."
+          },
+          "publicKey": {
+            "type": "string",
+            "description": "the vapid public key, base64url: pass it to `pushManager.subscribe`\nas `applicationServerKey`."
+          }
+        }
+      },
+      "PushTest": {
+        "type": "object",
+        "description": "a test notice to one device: the kind picks the shape (an ask carries\nanswer and open), and a real thread and ask make the links land.",
+        "required": [
+          "device",
+          "kind"
+        ],
+        "properties": {
+          "ask": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the ask to focus, for kind ask."
+          },
+          "device": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PushKind"
+          },
+          "thread": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`host:session`; a placeholder thread when absent."
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuestionAnswer": {
+        "type": "object",
+        "description": "an answer to a question: one list of chosen labels (or typed text) per\nquestion it asked.",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID",
+          "answers"
+        ],
+        "properties": {
+          "answers": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "clientID": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReadBody": {
+        "type": "object",
+        "description": "a device has seen a session through one message.",
+        "required": [
+          "device",
+          "deviceClass",
+          "key",
+          "message",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "number",
+            "format": "double",
+            "description": "that message's `time.created`, as the daemon wrote it (ms)."
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "`host:session`."
+          },
+          "message": {
+            "type": "string",
+            "description": "the newest message the device has in front of it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReadMark": {
+        "type": "object",
+        "description": "a session's read mark as every surface gets it: the furthest any\ndevice has seen.",
+        "required": [
+          "at",
+          "message",
+          "device",
+          "markedAt"
+        ],
+        "properties": {
+          "at": {
+            "type": "number",
+            "format": "double",
+            "description": "the daemon's `time.created` of the newest message seen, ms: a\nmessage created after it is unread."
+          },
+          "device": {
+            "type": "string",
+            "description": "the device that saw furthest."
+          },
+          "markedAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when it was marked, ms since the epoch on the server's clock."
+          },
+          "message": {
+            "type": "string",
+            "description": "that message's id."
+          }
+        }
+      },
+      "RefusalKind": {
+        "type": "string",
+        "enum": [
+          "busy",
+          "conflict",
+          "refused"
+        ]
+      },
+      "Reloaded": {
+        "type": "object",
+        "required": [
+          "changed",
+          "flushed",
+          "mcp"
+        ],
+        "properties": {
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "config files that changed since the daemon last read them."
+          },
+          "flushed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "what the daemon flushed: skills, agents, commands, models."
+          },
+          "mcp": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/McpServer"
+            }
+          }
+        }
+      },
+      "RepoPrefs": {
+        "type": "object",
+        "description": "what a new thread in one repo starts with. absent means the daemon's\nown default.",
+        "required": [
+          "host",
+          "directory"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string",
+            "description": "the repo's directory on that host, as cmx2 names it."
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "one of the model's variants: an effort, or a named variant."
+          },
+          "host": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`<provider>/<model>`, as the host's `/config/providers` lists it."
+          }
+        }
+      },
+      "ResetReason": {
+        "type": "string",
+        "description": "why a stream began with `reset`.",
+        "enum": [
+          "none",
+          "epoch",
+          "expired",
+          "invalid"
+        ]
+      },
+      "Restarting": {
+        "type": "object",
+        "required": [
+          "host"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          }
+        }
+      },
+      "Send": {
+        "type": "object",
+        "description": "a prompt, a queued prompt or a steer: what the person typed, with what\nthey attached and the model and effort they chose for it.",
+        "required": [
+          "clientID"
+        ],
+        "properties": {
+          "agent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "an agent to address, by name."
+          },
+          "clientID": {
+            "type": "string",
+            "description": "a uuid the client picks and keeps for a retry, so a flaky network\ncannot double a prompt (cmx2-asks a4)."
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the effort for this message: low, medium, high, xhigh or max."
+          },
+          "model": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ModelRef",
+                "description": "the model for this message; the session's default when absent."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parts": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SendPart"
+            },
+            "description": "attachments: a photo or document as a data url, or an `@` mention as a file url."
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SendPart": {
+        "type": "object",
+        "description": "one attachment of a send.",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mime": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "description": "`text` or `file`."
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "a `data:` url for a photo or document, a `file://` url for a mention."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Session": {
+        "type": "object",
+        "required": [
+          "signedIn"
+        ],
+        "properties": {
+          "signedIn": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionEntry": {
+        "type": "object",
+        "description": "one session in the fleet, identity `host:session` (repos never merge\nacross hosts).",
+        "required": [
+          "key",
+          "host",
+          "id",
+          "info",
+          "agents",
+          "processes",
+          "tail",
+          "needs"
+        ],
+        "properties": {
+          "agents": {
+            "type": "integer",
+            "format": "int32",
+            "description": "child sessions with a turn running now.",
+            "minimum": 0
+          },
+          "cleared": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "set while the person has this thread cleared off home: the session's\n`time.updated` when they cleared it. absent otherwise, and the moment\nthe thread does something new (`clears.rs`)."
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "info": {
+            "type": "object",
+            "description": "cmx2's `SessionInfo`, as the daemon wrote it."
+          },
+          "key": {
+            "type": "string",
+            "description": "`<host>:<sessionID>`."
+          },
+          "needs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Need"
+            },
+            "description": "what waits on a person here, most pressing first (`needs.rs`)."
+          },
+          "processes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "background jobs a parked session waits on.",
+            "minimum": 0
+          },
+          "read": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReadMark",
+                "description": "how far the person has seen, on the daemon's clock; null before\nany device has looked (`read.rs`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "cmx2's `SessionStatus`; null when idle and not parked."
+          },
+          "tail": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TailItem"
+            },
+            "description": "the window's tail: the last parts, oldest first, at most 12."
+          }
+        }
+      },
+      "SettledBy": {
+        "type": "object",
+        "description": "who settled an ask first, as the daemon says (cmx2 a6).",
+        "required": [
+          "by"
+        ],
+        "properties": {
+          "at": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "when, ms since the epoch; null when the daemon did not say."
+          },
+          "by": {
+            "type": "string",
+            "description": "the device class or client that answered (\"iphone\", \"mac\")."
+          }
+        }
+      },
+      "Shell": {
+        "type": "object",
+        "description": "a `!` line.",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID",
+          "command"
+        ],
+        "properties": {
+          "clientID": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string",
+            "description": "the line, without its `!`."
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SlashCommand": {
+        "type": "object",
+        "description": "a `/` command and what was typed after its name.",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID",
+          "command"
+        ],
+        "properties": {
+          "arguments": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clientID": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string",
+            "description": "the name, without its `/`."
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Steer": {
+        "type": "object",
+        "description": "text with photos, steered into the running turn.",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID",
+          "text"
+        ],
+        "properties": {
+          "clientID": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Photo"
+            }
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StreamFrame": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Control"
+          },
+          {
+            "$ref": "#/components/schemas/JournalEntry"
+          }
+        ],
+        "description": "one frame's data on `GET /api/stream`: a control frame or a journal\nentry, discriminated on `type` across both."
+      },
+      "Subscribe": {
+        "type": "object",
+        "description": "a `PushSubscription` as `toJSON()` gives it, plus who it belongs to.",
+        "required": [
+          "device",
+          "deviceClass",
+          "endpoint",
+          "keys"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string",
+            "description": "one of the telemetry dictionary's device classes."
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/SubscriptionKeys"
+          },
+          "kinds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PushKind"
+            },
+            "description": "the kinds to push; all four when absent."
+          }
+        }
+      },
+      "SubscriptionKeys": {
+        "type": "object",
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "properties": {
+          "auth": {
+            "type": "string"
+          },
+          "p256dh": {
+            "type": "string"
+          }
+        }
+      },
+      "TailItem": {
+        "type": "object",
+        "description": "one part as a window shows it, reduced to what the window needs. parts\na window does not show (step markers, snapshots, the context the daemon\nadds to a prompt, a prompt still queued) never enter a tail. streamed\ntext grows the part as it arrives (`message.part.delta`).",
+        "required": [
+          "partID",
+          "messageID",
+          "kind",
+          "role",
+          "text"
+        ],
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the agent that sent the part, when it is another agent's report or\nnote (cmx2's mail envelope): the window says who, not \"you\"."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TailKind"
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "partID": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TailRole",
+            "description": "who wrote the part's message: your prompt sits on the right."
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the tool's state (`pending`, `running`, `completed`, `error`)."
+          },
+          "text": {
+            "type": "string",
+            "description": "at most 280 characters: the end of the agent's text, the start of\nyour prompt, or the tool's title."
+          },
+          "tool": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the tool's name, on tool parts."
+          }
+        }
+      },
+      "TailKind": {
+        "type": "string",
+        "enum": [
+          "text",
+          "reasoning",
+          "tool",
+          "file"
+        ]
+      },
+      "TailRole": {
+        "type": "string",
+        "description": "cmx2's message roles, as the daemon names them.",
+        "enum": [
+          "user",
+          "assistant"
+        ]
+      },
+      "TelemetryBatch": {
+        "type": "object",
+        "description": "the body is read whatever its content type says, because\n`navigator.sendBeacon` posts `text/plain`.",
+        "required": [
+          "device",
+          "deviceClass",
+          "events"
+        ],
+        "properties": {
+          "device": {
+            "type": "string",
+            "description": "the producer's device id, minted once per browser profile or board."
+          },
+          "deviceClass": {
+            "type": "string",
+            "description": "one of the dictionary's device classes, claimed explicitly."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "raw events: `{kind, id?, at?, surface?, host?, session?, repo?, ok?, ms?, props?}`."
+          }
+        }
+      },
+      "TerminalChange": {
+        "type": "object",
+        "description": "a rename, a resize, or both.",
+        "properties": {
+          "size": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TerminalSize"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "TerminalSize": {
+        "type": "object",
+        "required": [
+          "rows",
+          "cols"
+        ],
+        "properties": {
+          "cols": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1 to 1000.",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1 to 1000.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "TestQueued": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "the notice id, the join key in `push.decided`, `push.sent` and\n`push.delivered`."
+          }
+        }
+      },
+      "Theme": {
+        "type": "string",
+        "enum": [
+          "system",
+          "dark",
+          "light"
+        ]
+      },
+      "Unreached": {
+        "type": "object",
+        "description": "a machine that did not answer, and why.",
+        "required": [
+          "host",
+          "reason"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "Unsubscribe": {
+        "type": "object",
+        "required": [
+          "device"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          }
+        }
+      },
+      "Unsubscribed": {
+        "type": "object",
+        "required": [
+          "removed"
+        ],
+        "properties": {
+          "removed": {
+            "type": "boolean",
+            "description": "false when the device had no subscription."
+          }
+        }
+      },
+      "Verb": {
+        "type": "object",
+        "description": "dismissing a question, or stopping a turn.",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID"
+        ],
+        "properties": {
+          "clientID": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WorktreeDiscarded": {
+        "type": "object",
+        "description": "cmx2's answer to a discard, as it came.",
+        "required": [
+          "discarded",
+          "stopped"
+        ],
+        "properties": {
+          "discarded": {
+            "type": "boolean"
+          },
+          "ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the ref that names it."
+          },
+          "snapshot": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the commit that keeps the checkout's last state, when it held work."
+          },
+          "stopped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "processes stopped because they ran in the checkout."
+          }
+        }
+      },
+      "WorktreeFile": {
+        "type": "object",
+        "description": "a file the branch changes.",
+        "required": [
+          "path",
+          "status",
+          "additions",
+          "deletions"
+        ],
+        "properties": {
+          "additions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "deletions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "`added`, `deleted`, `modified` or `renamed`."
+          }
+        }
+      },
+      "WorktreeMerged": {
+        "type": "object",
+        "description": "cmx2's answer to a merge, as it came.",
+        "required": [
+          "merged",
+          "commit",
+          "base",
+          "branch",
+          "commits",
+          "stopped"
+        ],
+        "properties": {
+          "base": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string",
+            "description": "the squash commit."
+          },
+          "commits": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "into": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "where the base is checked out; the merge ran there."
+          },
+          "merged": {
+            "type": "boolean"
+          },
+          "stopped": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "processes stopped because they ran in the checkout."
+          }
+        }
+      },
+      "WorktreeReview": {
+        "type": "object",
+        "description": "what a checkout's branch holds beyond its base: cmx2's answer as it came,\nwith `checkout` added.",
+        "required": [
+          "base",
+          "baseRef",
+          "commits",
+          "dirty",
+          "additions",
+          "deletions",
+          "files",
+          "diff",
+          "truncated",
+          "checkout"
+        ],
+        "properties": {
+          "additions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "base": {
+            "type": "string"
+          },
+          "baseRef": {
+            "type": "string"
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "checkout": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the checkout's name when the session has an open review need, else null."
+          },
+          "commits": {
+            "type": "integer",
+            "format": "int64",
+            "description": "commits on the branch beyond its base.",
+            "minimum": 0
+          },
+          "deletions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "diff": {
+            "type": "string",
+            "description": "the unified patch of the commits, 2 MB at most."
+          },
+          "dirty": {
+            "type": "boolean",
+            "description": "uncommitted changes in the checkout: merge refuses until they are committed."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorktreeFile"
+            }
+          },
+          "mergeable": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "false when the branch conflicts with its base; absent when the daemon did not say."
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

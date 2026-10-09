@@ -1,0 +1,44 @@
+# boxbox.toml: `boxbox init` writes one, or copy this to
+# ~/.config/boxbox/boxbox.toml and `chmod 600` it. the server refuses a
+# config others can read, since it holds passwords.
+
+# where the server listens. keep it on loopback and put an https front on
+# your private network before it (docs/deploy.md).
+listen = "127.0.0.1:3000"
+
+# sqlite, the cookie secret and telemetry live here. `~` is your home; a
+# relative path is relative to this file.
+data_dir = "~/.local/share/boxbox"
+
+# the one password that opens boxbox, 8 characters or more.
+password = "change me to something long"
+
+[cookie]
+# a dev server uses its own name, so a production cookie on the same host
+# never shadows it.
+name = "boxbox_session"
+# on behind https. off for a dev server, or for boxbox opened from this
+# machine over plain http (`boxbox init --plain-http`, docs/deploy.md).
+secure = true
+
+[push]
+# who push services may write to about this server's notifications (the
+# vapid contact): a mailto: or https: address. apple's push service, which
+# delivers to iphones and ipads, wants a real one.
+contact = "mailto:you@example.com"
+
+# one [[host]] per cmx2 daemon. the name is part of every thread's identity
+# (`desk:ses_...`), so pick it once: lowercase letters, digits and dashes.
+[[host]]
+name = "desk"
+url = "http://127.0.0.1:4097"
+# the daemon's CMX2_SERVER_PASSWORD, if it has one (the user is cmx2).
+password = "the daemon's password"
+
+# a daemon boxbox paired with signs in with a bearer instead, never beside a
+# password: `boxbox init --pair vm=<url>` trades the token `cmx2 pair` prints
+# there for it, and writes this.
+# [[host]]
+# name = "vm"
+# url = "https://vm.your-tailnet.ts.net:4097"
+# bearer = "the credential the daemon's POST /pair answered"

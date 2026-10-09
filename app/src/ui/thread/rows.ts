@@ -1,0 +1,524 @@
+/* the ledger's rows: a turn's items folded into what a reader takes in, and
+   what each row shows (docs/thread.md, the row, folding, display rules).
+   pure; no dom. the components paint these. */
+
+import type { Evidence } from "./evidence";
+import { type Item, type Question, type Say, type Step, type Think, type Turn, homeAsTilde } from "./model";
+import { type Token, base, commandTokens, dirOf, firstLine } from "./shell";
+
+/* ---------- folding ---------- */
+
+export type FoldRow = { k: "fold"; family: "read" | "search" | "web"; tool: string; at: number; end: number; steps: Step[] };
+export type ThinkRow = { k: "think"; at: number; end: number; ms: number; thoughts: Think[] };
+export type SayRow = { k: "say"; at: number; end: number; say: Say };
+export type StepRow = { k: "step"; at: number; end: number; step: Step };
+export type Row = SayRow | ThinkRow | FoldRow | StepRow;
+
+const foldable = (s: Step): s is Step & { family: "read" | "search" | "web" } => s.status === "completed" && (s.family === "read" || s.family === "search" || s.family === "web");
+
+/** consecutive thoughts fold into one row; consecutive reads, searches or web lookups of one tool fold into one row.
+    commands, edits, agents, asks and failures never fold; anything between two reads keeps them apart. */
+export function rowsOf(items: readonly Item[]): Row[] {
+  const rows: Row[] = [];
+  for (const it of items) {
+    const prev = rows.at(-1);
+    if (it.k === "say") { rows.push({ k: "say", at: it.at, end: it.at, say: it }); continue; }
+    if (it.k === "think") {
+      if (prev?.k === "think" && !prev.thoughts.at(-1)?.streaming) { prev.thoughts.push(it); prev.ms += it.ms; prev.end = it.at + it.ms; }
+      else rows.push({ k: "think", at: it.at, end: it.at + it.ms, ms: it.ms, thoughts: [it] });
+      continue;
+    }
+    if (foldable(it)) {
+      if (prev?.k === "fold" && prev.tool === it.tool) { prev.steps.push(it); prev.end = Math.max(prev.end, it.at + it.ms); continue; }
+      rows.push({ k: "fold", family: it.family, tool: it.tool, at: it.at, end: it.at + it.ms, steps: [it] });
+      continue;
+    }
+    rows.push({ k: "step", at: it.at, end: it.at + it.ms, step: it });
+  }
+  return rows;
+}
+
+/* ---------- words and numbers ---------- */
+
+const numbers = new Intl.NumberFormat("en-US");
+export const n = (x: number): string => numbers.format(x);
+export const plural = (k: number, one: string, many = `${one}s`): string => `${n(k)} ${k === 1 ? one : many}`;
+export function dur(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+export function clockDur(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`;
+}
+const clockFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+const clockSFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+export const clock = (t: number): string => clockFmt.format(t);
+export const clockS = (t: number): string => clockSFmt.format(t);
+export const minuteOf = (t: number): number => Math.floor(t / 60_000);
+
+/** the first sentence of a thought, at least 24 characters, as its teaser */
+export function firstSentence(t: string): string {
+  const flat = t.replace(/\s+/g, " ").trim();
+  const m = /^(.{24,}?[.!?])(\s|$)/.exec(flat);
+  return m?.[1] ?? flat;
+}
+export const isBad = (s: Step): boolean => s.status === "error" && !s.interrupted;
+export const isRunning = (s: Step): boolean => s.status === "running" || s.status === "pending";
+
+/* ---------- kinds and results ---------- */
+
+export type Kind = "run" | "watch" | "type" | "commit" | "push" | "edit" | "write" | "read" | "grep" | "find" | "recall" | "fetch" | "search" | "agent" | "ask" | "plan" | "skill" | "note" | "wait" | "agents" | "tool" | "thought" | "files" | "stopped" | "failed";
+
+export function kindOf(s: Step): Kind {
+  switch (s.family) {
+    case "search": return s.tool === "glob" ? "find" : s.tool === "grep" ? "grep" : "recall";
+    case "edit": return s.tool === "write" ? "write" : "edit";
+    case "web": return s.tool === "webfetch" ? "fetch" : "search";
+    case "shell":
+      if (s.polls !== undefined) return s.typed ? "type" : "watch";
+      if (s.evidence?.kind === "commit") return "commit";
+      if (s.evidence?.kind === "push") return "push";
+      return "run";
+    case "read": return "read";
+    case "spawn": return "agent";
+    case "message": return "note";
+    case "wait": return "wait";
+    case "agents": return "agents";
+    case "ask": return "ask";
+    case "plan": return "plan";
+    case "skill": return "skill";
+    default: return "tool";
+  }
+}
+
+/** what the result column shows: its words, its tone, and any figure beside them */
+export type Result = {
+  text: string;
+  tone: "quiet" | "lit" | "bad" | "faint";
+  /** a pass/fail meter, 0 to 1 passed */
+  meter?: { passed: number; failed: number };
+  hash?: string;
+  tick?: boolean;
+  /** a running clock from this moment */
+  clockFrom?: number;
+  add?: number;
+  del?: number;
+};
+const quiet = (text: string): Result => ({ text, tone: "quiet" });
+const none: Result = { text: "", tone: "quiet" };
+
+export function readout(s: Step, now?: number): Result {
+  if (isRunning(s)) return { text: now !== undefined ? clockDur(Math.max(0, now - s.at)) : "running", tone: "lit", clockFrom: s.at };
+  if (s.interrupted) return { text: "stopped", tone: "faint" };
+  if (isBad(s)) return { text: s.family === "shell" && s.exit !== undefined ? `exit ${s.exit}` : "failed", tone: "bad" };
+  const took = s.ms >= 1500 ? dur(s.ms) : "";
+  const e: Evidence | undefined = s.evidence;
+  if (e?.kind === "tests") return { text: e.failed ? `${n(e.failed)} failed` : `${n(e.passed)} passed`, tone: e.failed ? "bad" : "lit", meter: { passed: e.passed, failed: e.failed } };
+  if (e?.kind === "build") return { text: e.ok ? (e.warnings ? `built, ${n(e.warnings)} warnings` : "no errors") : (e.errors ? `${n(e.errors)} errors` : "build failed"), tone: e.ok ? "lit" : "bad" };
+  if (e?.kind === "commit") return e.hash ? { text: e.hash.slice(0, 7), tone: "lit", hash: e.hash.slice(0, 7) } : { text: "committed", tone: "lit" };
+  if (e?.kind === "push") return { text: "pushed", tone: "lit", tick: true };
+  if (s.family === "shell") return quiet(took);
+  if (s.family === "edit") {
+    if (s.tool === "write") return { text: `+${n(s.add)}${/^new/.test(s.result) ? " new" : ""}`, tone: "quiet", add: s.add };
+    return s.diff === undefined ? none : { text: `+${n(s.add)} -${n(s.del)}`, tone: "quiet", add: s.add, del: s.del };
+  }
+  if (s.family === "read") {
+    const sp = s.span;
+    if (!sp) return none;
+    const k = sp.end - sp.start + 1;
+    return quiet(sp.total !== undefined && k < sp.total ? `${n(k)} of ${n(sp.total)}` : plural(sp.total ?? k, "line"));
+  }
+  if (s.family === "spawn" || s.family === "ask") return none;
+  return quiet(s.result || took);
+}
+
+/* ---------- what a row shows ---------- */
+
+/** one piece of a row's content */
+export type Inline =
+  | { t: "text"; s: string }
+  | { t: "lead"; s: string }
+  | { t: "fn"; s: string }
+  | { t: "dir"; s: string }
+  | { t: "str"; s: string }
+  | { t: "brief"; s: string }
+  | { t: "prose"; s: string }
+  | { t: "cmd"; tokens: Token[] };
+
+/** the model of one row as painted: kind, content, result, and what opens beneath */
+export type RowModel = {
+  key: string;
+  kind: Kind;
+  /** the row's face: mono for the machine, sans for language */
+  face: "mono" | "sans";
+  content: Inline[];
+  /** the open thought row's lead ("for 20 s") in place of the teaser */
+  opened?: string;
+  /** a question's own short label, above its words in the head (an ask of several questions has each one's in its card) */
+  header?: string;
+  result: Result;
+  body: Body | undefined;
+  /** open when first painted: failures, pending asks */
+  open: boolean;
+  bad: boolean;
+  stopped: boolean;
+  running: boolean;
+  /** the accessible name */
+  label: string;
+  at: number;
+  end: number;
+  /** the row is a two-line clamp while closed */
+  clamps: boolean;
+  /** the daemon's part ids this row shows, for links */
+  partIDs: string[];
+  /** the result is a link: to the report an agent sent, and the turn that holds it */
+  link?: { report: string; turn: string };
+  /** an agent row's name, so a report can link back to it */
+  agent?: string;
+  /** an agent row's child session, which the stage holds once the row is on screen */
+  child?: string;
+};
+
+export type Bed = { lines: string[]; cut?: { at: number; n: number }; /** a line shown was cut at the cap: the bed is not all of what the output holds, whatever it says it cut */ clipped?: boolean };
+export type DiffLine = { kind: "add" | "del" | "ctx" | "hunk" | "tail"; text: string };
+export type FileLine = { path: string; note: string; bar?: { total: number; reads: Array<{ start: number; end: number }>; hunks: Array<{ start: number; add: number; del: number }> }; diff?: DiffLine[]; created?: boolean; add?: number; del?: number };
+
+export type Body =
+  | { k: "shell"; facts: Fact[]; /** the command in its bed, as it is shown (home as ~): every open shell row has one, so its copy control is always on the command */ command?: string[]; /** the command as the agent sent it, which its copy control copies */ commandRaw?: string | undefined; output?: Bed; /** how many lines the output has, which its bed's header says */ outputLines?: number | undefined; /** the output as the store holds it, for its copy control to clean and copy at the press */ outputRaw?: string | undefined; error?: string }
+  | { k: "diff"; bar?: FileLine["bar"]; lines?: DiffLine[]; none?: string; error?: string }
+  | { k: "read"; files: FileLine[]; preview?: Bed; error?: string }
+  | { k: "hits"; files: Array<{ path: string; hits: Array<{ line: string; text: string }> }>; list: string[]; spread: Array<{ name: string; n: number }>; error?: string }
+  | { k: "agent"; facts: Fact[]; brief: string; name: string; /** its session, when it started: the door to its thread */ child?: string }
+  | { k: "ask"; askID?: string; questions: AskQuestion[]; dismissed: boolean; pending: boolean }
+  | { k: "permission"; askID?: string; what: string; permission: string; patterns: string[]; diff?: DiffLine[] }
+  | { k: "plan"; todos: Array<{ content: string; status: "done" | "now" | "later" }> }
+  | { k: "thoughts"; thoughts: Array<{ at: number; ms: number; text: string; streaming: boolean }> }
+  | { k: "files"; files: FileLine[] }
+  | { k: "error"; error: string };
+
+export type Fact = { text: string; strong?: boolean; bad?: boolean };
+
+export function diffLines(diff: string): DiffLine[] {
+  return diff.split("\n").filter((l) => !l.startsWith("@@")).map((l): DiffLine => l.startsWith("+\u0002") ? { kind: "tail", text: `and ${plural(Number(l.slice(2)), "more line", "more lines")}` } : l === "\u0001" ? { kind: "hunk", text: "then" } : { kind: l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "ctx", text: l });
+}
+const bedOf = (o: { lines: string[]; cut: number; cutAt: number; clipped?: boolean } | undefined): Bed | undefined => (o ? { lines: o.lines, ...(o.cut ? { cut: { at: o.cutAt, n: o.cut } } : {}), ...(o.clipped ? { clipped: true } : {}) } : undefined);
+const file = (path: string): Inline[] => [{ t: "fn", s: base(path) }, ...(dirOf(path) ? [{ t: "dir", s: dirOf(path) } as const] : [])];
+
+/** where an agent's child session is now, from the fleet: in a turn, waiting on the person, parked on its own agents or
+    jobs, idle (its turn ended; its report follows, or never came), or gone (archived or deleted: no thread to open) */
+export type ChildState = "working" | "wants" | "parked" | "idle" | "gone";
+
+/** an agent's child session as the parent reads it: its counts, its span, its items for the tape's lane, and where it is
+    now. `since` is when its current state began (the daemon's `status.since`), for the live clock; `created` when the
+    session was made, the start of an agent no spawn row names */
+export type Child = {
+  /** its steps, from its held thread: 0 while it is not held, which `held` says (the count is left off then, never shown as zero) */
+  steps: number;
+  ms: number;
+  items: readonly Item[];
+  /** its thread is held, so `steps` and `items` are its own; else all of this is read from the fleet's session info alone */
+  held: boolean;
+  state: ChildState;
+  since: number;
+  created: number;
+  title: string;
+};
+
+/** the daemon titles a child "name (seat)" (`actors.ts`): the two apart, for an agent no spawn row names */
+export function agentTitle(title: string): { name: string; seat?: string } {
+  const m = /^(.*?)\s*\(([^()]*)\)\s*$/.exec(title.trim());
+  return m ? { name: m[1] || title.trim(), ...(m[2] ? { seat: m[2] } : {}) } : { name: title.trim() };
+}
+
+/** one question of an ask, as its card asks it: the daemon takes one answer (a list of labels or words) for each */
+export type AskQuestion = { header: string; question: string; options: Array<{ label: string; description: string }>; custom: boolean; multiple: boolean; answer?: string[] };
+
+/** an ask the daemon is waiting on, keyed by the tool call that raised it (the fleet's `asks`) */
+export type PendingAsk = { id: string; kind: "permission" | "question"; request: Record<string, unknown> };
+
+/** the context a row is painted in */
+export type RowCtx = {
+  /** the turns of the thread, so an agent row can find its report */
+  turns: readonly Turn[];
+  /** the agents' child sessions by id */
+  children: ReadonlyMap<string, Child>;
+  /** the asks still pending, by the call id of the step that raised them */
+  asks?: ReadonlyMap<string, PendingAsk>;
+  /** the moment, while the turn runs */
+  now?: number;
+  /** the moment, while any of the turn's agents still works after the turn itself ended: the agent rows' clock */
+  tick?: number;
+  thinking: "open" | "rows";
+};
+
+function hitsBody(s: Step): Extract<Body, { k: "hits" }> {
+  const files = new Map<string, Array<{ line: string; text: string }>>();
+  if (s.tool === "grep") for (const h of s.hits ?? []) {
+    const m = /^(.*?):(\d+)\s{2}(.*)$/.exec(h);
+    if (!m) continue;
+    const f = files.get(m[1] ?? "") ?? [];
+    f.push({ line: m[2] ?? "", text: m[3] ?? "" });
+    files.set(m[1] ?? "", f);
+  }
+  return { k: "hits", files: [...files].map(([path, hits]) => ({ path, hits })), list: s.tool === "grep" ? [] : (s.hits ?? []), spread: s.spread ?? [], ...(isBad(s) && s.error ? { error: s.error } : {}) };
+}
+
+/** the report an agent row links to: the first turn its agent sent after it started (by its session when the daemon
+    named the sender, else by its name), and by now when the turn runs */
+export function reportFor(ctx: RowCtx, s: Step): Turn | undefined {
+  const a = s.agent;
+  if (!a?.child) return undefined;
+  return ctx.turns.find((t) => t.by === "mail" && !t.note && (t.fromID ? t.fromID === a.child : t.from === a.name) && t.at >= s.at && (ctx.now === undefined || t.at <= ctx.now));
+}
+
+/** the pending ask on a step, from the step itself (a fixture's join) or from the fleet's list by call id */
+function askOn(s: Step, ctx: RowCtx): { permission?: { id: string; permission: string; patterns: string[] }; question?: { id: string; questions: Question[] } } {
+  const pending = ctx.asks?.get(s.callID);
+  if (pending?.kind === "permission") {
+    const r = pending.request;
+    return { permission: { id: pending.id, permission: typeof r["permission"] === "string" ? r["permission"] : "use", patterns: Array.isArray(r["patterns"]) ? r["patterns"].filter((p): p is string => typeof p === "string") : [] } };
+  }
+  if (pending?.kind === "question") {
+    const list = Array.isArray(pending.request["questions"]) ? pending.request["questions"] : [];
+    const questions: Question[] = list.flatMap((q) => {
+      if (q === null || typeof q !== "object") return [];
+      const r = q as Record<string, unknown>;
+      const options = Array.isArray(r["options"]) ? r["options"].flatMap((o) => (o !== null && typeof o === "object" ? [{ label: String((o as Record<string, unknown>)["label"] ?? ""), description: String((o as Record<string, unknown>)["description"] ?? "") }] : [])) : [];
+      return [{ question: String(r["question"] ?? ""), header: String(r["header"] ?? ""), options, custom: r["custom"] !== false, multiple: r["multiple"] === true, answer: undefined }];
+    });
+    return { question: { id: pending.id, questions } };
+  }
+  if (s.permission) return { permission: s.permission };
+  if (s.question && s.questions?.length) return { question: { id: s.question.id, questions: s.questions } };
+  return {};
+}
+
+export function stepModel(s: Step, ctx: RowCtx): RowModel {
+  const bad = isBad(s), running = isRunning(s), kind = kindOf(s);
+  let result = readout(s, ctx.now);
+  let content: Inline[] = [], body: Body | undefined, face: RowModel["face"] = "mono", text = "", header = "";
+  const error = bad && s.error ? { error: s.error } : {};
+  const ask = askOn(s, ctx);
+  switch (s.family) {
+    case "shell": {
+      const e = s.evidence;
+      const facts: Fact[] = [];
+      /* where it ran is in the facts unless the command's own bed says so (a leading `cd dir &&`), and how many lines it wrote is its output bed's header */
+      if (s.cwd && !(s.command && firstLine(s.command).cwd !== undefined)) facts.push({ text: `in ${s.cwd}`, strong: true });
+      if (s.exit !== undefined) facts.push(s.exit === 0 ? { text: "exit 0" } : { text: `exit ${s.exit}`, bad: true });
+      if (s.ms >= 1000) facts.push({ text: dur(s.ms) });
+      // the ledger's clock hangs in a margin the phone has no room for: an open row says exactly when it ran
+      facts.push({ text: `at ${clockS(s.at)}` });
+      if (kind === "commit" && e?.kind === "commit") {
+        content = [{ t: "prose", s: e.subject ?? "committed" }]; face = "sans"; text = e.subject ?? "committed";
+        if (e.files !== undefined) facts.unshift({ text: `+${n(e.add ?? 0)} -${n(e.del ?? 0)} in ${plural(e.files, "file")}` });
+      } else if (kind === "push" && e?.kind === "push") {
+        content = [{ t: "text", s: e.from }, { t: "lead", s: " to " }, { t: "text", s: e.to === e.from ? "origin" : e.to }]; text = `${e.from} to origin`;
+      } else if (kind === "watch" || kind === "type") {
+        const watched: Inline = s.polls ? { t: "cmd", tokens: commandTokens(s.polls).tokens } : { t: "lead", s: "a running command" };
+        content = s.typed ? [{ t: "str", s: JSON.stringify(s.typed).slice(1, -1) }, { t: "lead", s: " into " }, watched] : [watched];
+        text = s.polls || "a running command";
+      } else {
+        content = [{ t: "cmd", tokens: commandTokens(s.object).tokens }]; text = s.object.split("\n")[0] ?? "";
+      }
+      body = { k: "shell", facts, ...(s.command ? { command: homeAsTilde(s.command).split("\n") } : {}), commandRaw: s.command || undefined, ...(s.output ? { output: bedOf(s.output) as Bed } : {}), outputLines: s.output ? s.outputLines : undefined, outputRaw: s.output?.raw, ...error };
+      break;
+    }
+    case "edit": {
+      content = file(s.object); text = s.object;
+      const bar = s.total !== undefined && s.hunks?.length ? { total: s.total, reads: [], hunks: s.hunks } : undefined;
+      if (ask.permission) {
+        body = { k: "permission", askID: ask.permission.id, what: `${ask.permission.permission} ${ask.permission.patterns[0] ?? base(s.object)}`, permission: ask.permission.permission, patterns: ask.permission.patterns, ...(s.diff !== undefined ? { diff: diffLines(s.diff) } : {}) };
+        result = { text: "wants you", tone: "lit" };
+      } else body = { k: "diff", ...(bar ? { bar } : {}), ...(s.diff !== undefined ? { lines: diffLines(s.diff) } : { none: s.tool === "write" ? `wrote ${plural(s.add, "line")}` : "no diff was recorded for this edit" }), ...error };
+      break;
+    }
+    case "read": {
+      content = file(s.object); text = s.object;
+      const partial = s.span?.total !== undefined && s.span.end - s.span.start + 1 < s.span.total;
+      // a failed read has no file line: the row already names the file and the result, and the error bed says why
+      const files = s.status === "error" ? [] : [{ path: s.object, note: result.text, ...(partial && s.span ? { bar: { total: s.span.total as number, reads: [s.span], hunks: [] } } : {}) }];
+      body = { k: "read", files, ...(s.output ? { preview: bedOf(s.output) as Bed } : {}), ...error };
+      if (ask.permission) { body = { k: "permission", askID: ask.permission.id, what: `read ${ask.permission.patterns[0] ?? base(s.object)}`, permission: ask.permission.permission, patterns: ask.permission.patterns }; result = { text: "wants you", tone: "lit" }; }
+      break;
+    }
+    case "search": {
+      content = s.tool === "glob" ? [{ t: "text", s: s.object }] : [{ t: "str", s: s.object }, ...(s.cwd ? [{ t: "lead", s: ` in ${s.cwd}` } as const] : [])]; text = s.object;
+      body = hitsBody(s);
+      break;
+    }
+    case "web": {
+      if (s.tool === "webfetch") {
+        let u: URL | null = null;
+        try { u = new URL(s.object); } catch { u = null; }
+        content = u ? [{ t: "text", s: u.host.replace(/^www\./, "") }, { t: "dir", s: u.pathname.length > 1 ? u.pathname : "" }] : [{ t: "text", s: s.object }];
+      } else content = [{ t: "str", s: s.object }];
+      text = s.object; body = hitsBody(s);
+      break;
+    }
+    case "spawn": {
+      const a = s.agent ?? { name: "agent", brief: "" };
+      const child = a.child ? ctx.children.get(a.child) : undefined;
+      const rep = reportFor(ctx, s);
+      const clock = ctx.now ?? ctx.tick;
+      /* the child's own state decides the row once it exists: a live clock while it works (from when it was started),
+         "wants you" while the daemon waits on the person for it, "parked" while it waits on agents of its own, its
+         report once that came, and its step count when its turn ended without one */
+      const busy = child?.state === "working";
+      content = [{ t: "fn", s: a.name }, { t: "brief", s: firstSentence(a.brief) }]; text = a.name;
+      if (rep) result = quiet("reported");
+      else if (!a.child) result = none;
+      else if (busy) result = { text: clockDur(Math.max(0, (clock ?? s.at) - s.at)), tone: "lit", clockFrom: s.at };
+      else if (child?.state === "wants") result = { text: "wants you", tone: "lit" };
+      else if (child?.state === "parked") result = quiet("parked");
+      else if (child?.state === "gone") result = quiet("archived");
+      else if (child) result = quiet(child.held ? plural(child.steps, "step") : "");
+      else result = ctx.now !== undefined ? { text: clockDur(Math.max(0, ctx.now - s.at)), tone: "lit", clockFrom: s.at } : none;
+      const took = rep ? rep.at - s.at : busy ? Math.max(0, (clock ?? s.at) - s.at) : child?.ms;
+      const facts: Fact[] = [{ text: rep ? `reported after ${dur(took ?? 0)}` : !a.child ? "did not start" : busy ? `working for ${dur(took ?? 0)}` : child?.state === "wants" ? "waiting on you" : child?.state === "parked" ? "parked on agents of its own" : child?.state === "gone" ? "its thread was archived" : child ? "its turn ended, no report" : "starting", strong: !!rep }];
+      if (child?.held && child.state !== "gone") facts.push({ text: plural(child.steps, "step") });
+      if (a.type) facts.push({ text: a.type });
+      facts.push({ text: `started ${clockS(s.at)}` });
+      // the whole brief opens beneath; a one-sentence brief is already the teaser, and nothing is shown twice. the door
+      // opens only a thread that is still there
+      body = { k: "agent", facts, brief: firstSentence(a.brief) === a.brief.replace(/\s+/g, " ").trim() ? "" : a.brief, name: a.name, ...(a.child && child && child.state !== "gone" ? { child: a.child } : {}) };
+      break;
+    }
+    case "ask": {
+      const asked = ask.question?.questions ?? s.questions ?? [];
+      const questions: AskQuestion[] = asked.map((q) => ({ header: q.header, question: q.question, options: q.options, custom: q.custom, multiple: q.multiple, ...(q.answer?.some(Boolean) ? { answer: q.answer.filter(Boolean) } : {}) }));
+      // several questions have no one question to head the row: it says how many, and the card asks each
+      const head = questions.length > 1 ? `${questions.length} questions` : (questions[0]?.question ?? "a question");
+      content = [{ t: "prose", s: head }]; face = "sans"; text = head;
+      if (questions.length === 1) header = questions[0]?.header.trim() ?? "";
+      body = { k: "ask", ...(ask.question ? { askID: ask.question.id } : {}), questions, dismissed: bad || (s.status === "error" && !!s.interrupted), pending: running };
+      result = running ? (ask.question ? { text: "wants you", tone: "lit" } : { text: "waiting", tone: "faint" }) : s.status === "error" ? quiet("dismissed") : questions.some((q) => q.answer) ? quiet("answered") : none;
+      break;
+    }
+    case "plan": {
+      const todos = s.todos ?? [];
+      const now = todos.find((t) => t.status === "in_progress") ?? todos.find((t) => t.status !== "completed");
+      content = [{ t: "brief", s: now ? now.content : "all done" }]; text = now?.content ?? "plan";
+      body = { k: "plan", todos: todos.map((t) => ({ content: t.content, status: t.status === "completed" ? "done" : t.status === "in_progress" ? "now" : "later" })) };
+      break;
+    }
+    case "skill": content = [{ t: "text", s: s.object }]; text = s.object; break;
+    case "message": content = [{ t: "lead", s: "to " }, { t: "text", s: s.object || "parent" }]; text = `to ${s.object || "parent"}`; break;
+    case "wait": content = [{ t: "lead", s: "for agents" }]; text = "for agents"; break;
+    default: content = [{ t: "text", s: s.object }]; text = s.object;
+  }
+  if (bad && s.error && body === undefined) body = { k: "error", error: s.error };
+  /* a running question the daemon has not raised yet waits closed; a raised ask is open */
+  const pendingAsk = running && (ask.permission !== undefined || ask.question !== undefined);
+  return {
+    key: s.id, kind, face, content, ...(header ? { header } : {}), result, body, open: bad || pendingAsk, bad, stopped: !!s.interrupted, running,
+    label: `${kind} ${text}${result.text ? `, ${result.text}` : ""}`, at: s.at, end: s.at + s.ms,
+    clamps: !(s.family === "read" || s.family === "edit" || s.family === "ask"),
+    partIDs: [s.id],
+    ...(s.family === "spawn" && s.agent ? { agent: s.agent.name } : {}),
+    ...(s.family === "spawn" && s.agent?.child ? { child: s.agent.child } : {}),
+    ...(s.family === "spawn" && s.agent?.child && reportFor(ctx, s) ? { link: { report: s.agent.name, turn: (reportFor(ctx, s) as Turn).id } } : {}),
+  };
+}
+
+/** a fold of reads, searches or lookups: the names inline up to six, the count past that, every one listed beneath */
+export function foldModel(f: FoldRow, ctx: RowCtx): RowModel {
+  const steps = f.steps;
+  const kind = kindOf(steps[0] as Step);
+  if (f.family === "read") {
+    const byFile = new Map<string, { path: string; spans: Array<{ start: number; end: number }>; total?: number; preview?: Bed }>();
+    for (const s of steps) {
+      const x = byFile.get(s.object) ?? { path: s.object, spans: [], ...(s.output ? { preview: bedOf(s.output) as Bed } : {}) };
+      if (s.span) { x.spans.push(s.span); if (s.span.total !== undefined) x.total = s.span.total; }
+      byFile.set(s.object, x);
+    }
+    const files = [...byFile.values()];
+    const one = files.length === 1 ? files[0] : undefined;
+    const lines: FileLine[] = files.map((x) => {
+      const read = x.spans.reduce((a, sp) => a + (sp.end - sp.start + 1), 0);
+      const partial = x.total !== undefined && (x.spans.length > 1 || read < x.total);
+      const note = x.spans.length > 1 ? `${x.spans.length} reads` : x.total !== undefined && read < x.total ? `${n(read)} of ${n(x.total)}` : plural(x.total ?? read, "line");
+      return { path: x.path, note, ...(partial && x.total !== undefined ? { bar: { total: x.total, reads: x.spans, hunks: [] } } : {}) };
+    });
+    const content: Inline[] = one ? file(one.path) : files.length <= 6 ? files.flatMap((x, i) => [...(i ? [{ t: "text", s: ", " } as const] : []), { t: "fn", s: base(x.path) } as const]) : [{ t: "text", s: plural(files.length, "file") }];
+    const result = one ? readout(steps[0] as Step) : none;
+    return { key: `fold:${f.at}`, kind, face: "mono", content, result, body: { k: "read", files: lines, ...(one?.preview ? { preview: one.preview } : {}) }, open: false, bad: false, stopped: false, running: false, label: `read ${one ? one.path : plural(files.length, "file")}${result.text ? `, ${result.text}` : ""}`, at: f.at, end: f.end, clamps: !one, partIDs: steps.map((s) => s.id) };
+  }
+  const objs = [...new Set(steps.map((s) => s.object))];
+  const hits = steps.reduce((a, s) => a + (Number(/^(\d+)/.exec(s.result)?.[1]) || 0), 0);
+  const content: Inline[] = objs.length <= 4
+    ? objs.flatMap((o, i) => [...(i ? [{ t: "text", s: ", " } as const] : []), (f.tool === "webfetch" ? { t: "text", s: o.replace(/^https?:\/\/(www\.)?/, "") } : { t: "str", s: o }) as Inline])
+    : [{ t: "text", s: plural(objs.length, kind === "fetch" ? "page" : "search", kind === "fetch" ? "pages" : "searches") }];
+  const result = steps.length === 1 ? readout(steps[0] as Step) : hits ? quiet(plural(hits, "hit")) : quiet(plural(steps.length, "search", "searches"));
+  const body: Body = steps.length === 1 ? hitsBody(steps[0] as Step) : { k: "read", files: steps.map((s) => ({ path: s.object, note: readout(s).text })) };
+  return { key: `fold:${f.at}`, kind, face: "mono", content, result, body, open: false, bad: false, stopped: false, running: false, label: `${kind} ${objs.join(", ")}${result.text ? `, ${result.text}` : ""}`, at: f.at, end: f.end, clamps: true, partIDs: steps.map((s) => s.id) };
+}
+
+export function thinkModel(r: ThinkRow, ctx: RowCtx): RowModel {
+  const many = r.thoughts.length > 1;
+  const first = r.thoughts[0] as Think;
+  const last = r.thoughts[r.thoughts.length - 1] as Think;
+  const live = ctx.now !== undefined && last.streaming;
+  const content: Inline[] = live
+    ? [{ t: "lead", s: many ? `${plural(r.thoughts.length - 1, "thought")}, then thinking` : "thinking" }]
+    : [...(many ? [{ t: "lead", s: `${plural(r.thoughts.length, "thought")}: ` } as const] : []), { t: "prose", s: firstSentence(first.text) }];
+  const result: Result = live ? { text: clockDur(Math.max(0, (ctx.now ?? last.at) - last.at)), tone: "lit", clockFrom: last.at } : r.ms >= 1000 ? quiet(dur(r.ms)) : none;
+  return {
+    key: `think:${r.at}`, kind: "thought", face: "sans", content,
+    ...(live ? {} : { opened: many ? `${plural(r.thoughts.length, "thought")} over ${dur(r.ms)}` : r.ms >= 1000 ? `for ${dur(r.ms)}` : "briefly" }),
+    result, body: { k: "thoughts", thoughts: r.thoughts.map((t) => ({ at: t.at, ms: t.ms, text: t.text, streaming: t.streaming })) },
+    open: ctx.thinking === "open", bad: false, stopped: false, running: live,
+    label: `${plural(r.thoughts.length, "thought")}${r.ms >= 1000 ? `, ${dur(r.ms)}` : ""}`, at: r.at, end: r.end, clamps: !live,
+    partIDs: r.thoughts.map((t) => t.id),
+  };
+}
+
+export function modelOf(r: Exclude<Row, SayRow>, ctx: RowCtx): RowModel {
+  if (r.k === "think") return thinkModel(r, ctx);
+  if (r.k === "fold") return foldModel(r, ctx);
+  return stepModel(r.step, ctx);
+}
+
+/** the files a turn changed, with their counts, hunks and diffs, largest first */
+export function filesOf(t: Turn): FileLine[] {
+  const files = new Map<string, { path: string; add: number; del: number; diffs: string[]; hunks: Array<{ start: number; add: number; del: number }>; total?: number; created: boolean }>();
+  for (const x of t.items) {
+    if (x.k !== "step" || x.family !== "edit" || x.status !== "completed") continue;
+    const f = files.get(x.object) ?? { path: x.object, add: 0, del: 0, diffs: [], hunks: [], created: false };
+    f.add += x.add; f.del += x.del;
+    if (x.diff !== undefined) f.diffs.push(x.diff);
+    f.hunks.push(...(x.hunks ?? []));
+    if (x.total !== undefined) f.total = x.total;
+    if (x.tool === "write" && /^new/.test(x.result)) f.created = true;
+    files.set(x.object, f);
+  }
+  return [...files.values()].sort((a, b) => b.add + b.del - (a.add + a.del)).map((f) => ({
+    path: f.path, note: `+${n(f.add)} -${n(f.del)}`, add: f.add, del: f.del, created: f.created,
+    ...(f.total !== undefined && f.hunks.length ? { bar: { total: f.total, reads: [], hunks: f.hunks } } : {}),
+    ...(f.diffs.length ? { diff: diffLines(f.diffs.join("\n\u0001\n")) } : {}),
+  }));
+}
+
+/** the turn's last rows: its files, and how it ended when it did not end well */
+export function endRows(t: Turn): RowModel[] {
+  const out: RowModel[] = [];
+  const files = filesOf(t);
+  if (files.length) {
+    const add = files.reduce((a, f) => a + (f.add ?? 0), 0), del = files.reduce((a, f) => a + (f.del ?? 0), 0);
+    out.push({ key: `files:${t.id}`, kind: "files", face: "mono", content: [{ t: "text", s: `changed ${plural(files.length, "file")}` }], result: { text: `+${n(add)} -${n(del)}`, tone: "quiet", add, del }, body: { k: "files", files }, open: false, bad: false, stopped: false, running: false, label: `changed ${plural(files.length, "file")}, +${add} -${del}`, at: t.end, end: t.end, clamps: false, partIDs: [] });
+  }
+  if (t.status === "aborted") out.push({ key: `stopped:${t.id}`, kind: "stopped", face: "mono", content: [{ t: "lead", s: `you stopped it after ${dur(t.end - t.at)}` }], result: none, body: undefined, open: false, bad: false, stopped: true, running: false, label: "", at: t.end, end: t.end, clamps: false, partIDs: [] });
+  if (t.status === "failed") out.push({ key: `failed:${t.id}`, kind: "failed", face: "mono", content: [{ t: "text", s: t.error ?? "the turn failed" }], result: none, body: undefined, open: false, bad: true, stopped: false, running: false, label: "", at: t.end, end: t.end, clamps: false, partIDs: [] });
+  return out;
+}
+
+/** a heavy turn carries the tape: more than six steps, longer than three minutes, or any agent */
+export function heavy(t: Turn, now?: number): boolean {
+  const steps = t.items.filter((x): x is Step => x.k === "step");
+  return steps.length > 6 || (now ?? t.end) - t.at > 180_000 || steps.some((s) => s.family === "spawn");
+}

@@ -1,0 +1,321 @@
+# verification
+
+the bench v2 is judged on. claims discipline (AGENTS.md rule 2): nothing is
+verified unless it was driven end to end against a real cmx2 daemon in
+the same session, and the evidence is printed. a build passing is not
+verified; a unit test is not verified.
+
+## the tiers, cheapest first
+
+use the narrowest tier that answers the question, then climb.
+
+1. **types**: `cargo check`, `tsc --noEmit`.
+2. **unit**: `cargo test`, `bun test` (reducer, decide(), tail grammar,
+   order, schema). fixtures only for wire parsing (recorded frames).
+   for the thread, the stories (`app/.ladle`, `thread.md`, verification):
+   `bun run shots` in `app/` renders every part type and state from the
+   scrubbed fixtures at 390, 820 and 1512 wide, runs the craft check on
+   each and fails on any finding or console error.
+3. **real loop**: a cmx2 dev daemon plus the boxbox dev server, driven
+   with curl and agent-browser through the real ui.
+4. **devices**: the real iphone and ipad as installed pwas over the
+   tailnet, and the installed mac chromium pwa.
+5. **budgets and soaks**: the timed runs below.
+
+## the bench
+
+- **cmx2 dev daemon**: `just cmx2`, built from the commit in `cmx2.pin`
+  (exported with `git archive` into `.cmx2/<pin>/`, never the cmx2 working
+  tree), on a port from 4840 to 4849, with its own data dir and a bench
+  password, started with `env -u CMX2_SERVER_PASSWORD -u
+  OPENCODE_SERVER_PASSWORD` plus the bench password so it never inherits a
+  real one. never port 4096, never a fleet machine's serve.
+  concretely (`scripts/cmx2.ts`): the daemon listens on 4840 (`CMX2_PORT`
+  moves it within 4840 to 4848), its config, data and home live under
+  `.cmx2/bench/`, and its environment is an allowlist (path, locale, tmp,
+  a bench home and bash, the bench dirs, the bench password), which is
+  stronger than unsetting names: no provider key or config of the user's
+  can reach it.
+- **the bench model** (decision 22): `bench/model.ts` on the next port
+  (4841) stands in for the anthropic api the daemon's provider calls. the
+  prompt's marker picks the script: `[bench:tools]` reads `notes.md`, edits
+  it, runs `wc -l`, asks which greeting to use, then answers in prose;
+  `[bench:words N MS]` streams N words, one every MS ms; `[bench:think N MS]` is a
+  native turn with extended thinking: a step that streams N thinking words, one
+  every MS ms, then runs `git status`, then a step that thinks the same way and
+  streams N words of answer (reasoning and text parts in one message, as a real
+  model's are).
+- **boxbox dev server**: `just dev` on 3001, with a bench `boxbox.toml`
+  pointing at the dev daemon, a bench data dir and its own cookie name.
+  `just cmx2` writes both bench configs (`.cmx2/bench/boxbox.toml` for the
+  release binary, `boxbox.dev.toml` for the dev server) with a minted gate
+  password.
+- **agent-browser** drives the real ui through the accessibility tree
+  (`snapshot -i`, act by ref). every interactive element has a real,
+  unique name; a control the drive cannot name is a bug.
+- **widths**: 390 × 844 (phone, deck), 820 × 1180 (ipad portrait, strip),
+  1180 × 820 (ipad landscape, rail), 1512 × 945 (mac, rail with details),
+  1080 × 1920 (portrait monitor, strip). screenshots are taken and looked
+  at, and described in the transcript.
+- **fake serial port** for the board daemon: a virtual `node-hid` device
+  in the daemon's own process, emulating the board's firmware, driven by
+  the recorded trace (`docs/board-verification.md`).
+- parallel worktrees: each session takes its own decade for the daemon
+  (`just cmx2 --port 4870 --boxbox-port 3011`), so benches never collide.
+- push: `just push-harness` delivers a real push to google chrome with the
+  app closed and prints the payload and its telemetry (`push.md`).
+- teardown: every daemon and server a session starts is killed before
+  the goal completes, with `ps` printed.
+
+## the probes for cmx2's asks (the opening step of m2, m3 and m4)
+
+`just probes <port>` (`probes/`) is the contract suite for asks a1 to a11, a23 and a26,
+one probe per ask, each asserting the contract exactly as cmx2's
+`docs/engineering/ASKS.md` states it. it is the first thing a gated
+milestone runs after moving the pin, before any code is written against
+the asks; `just probes <port> a1 a2 a3` runs a subset.
+
+**what it starts.** the probes own their daemon, because a1 kills it with
+sigkill and restarts it and a3 samples its rss: cmx2 from `cmx2.pin` on
+`<port>` (4840 to 4848) and the bench model on the next port, with a fresh
+store under `.cmx2/probes/` every run. if either port answers, the run
+refuses; it never attaches to a daemon it did not start. both are stopped
+before the table prints. `.cmx2/probes/daemon.log` and `requests.log`
+(every call, status, latency and body head) stay for reading.
+
+**what "landed" means.** an ask is landed when its row in ASKS.md *at the
+pinned commit* says so in the owner cell ("m6, landed at abc1234"; never
+"not landed", never the shape's prose). no ASKS.md at the pin means
+nothing is landed.
+
+**what each probe asserts**, in order; the first assertion that fails ends
+that probe and is the one the table names:
+
+| ask | assertions |
+|---|---|
+| a1 | `server.connected` carries no seq; every state-changing frame has `id: <epoch>:<seq>` and the same epoch and seq in its body; seq strictly increases; `Last-Event-ID` replays every event after the cursor byte for byte (against a witness stream open all along) and goes live with no gap or duplicate; `?after=` and `/event` replay the same; after a sigkill and restart the events after an early cursor replay byte-identical and seq keeps rising in the same epoch; a cursor from another epoch gets `stream.reset {reason: "epoch", seq}` as the first frame, one from the future or malformed `reason: "invalid"` ("expired" needs 30 minutes and 50,000 events of history and is not probed); `message.part.delta` has `offset` in utf-16 units (the glyph script makes units, code points and bytes disagree); a part streaming at the resume point comes back once as `message.part.updated` with its full text before any delta, and its text plus the live deltas after it is the finished part |
+| a2 | each of the ten listed reads answers `x-cmx2-seq: <epoch>:<seq>` in the stream's epoch and not behind what the stream had delivered; 40 renames raced against reads of the session: every read shows exactly the title the events up to its seq set |
+| a3 | a raw socket subscribes and never reads while an 18 mib burst streams; the daemon closes that stream, and at most 4 mib (the 1 mib cap plus loopback socket buffers) reached it; daemon rss before, peak and after printed |
+| a4 | `/prompt`, `/prompt_async`, `/message`, `/queue`, `/steer`, `/command`, `/shell`, a permission reply and a question reply, each sent twice with one uuid: the repeat returns the first result byte for byte (the json text; the one space a blocking send writes before its body to hold the connection is not part of the result), the transcript holds the action once, and an event it caused carries the `clientID` |
+| a5 | mid-stream, `GET /session/:id/message` lists the in-flight assistant message with its text part `streaming: true`, holding what had streamed, with `x-cmx2-seq`; `GET /session/:id/message/:messageID` answers `{info, parts}` mid-stream and, after the turn, equals the listing's entry; an unknown id is 404 |
+| a6 | a reply or reject for an unknown ask id is 404 `NotFoundError`; with a permission pending in each of two sessions (the daemon raises a turn's asks one at a time, as each settles), reject settles only the one it names; a second reply is 409 `ConflictError` with `data: {reply \| answers, settledAt, by}`; aborting a turn emits `permission.replied reject` or `question.rejected` for what it left pending and neither stays listed |
+| a7 | as amended on 2026-09-30: a session parked on a background job is in `GET /session/status?parked=true` with `parked.jobs` (v2 always passes it) and absent from the plain read, which v1 reads as busy; parked and busy statuses carry `since` in ms |
+| a8 | in the pinned commit's `openapi.json`: 409 on `POST /message`, `POST /command` and `DELETE /message/:mid`; `Part` and `SessionStatus` unions discriminated on `type`; `queued` on the 202 of `/prompt` |
+| a9 | a 6 s shell command printing 900 bytes a second: at least three `running` updates with output, never two within 900 ms, each at most 2048 bytes and the tail of the output |
+| a10 | `session.updated` and the session list carry `cost`, `tokens`, `context {used, limit}` and `summary {files, additions, deletions}` |
+| a11 | on a busy session `/queue` and `/prompt_async` answer `{messageID}` and publish `message.updated {queued: true}` for it; on an idle one, `prompt_async`'s id is the user message the turn ran |
+| a23 | over a `[bench:think 24 100]` turn: the reasoning and the text parts are each announced (a logged `message.part.updated`, empty text, `streaming: true`, `time.start`) before their first delta, in content order, with deltas at contiguous utf-16 offsets from 0; the final parts carry `time {start, end}` with the announced start and the text that streamed (a26 says when they come); an in-flight read mid-thinking returns the reasoning part typed with its text so far, and after the turn the message reads reasoning then text with `time.end` |
+| a26 | over a `[bench:think 24 100]` turn: the reasoning part's final (the whole text, `time {start, end}`, no `streaming`) is a logged, numbered `message.part.updated` that arrives before the text part's announcement and first delta, its `time.end` no later than the text's `time.start`; a read taken while the reply streams serves the thought final; the final parts the step's end publishes agree with the early ones (same text, same `time`) |
+
+**the output.** each probe prints its assertions as they pass (`ok`), then
+the one that stopped it (`fail` for a contract miss, `error` when the bench
+could not get the probe to the point of asking) with what was seen
+instead. then the table: the ask, whether ASKS.md marks it landed, the
+result, how many assertions passed, seconds, and the first failing
+assertion with its evidence on the next line:
+
+```
+ask  landed  result         ok  secs  first failing assertion
+a1   no      expected fail   1   0.0  every state-changing frame carries id: <epoch>:<seq>
+                                   session.created arrived with no id: line
+a3   no      expected fail   0  11.3  the daemon closed the stalled subscriber's stream
+                                   still open 10 s after 18.0 MiB was published past it; it was handed 18.2 MiB
+a8   no      expected fail   0   0.0  POST /session/{sessionID}/message declares its 409
+                                   it declares 200, 400, 401, 404
+
+0 pass, 11 expected fail, 0 fail, 0 error
+```
+
+| result | means | exit |
+|---|---|---|
+| `pass` | every assertion held on a landed ask | 0 |
+| `pass (early)` | every assertion held on an ask ASKS.md does not mark landed | 0 |
+| `expected fail` | an assertion failed on an ask not yet landed | 0 |
+| `fail` | an assertion failed on an ask marked landed: the milestone stops | 1 |
+| `error` | the probe could not reach its assertions (bench, timeout, a throw) | 1 |
+
+a milestone's gate needs `pass` on every ask it depends on (m2: a1 to a3;
+m3: a4, a5, a11; m4: a6). only the assertions up to the first failure have
+run against a real daemon; the rest are proven only when the ask lands.
+
+## the scripted session
+
+used by m1 onward: one prompt that calls tools (a read, an edit, a shell
+command), a question the agent asks and the bench answers, a prompt
+queued while busy, an unsend, a run-now, and an abort. the same script
+drives every tier so numbers compare across milestones.
+
+`bun bench/session.ts` drives it against the dev daemon: the tools prompt;
+while the question waits, two prompts queued and the second unsent; the
+answer; run now while the reply streams (abort, then `loop` runs the
+queue); a 400-word reply aborted mid-stream. it prints each call and the
+events it saw by type, so boxbox's count can be compared with the
+daemon's. `bun bench/session.ts --words N` streams one reply of N words
+instead (N delta events), for the memory run.
+
+## the thread drive (m3)
+
+`bun bench/thread.ts [--boxbox http://127.0.0.1:3051] [--replies 50]
+[--only 1,2,3,4,5,6]`, with `just cmx2 --port <p>` and `BOXBOX_PORT=<b>
+just dev` running (for example ports 4920 and 3051). it signs in
+through the gate, makes sessions on the daemon with the bench model's
+scripts, and drives agent-browser through the accessibility tree, checking
+each step and printing a line for it (`--only` runs some scenarios; 4
+needs 1 and 5 needs 2):
+
+1. **reading**: a `[bench:tools]` turn on stage at 390: the rows read,
+   edit, run and the pending ask, the status line "wants you", the ask's
+   options named in the tree; `answer hi` tapped by its name; the daemon's
+   question list empty; the ask gone from the stream; the row `answered`.
+2. **asks one at a time**: a `[bench:asks]` turn at 820: the first
+   permission risen out of the live window with its options; allow once,
+   allow once, answer hi, answer later, each as the daemon raises it; all
+   four settled.
+3. **mid-answer**: a `[bench:words 700 40]` turn opened after 2.5 s shows
+   partial text that grows; a reload mid-answer paints what was written
+   inside 1.5 s of the reload command and keeps growing.
+4. **a deep link** at 1512: `?thread=&at=&part=` opens and shows the
+   answered row; the turns panel open in the screenshot.
+5. **widths**: the settled asks turn at 390, 820 and 1512.
+6. **the perf row**: more `[bench:asks]` turns answered until 50 replies
+   have gone, then, from the telemetry the server wrote
+   (`.cmx2/bench/boxbox-data/telemetry`), `perf.send verb=reply` p50, p90
+   and max, and `perf.thread` for the thread's first frame (cached and
+   not), a row opening and a stream event to a glyph.
+
+every screenshot (`bench/shots/`, gitignored) runs the craft check
+(`app/.ladle/craft.js`) on the thread's stage (`window.__craftRoot`; home's
+windows beneath it on the deck are home's gate): no text within 8 px of
+its surface's edge, no sibling surfaces closer than 6 px, no surface
+within 12 px of the screen's edge. every scenario ends by reading the page's uncaught errors and
+rejections (each page gets a listener that writes them to the console,
+since agent-browser's console holds `console.*` calls only) and fails on
+any. a click that does not land prints what agent-browser answered and
+the buttons the tree holds. the run fails on any check.
+
+## the exactly-once suite (m2)
+
+step one of m2 is the probes above, `just probes 4840 a1 a2 a3` against
+the moved pin, printed with a1 to a3 at `pass`. then, with the scripted
+session streaming, for each disruption:
+
+1. drop the browser's connection 20 times at random moments.
+2. restart the boxbox server.
+3. restart the cmx2 daemon.
+4. hide the tab for 10 minutes (and on the phone, lock it).
+
+after each: the worker's transcript for the session equals the daemon's
+`GET /session/:id/message` byte for byte (diff printed, empty); the
+reducer's duplicate-apply counter is zero; the ui never showed a
+"reconnecting" state for a resume under 5 s.
+
+the stalled reader: a client that connects and stops reading for 10
+minutes while the fleet streams. server rss sampled every 10 s is flat;
+the stream is closed at the 512 kb cap; the client resumes cleanly.
+
+how it is driven: `just build && bun bench/exactly-once.ts [case ...]
+[--hidden-minutes 10] [--with-stalled]` owns every process it uses (the
+pinned daemon, the release binary on 3001 with the bench config, and
+`bench/cut.ts`, a relay on 3003 that destroys every connection through it
+on `SIGUSR2`, so a "drop" is a real broken socket to the page and to the
+server). the browser is agent-browser's, loading the app through the
+relay. per case it opens a fresh session in the app, streams a scripted
+reply into it through the daemon, disrupts mid-stream, waits for the
+daemon to settle the session, and compares `window.boxbox.transcript(key)`
+with the daemon's `GET /session/:id/message` byte for byte, printing the
+reducer's counters (`duplicates` must be 0; `covered` counts the expected
+overlap between a hydration and the entries after it). cases: `drops`
+(20 cuts), `server` (the binary stopped and started: a new journal epoch,
+so a reset and a rehydration), `daemon` (cmx2 stopped and started from
+the same store, then a second reply), `hidden` (the tab behind another
+for the given minutes), `reload` (a full page reload mid-answer: the
+characters painted from indexeddb before the stream resumes, then the
+reply continuing). `bench/stalled.ts --minutes 10 --load` is the stalled
+reader; `--with-stalled` runs it beside the `hidden` case.
+
+## the push matrix (m4)
+
+each row fires the event and prints the `push.decided` row, then checks
+delivery on a real subscribed browser:
+
+| row | expected |
+|---|---|
+| ask, the thread on stage on this device, input 10 s ago | no push, reason `watched` |
+| ask, the thread watched on another device | no push, reason `watched` |
+| ask, visible but not focused (another app in front) | push to every enabled device |
+| ask, every device hidden | push |
+| done, a turn the user started, all hidden | push after 10 s |
+| done, then the agent continues within 10 s | no push, reason `continued` |
+| done, a turn nobody started | no push, reason `not-armed` |
+| the user's own interrupt | no push, reason `own-action` |
+| a subagent finishing | no push, reason `subagent` |
+| a replayed event after a reconnect | no push, reason `replayed` |
+
+plus: an ask answered on one client disappears from another in under 1 s
+(timestamps printed); a reply to a settled ask shows who answered and when.
+
+**how it runs.** `bun bench/needs.ts` drives every row against the
+release binary on the bench config and the pinned daemon, through
+boxbox's own api: fresh threads, the bench model's scripts (`[bench:tools]`
+for a question, `[bench:words]` for a done, `[bench:agent]` for a
+subagent), presence of other devices over `POST /api/presence`, a stop
+over `POST .../abort`, a turn started behind boxbox's back straight on the
+daemon (not armed). it prints each row's `push.decided` row, then the
+cross-client clear with two `GET /api/stream` readers, the 409 for a late
+reply, and `GET /api/needs` with its `x-boxbox-seq`. the replayed row
+needs a server restart between `--phase leave-open` and `--phase replayed
+<need id>`. `just push-harness --headed --need matrix` runs it with a real
+chrome subscribed and the app closed, and shows every push the matrix
+decided to send arriving in the service worker; `--need permission
+--await-tap 90` delivers a real permission and, when the banner is
+clicked, reads the focused ask card back from the page it opened.
+
+## the budget run (m5)
+
+on a real ipad and a real iphone, installed pwas, over
+the tailnet, build id printed. every number comes from `perf.*` telemetry
+rows or a performance trace, raw rows printed.
+
+| budget (`design.md`) | method | target |
+|---|---|---|
+| cold launch to cached paint | 20 launches from a killed app | p50 300 ms, p90 700 ms |
+| tap to first frame | `perf.paint` over 50 opens | 1 frame |
+| transitions | frame timing during 20 opens, closes and pours | no dropped frames at 60 fps |
+| stream event to glyph | host timestamp to paint, 200 deltas | p90 150 ms |
+| send to acknowledged | 50 sends | p90 400 ms |
+| long tasks | performance trace during 2 minutes of streaming and scrolling | none over 50 ms |
+| layout shift | cumulative, whole session | 0 |
+| client memory | 8 hour soak with the fleet active | heap under 150 mb |
+| server memory | 8 hour soak, 3 hosts | steady rss 64 mb |
+| reloads | `app.boot reason=reload` over the soak | 0 needed |
+
+## the board trace (m6)
+
+three traces are recorded against v1 (its real server and its own board
+daemon, a harness cmx behind it) with scripted key presses on the fake
+board: every key event in, every call and led frame out, with timings.
+replay the keys against v2 through the fake board; the led frames must be
+byte-identical and the calls semantically identical (same intent, same
+target, each verb in the same order). `docs/board-verification.md` is the
+harness, what it compares and how m6 runs it. the checksum test proves
+every board file except `client.ts` is unchanged from the recorded v1
+commit.
+
+## the full surface drive (m7)
+
+agent-browser walks every control in the app by accessible name at phone,
+ipad and mac widths and exercises it against a real daemon, printing the
+request log. the terminal is opened, typed into, resized, dropped and
+redialled with its cursor.
+
+the terminal's part runs on its own: `just build && bun bench/terminal.ts`
+(steps `rest`, `relay`, `overflow`, `browser`; `docs/terminal.md`,
+verification). it owns the pinned daemon on 4890, a cutter on 4892 between
+boxbox and the daemon (cutting it is the relay's upstream dropping), and
+the release binary on 3031, and prints `lsof` on its ports when it stops.
+
+## device checks that only a real device can answer
+
+keyboard behaviour on the iphone (decision 19), push delivery and the
+banner tap deep link, the badge, the back swipe, 60 fps on the ipad. the
+simulator and desktop emulation do not count for these.

@@ -1,0 +1,456 @@
+/* the thread's surfaces (docs/thread.md). every class here belongs to one
+   element and nothing reuses a generic word. every colour is a token that
+   reads the appearance (styles.css, --L): the page's ink and wells, and the
+   stage's own --accent, --on-accent and --you-* (the repo's palette read for
+   the flood it paints on), so each part holds in both appearances. */
+
+.thread {
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --col-k: 50px;
+  --col-gap: var(--s2);
+  --thread-said: 15.5px;
+  --thread-answer: 16.5px;
+  /* the agent's words in steps below --prose: reports and summaries, what it thought, the thought's own row */
+  --prose-body: color-mix(in srgb, var(--prose) 86%, transparent);
+  --prose-dim: color-mix(in srgb, var(--prose) 76%, transparent);
+  --prose-faint: color-mix(in srgb, var(--prose) 64%, transparent);
+  --code-bg: color-mix(in srgb, var(--text) 8%, transparent);
+  /* the clock hangs in the margin beside the measure: its width and its distance from the text */
+  --clock-w: 35px;
+  --clock-gap: 14px;
+  /* the tape's time scale: its 6 px of air and its 18 px row. a narrow stage gives it up while the tape sticks */
+  --scale-h: 24px;
+  /* how far from the measure's edge the clock's text must be able to start: its gap plus 20 px to spare before the stage's edge */
+  --clock-reach: calc(var(--clock-gap) + 20px);
+  font-family: var(--sans);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-size: 15px;
+  line-height: 1.45;
+}
+.thread.wide { --col-gap: var(--s3); --thread-said: 16px; --thread-answer: 17px; }
+/* the app's buttons are 44 px tall with padding (styles.css); the thread's own controls set their own, so the reset carries no weight */
+:where(.thread) button { min-height: 0; border-radius: 0; padding: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; -webkit-touch-callout: none; transition: none; }
+.thread :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+.thread .ok { color: var(--accent); }
+.thread .no { color: var(--red); }
+.thread .add { color: var(--add); }
+.thread .del { color: var(--del); }
+
+/* ---------- a turn ---------- */
+.turn { display: flex; flex-direction: column; gap: var(--s4); }
+.turn + .turn { margin-top: var(--s4); }
+/* an empty box that a fling went past (stage-window.ts, data-waiting): it is filled when the view is still, and says what it is until then: a
+   dotted line across its top, as a quiet stretch has (.gap), and the first words of the turn in the quiet ink. no spinner: nothing is loading */
+.turn[data-waiting]::before { content: attr(data-gist); display: block; padding-top: 12px; font-size: 12.5px; line-height: 1.4; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 14%, transparent) 0 3px, transparent 3px 7px) top / 100% 1px no-repeat; }
+
+/* your message is the strongest thing on the page in both appearances: the light bubble on the dark flood, and on the
+   light flood a small deep window with the window plane's lit top edge */
+.you { align-self: flex-end; max-width: 86%; background: linear-gradient(170deg, var(--you-1), var(--you-2)); color: var(--you-ink); border-radius: 20px 20px 6px 20px; padding: var(--s3) var(--s4); font-size: var(--thread-said); line-height: 1.42; box-shadow: inset 0 1px 0 rgb(255 255 255 / calc(var(--L) * 0.16)), 0 10px 24px -12px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.7)); white-space: pre-wrap; overflow-wrap: anywhere; }
+.you .clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+/* "show all" is a control, so it holds 4.5:1 on both bubbles (the ink at 74%); the time line, with its queued or steer label, is read at 68% */
+.you .all { display: block; margin-top: var(--s1); font-size: 13px; font-weight: 620; color: color-mix(in srgb, var(--you-ink) 74%, transparent); }
+.you time { display: block; font-size: 11.5px; color: color-mix(in srgb, var(--you-ink) 68%, transparent); margin-top: 3px; text-align: right; font-variant-numeric: tabular-nums; }
+
+.report { border-radius: 18px; padding: 14px var(--s4); background: var(--well); box-shadow: inset 0 0 0 1px var(--hairline), var(--well-edge); }
+.rep-h { display: flex; justify-content: space-between; align-items: center; gap: var(--s2); font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.rep-h b { color: var(--accent); font-weight: 620; }
+.rep-r { display: inline-flex; align-items: center; gap: var(--s3); }
+.rep-b { font-size: 14px; line-height: 1.5; color: var(--prose-body); margin-top: 6px; overflow-wrap: anywhere; }
+.rep-b > * + * { margin-top: 0.55em; }
+.rep-b h1, .rep-b h2, .rep-b h3 { font-size: 1em; font-weight: 640; margin: 0; }
+.rep-b p, .rep-b ul, .rep-b ol { margin: 0; }
+.rep-b ul, .rep-b ol { padding-left: 1.2em; }
+.rep-b code { font-family: var(--mono); font-stretch: 90%; font-size: 0.8em; padding: 0.08em 0.3em; border-radius: 5px; background: var(--code-bg); }
+.report.short .rep-b { max-height: 12.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+.rep-all { display: block; margin-top: var(--s2); font-size: 12.5px; font-weight: 620; color: var(--accent); }
+.report:not(.short) .rep-all { display: none; }
+
+.turn-mark { display: flex; align-items: center; gap: var(--s3); font-size: 12.5px; color: var(--text-3); }
+.turn-mark::before, .turn-mark::after { content: ""; flex: 1; height: 1px; background: var(--hairline); }
+.turn-mark.wraps { display: block; }
+.turn-mark.wraps::before, .turn-mark.wraps::after { display: none; }
+.turn-mark button { color: var(--text-2); font-size: 12.5px; padding: 6px 2px; }
+.turn-mark button b { font-weight: 600; color: var(--text); }
+.turn-mark span { color: var(--text-2); }
+.sumcard { display: none; border-radius: 18px; padding: var(--s4); background: var(--well); box-shadow: inset 0 0 0 1px var(--hairline), var(--well-edge); font-size: 14px; line-height: 1.55; color: var(--prose-body); }
+.sumcard.open { display: block; }
+.sumcard > * + * { margin-top: 0.6em; }
+.sumcard p, .sumcard ul { margin: 0; }
+.sumcard h1, .sumcard h2, .sumcard h3 { font-size: 1em; font-weight: 640; color: var(--text); margin: 1em 0 0; }
+.sumcard ul { padding-left: 1.2em; }
+.sumcard code { font-family: var(--mono); font-stretch: 90%; font-size: 0.8em; padding: 0.08em 0.3em; border-radius: 5px; background: var(--code-bg); }
+
+/* ---------- the tape ---------- */
+/* the glows are a light-on-dark effect: they fade out as --L rises, and on the light flood the marks and the now line stay crisp ink. its marks are ink (--text at the alphas the dark flood always had), so the tape reads as well on the light flood as on the deep one */
+.tape { --card: color-mix(in srgb, #fff calc(6% + var(--L) * 49%), var(--flood-3)); position: relative; isolation: isolate; border-radius: 20px; padding: 14px 16px 12px; touch-action: pan-y; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+/* two materials, laid under the tape's content and cross-faded (160 ms, opacity only) when the turn settles: the pressed well it
+   lands as, and the card (--card, on the tape) it floats as while the turn runs. the card is the flood's own foot colour lifted a step toward the light
+   (6% white in the dark, 55% in the light), so it belongs to the stage it floats on, and it is opaque: the stage's scroller is
+   masked (stage.css, the dissolve), a backdrop-filter under a masked ancestor sees nothing, and the rows beneath would show
+   through sharp. the scrub caption floats over the rows in the same card */
+.tape::before, .tape::after { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; transition: opacity 160ms; }
+.tape::before { background: var(--well); box-shadow: var(--well-edge); }
+.tape::after { background: var(--card); box-shadow: var(--glass-edge), var(--drop); opacity: 0; }
+.tape.live::before { opacity: 0; }
+.tape.live::after { opacity: 1; }
+/* a running turn's tape is held at the foot of the view wherever the reader is in the turn, and leaves with the turn above
+   it. the scroller's end padding is the foot (stage.css), and a sticky offset starts inside it, so 0 holds the tape exactly
+   where it rests when the reader is at the end: scrolling back from there moves nothing under their eye, and the settle,
+   which un-sticks it, moves nothing either. the settle's `--hold` pads the end more, and the tape gives it back, so it
+   never rises with it */
+.tape.live { position: sticky; bottom: calc(-1 * var(--hold, 0px)); z-index: 3; }
+/* the sentinel is the tape's own place, a pixel after it: in the turn's column it takes back the gap above it */
+.tape-sentinel { height: 1px; pointer-events: none; }
+.turn > .tape-sentinel { margin: calc(-1 * var(--s4)) 0 -1px; }
+.tape-h { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s3); font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; margin-bottom: var(--s3); }
+.tape-h b { color: var(--text); font-weight: 600; font-size: 13.5px; }
+.tape-h b.lit { color: var(--accent); }
+.tape-lanes { display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: var(--s3); row-gap: var(--s2); align-items: start; }
+.lane-hd { display: grid; grid-template-rows: 4px 1fr; row-gap: 6px; height: 30px; font-size: 10.5px; line-height: 1; color: var(--text-2); font-weight: 560; }
+.lane-hd span:first-child { transform: translateY(-3px); }
+.lane-hd span:last-child { align-self: center; transform: translateY(3px); }
+.lane-hd.agent { display: block; height: 37px; padding-top: 22px; }
+.lane-name { font-size: 10px; line-height: 12px; margin-bottom: 3px; color: var(--text-2); font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane-name span { color: var(--text-2); font-weight: 450; }
+.lane-plot { position: relative; min-width: 0; }
+.lane { position: relative; height: 30px; }
+.lane::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--text) 6%, transparent); }
+.lane::after { content: ""; position: absolute; left: 0; right: 0; top: 10px; bottom: 0; border-radius: 5px; background: color-mix(in srgb, var(--text) 4%, transparent); }
+.lane > * { position: absolute; z-index: 1; }
+.tp-think { top: 0; height: 4px; border-radius: 2px; background: var(--accent); opacity: 0.85; box-shadow: 0 0 8px color-mix(in srgb, var(--accent) calc(45% * (1 - var(--L))), transparent); }
+.tp-mk { bottom: 0; width: 1.5px; margin-left: -0.75px; }
+.tp-mk.read, .tp-mk.search, .tp-mk.web, .tp-mk.other { height: 6px; bottom: 7px; background: color-mix(in srgb, var(--text) 42%, transparent); }
+.tp-mk.edit { height: 14px; bottom: 3px; background: var(--add); }
+.tp-mk.run { top: 14px; bottom: 4px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) calc(40% * (1 - var(--L))), transparent); min-width: 1.5px; }
+.tp-mk.run.running { background: linear-gradient(90deg, var(--accent), var(--text)); }
+.tp-mk.spawn { top: 10px; bottom: 0; background: color-mix(in srgb, var(--text) 90%, transparent); }
+.tp-mk.ask { width: 7px; height: 7px; margin-left: -3.5px; bottom: 7px; transform: rotate(45deg); background: var(--text); border-radius: 1.5px; }
+.tp-mk.bad { background: var(--red); box-shadow: 0 0 8px color-mix(in srgb, var(--red) calc(50% * (1 - var(--L))), transparent); }
+.tp-now { top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; box-shadow: 0 0 12px color-mix(in srgb, var(--accent) calc(90% * (1 - var(--L))), transparent), 0 0 3px color-mix(in srgb, var(--text) calc(100% * (1 - var(--L))), transparent); }
+.lane.agent { height: 22px; }
+.lane.agent::before { top: 10px; height: 2px; background: color-mix(in srgb, var(--text) 5%, transparent); }
+.lane.agent::after { top: 14px; border-radius: 3px; }
+.lane.agent .tp-think { top: 10px; height: 2px; }
+.lane.agent .tp-mk.run { top: 15px; bottom: 2px; }
+.lane.agent .tp-mk.read, .lane.agent .tp-mk.search, .lane.agent .tp-mk.web, .lane.agent .tp-mk.other { bottom: 2px; height: 4px; }
+.lane.agent .tp-mk.edit { height: 8px; bottom: 0; }
+.lane.agent > * { clip-path: inset(0); }
+.tp-scale { position: relative; height: calc(var(--scale-h) - 6px); margin: 6px 0 0 64px; }
+.tp-scale i { position: absolute; top: 0; width: 1px; height: 4px; background: color-mix(in srgb, var(--text) 18%, transparent); }
+.tp-scale i.maj { height: 6px; background: color-mix(in srgb, var(--text) 34%, transparent); }
+.tp-scale span { position: absolute; top: 7px; transform: translateX(-50%); font-size: 10px; color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tp-scale span.first { transform: none; }
+.tp-scale span.last { transform: translateX(-100%); }
+.tp-playhead { position: absolute; top: 40px; bottom: 30px; width: 1.5px; margin-left: -0.75px; background: var(--text); box-shadow: 0 0 8px color-mix(in srgb, var(--text) calc(70% * (1 - var(--L))), transparent); pointer-events: none; opacity: 0; }
+.tape.scrub .tp-playhead { opacity: 1; }
+.tp-cap { position: absolute; z-index: 5; bottom: calc(100% + 8px); max-width: 260px; padding: 9px 12px; border-radius: 14px; background: var(--card); box-shadow: var(--glass-edge), 0 16px 30px -10px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 40%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.8)); pointer-events: none; opacity: 0; transform: translate(-50%, 4px); transition: opacity 120ms, transform var(--snapd) var(--snap); white-space: nowrap; }
+.tape.scrub .tp-cap { opacity: 1; transform: translate(-50%, 0); }
+.tp-cap small { display: block; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tp-cap span { display: block; font-family: var(--mono); font-stretch: 90%; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.tp-cap em { font-style: normal; font-size: 11.5px; color: var(--accent); }
+.tp-cap em.no { color: var(--red); }
+
+/* ---------- the ledger ---------- */
+.ledger { display: flex; flex-direction: column; margin: 0 calc(-1 * var(--s2)); }
+.row { position: relative; border-radius: 14px; }
+/* three columns, no clock among them: the kind, the thing, the result. a row with no result has no third track, so
+   its words run to the row's end. every item is placed, because the clock (below) shares the kind's cell */
+.row-h { display: grid; grid-template-columns: var(--col-k) minmax(0, 1fr); grid-auto-columns: auto; column-gap: var(--col-gap); align-items: baseline; width: 100%; padding: 6px var(--s3) 6px var(--s2); border-radius: 14px; text-align: left; font-variant-numeric: tabular-nums; cursor: default; }
+button.row-h { cursor: pointer; }
+@media (hover: hover) { button.row-h:hover { background: var(--hover); } }
+/* the clock is marginalia: only where the stage leaves a margin beside the measure does it show (the width rule
+   below); a phone gives its width back to the words, and the bubble, the "min later" line and an open row's facts carry the time */
+.row-t { display: none; grid-area: 1 / 1; font-family: var(--mono); font-stretch: 90%; font-size: 10.5px; line-height: 20px; color: var(--text-2); white-space: nowrap; }
+.row-k { grid-area: 1 / 1; font-family: var(--mono); font-stretch: 90%; font-size: 10.5px; line-height: 20px; color: var(--text-2); white-space: nowrap; }
+.row-c { grid-area: 1 / 2; min-width: 0; font-family: var(--mono); font-stretch: 90%; font-size: 12.5px; line-height: 20px; color: var(--text); overflow-wrap: break-word; }
+.row-c .fn { font-weight: 560; }
+.row-c .prog { font-weight: 560; }
+.row-c .flag, .row-c .pipe { color: var(--text-3); }
+.row-c .str { color: color-mix(in srgb, var(--accent) 85%, transparent); }
+.row-c .lead { color: var(--text-2); }
+/* a question's own short label, above its words: the window's label, in the light tone */
+.row-hd { display: block; font-family: var(--sans); font-stretch: 100%; font-size: 12.5px; line-height: 18px; font-weight: 620; color: var(--accent); }
+.row-c .brief { display: block; font-family: var(--sans); font-stretch: 100%; font-size: 13px; line-height: 1.4; color: var(--text-2); margin-top: 2px; }
+.row-c code { font-family: var(--mono); font-stretch: 90%; font-size: 0.8em; padding: 0.08em 0.3em; border-radius: 5px; background: var(--code-bg); }
+.dir { display: block; color: var(--text-2); font-size: 10.5px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.dir bdi { direction: ltr; unicode-bidi: plaintext; }
+.row-r { grid-area: 1 / 3; font-family: var(--mono); font-stretch: 90%; font-size: 11.5px; line-height: 20px; color: var(--text-2); white-space: nowrap; display: inline-flex; gap: 7px; align-items: baseline; justify-self: end; max-width: 20ch; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row-r:empty { display: none; }
+.row-r.lit { color: var(--accent); }
+.row-r.bad { color: var(--red); }
+.row-r.faint { color: var(--text-3); }
+.row-r .hash { padding: 1px 7px; border-radius: 7px; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); font-size: 11px; }
+.row-r .tick { width: 12px; height: 12px; color: var(--accent); align-self: center; }
+.row-r .meter { display: inline-flex; width: 34px; height: 4px; border-radius: 2px; overflow: hidden; background: color-mix(in srgb, var(--text) 10%, transparent); align-self: center; }
+.row-r .meter b { display: block; height: 100%; background: var(--accent); }
+.row-r .meter b + b { background: var(--red); }
+/* a command, a pattern or a thought is two lines at most while its row is closed; where it goes on, it fades */
+.row.clamps:not(.open) > .row-h > .row-c { max-height: 40px; overflow: hidden; }
+.row-c.over { -webkit-mask-image: linear-gradient(#000 20px, rgb(0 0 0 / 0.18) 40px); mask-image: linear-gradient(#000 20px, rgb(0 0 0 / 0.18) 40px); }
+/* language rows are sans; the machine's rows are mono. what was said spans the whole row, flush with the title above it */
+.row.say .row-h { padding-top: 10px; padding-bottom: 10px; }
+.row.say .row-c { font-family: var(--sans); font-stretch: 100%; font-size: var(--thread-said); line-height: 1.48; color: var(--prose); grid-column: 1 / -1; }
+.row.sans .row-c { font-family: var(--sans); font-stretch: 100%; }
+.row.thought .row-c { font-size: 13.5px; line-height: 20px; color: var(--prose-faint); }
+.row.thought .row-c .lead { font-weight: 560; }
+.row.thought .row-k { color: color-mix(in srgb, var(--accent) 75%, transparent); }
+/* a question runs to several lines, and the row lights while the stage goes to it: the words keep 9 px from the light's edge */
+.row.ask .row-h { padding-top: 9px; padding-bottom: 9px; }
+.row.ask .row-c { font-size: 14.5px; line-height: 20px; font-weight: 520; }
+/* a question is several lines of prose: on a phone it takes the row's whole width, under the kind and the result, and not
+   the column that is left between them (140 px at 320, nine lines for four) */
+.thread:not(.wide) .row.ask .row-h { grid-template-columns: var(--col-k) minmax(0, 1fr) auto; row-gap: 2px; }
+.thread:not(.wide) .row.ask .row-c { grid-area: 2 / 1 / 3 / -1; }
+.thread:not(.wide) .row.ask .row-r { grid-area: 1 / 3; }
+.row.commit .row-c { font-size: 13.5px; }
+.row.ask .row-k, .row.agent .row-k, .row.commit .row-k, .row.push .row-k { color: var(--accent); }
+.row.bad .row-k { color: var(--red); }
+.row.stopped .row-r { color: var(--text-3); }
+/* an open thought shows "for 20 s" in place of its teaser and drops its result; a live one keeps "thinking" and its clock */
+.row.thought:not(.open) .opened, .row.thought.open:not(.running) .teaser, .row.thought.open:not(.running) .row-r { display: none; }
+.row.lit .row-h { background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.row.open { background: var(--well); box-shadow: var(--well-edge); }
+/* two open rows in a row are two surfaces: they keep a gap, never a shared edge */
+.row.open + .row.open, .row.open + .gap + .row.open { margin-top: var(--s2); }
+.row.open > .row-h { padding-top: 10px; }
+/* a body starts at the kind column, so a bed has the whole width; on the wide stages it starts under the thing */
+.row-b { display: none; padding: 2px var(--s3) var(--s3) var(--s2); }
+.wide .row-b { padding-left: calc(var(--s2) + var(--col-k) + var(--col-gap)); }
+.row.open > .row-b { display: grid; gap: var(--s2); }
+/* grid children default to their content's width; everything in a body is held to the body */
+.row-b > *, .ask-card, .ask-card > *, .ask-q, .ask-line, .ask-input { min-width: 0; }
+.caret::after, .caret-end { content: ""; display: inline-block; width: 2px; height: 1.05em; margin-left: 2px; vertical-align: -0.16em; background: var(--accent); }
+
+.facts { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.facts b { color: var(--text); font-weight: 560; }
+.none { font-size: 12px; color: var(--text-3); }
+.thought-text { font-size: 14px; line-height: 1.55; color: var(--prose-dim); overflow-wrap: anywhere; }
+.thought-text + .thought-text { margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--hairline); }
+.thought-text small { display: block; font-size: 11.5px; color: var(--text-3); margin-bottom: 3px; font-variant-numeric: tabular-nums; }
+.thought-text p { margin: 0; }
+.thought-text p + p { margin-top: 0.6em; }
+.thought-text code { font-family: var(--mono); font-stretch: 90%; font-size: 0.8em; padding: 0.08em 0.3em; border-radius: 5px; background: var(--code-bg); }
+.fl { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s3); align-items: baseline; font-family: var(--mono); font-stretch: 90%; font-size: 11.5px; line-height: 1.5; padding: 3px 0; width: 100%; }
+.fl + .fl, .fdiff + .fl { border-top: 1px solid color-mix(in srgb, color-mix(in srgb, var(--window-top) 10%, transparent) calc(var(--L) * 100%), color-mix(in srgb, var(--text) 5%, transparent)); }
+.fl .fn { color: var(--text); font-weight: 520; overflow-wrap: anywhere; }
+.fl .fv { color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fl .fb { grid-column: 1 / -1; }
+button.fl { border-radius: 8px; }
+@media (hover: hover) { button.fl:hover { background: var(--hover); } }
+.fdiff { padding: var(--s1) 0 var(--s2); }
+.fb { position: relative; height: 3px; border-radius: 2px; background: color-mix(in srgb, var(--text) 10%, transparent); margin: 4px 0 2px; }
+.fb i { position: absolute; top: 0; bottom: 0; border-radius: 2px; min-width: 2px; }
+.fb i.rd { background: color-mix(in srgb, var(--accent) 62%, transparent); }
+.fb i.ad { background: var(--add); top: -2px; bottom: -2px; }
+.fb i.dl { background: var(--del); top: -2px; bottom: -2px; }
+.hits { display: grid; gap: var(--s2); font-family: var(--mono); font-stretch: 90%; font-size: 11px; line-height: 1.5; }
+.hits .hf { color: var(--text); font-weight: 520; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hits .hf span { color: var(--text-3); font-weight: 400; }
+.hits .hl { display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: var(--s2); color: var(--text-2); }
+.hits .hl i { font-style: normal; color: var(--text-3); text-align: right; }
+.hits .hl span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hits mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); border-radius: 3px; padding: 0 1px; }
+.todo { display: grid; grid-template-columns: 16px minmax(0, 1fr); column-gap: var(--s2); font-size: 13px; line-height: 1.45; color: var(--text-2); padding: 2px 0; }
+.todo i { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--text) 30%, transparent); }
+.todo.done i { background: var(--accent); box-shadow: none; }
+.todo.done { color: var(--text-3); }
+.todo.now i { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.todo.now { color: var(--text); }
+/* "3 min later": a quiet stretch, a dotted line from the kind column on */
+.gap { display: flex; align-items: center; gap: var(--s3); padding: 6px var(--s2); font-family: var(--mono); font-stretch: 90%; font-size: 10.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.gap::after { content: ""; flex: 1; height: 1px; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--text) 14%, transparent) 0 3px, transparent 3px 7px); }
+.brief-full { font-size: 13.5px; line-height: 1.5; color: var(--prose-body); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 80%, transparent); mask-image: linear-gradient(#000 80%, transparent); }
+/* the door into an agent's own thread: an option on the window, like an ask's, in the agent's accent */
+.agent-door { justify-self: start; display: inline-flex; align-items: center; gap: var(--s2); min-height: 40px; padding: 0 14px 0 16px; border-radius: 14px; font-size: 14px; font-weight: 600; color: var(--accent); background: var(--well); box-shadow: var(--well-edge); }
+.agent-door i { width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-top: 1.5px solid currentColor; transform: rotate(45deg); opacity: 0.8; }
+@media (hover: hover) { .agent-door:hover { background: linear-gradient(var(--hover), var(--hover)), var(--well); } }
+
+/* a bed: output, a diff, a file's lines. pressed in: dark, black on the flood; light, near-white paper edged in the repo's hue. it scrolls
+   sideways and fades where it continues */
+.bed { border-radius: 12px; background: var(--bed); box-shadow: var(--bed-edge); font-family: var(--mono); font-stretch: 90%; font-size: 11px; line-height: 1.6; color: var(--text-2); padding: 8px 0; overflow-x: auto; scrollbar-width: none; white-space: pre; }
+.bed::-webkit-scrollbar { display: none; }
+.bed span { display: block; padding: 0 var(--s3); min-width: max-content; }
+.bed .la { background: color-mix(in srgb, var(--add) calc(9% + var(--L) * 6%), transparent); color: var(--add); }
+.bed .ld { background: color-mix(in srgb, var(--del) calc(9% + var(--L) * 6%), transparent); color: var(--del); }
+.bed .cut, .bed .tail-note { color: var(--text-3); font-style: italic; padding-top: 2px; padding-bottom: 2px; }
+.bed .hunk { color: var(--text-3); padding-top: 6px; }
+.bed.err { color: var(--red); }
+/* break-spaces, not pre-wrap: a preserved space at a wrap point would hang past the bed's padding */
+.bed.err span, .bed.wrap span { white-space: break-spaces; min-width: 0; overflow-wrap: anywhere; }
+.overflows { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+
+/* an ask, where it happened: pressed into the row, its options pressed too, the first one filled */
+.ask-card { display: grid; gap: var(--s3); border-radius: 14px; outline: none; }
+/* the page's own focus ring (styles.css) would draw a second box on the card: the row's is the one */
+.ask-card:focus-visible { outline: none; }
+/* the ask a window's pill, a push or the bar's "wants you" named holds focus in its card until a finger or a key moves on, and
+   the ring is round the whole row, from its label and question to dismiss, on the row's own box: one object (docs/design.md,
+   the inbox in the windows). the ring follows focus itself, and an outline never moves the layout */
+.row:has(.ask-card:focus) { outline: 2px solid var(--accent); outline-offset: 0; }
+/* several questions in one ask: each is a block of its own, told apart by a hairline, and the one "answer" sends them all */
+.ask-q { display: grid; gap: var(--s3); }
+.ask-q + .ask-q { padding-top: var(--s3); border-top: 1px solid var(--hairline); }
+.ask-h { margin: 0; font-size: 12.5px; font-weight: 620; color: var(--accent); }
+.ask-t { margin: 0; font-size: 15px; line-height: 1.4; font-weight: 520; overflow-wrap: anywhere; }
+.ask-send { justify-self: end; }
+.ask-opts { display: grid; gap: 7px; }
+.ask-opt { overflow-wrap: anywhere; text-align: left; border-radius: 14px; padding: var(--s3) 14px; min-height: 46px; font-size: 15px; background: var(--well); box-shadow: var(--well-edge); display: grid; }
+.ask-opt small { font-size: 12.5px; color: var(--text-2); margin-top: 2px; line-height: 1.35; }
+.ask-opt.first { background: var(--accent); color: var(--on-accent); font-weight: 620; box-shadow: 0 8px 20px -8px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 55%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.6)), inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.2) calc(var(--L) * 100%), transparent); }
+.ask-opt.first small { color: var(--on-accent); opacity: 0.75; font-weight: 450; }
+.ask-opt:disabled { cursor: default; }
+.ask-opt:disabled:not([aria-pressed="true"]) { opacity: 0.45; }
+.ask-opt[aria-pressed="true"]:not(.first) { box-shadow: inset 0 0 0 1.5px var(--accent), var(--well-edge); }
+.ask-line { display: flex; gap: var(--s2); align-items: center; }
+/* 16 px or larger on touch, or ios zooms the page on focus (decision 19) */
+.ask-input { flex: 1; min-width: 0; font: inherit; font-size: max(16px, 1rem); color: var(--text); min-height: 44px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--hairline); background: var(--well); box-shadow: var(--well-edge); }
+.ask-input::placeholder { color: var(--text-3); }
+.ask-input:disabled { opacity: 0.5; }
+.ask-go { flex: none; min-height: 44px; padding: 0 16px; border-radius: 14px; background: var(--well); box-shadow: var(--well-edge); font-weight: 620; font-size: 14px; }
+.ask-go:disabled { opacity: 0.4; cursor: default; }
+.ask-foot { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); align-items: baseline; min-height: 20px; font-size: 13px; }
+.ask-foot:empty { display: none; }
+.ask-sent { color: var(--accent); }
+.ask-note { color: var(--text-2); font-size: 13px; }
+.ask-problem { color: var(--red); font-size: 13px; text-align: left; }
+.ask-quiet { color: var(--text-3); font-size: 13px; padding: 4px 0; }
+@media (hover: hover) { .ask-quiet:hover { color: var(--text-2); } }
+.ask-or { font-size: 13px; color: var(--text-3); }
+.ask-ans { font-size: 13.5px; color: var(--text-2); }
+.ask-ans b { color: var(--accent); font-weight: 600; }
+.row-link { color: var(--accent); font: inherit; }
+.rep-agent { font: inherit; color: inherit; }
+.report.lit { box-shadow: inset 0 0 0 1.5px var(--accent), var(--well-edge); }
+
+/* what the turn came to: the prose runs the whole measure, flush with the title block above it. what a said row says is the same
+   markdown in the same rules (.say-md), at the row's own size, so a list in mid-turn prose reads as a list and the reply that settles
+   into the answer keeps its structure and changes only its size */
+.answer { font-size: var(--thread-answer); line-height: 1.55; color: var(--prose); overflow-wrap: anywhere; }
+:is(.answer, .say-md) > * { margin: 0; }
+:is(.answer, .say-md) > * + * { margin-top: 0.7em; }
+:is(.answer, .say-md) h1, :is(.answer, .say-md) h2, :is(.answer, .say-md) h3 { font-weight: 650; font-stretch: 106%; letter-spacing: -0.02em; line-height: 1.25; margin-top: 1.1em; }
+:is(.answer, .say-md) h1 { font-size: 1.25em; }
+:is(.answer, .say-md) h2 { font-size: 1.14em; }
+:is(.answer, .say-md) h3 { font-size: 1.02em; }
+:is(.answer, .say-md) ul, :is(.answer, .say-md) ol { padding-left: 1.25em; }
+:is(.answer, .say-md) li + li { margin-top: 0.3em; }
+:is(.answer, .say-md) strong { font-weight: 640; color: var(--text); }
+:is(.answer, .say-md) code { font-family: var(--mono); font-stretch: 90%; font-size: 0.78em; padding: 0.12em 0.38em; border-radius: 6px; background: var(--code-bg); }
+/* a table is a bed too: main's light mode lifts a bed to paper edged in the repo's hue (--bed-edge, which is the page's hairline ring in dark) */
+:is(.answer, .say-md) table { display: block; overflow-x: auto; border-radius: 16px; background: var(--bed); box-shadow: var(--bed-edge); font-size: 13px; scrollbar-width: none; border-collapse: collapse; }
+:is(.answer, .say-md) th, :is(.answer, .say-md) td { padding: 9px 14px; text-align: left; white-space: nowrap; border-top: 1px solid var(--hairline); }
+:is(.answer, .say-md) th { color: var(--text-2); font-weight: 600; border-top: 0; }
+:is(.answer, .say-md) a { color: var(--accent); text-decoration: none; }
+
+/* ---------- a code block ---------- */
+/* a fence is a bed (the output bed's material: rounded, the bed's tint, a hairline) with a slim header inside it: the language on the left, which says
+   what the code is, the copy control on the right. the header stays put and the code scrolls under it, fading where it continues (.overflows).
+   one block in every markdown surface; only its size follows the surface (the answer and a said row at 12 px, a report and a summary at 11.5).
+   the command's and the output's beds in an open shell row are the same block (.bed-wrap below): one family, the same header, control and inset.
+   a fence with no language and one line has nothing to say in a header, so it is one row: the line, and the control at its end (.lone).
+   the block does not clip (the control's hit area is 44 px and the strip is 30), so the code's own box carries the bottom corners */
+.cblock {
+  --cb-x: 18px;
+  --cb-size: 12px;
+  --cb-r: 16px;
+  border-radius: var(--cb-r); background: var(--bed); box-shadow: var(--bed-edge);
+  /* the colours of the code: five hues from the repo palette's own light tones (deep in the light appearance), one for each thing a language is
+     made of, and the quiet ink for what is said around it. they are fixed, not the repo's accent: the accent is one of those ten hues, so
+     keywords in it would be the same colour as strings, numbers or functions in the repo that shares it. every one holds 4.5:1 on the bed
+     over every stop of every flood, in both appearances (highlight-colours.test.ts), and reads --L like the tokens it sits with */
+  --hl-key: color-mix(in srgb, #9a1f63 calc(var(--L) * 100%), #ff9fd0);
+  --hl-str: color-mix(in srgb, #755400 calc(var(--L) * 100%), #f3d474);
+  --hl-num: color-mix(in srgb, #14633a calc(var(--L) * 100%), #8fe6a5);
+  --hl-fn: color-mix(in srgb, #1a5594 calc(var(--L) * 100%), #9cc8ff);
+  --hl-type: color-mix(in srgb, #4b3bb0 calc(var(--L) * 100%), #b7abff);
+}
+.rep-b .cblock, .sumcard .cblock { --cb-x: 14px; --cb-size: 11.5px; --cb-r: 12px; }
+:is(.answer, .say-md, .rep-b, .sumcard) > .cblock { margin-top: 0.9em; }
+:is(.answer, .say-md, .rep-b, .sumcard) > .cblock + * { margin-top: 0.9em; }
+.cblock-h { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 30px; padding: 0 var(--cb-x); -webkit-user-select: none; user-select: none; }
+.cblock-h .copy-btn { margin-left: auto; }
+.cblock-lang { font-family: var(--mono); font-stretch: 90%; font-size: 10.5px; line-height: 20px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.cblock pre { margin: 0; padding: 0 var(--cb-x) 14px; border-radius: 0 0 var(--cb-r) var(--cb-r); overflow-x: auto; scrollbar-width: none; font-family: var(--mono); font-stretch: 90%; font-size: var(--cb-size); line-height: 1.65; color: var(--text); font-variant-ligatures: none; }
+.cblock pre::-webkit-scrollbar { display: none; }
+.cblock pre code { display: block; min-width: max-content; background: none; padding: 0; border-radius: 0; font-size: 1em; }
+/* a fence with no language and one line: the line scrolls, the control stays at its end */
+.cblock.lone { display: flex; align-items: center; gap: var(--s3); padding-right: var(--cb-x); }
+.cblock.lone pre { flex: 1; min-width: 0; padding: 12px 0 12px var(--cb-x); border-radius: var(--cb-r) 0 0 var(--cb-r); }
+/* a block the reply is still writing holds back its control: it would copy half the code */
+.cblock.writing .copy-btn { visibility: hidden; }
+.cblock-h:has([data-state="refused"]) .cblock-lang { display: none; }
+/* an agent's own <pre> that is not a fence stays a plain bed */
+:is(.answer, .say-md, .rep-b, .sumcard) pre:not(.cblock pre) { overflow-x: auto; border-radius: 12px; background: var(--bed); box-shadow: var(--bed-edge); padding: 10px 14px; font-family: var(--mono); font-stretch: 90%; font-size: 12px; line-height: 1.6; scrollbar-width: none; }
+/* what highlight.js calls things, said in one place. diff fences tint a whole line the way a diff's bed does (.bed .la, .bed .ld) */
+.cblock :is(.hljs-keyword, .hljs-selector-tag, .hljs-name, .hljs-section, .hljs-literal.hljs-keyword) { color: var(--hl-key); }
+.cblock :is(.hljs-string, .hljs-regexp, .hljs-template-string, .hljs-meta .hljs-string, .hljs-char) { color: var(--hl-str); }
+.cblock :is(.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet, .hljs-link, .hljs-selector-id, .hljs-selector-class, .hljs-selector-attr, .hljs-selector-pseudo) { color: var(--hl-num); }
+.cblock :is(.hljs-title.function_, .hljs-function .hljs-title, .hljs-attr, .hljs-attribute, .hljs-property, .hljs-params .hljs-title) { color: var(--hl-fn); }
+.cblock :is(.hljs-type, .hljs-built_in, .hljs-title.class_, .hljs-title.class_.inherited__, .hljs-class .hljs-title, .hljs-variable.language_) { color: var(--hl-type); }
+.cblock :is(.hljs-comment, .hljs-quote, .hljs-meta, .hljs-doctag, .hljs-tag, .hljs-formula) { color: var(--text-2); }
+.cblock :is(.hljs-comment, .hljs-quote) { font-style: italic; }
+.cblock .hljs-tag :is(.hljs-name, .hljs-attr) { color: inherit; }
+.cblock .hljs-tag .hljs-name { color: var(--hl-key); }
+.cblock .hljs-tag .hljs-attr { color: var(--hl-fn); }
+.cblock .hljs-emphasis { font-style: italic; }
+.cblock .hljs-strong { font-weight: 640; }
+.cblock :is(.hljs-addition, .hljs-deletion) { display: inline-block; box-sizing: border-box; min-width: calc(100% + 2 * var(--cb-x)); margin: 0 calc(-1 * var(--cb-x)); padding: 0 var(--cb-x); }
+.cblock .hljs-addition { background: color-mix(in srgb, var(--add) calc(9% + var(--L) * 6%), transparent); color: var(--add); }
+.cblock .hljs-deletion { background: color-mix(in srgb, var(--del) calc(9% + var(--L) * 6%), transparent); color: var(--del); }
+
+/* ---------- the copy control ---------- */
+/* two sheets and the word "copy" in the second ink, brighter under a pointer; the control is always there, since the phone has no hover. the
+   strip it sits in stays slim: the control is 20 px and its hit area is 44, drawn by a pseudo element. on success the sheets give way to the
+   thread's tick, which draws itself under a clip (the law's motion: clip-path only), and the word to "copied", in the accent, for 1.6 s. when the
+   browser refuses, the control says so in place, in red */
+.copy-btn { position: relative; display: inline-flex; align-items: center; gap: 5px; flex: none; height: 20px; min-height: 0; padding: 0; border-radius: 0; background: none; font-family: var(--mono); font-stretch: 90%; font-size: 10.5px; line-height: 20px; color: var(--text-2); white-space: nowrap; -webkit-user-select: none; user-select: none; }
+.copy-btn::before { content: ""; position: absolute; inset: -12px -10px; }
+/* the glyph is a mask over currentColor, so it takes the control's colour in every state: two sheets, and the thread's tick (TICK, thread.tsx, the same path) once copied */
+.copy-g { --sheets: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.4' stroke-linejoin='round'%3E%3Crect x='6' y='6' width='7.5' height='7.5' rx='1.8'/%3E%3Cpath d='M3.4 10h-.1A1.3 1.3 0 0 1 2 8.7V3.3A1.3 1.3 0 0 1 3.3 2h5.4A1.3 1.3 0 0 1 10 3.3v.1'/%3E%3C/svg%3E"); --tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E"); width: 13px; height: 13px; flex: none; background: currentColor; -webkit-mask: var(--sheets) center / contain no-repeat; mask: var(--sheets) center / contain no-repeat; }
+@media (hover: hover) { .copy-btn:hover { color: var(--text); } }
+.copy-btn[data-state="copied"] { color: var(--accent); }
+.copy-btn[data-state="copied"] .copy-g { -webkit-mask-image: var(--tick); mask-image: var(--tick); animation: copy-tick 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.copy-btn[data-state="refused"] { color: var(--red); white-space: normal; height: auto; min-height: 20px; max-width: 100%; text-align: right; line-height: 14px; padding: 3px 0; }
+@keyframes copy-tick { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
+/* the command's and the output's beds: a code block's header (the label, the control, the same inset) over the bed's own text. the wrapper is the bed's
+   material and the bed inside it keeps only its scrolling and its fade */
+.bed-wrap { --cb-x: var(--s3); min-width: 0; border-radius: 12px; background: var(--bed); box-shadow: var(--bed-edge); }
+.bed-wrap > .bed { background: none; box-shadow: none; border-radius: 0 0 12px 12px; padding-top: 0; }
+/* the reply's control: one quiet line under the settled answer, flush with its words */
+.act-line { display: flex; margin-top: calc(-1 * var(--s2)); }
+/* outside a code block and a bed the control speaks in the face around it: the report's header and the reply's line are sans (12.5 px), not the machine's mono */
+.rep-h .copy-btn, .act-line .copy-btn { font-family: var(--sans); font-stretch: 100%; font-size: 12.5px; }
+.rep-h .copy-g, .act-line .copy-g { width: 14px; height: 14px; }
+/* what a copy says is said here, to a screen reader only */
+.copy-status { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- live: what the newest row shows while it works ---------- */
+.live-text { height: 112px; overflow: hidden; font-size: 14px; line-height: 1.5; color: var(--prose-dim); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* a streamed thought's words enter from a 5 px blur (design.md, motion); the caret is the only thing that blinks, and it does not */
+.live-text .w { animation: word-in 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes word-in { from { filter: blur(5px); opacity: 0; } }
+.live-out { height: 112px; overflow: hidden; }
+.live-out .bed { overflow: hidden; }
+.live-text.over, .live-out.over { -webkit-mask-image: linear-gradient(transparent, #000 36%); mask-image: linear-gradient(transparent, #000 36%); }
+/* ---------- the clock, in the margin ---------- */
+/* the stage's scroller says its width (measure.ts: `data-clock` from 720 px, `--scroll-w`; a story's sample says it too). it is
+   its content box, the stage less its gutters; the measure sits in the middle of it, and the clock needs its width and
+   gap beside the measure with 20 px to spare before the stage's edge. below the width where that holds, no clock shows.
+   the measure gives up a few px between the width where the clock starts and the one where the full measure leaves it
+   room. `:where` keeps each rule at the weight it had as a container query */
+:where([data-clock]) .row-t { display: flex; justify-content: flex-end; justify-self: start; width: 0; margin-left: calc(-1 * var(--clock-gap)); }
+.thread-stage.wide .stage-scroll:where([data-clock]) > .thread.wide { max-width: min(var(--measure, 680px), calc(var(--scroll-w) - 2 * (var(--clock-reach) + var(--clock-w) - var(--gutter, 32px)))); }
+
+/* on a narrow stage the stream keeps most of the screen: while the tape is stuck it keeps to its header and its lanes (under
+   110 px), and its scale returns where it is in its own place. its box keeps its height, so where its own place is, and the
+   scroll range under the reader, do not depend on whether it is stuck: the card is drawn without the scale's row and sits that
+   much lower, so its foot stays on the line it is held at */
+:where([data-tight]) .tape[data-stuck] { translate: 0 var(--scale-h); }
+:where([data-tight]) .tape[data-stuck]::before, :where([data-tight]) .tape[data-stuck]::after { bottom: var(--scale-h); }
+:where([data-tight]) .tape[data-stuck] .tp-scale { opacity: 0; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) { .tp-cap, .tape::before, .tape::after { transition: none; } .live-text .w { animation: none; } }
+/* the tick's draw follows the app's own reduced motion too: the system's, unless this device chose full motion, or chosen outright (styles.css) */
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion="full"]) .copy-btn[data-state="copied"] .copy-g { animation: none; } }
+:root[data-motion="reduced"] .copy-btn[data-state="copied"] .copy-g { animation: none; }

@@ -1,0 +1,15 @@
+# the release build's context is an allowlist: what the binary is built
+# from, and never private/, node_modules or a target dir
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!clippy.toml
+!rustfmt.toml
+!server/
+!vendor/cmx2/
+!telemetry/schema.json
+!app/dist/
+!ops/boxbox.service
+!boxbox.example.toml
+!LICENSE

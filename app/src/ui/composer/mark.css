@@ -1,0 +1,26 @@
+/* the provider mark's tile: a quiet tile that sits on any place's colour: white glass on the deep pair, the repo's deep colour at
+   a few percent with a white lip on the lit card */
+
+.cz-mark {
+  --mark: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--mark);
+  height: var(--mark);
+  border-radius: 30%;
+  background: color-mix(in srgb, color-mix(in srgb, var(--p1) 8%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.09));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.9) calc(var(--L) * 100%), rgb(255 255 255 / 0.12)), inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--p1) 12%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.06));
+  color: color-mix(in srgb, var(--cz-ink-1, var(--text)) calc(var(--L) * 100%), rgb(244 244 246 / 0.9));
+}
+.cz-mark svg { width: 58%; height: 58%; display: block; }
+.cz-mark b {
+  font-family: var(--sans);
+  font-stretch: 110%;
+  font-weight: 650;
+  font-size: calc(var(--mark) * 0.5);
+  line-height: 1;
+  /* the x-height sits low in a line box: nudge so the letter reads centred */
+  transform: translateY(-0.04em);
+}

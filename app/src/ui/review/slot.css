@@ -1,0 +1,36 @@
+/* the card that could not load (slot.tsx): it stands in for the review, so it is drawn as the review is (review.css, which
+   is the chunk that did not load, so these few rules are here) */
+
+.review-missing {
+  display: grid;
+  gap: var(--s3, 12px);
+  padding: 14px var(--s4, 16px) var(--s4, 16px);
+  border-radius: 18px;
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--hairline), var(--well-edge);
+}
+
+.review-missing p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--red);
+}
+
+.review-missing button {
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 15px;
+  font-weight: 620;
+  text-align: center;
+}
+
+@media (pointer: fine) {
+  .review-missing button {
+    min-height: 36px;
+    font-size: 14px;
+  }
+}

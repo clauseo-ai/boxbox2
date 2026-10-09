@@ -1,0 +1,115 @@
+import { describe, expect, test } from "bun:test";
+import { parseMessages, type ReadPlan, readTranscript } from "./read";
+
+/* the transcript read's rules, with the answers of the wire put in by hand: wire fixtures, never a daemon */
+
+const SEQ = { "x-cmx2-seq": "u1:10" };
+const MESSAGES = JSON.stringify([{ info: { id: "msg_1", sessionID: "ses_1", role: "user", time: { created: 1 } }, parts: [] }]);
+
+/** a response whose body reads are counted */
+function answer(body: string, init: ResponseInit = { headers: SEQ }) {
+  const response = new Response(body, init);
+  const reads = { text: 0, cancelled: 0 };
+  const text = response.text.bind(response);
+  response.text = () => {
+    reads.text++;
+    return text();
+  };
+  const cancel = response.body?.cancel.bind(response.body);
+  if (response.body && cancel) response.body.cancel = (reason?: unknown) => (reads.cancelled++, cancel(reason));
+  return { response, reads };
+}
+
+function plan(answers: (Response | null)[], wanted: () => boolean = () => true): ReadPlan & { waits: number[]; asked: () => number } {
+  let asked = 0;
+  const waits: number[] = [];
+  return {
+    path: "/api/hosts/bench/sessions/ses_1/messages",
+    get: () => Promise.resolve(answers[asked++] ?? null),
+    wanted,
+    wait: (ms) => {
+      waits.push(ms);
+      return Promise.resolve();
+    },
+    nextDelay: () => 1000 * (waits.length + 1),
+    waits,
+    asked: () => asked,
+  };
+}
+
+describe("reading a transcript", () => {
+  test("a read gives the messages, the seq they reflect and the size of the body", async () => {
+    const read = await readTranscript(plan([answer(MESSAGES).response]));
+    expect(read).toMatchObject({ at: { epoch: "u1", seq: 10 }, bytes: MESSAGES.length });
+    expect(read !== "signed-out" && read?.messages.map((m) => m.info.id)).toEqual(["msg_1"]);
+  });
+
+  test("a 200 whose body is not a transcript (a proxy's page) is a failed try: it waits, asks again, and takes the next answer", async () => {
+    const p = plan([answer("<html>bad gateway</html>").response, answer('{"not":"a list"}').response, answer(MESSAGES).response]);
+    const read = await readTranscript(p);
+    expect(read !== "signed-out" && read?.messages).toHaveLength(1);
+    expect(p.waits).toEqual([1000, 2000]);
+    expect(p.asked()).toBe(3);
+  });
+
+  test("no answer, an error status and an answer with no seq are failed tries too", async () => {
+    const p = plan([null, answer("x", { status: 502, headers: SEQ }).response, answer(MESSAGES, { headers: {} }).response, answer(MESSAGES).response]);
+    expect(await readTranscript(p)).toMatchObject({ bytes: MESSAGES.length });
+    expect(p.waits).toHaveLength(3);
+  });
+
+  test("an answer that is not a transcript (an error status, or no seq to read it against) is not downloaded either, and one that is is read", async () => {
+    const failed = answer("<html>bad gateway</html>", { status: 502, headers: SEQ });
+    const seqless = answer(MESSAGES, { headers: {} });
+    const good = answer(MESSAGES);
+    expect(await readTranscript(plan([failed.response, seqless.response, good.response]))).toMatchObject({ bytes: MESSAGES.length });
+    expect([failed.reads, seqless.reads, good.reads]).toEqual([
+      { text: 0, cancelled: 1 },
+      { text: 0, cancelled: 1 },
+      { text: 1, cancelled: 0 },
+    ]);
+  });
+
+  test("a thread that is gone once the answer's headers are in has its body neither read nor parsed", async () => {
+    let wanted = true;
+    const { response, reads } = answer(MESSAGES);
+    const p = plan([response], () => wanted);
+    p.get = () => {
+      wanted = false;
+      return Promise.resolve(response);
+    };
+    expect(await readTranscript(p)).toBeNull();
+    expect(reads.text).toBe(0);
+    expect(reads.cancelled).toBe(1);
+  });
+
+  test("a thread that is gone while its body is read gives nothing", async () => {
+    let wanted = true;
+    const { response } = answer(MESSAGES);
+    const text = response.text.bind(response);
+    response.text = async () => {
+      const body = await text();
+      wanted = false;
+      return body;
+    };
+    expect(await readTranscript(plan([response], () => wanted))).toBeNull();
+  });
+
+  test("a read that is not wanted from the start asks for nothing", async () => {
+    const p = plan([answer(MESSAGES).response], () => false);
+    expect(await readTranscript(p)).toBeNull();
+    expect(p.asked()).toBe(0);
+  });
+
+  test("a 401 ends the read: the session is over", async () => {
+    expect(await readTranscript(plan([answer("", { status: 401 }).response]))).toBe("signed-out");
+  });
+});
+
+describe("a body that may be a transcript", () => {
+  test("only a list of messages is one", () => {
+    expect(parseMessages("[]")).toEqual([]);
+    expect(parseMessages(MESSAGES)).toHaveLength(1);
+    for (const body of ["", "{}", "null", "not json", "<html>"]) expect(parseMessages(body)).toBeNull();
+  });
+});

@@ -1,0 +1,124 @@
+/* a repo's mark (docs/design.md, the repo mark): a squircle tile that is the repo's colour and initials until its
+   favicon is read, then the favicon on a plate (or an app-icon style image full bleed). the size is the one custom
+   property --mark, set by the component, and everything else is a fraction of it. the colours (--c1, --c2, --hi) are
+   the repo's, set on the mark itself, and the mark is a surface of the windows plane (`plane-window`, styles.css), so its
+   tile is a window's material in its repo's colour for the appearance and reads the same on a window, the page and a
+   sheet. every rule is under .rm so a host surface's own `span` or `b` rule (a sheet row's, a card's) cannot reach
+   into the mark. */
+
+.rm {
+  /* the squircle (shape.ts): a superellipse, drawn once and used as a mask by every layer, so every size shares it and
+     safari, which has no corner-shape, draws the same curve */
+  --rm-shape: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M100.00 50.00L99.98 63.69L99.94 68.06L99.86 71.23L99.75 73.81L99.61 76.01L99.44 77.94L99.24 79.68L99.01 81.26L98.74 82.71L98.44 84.05L98.11 85.30L97.74 86.46L97.35 87.55L96.91 88.57L96.44 89.52L95.94 90.43L95.39 91.27L94.81 92.07L94.19 92.82L93.53 93.53L92.82 94.19L92.07 94.81L91.27 95.39L90.43 95.94L89.52 96.44L88.57 96.91L87.55 97.35L86.46 97.74L85.30 98.11L84.05 98.44L82.71 98.74L81.26 99.01L79.68 99.24L77.94 99.44L76.01 99.61L73.81 99.75L71.23 99.86L68.06 99.94L63.69 99.98L50.00 100.00L36.31 99.98L31.94 99.94L28.77 99.86L26.19 99.75L23.99 99.61L22.06 99.44L20.32 99.24L18.74 99.01L17.29 98.74L15.95 98.44L14.70 98.11L13.54 97.74L12.45 97.35L11.43 96.91L10.48 96.44L9.57 95.94L8.73 95.39L7.93 94.81L7.18 94.19L6.47 93.53L5.81 92.82L5.19 92.07L4.61 91.27L4.06 90.43L3.56 89.52L3.09 88.57L2.65 87.55L2.26 86.46L1.89 85.30L1.56 84.05L1.26 82.71L0.99 81.26L0.76 79.68L0.56 77.94L0.39 76.01L0.25 73.81L0.14 71.23L0.06 68.06L0.02 63.69L0.00 50.00L0.02 36.31L0.06 31.94L0.14 28.77L0.25 26.19L0.39 23.99L0.56 22.06L0.76 20.32L0.99 18.74L1.26 17.29L1.56 15.95L1.89 14.70L2.26 13.54L2.65 12.45L3.09 11.43L3.56 10.48L4.06 9.57L4.61 8.73L5.19 7.93L5.81 7.18L6.47 6.47L7.18 5.81L7.93 5.19L8.73 4.61L9.57 4.06L10.48 3.56L11.43 3.09L12.45 2.65L13.54 2.26L14.70 1.89L15.95 1.56L17.29 1.26L18.74 0.99L20.32 0.76L22.06 0.56L23.99 0.39L26.19 0.25L28.77 0.14L31.94 0.06L36.31 0.02L50.00 0.00L63.69 0.02L68.06 0.06L71.23 0.14L73.81 0.25L76.01 0.39L77.94 0.56L79.68 0.76L81.26 0.99L82.71 1.26L84.05 1.56L85.30 1.89L86.46 2.26L87.55 2.65L88.57 3.09L89.52 3.56L90.43 4.06L91.27 4.61L92.07 5.19L92.82 5.81L93.53 6.47L94.19 7.18L94.81 7.93L95.39 8.73L95.94 9.57L96.44 10.48L96.91 11.43L97.35 12.45L97.74 13.54L98.11 14.70L98.44 15.95L98.74 17.29L99.01 18.74L99.24 20.32L99.44 22.06L99.61 23.99L99.75 26.19L99.86 28.77L99.94 31.94L99.98 36.31Z'/%3E%3C/svg%3E");
+  /* the hairline that carries the repo's colour round the tile: the plane's accent, its light tone on dark and its deep
+     top colour on light */
+  --rm-ink: var(--accent);
+  /* the highlight falling from the top left: a touch stronger than a window's on dark, the window's own on light */
+  --rm-glow: color-mix(in srgb, var(--win-glow) calc(var(--L) * 100%), rgb(255 255 255 / 0.14));
+  --rm-ring: 1px;
+  position: relative;
+  flex: none;
+  display: inline-block;
+  width: var(--mark);
+  height: var(--mark);
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.rm .rm-ring,
+.rm .rm-face {
+  position: absolute;
+  -webkit-mask: var(--rm-shape) center / 100% 100% no-repeat;
+  mask: var(--rm-shape) center / 100% 100% no-repeat;
+}
+
+.rm .rm-ring {
+  inset: 0;
+  background: color-mix(in srgb, var(--rm-ink) 55%, transparent);
+}
+
+/* the colour tile: the window's material and the highlight falling from the top left, the windows plane at the size of a
+   letter: the deep pair on dark, the light tone washed into white on light */
+.rm .rm-face {
+  inset: var(--rm-ring);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(90% 60% at 20% 0%, var(--rm-glow), transparent 62%),
+    linear-gradient(165deg, var(--win-1), var(--win-2));
+}
+
+.rm .rm-letters {
+  font-family: var(--sans);
+  font-stretch: 112%;
+  font-weight: 650;
+  font-size: calc(var(--mark) * var(--letters));
+  line-height: 1;
+  letter-spacing: -0.01em;
+  /* the accent: the light tone on the deep tile, the deep top colour on the light one, and so on a bare mark's host too (a
+     swatch is the same material) */
+  color: var(--accent);
+  /* the x-height sits low in a line box: nudge so the letters read centred */
+  transform: translateY(-0.03em);
+}
+
+/* a surface that is already the repo's colour and already spells its initials draws no tile until there is a favicon */
+.rm[data-bare] .rm-face {
+  background: none;
+}
+
+.rm[data-bare] .rm-ring {
+  opacity: 0;
+  transition: opacity var(--fade);
+}
+
+.rm[data-bare][data-shown] .rm-ring {
+  opacity: 1;
+}
+
+.rm[data-bare][data-instant] .rm-ring {
+  transition: none;
+}
+
+/* the favicon: a plate that cannot lose it (plate.ts) with the image in its middle two thirds, or no plate and the
+   image to the edge when it is an app icon of its own. it arrives by opacity, once, over the tile */
+.rm .rm-icon {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity var(--fade);
+}
+
+.rm[data-shown] .rm-icon {
+  opacity: 1;
+}
+
+.rm[data-instant] .rm-icon {
+  transition: none;
+}
+
+.rm[data-plate="light"] .rm-icon {
+  background: #f4f4f6;
+}
+
+.rm[data-plate="dark"] .rm-icon {
+  background: #222328;
+}
+
+.rm .rm-icon img {
+  position: absolute;
+  inset: 17%;
+  display: block;
+  width: 66%;
+  height: 66%;
+  object-fit: contain;
+}
+
+.rm[data-plate="bleed"] .rm-icon img {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

@@ -1,0 +1,332 @@
+/* the review card (design.md, depth: pressed into the stage like the report, its
+   primary control the one filled thing, in the repo's accent). the tokens are
+   the stage's (--accent, --well, --bed, --add, --del, --red). no motion of its
+   own beyond the fold's fade and the tick (review-card.tsx). */
+
+.review-card {
+  display: grid;
+  gap: var(--s3, 12px);
+  padding: 14px var(--s4, 16px) var(--s4, 16px);
+  border-radius: 18px;
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--hairline), var(--well-edge);
+  min-width: 0;
+}
+
+.review-card:focus {
+  outline: none;
+}
+
+.review-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 4px;
+}
+
+.review-card > * {
+  min-width: 0;
+  margin: 0;
+}
+
+.review-title {
+  font-size: 15px;
+  line-height: 1.3;
+  font-weight: 640;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.review-note {
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--prose-body, var(--prose));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.review-name {
+  overflow-wrap: anywhere;
+}
+
+.review-arrow {
+  color: var(--accent);
+}
+
+.review-size {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-totals,
+.review-counts {
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 12px;
+}
+
+.review-card .add {
+  color: var(--add);
+}
+
+.review-card .del {
+  color: var(--del);
+}
+
+.review-warning {
+  padding-left: 10px;
+  border-left: 2px solid var(--red);
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.review-files {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-file {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 12px;
+}
+
+.review-status {
+  color: var(--text-3);
+}
+
+.review-status[data-mark="A"] {
+  color: var(--add);
+}
+
+.review-status[data-mark="D"] {
+  color: var(--del);
+}
+
+.review-path {
+  display: grid;
+  min-width: 0;
+}
+
+/* the folder is one line cut from its start; the name is whole, because the end of a name is what tells two files apart */
+.review-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  color: var(--text-2);
+}
+
+.review-dir bdi {
+  direction: ltr;
+  unicode-bidi: plaintext;
+}
+
+.review-base {
+  overflow-wrap: anywhere;
+}
+
+.review-counts {
+  white-space: nowrap;
+}
+
+.review-quiet {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+@media (hover: hover) {
+  .review-quiet:hover {
+    color: var(--text);
+  }
+}
+
+@media (pointer: fine) {
+  .review-quiet {
+    min-height: 28px;
+  }
+}
+
+.review-quiet-line,
+.review-cut {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.review-patch {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bed);
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 11.5px;
+  line-height: 1.5;
+  tab-size: 4;
+  color: var(--text-2);
+}
+
+/* the patch grows the card and the stage scrolls it, as any long row: a box that scrolls inside the page cuts a line at its
+   edge, and a line that scrolls sideways cuts a character. a line wraps; the cap on lines is model.ts's */
+.review-patch .pl {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.review-patch .pl[data-kind="add"] {
+  color: var(--add);
+}
+
+.review-patch .pl[data-kind="del"] {
+  color: var(--del);
+}
+
+.review-patch .pl[data-kind="hunk"] {
+  margin-top: 6px;
+  color: var(--accent);
+}
+
+.review-patch .pl[data-kind="file"] {
+  margin-top: 10px;
+  font-weight: 620;
+  color: var(--text);
+}
+
+.review-patch .pl[data-kind="file"]:first-child {
+  margin-top: 0;
+}
+
+.review-problem {
+  display: grid;
+  gap: 6px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--red);
+}
+
+.review-problem p {
+  margin: 0;
+}
+
+.review-clash {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.review-ask {
+  display: grid;
+  gap: var(--s3, 12px);
+}
+
+.review-ask p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.review-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.review-merge,
+.review-discard {
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 620;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* merge sits on the card in the accent; on the light flood its drop is the repo's own deep colour, as every shadow on
+   the stage is (design.md, ink tints, not grey) */
+.review-merge {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 8px 20px -8px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.6));
+}
+
+.review-discard {
+  background: var(--well);
+  box-shadow: var(--well-edge);
+  color: var(--text);
+}
+
+.review-merge:disabled,
+.review-discard:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (pointer: fine) {
+  .review-merge,
+  .review-discard {
+    min-height: 36px;
+    font-size: 14px;
+  }
+}
+
+/* what a merge or a discard leaves: one line */
+.review-folded {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px var(--s2, 8px);
+  border-radius: 12px;
+  outline: none;
+  font-size: 14px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.review-folded:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.review-folded[data-kind="merged"] {
+  color: var(--accent);
+}
+
+.review-tick {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}

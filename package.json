@@ -1,0 +1,29 @@
+{
+  "name": "boxbox-workspace",
+  "description": "boxbox, a remote control for cmx2 coding agents: workspace for the web app and the board daemon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clauseo-ai/boxbox2.git"
+  },
+  "homepage": "https://github.com/clauseo-ai/boxbox2#readme",
+  "bugs": {
+    "url": "https://github.com/clauseo-ai/boxbox2/issues"
+  },
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "app"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p app && tsc --noEmit -p board/daemon",
+    "telemetry": "bun scripts/telemetry.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "@types/node": "24.19.0",
+    "openapi-typescript": "7.13.0",
+    "playwright-core": "1.63.0",
+    "typescript": "5.9.3"
+  }
+}

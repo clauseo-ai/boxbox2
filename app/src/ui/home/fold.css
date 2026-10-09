@@ -1,0 +1,285 @@
+/* the folded rail: a 76 px column of swatches (docs/design.md, one layout law: why the stage never empties). the page's
+   own plane, with a window folded to its colour on it: the swatch is a window's material at 44 px (the plane's tokens,
+   styles.css), and the badge on its corner is ringed in the ground, which is the page's in both. */
+
+.home .fold {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  justify-self: start;
+  /* above the stage card (7): its swatches never touch the card, but the glass card beside a swatch lies over its edge */
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+  width: 76px;
+  min-height: 0;
+  /* the toggle's middle is on the line of the stage bar's controls (home.css, the rail's bar): 46 px down */
+  padding: 29px 0 22px;
+  visibility: hidden;
+}
+
+.home[data-rail="folded"] .fold,
+.home[data-moving="rail"] .fold {
+  visibility: visible;
+}
+
+/* the new thread: the solid pill's material as a disc, the one loud thing in the column */
+.home .fold-new {
+  all: unset;
+  display: grid;
+  flex: none;
+  place-items: center;
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  margin-top: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--ground);
+  cursor: pointer;
+}
+
+.home .fold-new svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+.home .fold-new:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
+/* the swatches scroll under the disc and the foot, and fade out under them instead of being cut off by them */
+.home .fold-list {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 18px 16px;
+  list-style: none;
+  overflow: hidden auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}
+
+.home .fold-list::-webkit-scrollbar {
+  display: none;
+}
+
+.home .fold-list li {
+  flex: none;
+  display: block;
+  width: 44px;
+  height: 44px;
+}
+
+/* a window, folded: the window's own material (docs/design.md, depth: the windows plane) at 44 px, so it is the deep pair
+   on a dark page and the lit card of its hue on a light one, the same colour as the window it stands for */
+.home .swatch {
+  /* its lit top edge under a pointer (a touch brighter than the window's), and the short cast it throws on the rail: black on
+     dark, its own deep colour on light, where black is mud */
+  --sw-lit-hover: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 1) calc(var(--L) * 100%), rgb(255 255 255 / 0.2));
+  --sw-cast: 0 10px 18px -10px color-mix(in srgb, color-mix(in srgb, var(--p2) 34%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.75));
+  /* the swatch's own colour, which rings a state mark on its corner so the mark reads over a favicon's plate: the deep
+     bottom colour on dark, the lit material's top on light, where the corner is */
+  --sw-own: color-mix(in srgb, var(--win-1) calc(var(--L) * 100%), var(--p2));
+  all: unset;
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: linear-gradient(170deg, var(--win-1), var(--win-2));
+  box-shadow: var(--win-lit), var(--win-rim), var(--sw-cast);
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* the highlight falling from the top left */
+.home .swatch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(90% 50% at 20% 0%, var(--win-glow), transparent 60%);
+  pointer-events: none;
+}
+
+.home .swatch[data-current] {
+  box-shadow:
+    var(--win-lit),
+    0 0 0 2px var(--accent),
+    var(--sw-cast);
+}
+
+@media (hover: hover) {
+  .home .swatch:not([data-current]):hover {
+    box-shadow:
+      var(--sw-lit-hover),
+      inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--p1) 26%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.12)),
+      var(--sw-cast);
+  }
+}
+
+.home .swatch:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* the window chip's vocabulary, on the corner: a badge for a window that wants you, ringed in the page's ground so it
+   sits on the corner and not in it; a tick for a finished turn nobody has seen; a dot while it works; red for a stop */
+.home .sw-mark {
+  position: absolute;
+  display: block;
+  pointer-events: none;
+}
+
+.home .sw-mark[data-mark="badge"] {
+  top: -5px;
+  right: -5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--ground);
+}
+
+.home .sw-mark[data-mark="dot"] {
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  /* a favicon's plate can sit under the corner (repo-mark.css): the swatch's own colour rings the state so it reads on any plate */
+  box-shadow: 0 0 0 2px var(--sw-own);
+}
+
+.home .sw-mark[data-mark="tick"],
+.home .sw-mark[data-mark="cross"] {
+  top: 5px;
+  right: 5px;
+}
+
+/* with a favicon's plate showing under it (not before it has arrived, nor when it never does), the state moves out to the
+   corner the plate leaves free */
+.home .rm[data-shown] ~ .sw-mark[data-mark="dot"] {
+  top: 2px;
+  right: 2px;
+}
+
+.home .rm[data-shown] ~ .sw-mark[data-mark="tick"],
+.home .rm[data-shown] ~ .sw-mark[data-mark="cross"] {
+  top: 0;
+  right: 0;
+}
+
+.home .sw-mark svg {
+  display: block;
+  filter: drop-shadow(0 0 1.5px var(--sw-own)) drop-shadow(0 0 1px var(--sw-own));
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home .sw-mark[data-mark="tick"] svg {
+  width: 13px;
+  height: 13px;
+  stroke: var(--accent);
+}
+
+.home .sw-mark[data-mark="cross"] svg {
+  width: 12px;
+  height: 12px;
+  stroke: var(--red);
+}
+
+.home .fold-foot {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* the card beside a swatch: the repo in its tone, the thread, its state. glass, since it is a thing you touch for a moment,
+   and it sits over the stage's edge. it is only ever shown to a fine pointer, and never takes a touch or a name */
+.home .fold-card {
+  position: fixed;
+  top: 0;
+  left: 84px;
+  z-index: 20;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(clamp(8px, calc(var(--y) - 50%), calc(100vh - 100% - 8px)));
+  transition: opacity var(--fade-ms) var(--fade);
+}
+
+.home .fold-card[data-on] {
+  opacity: 1;
+}
+
+.home .fold-card-body {
+  display: grid;
+  gap: 2px;
+  box-sizing: border-box;
+  min-width: 176px;
+  max-width: 264px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--glass-deep);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--glass-edge), var(--lift);
+}
+
+/* the repo in its tone: the light tone on the dark glass, its deep top colour on the light (home.css, --ink) */
+.home .fold-card b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 650;
+  font-stretch: 110%;
+  color: color-mix(in srgb, var(--c1) calc(var(--L) * 100%), var(--hi));
+}
+
+.home .fold-card > span {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 620;
+  line-height: 1.25;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.home .fold-card small {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .home .fold-card {
+    display: none;
+  }
+}
