@@ -189,7 +189,7 @@ it runs a scripted model, so the dev loop never calls a paid api.
 ## related projects
 
 - [cmx2](https://github.com/clauseo-ai/cmx2) is the runtime boxbox controls. boxbox builds against one pinned cmx2 commit and asks cmx2 for what it lacks.
-- [cmx](https://github.com/bb-deeplearning/codemaxxxing) is the earlier agent runtime that cmx2 replaces.
+- [cmx](https://github.com/clauseo-ai/codemaxxxing) is the earlier agent runtime that cmx2 replaces.
 
 ## licence
 
