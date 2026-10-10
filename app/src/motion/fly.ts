@@ -64,4 +64,4 @@ export function birth(el: Element, live = true, delay = 90): void {
 }
 
 /** the properties the motion law lets animate; anything else in a keyframe is a bug the budget run reports */
-export const ANIMATABLE: ReadonlySet<string> = new Set(["transform", "opacity", "clipPath", "filter"]);
+export const ANIMATABLE: ReadonlySet<string> = new Set(["transform", "scale", "opacity", "clipPath", "filter"]);

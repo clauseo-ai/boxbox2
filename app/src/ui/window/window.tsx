@@ -14,7 +14,7 @@
 import { shortWords } from "../asks/words";
 import { createEffect, createMemo, createSignal, For, Match, on, onMount, Show, Switch } from "solid-js";
 import { play, sweep } from "../../motion/animate";
-import { SNAP, TICK_DRAW } from "../../motion/springs";
+import { PING, PING_SCALE, SNAP, TICK_DRAW } from "../../motion/springs";
 import { clearNotice, clearSuffix, clearThreads, dismissClearNotice, openSuffix } from "./clear";
 import { clearable, clearName } from "./clearing";
 import { LiveText } from "./live-text";
@@ -105,7 +105,11 @@ export function Window(props: WindowProps) {
     on(
       chipText,
       () => {
-        if (chip && live()) play(chip, [{ transform: "scale(.82)" }, { transform: "none" }], SNAP);
+        if (!chip || !live()) return;
+        play(chip, [{ transform: "scale(.82)" }, { transform: "none" }], SNAP);
+        // a state that starts in front of you lets go one ring from its dot; a finished one has no dot to ring
+        const dot = chip.querySelector("i");
+        if (dot) play(dot, [{ transform: "scale(1)", opacity: 0.5 }, { transform: `scale(${PING_SCALE})`, opacity: 0 }], PING, { pseudoElement: "::after" });
       },
       { defer: true },
     ),

@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 606" width="900" height="606" role="img" aria-labelledby="t d">
+<title id="t">one question, from an agent to a lock screen and back</title>
+<desc id="d">an agent asks a question. the cmx2 daemon emits an event, boxbox raises a need and, because no screen is watching, sends a web push through the platform push service. the phone shows a banner. tapping it opens the app, which resumes its stream from its cursor and shows the question. the answer goes back through boxbox to the daemon, and the agent carries on.</desc>
+<defs><linearGradient id="g" x1="0" y1="0" x2=".35" y2="1"><stop offset="0" stop-color="#f8f6ff"/><stop offset="1" stop-color="#ebe8fb"/></linearGradient><linearGradient id="f-teal-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#d3f4f1"/><stop offset="1" stop-color="#edfbf9"/></linearGradient><linearGradient id="f-violet-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#e7e2ff"/><stop offset="1" stop-color="#f5f3ff"/></linearGradient><linearGradient id="f-slate-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#e7ecf2"/><stop offset="1" stop-color="#f5f7fa"/></linearGradient><linearGradient id="f-blue-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#ddecff"/><stop offset="1" stop-color="#f1f7ff"/></linearGradient><marker id="m-5b52a8" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1.5L8.5 5L1 8.5" fill="none" stroke="#5b52a8" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker><marker id="m-d9a921" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1.5L8.5 5L1 8.5" fill="none" stroke="#d9a921" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect width="900" height="606" rx="22" fill="url(#g)"/>
+<rect x=".5" y=".5" width="899" height="605" rx="21.5" fill="none" stroke="#34298a" stroke-opacity="0.14"/>
+<rect x="38" y="24" width="160" height="52" rx="13" fill="#10484a" fill-opacity=".08"/>
+<rect x="38" y="22" width="160" height="52" rx="13" fill="url(#f-teal-1)"/>
+<rect x="38.5" y="22.5" width="159" height="51" rx="12.5" fill="none" stroke="#10484a" stroke-opacity="0.18"/>
+<text x="118" y="43.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="650" fill="#10484a">cmx2 daemon</text>
+<text x="118" y="61.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#3b696b" fill-opacity=".92">runs the agent</text>
+<rect x="272" y="24" width="160" height="52" rx="13" fill="#34298a" fill-opacity=".08"/>
+<rect x="272" y="22" width="160" height="52" rx="13" fill="url(#f-violet-1)"/>
+<rect x="272.5" y="22.5" width="159" height="51" rx="12.5" fill="none" stroke="#34298a" stroke-opacity="0.18"/>
+<text x="352" y="43.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="650" fill="#34298a">boxbox server</text>
+<text x="352" y="61.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#59509f" fill-opacity=".92">fleet, journal, push</text>
+<rect x="510" y="24" width="160" height="52" rx="13" fill="#2b3441" fill-opacity=".08"/>
+<rect x="510" y="22" width="160" height="52" rx="13" fill="url(#f-slate-1)"/>
+<rect x="510.5" y="22.5" width="159" height="51" rx="12.5" fill="none" stroke="#2b3441" stroke-opacity="0.18"/>
+<text x="590" y="43.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="650" fill="#2b3441">push service</text>
+<text x="590" y="61.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#515963" fill-opacity=".92">apple, google, mozilla</text>
+<rect x="710" y="24" width="160" height="52" rx="13" fill="#173a5e" fill-opacity=".08"/>
+<rect x="710" y="22" width="160" height="52" rx="13" fill="url(#f-blue-1)"/>
+<rect x="710.5" y="22.5" width="159" height="51" rx="12.5" fill="none" stroke="#173a5e" stroke-opacity="0.18"/>
+<text x="790" y="43.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="650" fill="#173a5e">your phone</text>
+<text x="790" y="61.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#415d7b" fill-opacity=".92">lock screen, app</text>
+<line x1="118" y1="78" x2="118" y2="584" stroke="#5b52a8" stroke-opacity=".35" stroke-width="1.2" stroke-dasharray="3 6"/>
+<line x1="352" y1="78" x2="352" y2="584" stroke="#5b52a8" stroke-opacity=".35" stroke-width="1.2" stroke-dasharray="3 6"/>
+<line x1="590" y1="78" x2="590" y2="584" stroke="#5b52a8" stroke-opacity=".35" stroke-width="1.2" stroke-dasharray="3 6"/>
+<line x1="790" y1="78" x2="790" y2="584" stroke="#5b52a8" stroke-opacity=".35" stroke-width="1.2" stroke-dasharray="3 6"/>
+<path d="M124 120L346 120" fill="none" stroke="#5b52a8" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-5b52a8)"/>
+<circle cx="140" cy="103" r="9" fill="#34298a"/>
+<text x="140" y="106.8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">1</text>
+<text x="156" y="107.5" text-anchor="start" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#171240">an ask event, with its seq</text>
+<rect x="237" y="142" width="230" height="44" rx="11" fill="#f4f2fd"/>
+<rect x="237" y="142" width="230" height="44" rx="11" fill="#efedff" stroke="#34298a" stroke-opacity=".5"/>
+<text x="352" y="161" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="400" fill="#171240">the fleet raises a need and</text>
+<text x="352" y="176" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="400" fill="#171240">the journal records it</text>
+<rect x="237" y="196" width="230" height="44" rx="11" fill="#f4f2fd"/>
+<rect x="237" y="196" width="230" height="44" rx="11" fill="#fcf3d8" stroke="#d9a921" stroke-opacity=".5"/>
+<text x="352" y="215" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="400" fill="#171240">push decides: no screen</text>
+<text x="352" y="230" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="400" fill="#171240">is watching, so send</text>
+<path d="M358 284L584 284" fill="none" stroke="#d9a921" stroke-width="1.8" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-d9a921)"/>
+<circle cx="374" cy="267" r="9" fill="#d9a921"/>
+<text x="374" y="270.8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#2a2008">2</text>
+<text x="390" y="271.5" text-anchor="start" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#8a6400">web push, encrypted</text>
+<path d="M596 324L784 324" fill="none" stroke="#d9a921" stroke-width="1.8" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-d9a921)"/>
+<circle cx="612" cy="307" r="9" fill="#d9a921"/>
+<text x="612" y="310.8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#2a2008">3</text>
+<text x="628" y="311.5" text-anchor="start" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#8a6400">banner on the lock screen</text>
+<rect x="712" y="342" width="156" height="29" rx="11" fill="#f4f2fd"/>
+<rect x="712" y="342" width="156" height="29" rx="11" fill="#efedff" stroke="#34298a" stroke-opacity=".5"/>
+<text x="790" y="361" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="400" fill="#171240">you tap it</text>
+<path d="M784 412L358 412" fill="none" stroke="#5b52a8" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-5b52a8)"/>
+<circle cx="374" cy="395" r="9" fill="#34298a"/>
+<text x="374" y="398.8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">4</text>
+<text x="390" y="399.5" text-anchor="start" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#171240">open the app, resume from the cursor</text>
+<path d="M358 452L784 452" fill="none" stroke="#5b52a8" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" stroke-dasharray="5 5" marker-end="url(#m-5b52a8)"/>
+<circle cx="374" cy="435" r="9" fill="#34298a"/>
+<text x="374" y="438.8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">5</text>
+<text x="390" y="439.5" text-anchor="start" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#171240">replay the gap, ask card in front</text>
+<path d="M784 492L358 492" fill="none" stroke="#5b52a8" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-5b52a8)"/>
+<circle cx="374" cy="475" r="9" fill="#34298a"/>
+<text x="374" y="478.8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">6</text>
+<text x="390" y="479.5" text-anchor="start" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#171240">answer, tagged with a clientID</text>
+<path d="M346 532L124 532" fill="none" stroke="#5b52a8" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-5b52a8)"/>
+<circle cx="140" cy="515" r="9" fill="#34298a"/>
+<text x="140" y="518.8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">7</text>
+<text x="156" y="519.5" text-anchor="start" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#171240">answer, to its daemon</text>
+<path d="M124 572L346 572" fill="none" stroke="#5b52a8" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-5b52a8)"/>
+<circle cx="140" cy="555" r="9" fill="#34298a"/>
+<text x="140" y="558.8" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#ffffff">8</text>
+<text x="156" y="559.5" text-anchor="start" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12.5" font-weight="500" fill="#171240">the turn goes on</text>
+</svg>

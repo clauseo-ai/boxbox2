@@ -1206,11 +1206,49 @@ plus two short curves: content swaps fade in 160 ms
 (`cubic-bezier(.2,.8,.2,1)`), and streamed words settle from a 5 px blur in
 360 ms.
 
+the rest of the vocabulary is small and lives beside the springs in
+`app/src/motion/springs.ts`. nothing else in the app picks a duration or an
+easing.
+
+| token | numbers | used for |
+|---|---|---|
+| press | 90 ms, `cubic-bezier(.3,0,.2,1)` down, the snap spring up | a control sinking to .96 under a finger (.985 for a window or a card) and rebounding. `app/src/motion/press.ts`, one listener for the whole app |
+| leave | 110 ms ease-in | a menu or popover going away, and the old screen in a screen change |
+| ping | 760 ms, one ring out to 3.6x | a status dot whose state changed in front of you, once |
+
+css reads the same numbers as custom properties written onto the root before
+the first frame and again when the device's motion choice changes: each curve
+is a pair (`--snap`, `--snap-ms`) and a shorthand a `transition` takes
+(`--snap-t`, `--sheet-t`, `--fade-t`, `--press-t`, `--leave-t`). write
+`transition: transform var(--snap-t)`. `transition: transform var(--snap)` has
+no duration and does nothing; that mistake sat in six stylesheets until the
+motion pass.
+
+- **a screen change** (home to the machines or history, the machines to
+  settings, and back) is one view transition over the frame: the new screen
+  arrives from the right on the sheet spring while the old one sinks to .97
+  and is gone in 110 ms; back is the same reversed, with the leaving screen on
+  top. a thread (home's own morph), the terminal and the back swipe (the
+  finger already moved the screen) do not use it. under reduced motion it is
+  the 120 ms fade. `app/src/motion/screen.ts`, `app/src/shell/shell.css`.
+- **press.** a touch press starts 70 ms after the finger lands, so a finger
+  that lands to scroll or swipe the deck never makes a window flinch; a tap
+  shorter than that gets one small blip. a window that is let go of does not
+  rebound, since its grow measures it where it stands. under reduced motion a
+  press dims to .7 and nothing moves.
+- **a status dot** lets go one ring when its window's state changes in front of
+  you. it is an event, never a loop: the law's "never animates anything
+  forever" stands, and the connection has no pulse for the same reason.
+- **the composer.** focus lifts the window's shadow (it moves and brightens
+  on the snap spring, so nothing paints per frame); a message you send settles
+  into the queue from slightly small; the counts in home's summary line settle
+  from the soft blur when they change in front of you.
+
 - **gestures follow the finger 1:1** and release into the spring with the
   finger's velocity. a back swipe can be abandoned halfway and settles
   back.
-- **only transform, opacity, clip-path and filter animate.** never width,
-  height, top or left in a live screen.
+- **only transform (and its individual `scale`), opacity, clip-path and filter
+  animate.** never width, height, top or left in a live screen.
 - **streaming.** deltas are coalesced to one paint per frame; a thought's
   words enter with the blur settle; the reply renders as markdown as it
   streams, its caret at the end of its last text (raw markup on screen is

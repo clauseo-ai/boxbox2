@@ -90,8 +90,8 @@
 /* the light falling from the top left, as on every window */
 .cz-window::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: radial-gradient(90% 70% at 16% 0%, var(--win-glow), transparent 62%); }
 /* the long shadow, on its own layer so focus deepens it by opacity alone */
-.cz-window::after { content: ""; position: absolute; inset: 0; z-index: -2; border-radius: inherit; pointer-events: none; box-shadow: 0 26px 50px -20px color-mix(in srgb, var(--cast-ink) calc(80% - var(--L) * 34%), transparent), 0 3px 8px -2px color-mix(in srgb, var(--cast-ink) calc(40% - var(--L) * 10%), transparent); transition: opacity 260ms cubic-bezier(.2, .8, .2, 1); }
-.cz-window[data-focus]::after { box-shadow: 0 34px 64px -18px color-mix(in srgb, var(--cast-ink) calc(92% - var(--L) * 46%), transparent), 0 3px 8px -2px color-mix(in srgb, var(--cast-ink) calc(40% - var(--L) * 10%), transparent); }
+.cz-window::after { content: ""; position: absolute; inset: 0; z-index: -2; border-radius: inherit; pointer-events: none; box-shadow: 0 34px 64px -18px color-mix(in srgb, var(--cast-ink) calc(92% - var(--L) * 46%), transparent), 0 3px 8px -2px color-mix(in srgb, var(--cast-ink) calc(40% - var(--L) * 10%), transparent); opacity: 0.8; transform: translateY(-6px) scale(0.975); transition: opacity var(--fade-t, 0ms linear), transform var(--snap-t, 0ms linear); }
+.cz-window[data-focus]::after { opacity: 1; transform: none; }
 /* a shell line is the machine's, not the repo's: charcoal on dark, a cool paper on light, so it is never taken for a message */
 .cz-window[data-shell] { background: linear-gradient(172deg, color-mix(in srgb, #f7f8fa calc(var(--L) * 100%), #15171c), color-mix(in srgb, #eceef2 calc(var(--L) * 100%), #08090b)); }
 .cz-window[data-bad] { box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.18)), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 70%, transparent); }
@@ -199,7 +199,7 @@
 .cz-send:disabled { cursor: default; }
 /* pressed: the disc gives a little, on the snap spring's own pace */
 .cz-send:not(:disabled):active .cz-face { transform: scale(0.94); }
-.cz-face { transition: transform var(--snap-ms, 0ms) var(--snap, ease-out); }
+.cz-face { transition: transform var(--snap-t, 0ms ease-out); }
 /* steering is the other verb: white on dark, the ink itself on light */
 .cz-send[data-steering] .cz-face { background: color-mix(in srgb, var(--cz-text) calc(var(--L) * 100%), #fff); color: color-mix(in srgb, #f7f7f5 calc(var(--L) * 100%), #14131c); }
 .cz-window[data-shell] .cz-send:not(:disabled) .cz-face { background: var(--cz-text); color: color-mix(in srgb, #f7f7f5 calc(var(--L) * 100%), #111); }
@@ -245,7 +245,7 @@
    later for each bar up the ladder, so a raised effort fills upward. the app's motion properties set the pace (reduced motion
    shortens them), and with none installed nothing animates */
 .cz-meter { flex: none; display: block; overflow: visible; --meter: var(--accent); }
-.cz-meter rect { fill: var(--meter); opacity: 0.26; transition: opacity var(--fade-ms, 0ms) var(--fade, ease-out) calc(var(--i) * 24ms); }
+.cz-meter rect { fill: var(--meter); opacity: 0.26; transition: opacity var(--fade-t, 0ms ease-out) calc(var(--i) * 24ms); }
 .cz-meter rect[data-on] { opacity: 1; }
 .cz-meter-variant { width: 16px; height: 16px; color: var(--accent); }
 

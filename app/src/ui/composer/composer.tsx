@@ -627,6 +627,12 @@ export function Composer(props: ComposerProps) {
     sendMessage({ clientID: crypto.randomUUID(), verb: "steer", target: props.target, text: card.text, photos: [], model: null, effort: null, at: Date.now() });
   };
 
+  /* —— a queued card settles in from slightly small when you send it; one restored with the thread, or arriving
+     before the composer has been up for a moment (a replay), just shows —— */
+  const mountedAt = performance.now();
+  const arrives = (el: HTMLElement) =>
+    play(el, [{ opacity: 0, transform: "translateY(10px) scale(.96)" }, { opacity: 1, transform: "none" }], SNAP, { live: performance.now() - mountedAt > 600 && state.stream.state === "live", fill: "backwards" });
+
   /* —— a queued card rises into the thread when it lands (design.md, the earned moments) —— */
   const cardEls = new Map<string, HTMLElement>();
   createEffect(
@@ -746,7 +752,7 @@ export function Composer(props: ComposerProps) {
               const words = () => cardWords(card.card, agent());
               const verbs = () => cardVerbs(card.card, agent());
               return (
-                <div class="cz-card" role="listitem" data-state={card.card.state} data-verbs={verbs().apart ? "" : undefined} ref={(el) => { cardEls.set(card.id, el); onCleanup(() => cardEls.delete(card.id)); }}>
+                <div class="cz-card" role="listitem" data-state={card.card.state} data-verbs={verbs().apart ? "" : undefined} ref={(el) => { cardEls.set(card.id, el); onCleanup(() => cardEls.delete(card.id)); arrives(el); }}>
                   <div class="cz-card-text">
                     <small>{words().label}</small>
                     <p>{card.text}{card.photos ? `, ${card.photos} ${card.photos === 1 ? "photo" : "photos"}` : ""}</p>

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FADE, motionProperties, REDUCED_FADE, SETTLE, SHEET, SNAP, spring } from "./springs";
+import { FADE, motionProperties, PRESS, PRESS_DIM, REDUCED_FADE, SETTLE, SHEET, SNAP, spring } from "./springs";
 
 const points = (easing: string) =>
   easing
@@ -60,5 +60,30 @@ describe("the css properties", () => {
     const full = motionProperties(false);
     expect(full["--snap-ms"]).toBe(`${SNAP.duration}ms`);
     expect(full["--sheet"]).toBe(SHEET.easing);
+  });
+});
+
+describe("the press and the shorthands", () => {
+  test("every curve has a shorthand a transition can take, with its duration first", () => {
+    const full = motionProperties(false);
+    expect(full["--snap-t"]).toBe(`${SNAP.duration}ms ${SNAP.easing}`);
+    expect(full["--sheet-t"]).toBe(`${SHEET.duration}ms ${SHEET.easing}`);
+    expect(full["--fade-t"]).toBe(`${FADE.duration}ms ${FADE.easing}`);
+    expect(full["--press-t"]).toBe(`${PRESS.duration}ms ${PRESS.easing}`);
+  });
+
+  test("a press is quicker than a frame budget of two", () => {
+    expect(PRESS.duration).toBeLessThanOrEqual(100);
+  });
+
+  test("reduced motion presses dim instead of sinking", () => {
+    const reduced = motionProperties(true);
+    expect(reduced["--press-scale"]).toBe("1");
+    expect(reduced["--press-scale-large"]).toBe("1");
+    expect(reduced["--press-dim"]).toBe(String(PRESS_DIM));
+    expect(reduced["--snap-t"]?.startsWith("0ms ")).toBe(true);
+    const full = motionProperties(false);
+    expect(full["--press-scale"]).toBe("0.96");
+    expect(full["--press-dim"]).toBe("1");
   });
 });

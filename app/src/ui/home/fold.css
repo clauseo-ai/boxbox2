@@ -231,7 +231,7 @@
   pointer-events: none;
   opacity: 0;
   transform: translateY(clamp(8px, calc(var(--y) - 50%), calc(100vh - 100% - 8px)));
-  transition: opacity var(--fade-ms) var(--fade);
+  transition: opacity var(--fade-t);
 }
 
 .home .fold-card[data-on] {

@@ -1,8 +1,8 @@
 /* the motion helpers: every animation in the app goes through `play`, so
    the law's rules hold in one place (docs/design.md, motion law):
 
-   - only transform, opacity, clip-path and filter animate. `play` takes
-     keyframes of those four and nothing else, by type.
+   - only transform (and its individual `scale`), opacity, clip-path and filter
+     animate. `play` takes keyframes of those and nothing else, by type.
    - reduced motion: springs become instant, content swaps keep a 120 ms
      fade, the sweep and the blur are off.
    - live motion only for live events: a caller passes `live: false` for
@@ -17,6 +17,9 @@ import { type Curve, FADE, REDUCED_FADE, SETTLE, SETTLE_BLUR_PX, SHEET, SNAP, ty
 /** what a keyframe may touch */
 export type Frame = {
   transform?: string;
+  /** the individual scale property: a transform that composes with the element's own `transform`, so a press
+      never fights a spring that is moving the same element */
+  scale?: string;
   opacity?: number | string;
   clipPath?: string;
   filter?: string;
@@ -61,12 +64,14 @@ export type PlayOptions = {
   live?: boolean;
   delay?: number;
   fill?: FillMode;
+  /** animate a pseudo-element of `el` (a ring drawn by `::after`) */
+  pseudoElement?: string;
 };
 
 /** plays keyframes on the law's curve, or lands the end state at once when motion is not wanted. returns the
     animation, or null when nothing moved */
 export function play(el: Element, frames: Frame[], curve: Spring | Curve, options: PlayOptions = {}): Animation | null {
-  const { live = true, delay = 0, fill = "none" } = options;
+  const { live = true, delay = 0, fill = "none", pseudoElement } = options;
   const kind = kindOf(curve);
   if (!live) return null;
   if (reduced()) {
@@ -74,7 +79,7 @@ export function play(el: Element, frames: Frame[], curve: Spring | Curve, option
     if (kind !== "fade") return null;
     return el.animate(onlyOpacity(frames), { duration: REDUCED_FADE.duration, easing: REDUCED_FADE.easing, fill });
   }
-  return el.animate(frames as Keyframe[], { duration: curve.duration, easing: curve.easing, delay, fill });
+  return el.animate(frames as Keyframe[], { duration: curve.duration, easing: curve.easing, delay, fill, ...(pseudoElement ? { pseudoElement } : {}) });
 }
 
 const onlyOpacity = (frames: Frame[]): Keyframe[] => frames.map((f) => (f.opacity === undefined ? {} : { opacity: f.opacity }));

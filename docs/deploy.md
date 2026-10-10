@@ -36,8 +36,8 @@ serve`, watching three cmx2 daemons (`desk`, `vm`, a third).
 | piece | where | notes |
 |---|---|---|
 | `boxbox` | `~/.local/bin/boxbox` | one binary, the app embedded (static on linux); `boxbox.previous` beside it after an upgrade |
-| config | `~/.config/boxbox/boxbox.toml`, mode 0600 | the gate password and each daemon's credential; `boxbox init` writes it |
-| data | `~/.local/share/boxbox/`, mode 0700 | `secret` (the cookie key), `boxbox.db` (read state, push subscriptions and the push key), `telemetry/*.jsonl` |
+| config | `~/.config/boxbox/boxbox.toml`, mode 0600 | the gate password and the credential of each daemon in the config; `boxbox init` writes it |
+| data | `~/.local/share/boxbox/`, mode 0700 | `secret` (the cookie key), `boxbox.db` (read state, needs, cleared and adopted threads, prefs, push subscriptions and the push key, and the credentials of daemons paired from the app), `telemetry/*.jsonl` |
 | unit | `~/.config/systemd/user/boxbox.service` | `ops/boxbox.service`: `MemoryMax=256M`, a sigterm drain inside 5 s, restart on failure. on a mac, the launchd agent (below) |
 | https | `tailscale serve` on `<vm>` | the same origin v1 used, so installed apps keep their icon |
 
@@ -74,7 +74,7 @@ from files or stdin, never argv, where `ps` and shell history keep them:
 
 ```sh
 boxbox init --listen 127.0.0.1:3000 --password-file ~/gate \
-  --host desk=http://desk.<tailnet>.ts.net:4096 --host-password-file desk=~/desk-password
+  --host desk=http://desk.<tailnet>.ts.net:4097 --host-password-file desk=~/desk-password
 ```
 
 it refuses to write over a config that exists (and says so when others can
@@ -236,8 +236,8 @@ placeholder names: one daemon on the mac, installed with `cmx2 serve
 
 ### install
 
-there is no mac `install.sh`; build it, or take the release's
-`boxbox-<version>-aarch64-darwin.tar.gz`:
+there is no mac `install.sh` and no mac download. build from source, or run
+`just release-mac` to make the tarball yourself:
 
 ```sh
 just build                          # target/release/boxbox, the app inside
@@ -401,9 +401,7 @@ cmx2 pair --revoke <id>              # on the daemon: the id init printed
 
 a release is a static linux binary per architecture (`x86_64`, `aarch64`),
 packed as `boxbox-<version>-<arch>-linux.tar.gz` with the unit, the example
-config and the licence, a mac binary for apple silicon as
-`boxbox-<version>-aarch64-darwin.tar.gz` with the example config and the
-licence, plus `install.sh` and `SHA256SUMS`. `install.sh` installs the
+config and the licence, plus `install.sh` and `SHA256SUMS`. `install.sh` installs the
 linux ones; `boxbox upgrade` reads any of them.
 
 - **built** by `ops/release/build.sh` (`just release`) in

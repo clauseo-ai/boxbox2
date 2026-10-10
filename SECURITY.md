@@ -16,7 +16,8 @@ keep private vulnerability reporting enabled in the repository settings
 - **a wrong password is answered after a flat 600 ms**, however wrong it
   was, and the password is compared by mac in constant time.
 - **host credentials never reach a browser.** each daemon's credential lives
-  in `boxbox.toml`. the server refuses to read that file unless only its
+  in `boxbox.toml` for hosts in the config, and in `boxbox.db` for hosts
+  paired from the app. the server refuses to read the config unless only its
   owner can, and uses the credential only on its own requests to the daemon.
 - **bodies are capped.** requests are limited to 64 kb, a telemetry batch to
   1 mb and 500 events, and every upstream frame to 4 mb.

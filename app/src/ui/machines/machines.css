@@ -188,7 +188,7 @@
   font-size: var(--meta);
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
-  animation: machines-fade var(--fade) both;
+  animation: machines-fade var(--fade-t) both;
 }
 
 .host-since {
@@ -304,7 +304,7 @@
   border-radius: 16px;
   background: color-mix(in srgb, var(--win-press) calc(var(--L) * 100%), rgb(0 0 0 / 0.24));
   box-shadow: var(--win-press-edge);
-  animation: machines-fade var(--fade) both;
+  animation: machines-fade var(--fade-t) both;
 }
 
 .host-confirm p {
@@ -362,7 +362,7 @@
   font-size: var(--meta);
   line-height: 1.4;
   color: color-mix(in srgb, var(--text) 80%, transparent);
-  animation: machines-fade var(--fade) both;
+  animation: machines-fade var(--fade-t) both;
 }
 
 .host-note.failed {
@@ -454,7 +454,7 @@
 
 .host-add-note[data-done] {
   color: var(--accent);
-  animation: machines-fade var(--fade) both;
+  animation: machines-fade var(--fade-t) both;
 }
 
 @media (hover: hover) {
@@ -481,7 +481,7 @@
   background: linear-gradient(170deg, var(--win-deep-1), var(--win-deep-2));
   box-shadow: var(--win-edge), var(--win-cast);
   color: var(--text);
-  animation: machines-fade var(--fade) both;
+  animation: machines-fade var(--fade-t) both;
 }
 
 .pair-intro h2 {

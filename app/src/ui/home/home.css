@@ -421,8 +421,8 @@
   background: var(--ink);
   opacity: 0.42;
   transition:
-    transform var(--snap-ms) var(--snap),
-    opacity var(--fade-ms) var(--fade);
+    transform var(--snap-t),
+    opacity var(--fade-t);
 }
 
 .home .pager i[data-on] {

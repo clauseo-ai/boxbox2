@@ -77,8 +77,8 @@
   font-size: var(--meta);
   font-weight: 550;
   transition:
-    background-color var(--fade),
-    color var(--fade);
+    background-color var(--fade-t),
+    color var(--fade-t);
 }
 
 .segmented button[aria-checked="true"] {
@@ -99,7 +99,7 @@
   border-radius: 16px;
   background: var(--track);
   box-shadow: var(--track-edge);
-  transition: background-color var(--fade);
+  transition: background-color var(--fade-t);
 }
 
 /* off, light: the track is a clear violet tint, so the knob (white) stands out of it and the switch holds its edge */
@@ -121,7 +121,7 @@
   border-radius: 50%;
   background: color-mix(in srgb, #fff calc(var(--L) * 100%), #f4f4f6);
   box-shadow: 0 2px 6px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.35));
-  transition: transform var(--snap);
+  transition: transform var(--snap-t);
 }
 
 .toggle[aria-checked="true"] .toggle-knob {

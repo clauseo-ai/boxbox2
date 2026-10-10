@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 392" width="900" height="392" role="img" aria-labelledby="t d">
+<title id="t">boxbox</title>
+<desc id="d">agents on three machines stream into one inbox. a question from one of them rises to the top and a phone buzzes with a notification.</desc>
+<style>
+.loop{animation-duration:11s;animation-iteration-count:infinite;animation-timing-function:ease-in-out}
+.flow{stroke-dasharray:0.1 15;stroke-linecap:round;fill:none;animation:flow 1.9s linear infinite}
+.flow.s2{animation-duration:2.4s}.flow.s3{animation-duration:2.1s}
+@keyframes flow{to{stroke-dashoffset:-30.2}}
+.bar{transform-box:fill-box;transform-origin:0 50%;animation:write 4s ease-out infinite}
+@keyframes write{0%{transform:scaleX(.08);opacity:.9}72%{transform:scaleX(1);opacity:.9}92%{transform:scaleX(1);opacity:.9}100%{transform:scaleX(1);opacity:0}}
+.cursor{animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+.askdot{animation-name:askdot}
+@keyframes askdot{0%,15%{fill:#ff9fd0}17%,83%{fill:#f0c94f}89%,100%{fill:#ff9fd0}}
+.askring{opacity:0;transform-box:fill-box;transform-origin:center;animation-name:askring}
+@keyframes askring{0%,15.5%{opacity:0;transform:scale(1)}16.5%{opacity:.9;transform:scale(1)}26%{opacity:0;transform:scale(3.2)}100%{opacity:0;transform:scale(3.2)}}
+.packet{opacity:0;animation-name:packet,packetfade;animation-timing-function:linear}
+@keyframes packet{0%,16%{transform:translate(266px,217px)}16.5%{transform:translate(266px,217px)}19.4%{transform:translate(304.6px,215.3px)}22.3%{transform:translate(331px,211.5px)}25.2%{transform:translate(357.4px,207.7px)}28.1%{transform:translate(396px,206px)}100%{transform:translate(396px,206px)}}
+@keyframes packetfade{0%,16%{opacity:0}17%{opacity:1}27%{opacity:1}29%,100%{opacity:0}}
+
+.shift{animation-name:shift;animation-timing-function:cubic-bezier(.3,.9,.3,1)}
+@keyframes shift{0%,30%{transform:translateY(-56px)}40%{transform:translateY(0)}84%{transform:translateY(0)}92%{transform:translateY(-56px)}100%{transform:translateY(-56px)}}
+.ask{transform-box:fill-box;transform-origin:center;animation-name:ask;animation-timing-function:cubic-bezier(.3,.9,.3,1)}
+@keyframes ask{
+0%,28%{opacity:0;transform:translateY(168px)}
+30%{opacity:1;transform:translateY(168px)}
+40%{opacity:1;transform:translateY(0)}
+84%{opacity:1;transform:translateY(0)}
+90%{opacity:0;transform:translateY(0) translateX(18px)}
+90.1%,100%{opacity:0;transform:translateY(168px)}}
+.n3{opacity:0;animation-name:n3}
+@keyframes n3{0%,39%{opacity:1}41%,84%{opacity:0}90%,100%{opacity:1}}
+.n4{animation-name:n4}
+@keyframes n4{0%,39%{opacity:0}41%,84%{opacity:1}90%,100%{opacity:0}}
+
+.pushpkt{opacity:0;animation-name:pushpkt;animation-timing-function:linear}
+@keyframes pushpkt{0%,42%{opacity:0;transform:translateX(652px)}43%{opacity:1;transform:translateX(656px)}48%{opacity:1;transform:translateX(724px)}49%,100%{opacity:0;transform:translateX(724px)}}
+.buzz{animation-name:buzz;animation-timing-function:linear}
+@keyframes buzz{0%,50%{transform:translateX(0)}51%{transform:translateX(-2px)}52%{transform:translateX(2px)}53%{transform:translateX(-2px)}54%{transform:translateX(1.5px)}55%,100%{transform:translateX(0)}}
+.ring{opacity:0;transform-box:fill-box;transform-origin:center;animation-name:ring;animation-timing-function:ease-out}
+@keyframes ring{0%,50%{opacity:0;transform:scale(1)}51%{opacity:.75;transform:scale(1)}68%{opacity:0;transform:scale(1.22,1.1)}100%{opacity:0;transform:scale(1.22,1.1)}}
+.ring.r2{animation-name:ring2}
+@keyframes ring2{0%,54%{opacity:0;transform:scale(1)}55%{opacity:.6;transform:scale(1)}72%{opacity:0;transform:scale(1.22,1.1)}100%{opacity:0;transform:scale(1.22,1.1)}}
+.banner{animation-name:banner;animation-timing-function:cubic-bezier(.2,.9,.3,1.15)}
+@keyframes banner{0%,48%{opacity:0;transform:translateY(-84px)}53%{opacity:1;transform:translateY(0)}82%{opacity:1;transform:translateY(0);animation-timing-function:ease-in}86%,100%{opacity:0;transform:translateY(-34px)}}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+<defs>
+<linearGradient id="g" x1="0" y1="0" x2=".35" y2="1"><stop offset="0" stop-color="#f8f6ff"/><stop offset="1" stop-color="#ebe8fb"/></linearGradient>
+<linearGradient id="w" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#eceaff"/><stop offset="1" stop-color="#fbfaff"/></linearGradient>
+<radialGradient id="hi" cx=".06" cy="-.04" r="1.05"><stop offset="0" stop-color="#fff" stop-opacity="0.9"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/></radialGradient>
+<linearGradient id="lit" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.9"/><stop offset=".16" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<linearGradient id="wall" x1=".3" y1="0" x2=".7" y2="1"><stop offset="0" stop-color="#7b6ee0"/><stop offset="1" stop-color="#3b2f9e"/></linearGradient>
+<linearGradient id="r-rose" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#ffdeef"/><stop offset="1" stop-color="#fff2f8"/></linearGradient>
+<linearGradient id="r-blue" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#ddecff"/><stop offset="1" stop-color="#f1f7ff"/></linearGradient>
+<linearGradient id="r-teal" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#d3f4f1"/><stop offset="1" stop-color="#edfbf9"/></linearGradient>
+<linearGradient id="r-green" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#d9f7e0"/><stop offset="1" stop-color="#effcf2"/></linearGradient>
+<linearGradient id="r-plum" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#f4e1ff"/><stop offset="1" stop-color="#fbf3ff"/></linearGradient>
+<linearGradient id="r-clay" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#ffe6d8"/><stop offset="1" stop-color="#fff5ef"/></linearGradient>
+<clipPath id="screen"><rect x="733" y="69" width="126" height="272" rx="25"/></clipPath>
+</defs>
+<rect width="900" height="392" rx="22" fill="url(#g)"/>
+<rect x=".5" y=".5" width="899" height="391" rx="21.5" fill="none" stroke="#34298a" stroke-opacity="0.14"/>
+<g transform="translate(36 21) scale(0.8) translate(-74.9 -117.3)" fill="#171240"><path d="M84.2 159.1H83.8L83.4 165H74.9V117.3H83.9L83.9 136.9H84.3Q85.6 133.9 88.7 132.1Q91.7 130.3 95.7 130.3Q100.2 130.3 103.5 132.4Q106.9 134.5 108.7 138.5Q110.6 142.5 110.6 147.9Q110.6 153.4 108.7 157.3Q106.9 161.3 103.5 163.4Q100.2 165.6 95.7 165.6Q91.6 165.6 88.6 163.9Q85.5 162.1 84.2 159.1ZM101.5 147.9Q101.5 144.6 100.5 142.3Q99.5 140 97.5 138.7Q95.5 137.4 92.8 137.4Q90.1 137.4 88.1 138.7Q86.1 139.9 85 142Q83.9 144.1 83.9 146.7V149.1Q83.9 151.8 85 153.9Q86 156 88 157.2Q90 158.4 92.7 158.4Q96.9 158.4 99.2 155.6Q101.5 152.8 101.5 147.9ZM114.6 147.9Q114.6 142.5 116.8 138.6Q119 134.6 123.1 132.4Q127.3 130.3 132.8 130.3Q138.2 130.3 142.4 132.4Q146.5 134.5 148.8 138.5Q151.1 142.5 151.1 147.9Q151.1 153.3 148.9 157.3Q146.6 161.3 142.5 163.4Q138.3 165.6 132.8 165.6Q127.4 165.6 123.2 163.5Q119.1 161.4 116.8 157.4Q114.6 153.4 114.6 147.9ZM142 147.9Q142 144.6 140.9 142.2Q139.8 139.9 137.7 138.6Q135.7 137.3 132.8 137.3Q130 137.3 127.9 138.6Q125.9 139.9 124.8 142.3Q123.7 144.6 123.7 147.9Q123.7 151.3 124.8 153.6Q125.9 155.9 127.9 157.2Q129.9 158.4 132.8 158.4Q135.7 158.4 137.7 157.2Q139.8 156 140.9 153.6Q142 151.3 142 147.9ZM164.2 147.4 151.7 130.9H162.2L168.9 140.6L170 142.3H170.5L171.5 140.5L178.2 130.9H188.4L176.2 147.2L189.4 165H178.9L171.5 154.7L170.2 152.5H169.8L168.4 154.7L160.8 165H150.6ZM202.1 159.1H201.7L201.3 165H192.8V117.3H201.8L201.8 136.9H202.2Q203.6 133.9 206.6 132.1Q209.6 130.3 213.6 130.3Q218.1 130.3 221.4 132.4Q224.8 134.5 226.6 138.5Q228.5 142.5 228.5 147.9Q228.5 153.4 226.6 157.3Q224.8 161.3 221.4 163.4Q218.1 165.6 213.6 165.6Q209.5 165.6 206.5 163.9Q203.4 162.1 202.1 159.1ZM219.4 147.9Q219.4 144.6 218.4 142.3Q217.4 140 215.4 138.7Q213.4 137.4 210.7 137.4Q208 137.4 206 138.7Q204 139.9 202.9 142Q201.8 144.1 201.8 146.7V149.1Q201.8 151.8 202.9 153.9Q203.9 156 205.9 157.2Q207.9 158.4 210.6 158.4Q214.8 158.4 217.1 155.6Q219.4 152.8 219.4 147.9ZM232.5 147.9Q232.5 142.5 234.7 138.6Q236.9 134.6 241 132.4Q245.2 130.3 250.7 130.3Q256.1 130.3 260.3 132.4Q264.4 134.5 266.7 138.5Q269 142.5 269 147.9Q269 153.3 266.8 157.3Q264.5 161.3 260.4 163.4Q256.2 165.6 250.7 165.6Q245.3 165.6 241.1 163.5Q237 161.4 234.7 157.4Q232.5 153.4 232.5 147.9ZM259.9 147.9Q259.9 144.6 258.8 142.2Q257.7 139.9 255.6 138.6Q253.6 137.3 250.7 137.3Q247.9 137.3 245.8 138.6Q243.8 139.9 242.7 142.3Q241.6 144.6 241.6 147.9Q241.6 151.3 242.7 153.6Q243.8 155.9 245.8 157.2Q247.9 158.4 250.7 158.4Q253.6 158.4 255.6 157.2Q257.7 156 258.8 153.6Q259.9 151.3 259.9 147.9ZM282.2 147.4 269.6 130.9H280.1L286.8 140.6L287.9 142.3H288.4L289.4 140.5L296.2 130.9H306.3L294.1 147.2L307.3 165H296.8L289.4 154.7L288.1 152.5H287.7L286.3 154.7L278.7 165H268.6Z"/></g>
+<rect class="cursor" x="229.9" y="27.4" width="12" height="28.6" rx="2" fill="#34298a"/>
+<path d="M266 127C331 127 331 150 396 150" fill="none" stroke="#34298a" stroke-opacity="0.12" stroke-width="1.2"/>
+<path class="flow s1" d="M266 127C331 127 331 150 396 150" stroke="#34298a" stroke-opacity="0.6" stroke-width="3.2"/>
+<path d="M266 217C331 217 331 206 396 206" fill="none" stroke="#34298a" stroke-opacity="0.12" stroke-width="1.2"/>
+<path class="flow s2" d="M266 217C331 217 331 206 396 206" stroke="#34298a" stroke-opacity="0.6" stroke-width="3.2"/>
+<path d="M266 307C331 307 331 262 396 262" fill="none" stroke="#34298a" stroke-opacity="0.12" stroke-width="1.2"/>
+<path class="flow s3" d="M266 307C331 307 331 262 396 262" stroke="#34298a" stroke-opacity="0.6" stroke-width="3.2"/>
+<g>
+<rect x="36" y="88" width="230" height="78" rx="14" fill="#ffffff" fill-opacity="0.92" stroke="#34298a" stroke-opacity="0.11"/>
+<text x="52" y="111" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" font-weight="600" fill="#171240">desk</text>
+<text x="250" y="111" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" text-anchor="end" fill="#6c6794">cmx2</text>
+<circle cx="56" cy="133" r="3.6" fill="#537aa6"/>
+<text x="68" y="136.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#6c6794">site</text>
+<rect class="bar" x="120" y="130.5" width="126" height="5" rx="2.5" fill="#5a81af" fill-opacity="0.6" style="animation-duration:3.40s;animation-delay:0s"/>
+<circle cx="56" cy="152" r="3.6" fill="#428c89"/>
+<text x="68" y="155.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#6c6794">api</text>
+<rect class="bar" x="120" y="149.5" width="92" height="5" rx="2.5" fill="#489490" fill-opacity="0.6" style="animation-duration:3.95s;animation-delay:-0.83s"/>
+</g>
+<g>
+<rect x="36" y="178" width="230" height="78" rx="14" fill="#ffffff" fill-opacity="0.92" stroke="#34298a" stroke-opacity="0.11"/>
+<text x="52" y="201" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" font-weight="600" fill="#171240">vm</text>
+<text x="250" y="201" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" text-anchor="end" fill="#6c6794">cmx2</text>
+<circle class="loop askring" cx="56" cy="223" r="3.6" fill="none" stroke="#f0c94f" stroke-width="1.4"/>
+<circle class="loop askdot" cx="56" cy="223" r="3.6" fill="#f0c94f"/>
+<text x="68" y="226.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#6c6794">ledger</text>
+<rect class="bar" x="120" y="220.5" width="118" height="5" rx="2.5" fill="#ad5f8b" fill-opacity="0.6" style="animation-duration:4.50s;animation-delay:-1.66s"/>
+<circle cx="56" cy="242" r="3.6" fill="#4f9066"/>
+<text x="68" y="245.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#6c6794">docs</text>
+<rect class="bar" x="120" y="239.5" width="76" height="5" rx="2.5" fill="#55986c" fill-opacity="0.6" style="animation-duration:5.05s;animation-delay:-2.49s"/>
+</g>
+<g>
+<rect x="36" y="268" width="230" height="78" rx="14" fill="#ffffff" fill-opacity="0.92" stroke="#34298a" stroke-opacity="0.11"/>
+<text x="52" y="291" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11.5" font-weight="600" fill="#171240">laptop</text>
+<text x="250" y="291" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" text-anchor="end" fill="#6c6794">cmx2</text>
+<circle cx="56" cy="313" r="3.6" fill="#a4694d"/>
+<text x="68" y="316.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#6c6794">web</text>
+<rect class="bar" x="120" y="310.5" width="104" height="5" rx="2.5" fill="#ad7053" fill-opacity="0.6" style="animation-duration:3.40s;animation-delay:-3.32s"/>
+<circle cx="56" cy="332" r="3.6" fill="#8b5da5"/>
+<text x="68" y="335.4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#6c6794">infra</text>
+<rect class="bar" x="120" y="329.5" width="130" height="5" rx="2.5" fill="#9364ae" fill-opacity="0.6" style="animation-duration:3.95s;animation-delay:-4.15s"/>
+</g>
+<g>
+<rect x="392" y="78" width="260" height="274" rx="22" fill="#34298a" fill-opacity="0.1"/>
+<rect x="392" y="64" width="260" height="282" rx="22" fill="url(#w)"/>
+<rect x="392" y="64" width="260" height="282" rx="22" fill="url(#hi)"/>
+<rect x="392.5" y="64.5" width="259" height="281" rx="21.5" fill="none" stroke="#34298a" stroke-opacity="0.16" stroke-width="1"/>
+<text x="412" y="95" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="14" font-weight="650" fill="#171240">needs you</text>
+<circle cx="622" cy="90" r="11" fill="#34298a"/>
+<text class="loop n3" x="622" y="94.2" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="700" fill="#ffffff">3</text>
+<text class="loop n4" x="622" y="94.2" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="700" fill="#ffffff">4</text>
+<g transform="translate(406 284)"><g class="loop shift">
+<rect width="232" height="48" rx="13" fill="url(#r-green)"/>
+<rect x=".5" y=".5" width="231" height="47" rx="12.5" fill="none" stroke="#1b4a33" stroke-opacity=".14"/>
+<text x="14" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#1b4a33">summarise changelog</text>
+<text x="14" y="36.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#446b58" fill-opacity=".9">docs · done</text>
+</g></g>
+<g transform="translate(406 228)"><g class="loop shift">
+<rect width="232" height="48" rx="13" fill="url(#r-teal)"/>
+<rect x=".5" y=".5" width="231" height="47" rx="12.5" fill="none" stroke="#10484a" stroke-opacity=".14"/>
+<text x="14" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#10484a">retry webhook queue</text>
+<text x="14" y="36.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#3b696b" fill-opacity=".9">api · done</text>
+</g></g>
+<g transform="translate(406 172)"><g class="loop shift">
+<rect width="232" height="48" rx="13" fill="url(#r-blue)"/>
+<rect x=".5" y=".5" width="231" height="47" rx="12.5" fill="none" stroke="#173a5e" stroke-opacity=".14"/>
+<text x="14" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#173a5e">pricing table</text>
+<text x="14" y="36.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#415d7b" fill-opacity=".9">site · review ready</text>
+</g></g>
+<g transform="translate(406 116)"><g class="loop ask">
+<rect width="232" height="48" rx="13" fill="url(#r-rose)"/>
+<rect x=".5" y=".5" width="231" height="47" rx="12.5" fill="none" stroke="#5a1f45" stroke-opacity=".14"/>
+<rect x="-.75" y="-.75" width="233.5" height="49.5" rx="13.5" fill="none" stroke="#f0c94f" stroke-width="1.5" stroke-opacity=".85"/>
+<text x="14" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#5a1f45">set the greeting</text>
+<text x="14" y="36.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#784766" fill-opacity=".9">ledger · which one?</text>
+<rect x="152" y="8" width="68" height="19" rx="9.5" fill="#f0c94f"/>
+<text x="186" y="21.2" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" font-weight="700" fill="#2a2008">wants you</text>
+</g></g>
+</g>
+<line x1="660" y1="168" x2="720" y2="168" stroke="#34298a" stroke-opacity=".28" stroke-width="1.2" stroke-dasharray="3 5"/>
+<text x="690" y="158" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#6c6794">web push</text>
+<g transform="translate(0 168)"><circle class="loop pushpkt" cx="0" cy="0" r="4" fill="#f0c94f"/></g>
+<circle class="loop packet" cx="0" cy="0" r="4.2" fill="#f0c94f"/>
+<g class="loop buzz">
+<rect class="loop ring" x="728" y="64" width="136" height="282" rx="30" fill="none" stroke="#f0c94f" stroke-width="2"/>
+<rect class="loop ring r2" x="728" y="64" width="136" height="282" rx="30" fill="none" stroke="#f0c94f" stroke-width="2"/>
+<rect x="728" y="70" width="136" height="280" rx="30" fill="#000" fill-opacity="0.14"/>
+<rect x="728" y="64" width="136" height="282" rx="30" fill="#14122b"/>
+<rect x="728.5" y="64.5" width="135" height="281" rx="29.5" fill="none" stroke="#fff" stroke-opacity=".2"/>
+<g clip-path="url(#screen)">
+<rect x="733" y="69" width="126" height="272" fill="url(#wall)"/>
+<rect x="733" y="69" width="126" height="272" fill="url(#hi)" opacity=".7"/>
+<rect x="775" y="77" width="42" height="12" rx="6" fill="#000"/>
+<text x="796" y="144" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="40" font-weight="300" fill="#fff" fill-opacity=".95">07:42</text>
+<text x="796" y="162" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="10.5" fill="#fff" fill-opacity=".62">tuesday</text>
+<rect x="766" y="329" width="60" height="4" rx="2" fill="#fff" fill-opacity=".55"/>
+<g class="loop banner">
+<rect x="740" y="192" width="112" height="54" rx="15" fill="#fff" fill-opacity=".92"/>
+<rect x="749" y="201" width="17" height="17" rx="5" fill="#34298a"/>
+<rect x="754" y="208" width="3.2" height="7" rx=".8" fill="#b7abff"/>
+<text x="772" y="212.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="9" font-weight="600" fill="#2b2940" fill-opacity=".65">boxbox</text>
+<text x="842" y="212.5" text-anchor="end" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="9" fill="#2b2940" fill-opacity=".55">now</text>
+<text x="750" y="230" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="11" font-weight="650" fill="#14122b">ledger wants you</text>
+<text x="750" y="242" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="9.5" fill="#14122b" fill-opacity=".7">which greeting?</text>
+</g>
+</g>
+</g>
+<text x="36" y="374" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" letter-spacing=".02em" fill="#6c6794">cmx2 daemons, one per machine</text>
+<text x="392" y="374" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" letter-spacing=".02em" fill="#6c6794">boxbox server, one inbox</text>
+<text x="716" y="374" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" letter-spacing=".02em" fill="#6c6794">your phone</text>
+</svg>

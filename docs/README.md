@@ -24,37 +24,12 @@ them.
 
 ## the pieces
 
-```mermaid
-flowchart TB
-  subgraph browser["browser (installed app)"]
-    ui["ui thread<br/>solid components"]
-    worker["sync worker<br/>stream, cursor, cache"]
-    sw["service worker<br/>push"]
-    ui <-- "patches, once a frame" --> worker
-  end
-  subgraph boxbox["boxbox server"]
-    http["http layer<br/>gate, api, embedded app"]
-    fleet["fleet actor<br/>one model of every host"]
-    journal["journal<br/>ring of events"]
-    up["upstream watchers<br/>one per host"]
-    pushtask["push task"]
-    pty["pty relay"]
-    store["store writer<br/>boxbox.db"]
-    tele["telemetry<br/>ndjson files"]
-  end
-  daemon["cmx2 daemons"]
-  worker -- "GET /api/stream (sse, cursor)" --> http
-  worker -- "POST prompts, answers" --> http
-  http --> fleet
-  http --> pty
-  up -- "events" --> fleet
-  fleet --> journal --> http
-  fleet --> pushtask --> store
-  pushtask -. "web push" .-> sw
-  up <-- "sse + rest" --> daemon
-  pty <-- "websocket" --> daemon
-  worker -- "events" --> tele
-```
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/pieces-dark.svg">
+  <img src="../assets/pieces.svg" alt="the browser holds a ui thread, a sync worker and a service worker. the sync worker streams from and posts to the boxbox server's http layer. the http layer feeds the fleet actor, which writes to the journal and tells the push task what happened. upstream watchers bring daemon events into the fleet actor, and the pty relay carries terminals. the push task reaches the service worker with web push.">
+</picture>
+</p>
 
 ### `server/`, the rust crate `boxbox`
 
@@ -71,8 +46,8 @@ installs and maintains it. each task owns its state and talks by message.
 | `src/auth.rs` | the password gate and its signed session cookie |
 | `src/push/` | decides who gets a notification and delivers it with web push |
 | `src/pty/` | relays a terminal websocket between the browser and a daemon |
-| `src/store/` | the one writer of `boxbox.db`, a sqlite file for read state, push subscriptions and preferences |
-| `src/telemetry/` | validates and stores the app's usage events as one ndjson file per day |
+| `src/store/` | the one writer of `boxbox.db`, a sqlite file for push keys and subscriptions, hosts paired from the app and their credentials, prefs, read marks, needs, cleared threads and adopted threads |
+| `src/telemetry/` | validates and stores the app's usage events as one .jsonl file per day |
 | `src/icons/` | finds a repo's favicon on its host and caches it |
 | `src/cli/` | `init`, `doctor`, `service`, `upgrade` and the usage text |
 | `build/` | build-time code generation. cmx2's types come from `vendor/cmx2/openapi.json`, so nothing is decoded by hand |
@@ -121,7 +96,7 @@ you type "run the tests" in a thread on your phone and press send.
    carries the session cookie from your sign-in.
 3. **the http layer** checks the cookie against the gate, then forwards the
    prompt to the daemon named `desk` as `POST /session/<id>/prompt_async`,
-   using the daemon's credential from `boxbox.toml`. the credential never left the server.
+   using the daemon's credential from `boxbox.toml` or `boxbox.db`. the credential never left the server.
 4. **the cmx2 daemon** starts the turn. as the agent thinks, calls tools and
    writes text, the daemon emits numbered events on its event stream.
 5. **the upstream watcher** for `desk` receives each event, drops any it has

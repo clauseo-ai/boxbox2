@@ -256,10 +256,8 @@
   --chip: 12.5px;
   --meta: 13.5px;
   --title: 28px;
-  --fade: 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* the snap spring (stiffness 380, damping 32; design.md, motion law), sampled into linear() */
-  --snap: 420ms
-    linear(0, 0.048, 0.16, 0.298, 0.438, 0.568, 0.681, 0.773, 0.846, 0.901, 0.941, 0.969, 0.988, 1, 1.007, 1.01, 1.011, 1.011, 1.009, 1.008, 1.006, 1.005, 1.004, 1.003, 1.002, 1);
+  /* the motion law's curves (--snap-t, --sheet-t, --fade-t, --press-t and their parts) are written onto the root by
+     motion/animate.ts before the first frame, in one place, and follow this device's choice in settings */
 }
 
 @media (min-width: 700px) {
@@ -330,7 +328,7 @@ button {
   border-radius: 14px;
   border: 0;
   padding: 0 18px;
-  transition: opacity var(--fade);
+  transition: opacity var(--fade-t);
 }
 
 button:disabled {

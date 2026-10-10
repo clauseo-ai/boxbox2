@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 236" width="900" height="236" role="img" aria-labelledby="t d">
+<title id="t">a cursor at every hop</title>
+<desc id="d">events flow from the cmx2 daemon to the boxbox watcher, the journal, the sync worker and the ui. each hop keeps a cursor: the daemon's seq, a host and seq the watcher dedupes by, the journal's epoch and seq, and the worker's cursor in indexeddb. the watcher and the worker each resume from their cursor with Last-Event-ID.</desc>
+<defs><linearGradient id="g" x1="0" y1="0" x2=".35" y2="1"><stop offset="0" stop-color="#14112e"/><stop offset="1" stop-color="#0b0a1a"/></linearGradient><linearGradient id="f-teal-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#10484a"/><stop offset="1" stop-color="#062123"/></linearGradient><marker id="m-8f86c9" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1.5L8.5 5L1 8.5" fill="none" stroke="#8f86c9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker><linearGradient id="f-violet-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#34298a"/><stop offset="1" stop-color="#171240"/></linearGradient><linearGradient id="f-blue-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#173a5e"/><stop offset="1" stop-color="#0a1a2e"/></linearGradient></defs>
+<rect width="900" height="236" rx="22" fill="url(#g)"/>
+<rect x=".5" y=".5" width="899" height="235" rx="21.5" fill="none" stroke="#b7abff" stroke-opacity="0.16"/>
+<rect x="40" y="43" width="140" height="74" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="40" y="40" width="140" height="74" rx="13" fill="url(#f-teal-1)"/>
+<rect x="40.5" y="40.5" width="139" height="73" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="110" y="72.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">cmx2 daemon</text>
+<text x="110" y="90.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#7fe0d6" fill-opacity=".92">numbers events</text>
+<rect x="54" y="130" width="112" height="24" rx="12" fill="none" stroke="#8f86c9" stroke-opacity=".55" stroke-dasharray="0"/>
+<text x="110" y="146" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" font-weight="400" fill="#f4f4f6">seq</text>
+<path d="M180 77L210 77" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<rect x="210" y="43" width="140" height="74" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="210" y="40" width="140" height="74" rx="13" fill="url(#f-violet-1)"/>
+<rect x="210.5" y="40.5" width="139" height="73" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="280" y="72.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">upstream watcher</text>
+<text x="280" y="90.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">drops repeats</text>
+<rect x="224" y="130" width="112" height="24" rx="12" fill="none" stroke="#8f86c9" stroke-opacity=".55" stroke-dasharray="0"/>
+<text x="280" y="146" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" font-weight="400" fill="#f4f4f6">(host, seq)</text>
+<path d="M350 77L380 77" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<rect x="380" y="43" width="140" height="74" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="380" y="40" width="140" height="74" rx="13" fill="url(#f-violet-1)"/>
+<rect x="380.5" y="40.5" width="139" height="73" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="450" y="72.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">journal</text>
+<text x="450" y="90.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">one shared ring</text>
+<rect x="394" y="130" width="112" height="24" rx="12" fill="none" stroke="#8f86c9" stroke-opacity=".55" stroke-dasharray="0"/>
+<text x="450" y="146" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" font-weight="400" fill="#f4f4f6">(epoch, seq)</text>
+<path d="M520 77L550 77" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<rect x="550" y="43" width="140" height="74" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="550" y="40" width="140" height="74" rx="13" fill="url(#f-blue-1)"/>
+<rect x="550.5" y="40.5" width="139" height="73" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="620" y="72.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">sync worker</text>
+<text x="620" y="90.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#9cc8ff" fill-opacity=".92">applies in order</text>
+<rect x="564" y="130" width="112" height="24" rx="12" fill="none" stroke="#8f86c9" stroke-opacity=".55" stroke-dasharray="0"/>
+<text x="620" y="146" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" font-weight="400" fill="#f4f4f6">cursor</text>
+<path d="M690 77L720 77" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<rect x="720" y="43" width="140" height="74" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="720" y="40" width="140" height="74" rx="13" fill="url(#f-blue-1)"/>
+<rect x="720.5" y="40.5" width="139" height="73" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="790" y="72.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">ui thread</text>
+<text x="790" y="90.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#9cc8ff" fill-opacity=".92">patches per frame</text>
+<rect x="734" y="130" width="112" height="24" rx="12" fill="none" stroke="#8f86c9" stroke-opacity=".55" stroke-dasharray="3 4"/>
+<text x="790" y="146" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" font-weight="400" fill="#a9a6c4">no cursor</text>
+<path d="M280 158L280 183Q280 192 271 192L119 192Q110 192 110 183L110 158" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" stroke-dasharray="5 5" marker-end="url(#m-8f86c9)"/>
+<rect x="149.7" y="184.5" width="90.6" height="17" rx="8.5" fill="#100e24"/>
+<text x="195" y="196" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#a9a6c4">Last-Event-ID</text>
+<path d="M620 158L620 183Q620 192 611 192L459 192Q450 192 450 183L450 158" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" stroke-dasharray="5 5" marker-end="url(#m-8f86c9)"/>
+<rect x="489.7" y="184.5" width="90.6" height="17" rx="8.5" fill="#100e24"/>
+<text x="535" y="196" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#a9a6c4">Last-Event-ID</text>
+<text x="450" y="24" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="11.5" font-weight="400" fill="#a9a6c4">events go right. a hop that falls behind asks the one before it to go back to its own cursor.</text>
+</svg>

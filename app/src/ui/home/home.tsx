@@ -21,7 +21,7 @@
 
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import { flip, insetOf, installMotionProperties, play, prefersReducedMotion } from "../../motion/animate";
+import { flip, insetOf, installMotionProperties, play, prefersReducedMotion, settle } from "../../motion/animate";
 import { birth } from "../../motion/fly";
 import { FADE, SHEET, SNAP } from "../../motion/springs";
 import { openFocus, releaseFocus, setWindowsInView, state } from "../../store";
@@ -920,6 +920,11 @@ export function Home(props: HomeProps) {
     return { wants, rest };
   });
 
+  /* a count that changes in front of you settles in from the soft blur, as a streamed word does; the line as it was
+     painted, or as the screen came up, does not move */
+  const upAt = performance.now();
+  const partIn = (el: HTMLElement) => settle(el, motion() && performance.now() - upAt > 800);
+
   /* —— updates: a new build waits for the next cold launch —— */
   const [updateReady, setUpdateReady] = createSignal(false);
   onMount(() => {
@@ -1003,7 +1008,7 @@ export function Home(props: HomeProps) {
               {(first) => {
                 const words = () => (summary().wants.length > 1 ? `${summary().wants.length} want you` : `${first().repo} wants you`);
                 return (
-                  <span class="part">
+                  <span class="part" ref={partIn}>
                     <button
                       class="call"
                       type="button"
@@ -1027,7 +1032,7 @@ export function Home(props: HomeProps) {
               {(part, i) => (
                 <>
                   {i() > 0 || summary().wants.length > 0 ? " " : ""}
-                  <span class="part">{i() < summary().rest.length - 1 ? `${part},` : part}</span>
+                  <span class="part" ref={partIn}>{i() < summary().rest.length - 1 ? `${part},` : part}</span>
                 </>
               )}
             </For>

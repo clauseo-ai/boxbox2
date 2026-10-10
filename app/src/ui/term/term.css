@@ -220,7 +220,7 @@
     inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.16)),
     0 24px 48px -16px color-mix(in srgb, color-mix(in srgb, var(--p2) 45%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.6));
   color: var(--text);
-  animation: term-fade var(--fade) both;
+  animation: term-fade var(--fade-t) both;
 }
 
 /* a row is a 44 tall button; its words sit in the middle of it, not at its top where the focus ring would show them off-centre */
@@ -292,7 +292,7 @@
   padding: max(10px, env(safe-area-inset-top)) max(var(--gutter), env(safe-area-inset-right)) max(var(--gutter), env(safe-area-inset-bottom))
     max(var(--gutter), env(safe-area-inset-left));
   background: var(--ground);
-  animation: term-fade var(--fade) both;
+  animation: term-fade var(--fade-t) both;
 }
 
 @media (min-width: 700px) {
@@ -480,7 +480,7 @@
     inset 0 0 0 1px rgb(255 255 255 / 0.08),
     var(--lit-edge);
   color: var(--text);
-  animation: term-fade var(--fade) both;
+  animation: term-fade var(--fade-t) both;
 }
 
 .term-plate p {

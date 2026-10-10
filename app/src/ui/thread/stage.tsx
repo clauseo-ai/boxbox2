@@ -671,7 +671,7 @@ export function Stage(props: StageProps) {
   createEffect(on(() => shown(), (now, before) => {
     if (!now || !before || now === before || reducedMotion()) return;
     const root = props.inspector ? inspectEl : panelEl;
-    root?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: "ease-out" });
+    if (root) play(root, [{ opacity: 0 }, { opacity: 1 }], FADE);
     // the control that swapped the view went with the old one: the keyboard lands on the new heading
     if (document.activeElement === document.body) root?.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
   }, { defer: true }));

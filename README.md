@@ -1,4 +1,21 @@
-# boxbox
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.svg">
+  <img src="assets/hero.svg" alt="boxbox. agents on three machines stream into one inbox, a question rises to the top, and a phone buzzes." width="900">
+</picture>
+
+**see every coding agent on every machine, and answer the one that needs you.**
+
+<!-- the version badge reads server/Cargo.toml on main. swap it for the github release badge once the first release is cut -->
+[![licence: mit](https://img.shields.io/github/license/clauseo-ai/boxbox2?style=flat-square&labelColor=171240&color=34298a&label=licence)](LICENSE)
+[![version](https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2Fclauseo-ai%2Fboxbox2%2Fmain%2Fserver%2FCargo.toml&query=%24.package.version&label=version&style=flat-square&labelColor=171240&color=34298a)](CHANGELOG.md)
+[![status: pre-release](https://img.shields.io/badge/status-pre--release-f3d474?style=flat-square&labelColor=171240)](docs/open.md)
+[![platforms: macos and linux](https://img.shields.io/badge/platforms-macos%20%7C%20linux-b7abff?style=flat-square&labelColor=171240)](#what-you-need)
+
+[how it works](#how-it-works) &nbsp;·&nbsp; [quickstart](#quickstart) &nbsp;·&nbsp; [using it](#using-it) &nbsp;·&nbsp; [working on boxbox](#working-on-boxbox) &nbsp;·&nbsp; [docs](#docs)
+
+</div>
 
 boxbox is a remote control for coding agents. it shows every live agent
 thread on your machines as a window in a web app you install to your phone's
@@ -8,44 +25,43 @@ the client for [cmx2](https://github.com/clauseo-ai/cmx2), a coding-agent
 runtime that runs one daemon per machine. **boxbox needs a cmx2 daemon to
 talk to.** without one it has nothing to show.
 
-it is for people who run coding agents on more than one machine, or on one
-machine they are not sitting at, and want to know what those agents are doing
-without ssh and a terminal multiplexer. each person runs their own boxbox
-against their own daemons. there are no accounts and nothing is shared.
+each person runs their own boxbox against their own daemons. there are no
+accounts and nothing is shared.
 
 status: pre-release, version 0.1.0. the server, the app, push, the terminal and the board
 client are built and covered by tests, and `docs/open.md` lists the known
 problems. it has been run on macos (apple silicon) and linux. there is no
 windows build.
 
+## why this exists
+
+my agents stopped needing me to do the work. i hadn't stopped watching them. i'd be at a party with terminal windows open on my phone, scrolling logs. that was the bug, and the bug was me.
+
+so i built boxbox. every agent on every machine shows up in one app, and anything waiting on me (a permission, a question, a branch to review) lands in one inbox and pings my phone. i answer from whatever screen i'm holding. it's a chat app, honestly.
+
+the version before this was a quick next.js app. i kept reloading it to fix stale screens, my phone and laptop disagreed about what was running, and notifications mostly never arrived. so i rewrote it from scratch: a rust server with the web app (solidjs) built into the same binary, and one live stream that every device picks up where it left off. the server works out what needs me once, so every screen shows the same thing.
+
+it's not a product, it's what i use every day. it's open source in case you run agents the way i do.
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/demo/demo-dark.webp">
+  <img src="assets/demo/demo-light.webp" alt="the boxbox web app on a phone and a desktop: agents on three machines, one asking which greeting to use, answered from the inbox" width="900">
+</picture>
+</p>
+
 ## how it works
 
-```mermaid
-flowchart LR
-  subgraph devices["your devices"]
-    app["web app<br/>(installed to the home screen)"]
-    board["17-key board daemon<br/>(optional)"]
-  end
-  subgraph srv["boxbox server (one rust binary)"]
-    gate["password gate"]
-    fleet["fleet model<br/>(threads, who needs you, unread)"]
-    push["push decisions"]
-    relay["terminal relay"]
-  end
-  subgraph hosts["your machines"]
-    d1["cmx2 daemon"]
-    d2["cmx2 daemon"]
-  end
-  app -- "https: rest, one event stream, websocket" --> gate
-  board -- "http" --> gate
-  gate --- fleet
-  gate --- relay
-  fleet --- push
-  fleet -- "events (sse) and rest" --> d1
-  fleet -- "events (sse) and rest" --> d2
-  relay -- "websocket" --> d1
-  push -. "web push" .-> app
-```
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/architecture-dark.svg">
+  <img src="assets/architecture.svg" alt="your app and your board talk over https and http to the boxbox server, which has a password gate, a fleet model, push and a terminal relay. the server is a rust binary with the solid web app built in. it holds an event stream open to the cmx2 daemon on each of your machines, and sends web push notifications back to the app.">
+</picture>
+</p>
+
+boxbox is a rust server with its web app built into the same binary. the app is
+written in typescript with solid, and the server serves it from inside the binary, so
+there is nothing else to deploy.
 
 each cmx2 daemon hosts agent sessions on its machine and exposes them over
 http. boxbox keeps one long-lived event stream open to every daemon and builds
@@ -60,6 +76,23 @@ daemon credentials stay on the boxbox server. a browser only ever holds a
 cookie for boxbox's own password. [docs/README.md](docs/README.md) goes
 through the pieces and follows one request from tap to agent.
 
+### when an agent needs you
+
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/needs-you-dark.svg">
+  <img src="assets/needs-you.svg" alt="a sequence in eight steps. the cmx2 daemon sends an ask event to boxbox. boxbox raises a need and sends a web push through the platform push service. the phone shows a banner. you tap it, the app resumes its stream from its cursor and shows the question, and your answer goes back through boxbox to the daemon, where the turn goes on.">
+</picture>
+</p>
+
+an agent asks a question on one machine. its daemon puts the ask on the event
+stream, the watcher for that machine hands it to the fleet model, and the
+fleet model raises a need. if no screen is showing that thread, boxbox sends
+a web push and your phone shows a banner. tapping it opens the app, which
+resumes from the last cursor it saw and puts the question in front. the answer
+goes back through boxbox to the daemon that owns the thread, tagged with a
+client id so a retry cannot send it twice.
+
 ## what you need
 
 | tool | version | why |
@@ -68,7 +101,7 @@ through the pieces and follows one request from tap to agent.
 | [rust](https://rustup.rs) | 1.92.0, pinned in `rust-toolchain.toml` and installed by rustup on first use | builds the server |
 | [bun](https://bun.sh) | 1.3.14 | builds the app, runs the tests and scripts |
 | [just](https://just.systems) | 1.51.0 | the build and check recipes |
-| a browser | a current chrome or safari | the app. web push needs https |
+| a browser | a current chrome, safari or firefox | the app. web push needs https |
 
 macos and linux build from source. linux x86_64 and aarch64 also get release
 binaries (see "install a release"). running a cmx2 dev daemon from source
@@ -80,7 +113,9 @@ binaries (see "install a release"). running a cmx2 dev daemon from source
    [cmx2 quickstart](https://github.com/clauseo-ai/cmx2/blob/main/docs/quickstart.md)
    installs it. to keep it running and let boxbox reach it, run
    `cmx2 serve --install`, then `cmx2 pair`, which prints a url and a
-   one-time token.
+   one-time token. the daemon binds 127.0.0.1:4097 by default. if boxbox runs on
+   another machine, start the daemon with `--hostname` on a private network
+   (tailscale or a lan), never the open internet.
 
 2. build boxbox from source:
 
@@ -154,7 +189,7 @@ source or use `just release-mac`.
 - **machines** lists each daemon, lets you pair another one and opens a real
   shell on it.
 - **notifications** are on from the settings screen. boxbox pushes when a thread
-  asks something, hits a real fault or finishes a turn you started, and stays
+  asks something, hits a real fault, finishes a turn you started or has a branch ready to review, and stays
   quiet while you are looking at that thread on any device.
 - **the board** is an optional 17-key usb keyboard driven by `board/daemon`. it
   is a second client, described in [docs/board-verification.md](docs/board-verification.md).
@@ -175,6 +210,10 @@ just check    # everything ci runs: fmt, clippy, tsc, rust and bun tests, drift 
 it runs a scripted model, so the dev loop never calls a paid api.
 [CONTRIBUTING.md](CONTRIBUTING.md) has the short list of rules and
 [AGENTS.md](AGENTS.md) has the full contract.
+
+the images in `assets/` are generated. `bun scripts/hero.ts` redraws the banner
+and `bun scripts/diagrams.ts` redraws every diagram, in a light and a dark
+variant. edit those scripts, not the svg files.
 
 ## docs
 

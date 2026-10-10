@@ -89,7 +89,7 @@
    (6% white in the dark, 55% in the light), so it belongs to the stage it floats on, and it is opaque: the stage's scroller is
    masked (stage.css, the dissolve), a backdrop-filter under a masked ancestor sees nothing, and the rows beneath would show
    through sharp. the scrub caption floats over the rows in the same card */
-.tape::before, .tape::after { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; transition: opacity 160ms; }
+.tape::before, .tape::after { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; transition: opacity var(--fade-t); }
 .tape::before { background: var(--well); box-shadow: var(--well-edge); }
 .tape::after { background: var(--card); box-shadow: var(--glass-edge), var(--drop); opacity: 0; }
 .tape.live::before { opacity: 0; }
@@ -144,7 +144,7 @@
 .tp-scale span.last { transform: translateX(-100%); }
 .tp-playhead { position: absolute; top: 40px; bottom: 30px; width: 1.5px; margin-left: -0.75px; background: var(--text); box-shadow: 0 0 8px color-mix(in srgb, var(--text) calc(70% * (1 - var(--L))), transparent); pointer-events: none; opacity: 0; }
 .tape.scrub .tp-playhead { opacity: 1; }
-.tp-cap { position: absolute; z-index: 5; bottom: calc(100% + 8px); max-width: 260px; padding: 9px 12px; border-radius: 14px; background: var(--card); box-shadow: var(--glass-edge), 0 16px 30px -10px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 40%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.8)); pointer-events: none; opacity: 0; transform: translate(-50%, 4px); transition: opacity 120ms, transform var(--snapd) var(--snap); white-space: nowrap; }
+.tp-cap { position: absolute; z-index: 5; bottom: calc(100% + 8px); max-width: 260px; padding: 9px 12px; border-radius: 14px; background: var(--card); box-shadow: var(--glass-edge), 0 16px 30px -10px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 40%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.8)); pointer-events: none; opacity: 0; transform: translate(-50%, 4px); transition: opacity var(--fade-t), transform var(--snap-t); white-space: nowrap; }
 .tape.scrub .tp-cap { opacity: 1; transform: translate(-50%, 0); }
 .tp-cap small { display: block; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .tp-cap span { display: block; font-family: var(--mono); font-stretch: 90%; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }

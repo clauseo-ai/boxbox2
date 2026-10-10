@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 400" width="960" height="400" role="img" aria-labelledby="t d">
+<title id="t">what is inside the browser and the server</title>
+<desc id="d">the browser has a ui thread, a sync worker and a service worker. the boxbox server has an http layer, a fleet actor, a journal, upstream watchers, a push task, a pty relay, a store writer and telemetry. the watchers and the relay talk to cmx2 daemons, and the push task reaches the service worker with web push.</desc>
+<defs><linearGradient id="g" x1="0" y1="0" x2=".35" y2="1"><stop offset="0" stop-color="#14112e"/><stop offset="1" stop-color="#0b0a1a"/></linearGradient><linearGradient id="f-blue-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#173a5e"/><stop offset="1" stop-color="#0a1a2e"/></linearGradient><linearGradient id="f-violet-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#34298a"/><stop offset="1" stop-color="#171240"/></linearGradient><linearGradient id="f-violet-0.6" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#241d5f"/><stop offset="1" stop-color="#130f33"/></linearGradient><linearGradient id="f-teal-1" x1=".4" y1="0" x2=".6" y2="1"><stop offset="0" stop-color="#10484a"/><stop offset="1" stop-color="#062123"/></linearGradient><marker id="m-8f86c9" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1.5L8.5 5L1 8.5" fill="none" stroke="#8f86c9" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker><marker id="m-b7abff" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1.5L8.5 5L1 8.5" fill="none" stroke="#b7abff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker><marker id="m-f3d474" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1.5L8.5 5L1 8.5" fill="none" stroke="#f3d474" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<rect width="960" height="400" rx="22" fill="url(#g)"/>
+<rect x=".5" y=".5" width="959" height="399" rx="21.5" fill="none" stroke="#b7abff" stroke-opacity="0.16"/>
+<rect x="24" y="24" width="184" height="326" rx="20" fill="#101831" fill-opacity="0.55" stroke="#9cc8ff" stroke-opacity="0.26"/>
+<text x="42" y="49" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" letter-spacing=".02em" fill="#9cc8ff" fill-opacity=".9">browser, installed app</text>
+<rect x="264" y="24" width="476" height="326" rx="20" fill="#18133d" fill-opacity="0.55" stroke="#b7abff" stroke-opacity="0.26"/>
+<text x="282" y="49" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" letter-spacing=".02em" fill="#b7abff" fill-opacity=".9">boxbox server</text>
+<rect x="824" y="24" width="112" height="326" rx="20" fill="#0e1c2b" fill-opacity="0.55" stroke="#7fe0d6" stroke-opacity="0.26"/>
+<text x="842" y="49" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="11" letter-spacing=".02em" fill="#7fe0d6" fill-opacity=".9">machines</text>
+<rect x="40" y="93" width="152" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="40" y="90" width="152" height="64" rx="13" fill="url(#f-blue-1)"/>
+<rect x="40.5" y="90.5" width="151" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="116" y="117.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">ui thread</text>
+<text x="116" y="135.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#9cc8ff" fill-opacity=".92">solid components</text>
+<rect x="40" y="181" width="152" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="40" y="178" width="152" height="64" rx="13" fill="url(#f-blue-1)"/>
+<rect x="40.5" y="178.5" width="151" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="116" y="205.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">sync worker</text>
+<text x="116" y="223.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#9cc8ff" fill-opacity=".92">stream, cursor, cache</text>
+<rect x="40" y="269" width="152" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="40" y="266" width="152" height="64" rx="13" fill="url(#f-blue-1)"/>
+<rect x="40.5" y="266.5" width="151" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="116" y="293.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">service worker</text>
+<text x="116" y="311.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#9cc8ff" fill-opacity=".92">push, app shell</text>
+<rect x="280" y="181" width="124" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="280" y="178" width="124" height="64" rx="13" fill="url(#f-violet-1)"/>
+<rect x="280.5" y="178.5" width="123" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="342" y="199" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">http layer</text>
+<text x="342" y="217" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">gate, api,</text>
+<text x="342" y="230" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">embedded app</text>
+<rect x="280" y="269" width="124" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="280" y="266" width="124" height="64" rx="13" fill="url(#f-violet-0.6)"/>
+<rect x="280.5" y="266.5" width="123" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.2" stroke-dasharray="4 4"/>
+<text x="342" y="293.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">telemetry</text>
+<text x="342" y="311.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">.jsonl files</text>
+<rect x="440" y="93" width="124" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="440" y="90" width="124" height="64" rx="13" fill="url(#f-violet-1)"/>
+<rect x="440.5" y="90.5" width="123" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="502" y="117.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">journal</text>
+<text x="502" y="135.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">ring of events</text>
+<rect x="440" y="181" width="124" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="440" y="178" width="124" height="64" rx="13" fill="url(#f-violet-1)"/>
+<rect x="440.5" y="178.5" width="123" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="502" y="199" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">fleet actor</text>
+<text x="502" y="217" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">one model of</text>
+<text x="502" y="230" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">every host</text>
+<rect x="440" y="269" width="124" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="440" y="266" width="124" height="64" rx="13" fill="url(#f-violet-1)"/>
+<rect x="440.5" y="266.5" width="123" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="502" y="293.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">push task</text>
+<text x="502" y="311.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">who gets a notice</text>
+<rect x="600" y="93" width="124" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="600" y="90" width="124" height="64" rx="13" fill="url(#f-violet-1)"/>
+<rect x="600.5" y="90.5" width="123" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="662" y="117.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">pty relay</text>
+<text x="662" y="135.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">terminal pumps</text>
+<rect x="600" y="181" width="124" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="600" y="178" width="124" height="64" rx="13" fill="url(#f-violet-1)"/>
+<rect x="600.5" y="178.5" width="123" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="662" y="197.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">upstream</text>
+<text x="662" y="213.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">watchers</text>
+<text x="662" y="231.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">one per host</text>
+<rect x="600" y="269" width="124" height="64" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="600" y="266" width="124" height="64" rx="13" fill="url(#f-violet-1)"/>
+<rect x="600.5" y="266.5" width="123" height="63" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="662" y="293.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#f4f4f6">store writer</text>
+<text x="662" y="311.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#b7abff" fill-opacity=".92">boxbox.db</text>
+<rect x="840" y="97" width="80" height="56" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="840" y="94" width="80" height="56" rx="13" fill="url(#f-teal-1)"/>
+<rect x="840.5" y="94.5" width="79" height="55" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="880" y="117.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="650" fill="#f4f4f6">desk</text>
+<text x="880" y="135.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#7fe0d6" fill-opacity=".92">cmx2</text>
+<rect x="840" y="185" width="80" height="56" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="840" y="182" width="80" height="56" rx="13" fill="url(#f-teal-1)"/>
+<rect x="840.5" y="182.5" width="79" height="55" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="880" y="205.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="650" fill="#f4f4f6">vm</text>
+<text x="880" y="223.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#7fe0d6" fill-opacity=".92">cmx2</text>
+<rect x="840" y="273" width="80" height="56" rx="13" fill="#000" fill-opacity=".3"/>
+<rect x="840" y="270" width="80" height="56" rx="13" fill="url(#f-teal-1)"/>
+<rect x="840.5" y="270.5" width="79" height="55" rx="12.5" fill="none" stroke="#fff" stroke-opacity="0.12"/>
+<text x="880" y="293.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="12" font-weight="650" fill="#f4f4f6">laptop</text>
+<text x="880" y="311.5" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#7fe0d6" fill-opacity=".92">cmx2</text>
+<path d="M116 154L116 178" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)" marker-start="url(#m-8f86c9)"/>
+<rect x="118" y="158.5" width="120.9" height="17" rx="8.5" fill="#100e24"/>
+<text x="124" y="170" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#a9a6c4">patches each frame</text>
+<path d="M280 200L192 200" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<rect x="211.8" y="178.5" width="48.3" height="17" rx="8.5" fill="#100e24"/>
+<text x="236" y="190" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#a9a6c4">stream</text>
+<path d="M192 222L280 222" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<rect x="214.9" y="230.5" width="42.3" height="17" rx="8.5" fill="#100e24"/>
+<text x="236" y="242" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#a9a6c4">posts</text>
+<path d="M404 222L440 222" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<path d="M440 122L431 122Q422 122 422 131L422 189Q422 198 413 198L404 198" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<path d="M502 178L502 154" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<path d="M600 210L564 210" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<path d="M502 242L502 266" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<path d="M564 298L600 298" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<path d="M342 242L342 266" fill="none" stroke="#b7abff" stroke-width="1.5" stroke-opacity="0.55" stroke-linecap="round" stroke-dasharray="5 5" marker-end="url(#m-b7abff)"/>
+<text x="354" y="258" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#a9a6c4">usage</text>
+<path d="M342 178L342 79Q342 70 351 70L653 70Q662 70 662 79L662 90" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)"/>
+<rect x="471.8" y="62.5" width="60.4" height="17" rx="8.5" fill="#100e24"/>
+<text x="502" y="74" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#a9a6c4">terminal</text>
+<path d="M724 122L824 122" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)" marker-start="url(#m-8f86c9)"/>
+<rect x="748.8" y="98.5" width="66.4" height="17" rx="8.5" fill="#100e24"/>
+<text x="782" y="110" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#a9a6c4">websocket</text>
+<path d="M724 210L824 210" fill="none" stroke="#8f86c9" stroke-width="1.5" stroke-opacity="0.9" stroke-linecap="round" marker-end="url(#m-8f86c9)" marker-start="url(#m-8f86c9)"/>
+<rect x="745.8" y="186.5" width="72.5" height="17" rx="8.5" fill="#100e24"/>
+<text x="782" y="198" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#a9a6c4">sse + rest</text>
+<path d="M502 330L502 363Q502 372 493 372L125 372Q116 372 116 363L116 330" fill="none" stroke="#f3d474" stroke-width="1.8" stroke-opacity="0.9" stroke-linecap="round" stroke-dasharray="5 5" marker-end="url(#m-f3d474)"/>
+<rect x="278.8" y="364.5" width="60.4" height="17" rx="8.5" fill="#100e24"/>
+<text x="309" y="376" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" fill="#f3d474">web push</text>
+</svg>

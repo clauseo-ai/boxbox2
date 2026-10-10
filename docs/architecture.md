@@ -7,27 +7,22 @@ parameters with numbers, not hopes. every number here has a gate in
 
 ## the shape
 
-```
-  phone, ipad, mac (installed pwa)                 the board daemon (mac, bun)
-  ┌──────────────────────────────┐                ┌───────────────────────────┐
-  │ ui thread: solid, the design │                │ firmware, verbs, render,  │
-  │   ▲ patches, once a frame    │                │ scenes: unchanged         │
-  │ sync worker: stream, cursor, │                │ client.ts: ported to v2   │
-  │   reducer, indexeddb         │                └─────────────┬─────────────┘
-  └──────────────┬───────────────┘                              │
-                 │ https: rest, one sse stream with a cursor,   │
-                 │ websocket for terminals                      │
-  ┌──────────────┴──────────────────────────────────────────────┴───────────┐
-  │ boxbox: one rust binary on the vm (tailnet only, password gate)          │
-  │   upstream watchers ─▶ fleet actor ─▶ journal ─▶ client streams          │
-  │   push · read · needs · presence · board channel · pty relay · telemetry │
-  │   static assets embedded · one sqlite file · ndjson telemetry            │
-  └──────────────┬──────────────────────────────────────────────────────────┘
-                 │ sse /global/event with a cursor (cmx2-asks a1), rest,
-                 │ websocket for ptys; host credentials live here only
-        ┌────────┴────────┬─────────────────┐
-     cmx2 daemon      cmx2 daemon       cmx2 daemon     (one per machine)
-```
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/architecture-dark.svg">
+  <img src="../assets/architecture.svg" alt="your app and your board talk over https and http to the boxbox server, which has a password gate, a fleet model, push and a terminal relay. the server is a rust binary with the solid web app built in. it holds an event stream open to the cmx2 daemon on each of your machines, and sends web push notifications back to the app.">
+</picture>
+</p>
+
+boxbox is one rust binary on the vm, with the solid web app embedded in it. it is reachable on the tailnet only and behind
+a password gate. inside it, upstream watchers feed the fleet actor, which
+feeds the journal and the client streams. push, read state, needs, presence,
+the pty relay and telemetry all hang off that actor. the
+static assets are embedded, state is one sqlite file, and telemetry is .jsonl.
+[the pieces](README.md#the-pieces) draws the inside. the board daemon is a bun
+process on the mac, and a separate client of the normal api, not part of the server: its firmware, verbs, render and scenes are unchanged, and
+only `client.ts` is ported to v2. host credentials live on the server and
+nowhere else.
 
 why one server in the middle, not browsers talking to daemons directly:
 
@@ -47,13 +42,15 @@ reload". v1 had no cursor anywhere, so every reconnect was a guess. v2
 has a cursor at every hop, and each hop applies events exactly once, in
 order.
 
-```
-cmx2 seq ──▶ boxbox dedupes by (host, seq) ──▶ journal seq ──▶ worker cursor ──▶ ui
-(a1)         upstream resume by Last-Event-ID     boxbox's own    indexeddb
-```
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/cursor-dark.svg">
+  <img src="../assets/cursor.svg" alt="five hops from the cmx2 daemon to the ui. the daemon numbers events with a seq, the upstream watcher dedupes by host and seq, the journal has its own epoch and seq, and the sync worker keeps a cursor in indexeddb. the watcher and the worker each resume with Last-Event-ID.">
+</picture>
+</p>
 
 1. **daemon to server.** each upstream watcher holds `(epoch, seq)` per
-   host, persisted. it resumes `/global/event` with `Last-Event-ID`
+   host in memory only. a restart reads each host fresh. within a run it resumes `/global/event` with `Last-Event-ID`
    (cmx2-asks a1) and drops any event at or below its high-water mark.
    cmx2 does not log deltas: a part that was streaming across the gap
    arrives once as a full `message.part.updated` at the resume seq, and
@@ -113,7 +110,7 @@ prompt or an answer.
 
 **stack:** rust, tokio, axum (http, sse, websocket), reqwest with a
 hand-written sse reader (a bounded line buffer and a byte-level stall
-timer), serde, `rusqlite` on one writer thread, `web-push`, `tracing`,
+timer), serde, `rusqlite` on one writer thread, `web-push-native`, `tracing`,
 `rust-embed` for the ui. types for cmx2 are generated at build time from
 cmx2's `openapi.json` (the `Event` union is a discriminated `oneOf` on
 `type`), so no decoder is written by hand. boxbox's own api is described
@@ -130,7 +127,7 @@ message, never by shared locks on the hot path:
 | client stream, one per connection | a bounded outbound channel | reads the journal, writes sse |
 | push | subscriptions, presence, pending "done" timers, per-device rate and dedupe | sqlite, the web push services |
 | store writer | `boxbox.db` | everyone, through a channel |
-| telemetry | the day's ndjson file | appends in batches |
+| telemetry | the day's .jsonl file | appends in batches |
 | pty relay, one per terminal | two bounded websocket pumps | the browser and cmx2 |
 | icons task | the repo-icon cache (256 entries, 8 mb), the lookups in flight, three per-host memories (project list, host cannot read files, home) | spawns a lookup task per `(host, root)`; reads the fleet for the places a host has shown; one `find/file` and `/file/content` conversation per daemon |
 
@@ -508,11 +505,9 @@ and types from `lib/server/brain.ts`, `lib/fleet/watcher.ts`,
   `hosts`, `pending`, `status`, `read`, `bindings`, `frame` with the cmx
   frame types it reads, and `pinArm`. the translation lives in the board,
   not in the server; v2 carries no v1-shaped route.
-- the server's **board channel** carries what the board and the app say
-  to each other: bindings, seats, the led frame mirror, focus and compose
-  (board to app), pin arming (app to board). the app obeys focus with the
-  same motion as a tap and shows each window's seat digit while the board
-  shows seats.
+- the board is a separate client. it talks to the normal api through
+  `board/daemon/src/client.ts`, and the server has no board route and no
+  board channel.
 - the gate is a trace recorded against v1 (keys in; calls and led frames
   out) replayed against v2, byte-identical frames required.
 
@@ -654,9 +649,10 @@ utf-16 units, as cmx2 defines it.
   leniently, 1,000 rows kept per scope. a device's push kinds stay on its
   subscription row, where push decides from them (`push.md`); settings
   changes them by sending the subscription again with the new kinds.
-- **data dir**: `boxbox.db` (sqlite, wal, one writer: read state, push
-  subscriptions and the vapid key, paired hosts and their credentials,
-  prefs, board bindings, devices, cursors and epochs; mode 0600),
+- **data dir**: `boxbox.db` (sqlite, wal, one writer: the push key and
+  each device's push subscription, hosts paired from the app with their
+  credentials, prefs, read marks, needs, cleared threads and threads opened
+  from history; mode 0600),
   `telemetry/`.
 
 ## deploy and dev

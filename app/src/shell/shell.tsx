@@ -20,6 +20,7 @@
 
 import { type Accessor, createEffect, createMemo, lazy, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
 import { play } from "../motion/animate";
+import { takeTransitioned } from "../motion/screen";
 import { FADE } from "../motion/springs";
 import { followWorkerLinks, takeLaunchLink } from "../push/links";
 import { startNotifications } from "../push/notifications";
@@ -172,7 +173,9 @@ export function ShellView(props: ShellViewProps) {
   const arrive = (now: Route, before: Route) => {
     const moved = now.name !== before.name && now.name !== "terminal" && before.name !== "terminal" && now.name !== "thread" && before.name !== "thread";
     const surface = frame?.querySelector<HTMLElement>(":scope > .surface");
-    if (moved && surface) play(surface, [{ opacity: 0 }, { opacity: 1 }], FADE);
+    // a view transition (motion/screen.ts) has already moved the screen; the fade is for a back swipe and for browsers without one
+    const handled = takeTransitioned();
+    if (moved && surface && !handled) play(surface, [{ opacity: 0 }, { opacity: 1 }], FADE);
     if (!keyboard || !moved) return;
     // going in, the screen's title; coming back, the control that went in
     const target = parentOf(before)?.name === now.name ? frame?.querySelector<HTMLElement>(`[data-opens="${before.name}"]`) : frame?.querySelector<HTMLElement>("[data-screen-title]");

@@ -53,3 +53,106 @@
   gap: 10px;
   text-align: center;
 }
+
+/* the screen change (motion/screen.ts). the frame is the shared element (home's own box is empty, its windows are
+   fixed to the viewport, so only the frame has the screen's size in every route): while a transition runs it
+   carries the name, the root stands still so the ground does not flash, and the old and new surfaces play the
+   law's sheet spring. forward, the new screen arrives from the right over a sinking, dimming old one; back, the old
+   one leaves to the right over the new, which rises to full. transform and opacity only. */
+:root[data-travel] .frame {
+  view-transition-name: surface;
+}
+
+:root[data-travel]::view-transition-old(root),
+:root[data-travel]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* the group would glide from the old box to the new; both are the frame, so it stays put */
+:root[data-travel]::view-transition-group(surface) {
+  animation-duration: 0s;
+}
+
+/* the root image stands still so the ground does not flash */
+:root[data-travel]::view-transition-group(root) {
+  animation-duration: 0s;
+}
+
+:root[data-travel]::view-transition-old(surface),
+:root[data-travel]::view-transition-new(surface) {
+  animation-fill-mode: both;
+  mix-blend-mode: normal;
+}
+
+/* each screen moves on the sheet spring and trades places on the fade: the one leaving is gone in 110 ms, the one
+   arriving is whole by 190, so the two never sit half-lit over each other for longer than a breath */
+:root[data-travel="forward"]::view-transition-old(surface) {
+  animation:
+    screen-sink var(--sheet-t) both,
+    screen-vanish var(--leave-t) both;
+}
+
+:root[data-travel="forward"]::view-transition-new(surface) {
+  animation:
+    screen-in var(--sheet-t) both,
+    screen-appear var(--fade-t) 30ms both;
+}
+
+:root[data-travel="back"]::view-transition-old(surface) {
+  z-index: 2;
+  animation:
+    screen-out var(--sheet-t) both,
+    screen-vanish var(--leave-t) 40ms both;
+}
+
+:root[data-travel="back"]::view-transition-new(surface) {
+  animation:
+    screen-rise var(--sheet-t) both,
+    screen-appear var(--fade-t) both;
+}
+
+/* reduced motion: the 120 ms content fade and nothing else moves */
+:root[data-travel="fade"]::view-transition-old(surface) {
+  animation: screen-vanish var(--fade-t) both;
+}
+
+:root[data-travel="fade"]::view-transition-new(surface) {
+  animation: screen-appear var(--fade-t) both;
+}
+
+@keyframes screen-in {
+  from {
+    transform: translateX(8vw);
+  }
+}
+
+@keyframes screen-sink {
+  to {
+    transform: scale(0.97);
+  }
+}
+
+@keyframes screen-out {
+  to {
+    transform: translateX(8vw);
+  }
+}
+
+@keyframes screen-rise {
+  from {
+    transform: scale(0.97);
+  }
+}
+
+@keyframes screen-appear {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes screen-vanish {
+  to {
+    opacity: 0;
+  }
+}
