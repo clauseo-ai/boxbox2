@@ -6,7 +6,7 @@
 
 import { Backoff } from "./backoff";
 import type { FromWorker, Outgoing, StreamState } from "./messages";
-import { type Answer, answered, DRAFT_TROUBLE_AFTER, type Draft, type DraftMessage, draftRetryMs, echoed, entryOf, nextWaiting, OUTBOX_CAP, OUTBOX_PHOTO_BYTES, type OutboxEntry, overdue, type Photo, perfVerb, photoBytes, postBudgetMs, removed, splitDraft, viewOfEntry, wasQueued } from "./outbox";
+import { type Answer, answered, DRAFT_TROUBLE_AFTER, type Draft, type DraftMessage, draftRetryMs, echoed, entryOf, nextWaiting, OUTBOX_CAP, OUTBOX_PHOTO_BYTES, type OutboxEntry, orphaned, overdue, type Photo, perfVerb, photoBytes, postBudgetMs, REISSUE_MS, removed, splitDraft, viewOfEntry, wasQueued } from "./outbox";
 import type { Frame, Message } from "./protocol";
 import type { Telemetry } from "./telemetry";
 
@@ -250,7 +250,10 @@ export class Sender {
     if (returned) this.post({ type: "returned", key: own.key, photos: own.photos, text: own.text });
     if (!ok && own) {
       const now = this.entries.get(own.clientID);
-      if (now) this.put({ ...now, unsending: false });
+      // a 404 says the provisional message is not there to take back: it went (and its reissue settles the entry, if it
+      // has not already), or another device took it back. either way there is nothing left waiting for this card
+      if (now && res.kind === "refused" && res.status === 404 && now.provisional === messageID) this.drop(now);
+      else if (now) this.put({ ...now, unsending: false });
     }
     this.post({ type: "unsent", key, messageID, ok, message: ok ? null : unsendRefusal(res), returned });
   }
@@ -281,8 +284,13 @@ export class Sender {
       }
     } else if (frame.type === "message.removed") {
       for (const entry of this.entries.values()) {
-        const next = removed(entry, frame.key, frame.messageID);
+        const next = removed(entry, frame.key, frame.messageID, Date.now());
         if (next === null) this.drop(entry);
+        else if (next !== entry) {
+          this.put(next);
+          // no reissue by then means another device took it back; the watch is the backstop if this check is too early
+          setTimeout(() => this.check(), REISSUE_MS + 100);
+        }
       }
     }
   }
@@ -313,6 +321,11 @@ export class Sender {
   private check(): void {
     const now = Date.now();
     for (const entry of this.entries.values()) {
+      // taken back by another device: the daemon removed it and no reissue came
+      if (orphaned(entry, this.liveSince, now)) {
+        this.drop(entry);
+        continue;
+      }
       if (!overdue(entry, this.liveSince, now)) continue;
       this.put({ ...entry, state: "failed", error: "the daemon did not confirm it. retry sends it once, never twice" });
       this.telemetry.emit("perf.send", sendProps(entry), { ok: false, ms: now - entry.at, ...where(entry) });

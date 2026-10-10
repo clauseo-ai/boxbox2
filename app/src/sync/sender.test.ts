@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { FromWorker } from "./messages";
-import { type Draft, type DraftMessage, entryOf, type Photo } from "./outbox";
-import type { Message, MessageInfo } from "./protocol";
+import { type Draft, type DraftMessage, entryOf, type Photo, REISSUE_MS } from "./outbox";
+import type { Frame, Message, MessageInfo } from "./protocol";
 import { type OutboxStore, Sender } from "./sender";
 import type { Telemetry } from "./telemetry";
 
@@ -114,6 +114,15 @@ describe("the sender holding photos", () => {
     await withAnswers(() => json(200, {}), () => sender.unsend("desk:ses_a", "msg_q1", "c1"));
     expect(of("returned")).toEqual([]);
     expect(of("unsent")).toEqual([expect.objectContaining({ ok: true, returned: false })]);
+  });
+
+  test("an unsend answered 404 (it went, or another device took it back) ends the card instead of leaving it stuck", async () => {
+    const { sender, of } = talking();
+    sender.restore([{ ...entryOf(heavy("c2", 1), false), state: "queued", provisional: "msg_q2" }]);
+    await withAnswers(() => json(404, { error: { message: "not found" } }), () => sender.unsend("desk:ses_a", "msg_q2", "c2", true));
+    expect(sender.views()).toEqual([]);
+    expect(of("returned")).toEqual([]);
+    expect(of("unsent")).toEqual([expect.objectContaining({ ok: false, returned: false })]);
   });
 
   test("a message of another device's, which this outbox does not hold, brings nothing back", async () => {
@@ -536,5 +545,35 @@ describe("a new thread's first send", () => {
     } finally {
       globalThis.fetch = real;
     }
+  });
+});
+
+describe("a queued send another device took back", () => {
+  afterEach(() => setSystemTime());
+  const removal = { type: "message.removed", key: "desk:ses_a", sessionID: "ses_a", messageID: "msg_q1", seq: 1, upstream: null } as unknown as Frame;
+  const check = (sender: Sender) => (sender as unknown as { check(): void }).check();
+
+  test("leaves the outbox when no reissue follows the removal", () => {
+    setSystemTime(new Date(1_000_000));
+    const { sender } = talking();
+    sender.restore([{ ...entryOf(outgoing, false), state: "queued", provisional: "msg_q1" }]);
+    sender.stream("live");
+    sender.frame(removal);
+    expect(sender.views()).toHaveLength(1);
+    setSystemTime(new Date(1_000_000 + REISSUE_MS + 1));
+    check(sender);
+    expect(sender.views()).toEqual([]);
+  });
+
+  test("stays and settles when the removal was the landing's first half", () => {
+    setSystemTime(new Date(1_000_000));
+    const { sender } = talking();
+    sender.restore([{ ...entryOf({ ...outgoing, clientID: "c9" }, false), state: "queued", provisional: "msg_q1" }]);
+    sender.stream("live");
+    sender.frame(removal);
+    sender.frame({ type: "message", key: "desk:ses_a", info: message({ id: "msg_q1b", clientID: "c9", queued: true }).info, seq: 2, upstream: null } as unknown as Frame);
+    setSystemTime(new Date(1_000_000 + REISSUE_MS + 1));
+    check(sender);
+    expect(sender.views().map((e) => [e.state, e.provisional])).toEqual([["queued", "msg_q1b"]]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { answered, DRAFT_TROUBLE_AFTER, draftRetryMs, echoed, entryOf, hostAcceptMs, joinDraft, MAX_ATTEMPTS, mergePhotos, nextWaiting, OUTBOX_PHOTO_BYTES, overdue, PHOTO_WAIT_MS, type Photo, perfVerb, photoBytes, photosNotFitted, postBudgetMs, removed, splitDraft, takeBackDraft, targetKey, type Target, viewOfEntry } from "./outbox";
+import { answered, DRAFT_TROUBLE_AFTER, draftRetryMs, echoed, entryOf, hostAcceptMs, joinDraft, MAX_ATTEMPTS, mergePhotos, nextWaiting, orphaned, OUTBOX_PHOTO_BYTES, overdue, PHOTO_WAIT_MS, type Photo, perfVerb, photoBytes, photosNotFitted, postBudgetMs, REISSUE_MS, removed, splitDraft, takeBackDraft, targetKey, type Target, viewOfEntry } from "./outbox";
 import type { MessageInfo } from "./protocol";
 import { type RawEvent, type RowStore, Telemetry } from "./telemetry";
 
@@ -34,17 +34,35 @@ describe("an outbox entry", () => {
     expect(queued.state).toBe("queued");
     expect(queued.provisional).toBe("msg_q1");
     // the daemon removes the provisional message, then reissues it under its transcript id
-    const stillThere = removed(queued, "desk:ses_a", "msg_q1");
-    expect(stillThere).toBe(queued);
-    const landed = echoed(queued, "desk:ses_a", info({ id: "msg_9", clientID: "c1" }), 9000);
+    const stillThere = removed(queued, "desk:ses_a", "msg_q1", 1300);
+    expect(stillThere).toEqual({ ...queued, removedAt: 1300 });
+    const landed = echoed(stillThere ?? queued, "desk:ses_a", info({ id: "msg_9", clientID: "c1" }), 9000);
     expect(landed.state).toBe("landed");
+    expect(landed.removedAt).toBeUndefined();
     expect(landed.ackAt).toBe(1200);
     expect(perfVerb(queued)).toBe("queue");
   });
 
   test("an unsend in flight ends the entry when the provisional message is removed", () => {
     const queued = { ...echoed(make(), "desk:ses_a", info({ id: "msg_q1", clientID: "c1", queued: true }), 1200), unsending: true };
-    expect(removed(queued, "desk:ses_a", "msg_q1")).toBeNull();
+    expect(removed(queued, "desk:ses_a", "msg_q1", 1300)).toBeNull();
+  });
+
+  test("a removal this device did not ask for, with no reissue while the stream is live, was another device's unsend", () => {
+    const queued = echoed(make(), "desk:ses_a", info({ id: "msg_q1", clientID: "c1", queued: true }), 1200);
+    expect(orphaned(queued, 0, 1_000_000)).toBe(false);
+    const gone = removed(queued, "desk:ses_a", "msg_q1", 2000);
+    if (!gone) throw new Error("kept");
+    // a second removal frame does not restart the wait
+    expect(removed(gone, "desk:ses_a", "msg_q1", 5000)).toBe(gone);
+    expect(orphaned(gone, 0, 2000 + REISSUE_MS)).toBe(false);
+    expect(orphaned(gone, 0, 2001 + REISSUE_MS)).toBe(true);
+    // the wait counts only time the stream was live, from when it came back
+    expect(orphaned(gone, null, 1_000_000)).toBe(false);
+    expect(orphaned(gone, 50_000, 50_000 + REISSUE_MS)).toBe(false);
+    // a reissue that came under a new provisional id clears the mark
+    const requeued = echoed(gone, "desk:ses_a", info({ id: "msg_q2", clientID: "c1", queued: true }), 3000);
+    expect(orphaned(requeued, 0, 1_000_000)).toBe(false);
   });
 
   test("a network failure retries with the same client id until the last attempt, then says so", () => {

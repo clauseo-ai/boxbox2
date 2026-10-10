@@ -116,6 +116,9 @@ export type OutboxEntry = {
   ackAt: number | null;
   /** an unsend is in flight */
   unsending: boolean;
+  /** when the daemon removed its provisional message without this device asking: either it landed (and a reissue with
+      the same client id follows) or another device took it back (and nothing follows). null or absent otherwise */
+  removedAt?: number | null;
   /** photos the outbox would not keep with this message (it would hold too many): they went back to the draft they came
       from, and the entry is failed with its words alone. a retry would send the words without them, so it is not offered one */
   photosReturned?: number;
@@ -125,6 +128,9 @@ export type OutboxEntry = {
 export const MAX_ATTEMPTS = 3;
 /** how long a posted send may wait for its echo while the stream is live before it says so */
 export const ECHO_MS = 30_000;
+/** how long, with the stream live, a removed provisional message waits for its reissue before it is taken as unsent
+    by another device. the daemon reissues a landing prompt right after it removes it */
+export const REISSUE_MS = 8_000;
 /** entries kept at most; a person cannot have more in flight than this, and a stuck one is shown, never dropped */
 export const OUTBOX_CAP = 64;
 /** the photos the outbox holds at most, in data url characters: three messages at the server's limit for one. the
@@ -233,16 +239,27 @@ export function echoed(entry: OutboxEntry, key: string, info: MessageInfo, now: 
   const own = sessionKeyOf(entry);
   if (own !== null && own !== key) return entry;
   const session = entry.session ?? (entry.target.kind === "new" ? key.slice(key.indexOf(":") + 1) : null);
-  if (info.queued === true) return { ...entry, state: "queued", provisional: info.id, session, ackAt: entry.ackAt ?? now, error: null };
-  return { ...entry, state: "landed", provisional: null, session, ackAt: entry.ackAt ?? now, error: null };
+  // an echo is the reissue a removal was waiting for, if one was
+  const { removedAt: _, ...rest } = entry;
+  if (info.queued === true) return { ...rest, state: "queued", provisional: info.id, session, ackAt: entry.ackAt ?? now, error: null };
+  return { ...rest, state: "landed", provisional: null, session, ackAt: entry.ackAt ?? now, error: null };
 }
 
-/** a provisional message was taken back: by this device's unsend, or by another's */
-export function removed(entry: OutboxEntry, key: string, messageID: string): OutboxEntry | null {
+/** a provisional message was taken back: by this device's unsend, or by another's. `now` marks a removal this device did
+    not ask for, which ends the entry unless the reissue comes (`orphaned`) */
+export function removed(entry: OutboxEntry, key: string, messageID: string, now: number): OutboxEntry | null {
   if (entry.provisional !== messageID || sessionKeyOf(entry) !== key) return entry;
-  // a queued prompt that lands is removed and then reissued under its transcript id with the same client id;
-  // only an unsend means it is gone for good
-  return entry.unsending ? null : entry;
+  // a queued prompt that lands is removed and then reissued under its transcript id with the same client id, so a
+  // removal alone cannot say it is gone for good; only this device's unsend can
+  if (entry.unsending) return null;
+  return entry.removedAt != null ? entry : { ...entry, removedAt: now };
+}
+
+/** a removed provisional message whose reissue has not come while the stream was live for `REISSUE_MS`: another device
+    took it back */
+export function orphaned(entry: OutboxEntry, liveSince: number | null, now: number): boolean {
+  if (entry.removedAt == null || liveSince === null) return false;
+  return now - Math.max(entry.removedAt, liveSince) > REISSUE_MS;
 }
 
 /** a posted send whose echo has not come while the stream was live for `ECHO_MS` */
