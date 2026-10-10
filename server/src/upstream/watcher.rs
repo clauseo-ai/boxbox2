@@ -32,8 +32,10 @@ use crate::config::HostConfig;
 use crate::fleet::Upstream;
 use crate::journal::Cursor;
 
-/// one frame may not pass this (architecture: memory caps).
-const FRAME_CAP: usize = 4 * 1024 * 1024;
+/// one frame may not pass this (architecture: memory caps). a completed tool
+/// part can carry up to 4 mb of image attachments (cmx2's budget) on top of
+/// its output and input, so the cap leaves room for that part whole.
+const FRAME_CAP: usize = 8 * 1024 * 1024;
 /// cmx2 heartbeats every 10 s; this long without a byte means the socket
 /// is dead even if it still looks established (`scars.md`, line 1633).
 const STALL: Duration = Duration::from_secs(45);

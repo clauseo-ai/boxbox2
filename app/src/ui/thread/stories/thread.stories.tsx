@@ -7,7 +7,7 @@ import { type ReactElement, createElement, useEffect, useRef, useState } from "r
 import { type JSX as SolidJSX, createComponent, createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import type { Item, Say, Step, Turn } from "../model";
-import { type Child, type Row, type RowCtx, type RowModel, clock, endRows, kindOf, modelOf, rowsOf, stepModel } from "../rows";
+import { type Child, type FoldRow, type Row, type RowCtx, type RowModel, clock, endRows, foldModel, kindOf, modelOf, rowsOf, stepModel } from "../rows";
 import { watchMeasure } from "../measure";
 import { isChain } from "../shell";
 import { Answer, Ledger, MarkLine, ReportCard, RowView, SayRow, Tape, ThreadLog, TurnView, YouBubble } from "../thread";
@@ -15,6 +15,7 @@ import { type Loaded, type Tone, loadImported, loadNative, stepsOf } from "./fix
 import { ANSWER_WITH_CODE, FENCES_OF_ALL_SHAPES, HOSTILE_MARKUP, REPLY_IN_A_FENCE, REPLY_IN_A_LIST, REPORT_WITH_CODE } from "./code-sample";
 import { type Question as Asked, LONG_ASK, TWO_QUESTIONS } from "./asks";
 import { Host, TurnFrame } from "./host";
+import { picture } from "./pictures";
 import { CodeReplay, LiveReplay } from "./replay";
 import "./stories.css";
 
@@ -179,6 +180,26 @@ export const ReadOne = story("tool read, completed: one file", async () => { con
 export const ReadPartial = story("tool read, completed: part of a file, with the file line", async () => { const l = await cmx(); const r = pickRow(l, (x) => x.k === "fold" && x.family === "read" && x.steps.length === 1 && x.steps[0]?.span?.total !== undefined && (x.steps[0].span.end - x.steps[0].span.start + 1) < x.steps[0].span.total, "partial read"); return oneRow(l, modelOf(r as Exclude<Row, { k: "say" }>, l.ctx), { open: true }); });
 export const ReadFolded = story("tool read, completed: a run of reads, named", async () => { const l = await northstar(); const r = pickRow(l, (x) => x.k === "fold" && x.family === "read" && x.steps.length > 1 && x.steps.length <= 6, "folded reads"); return oneRow(l, modelOf(r as Exclude<Row, { k: "say" }>, l.ctx)); });
 export const ReadFoldedOpen = story("tool read, completed, open: every file with its span", async () => { const l = await northstar(); const r = pickRow(l, (x) => x.k === "fold" && x.family === "read" && x.steps.length > 1, "folded reads"); return oneRow(l, modelOf(r as Exclude<Row, { k: "say" }>, l.ctx), { open: true }); });
+/** a read step of a picture: the first read of the fixture with its lines taken off and the images put on */
+const imageRead = (l: Loaded, path: string, images: ReturnType<typeof picture>[], dropped = 0): Step => {
+  const s: Step = { ...pickStep(l, (x) => x.family === "read" && x.status === "completed", "read"), object: path, images, ...(dropped ? { imagesDropped: dropped } : {}) };
+  delete (s as { span?: unknown }).span;
+  delete (s as { output?: unknown }).output;
+  return s;
+};
+export const ReadImageClosed = story("tool read, completed: an image, closed (says 1 image)", async () => { const l = await northstar(); return stepRow(l, imageRead(l, "screens/home.png", [picture("home.png", 210)])); });
+export const ReadImageOpen = story("tool read, completed, open: an image as a thumbnail, a press opens it full size", async () => { const l = await northstar(); return stepRow(l, imageRead(l, "screens/home.png", [picture("home.png", 210)]), { open: true }); });
+export const ReadImagesFolded = story("tool read, completed, open: reads of several images folded, the thumbnails under their own file, past eight \"and 3 more images\"", async () => {
+  const l = await northstar();
+  const steps = [
+    imageRead(l, "screens/home.png", [picture("home.png", 210), picture("home-dark.png", 250), picture("home-wide.png", 190, 960, 400)]),
+    imageRead(l, "screens/thread.png", [picture("thread.png", 20), picture("thread-open.png", 40), picture("thread-ask.jpg", 330, 400, 700, "image/jpeg")]),
+    imageRead(l, "screens/notes.png", Array.from({ length: 5 }, (_, i) => picture(`notes-${i + 1}.png`, 100 + i * 30)), 1),
+  ].map((s, i) => ({ ...s, id: `img_${i}`, at: s.at + i * 1000 }));
+  const fold: FoldRow = { k: "fold", family: "read", tool: "read", at: steps[0]?.at ?? 0, end: (steps.at(-1)?.at ?? 0) + 500, steps };
+  return oneRow(l, foldModel(fold, l.ctx), { open: true });
+});
+export const RunWithImage = story("tool run, completed, open: a command that wrote a picture", async () => { const l = await northstar(); const s = { ...pickStep(l, (x) => x.family === "shell" && x.status === "completed" && !isChain(x.object) && x.polls === undefined, "command"), images: [picture("capture.png", 160, 800, 500)] }; return stepRow(l, s, { open: true }); });
 export const ReadFailed = story("tool read, error", async () => { const l = await notes(); return stepRow(l, pickStep(l, (s) => s.family === "read" && s.status === "error", "failed read")); });
 
 /* ---------- tools: search, web ---------- */

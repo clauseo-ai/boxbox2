@@ -153,7 +153,7 @@ what each kind shows, and what opens beneath it:
 | push | `branch to origin` | a tick | nothing |
 | edit | the file name, then its directory on one line, cut from the start so the part nearest the file stays | `+a -d` | the file line (where in the file it landed), then the diff |
 | write | the same | `+N new` or `+N` | the file's content as a diff of additions; "and N more lines" past 80 |
-| read | one file: name and directory. several: the names, up to six; past six, "14 files" | one file: `312 lines` or `40 of 312`. several: nothing | every file with its span and a file line; the first file's opening lines |
+| read | one file: name and directory. several: the names, up to six; past six, "14 files" | one file: `312 lines` or `40 of 312`. several: nothing | every file with its span and a file line; the first file's opening lines; the images it returned as thumbnails under their file (design.md, the transcript) |
 | grep, find, recall | the pattern in the string tone, "in dir" when scoped; several fold to `"a", "b", "c"` up to four, then "5 searches" | `12 hits`, `8 files` | hits by file with the match lit; a glob's files |
 | fetch, search | the host and path; the query | `6 results` | titles, domains |
 | agent | the name, then the first sentence of its brief in sans | `reported`, a live clock while its child works (the turn's or not), `wants you` while the daemon waits on the person for it, `parked` while it waits on agents of its own, `128 steps` when its turn ended and never reported, nothing when it never started | its state in words ("working for 7 min", "reported after 4 min", "waiting on you", "parked on agents of its own", "its turn ended, no report", "did not start"), its steps, its seat, the whole brief when longer than its first sentence, and the door: "open its thread" (below) |
@@ -256,6 +256,7 @@ row, and a story:
 | tool | completed | the row with its result |
 | tool | error | red kind and result, open, the error in a red bed; "stopped" and faint when the error is an interrupt (`MessageAbortedError`, `interrupted`) |
 | file | | a thumbnail row: the file name and its size, opening the image or the document's first page |
+| tool | completed, with images (`state.attachments`) | a read of an image says `1 image` in place of its lines and opens to thumbnails under its file's line, each opening full size; a fold of reads groups them by file; a command's or a script's open body draws them too. at most eight, then "and 3 more images" (design.md, pictures a tool returned) |
 
 the turn's own states, from `MessageInfo` (`time.completed`, `error`,
 `finish`) and the status map:

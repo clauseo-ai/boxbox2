@@ -54,8 +54,20 @@ const states = new WeakMap<object, string>();
 function stateDigest(state: object): string {
   const raw = unwrap(state);
   let held = states.get(raw);
-  if (held === undefined) { held = hash(JSON.stringify(raw)); states.set(raw, held); }
+  if (held === undefined) { held = hash(JSON.stringify(withoutPictureBytes(raw))); states.set(raw, held); }
   return held;
+}
+
+/** a tool's state with its attachments' data urls told by their length and their two ends, as a big text is (below): the images
+    a tool returned are megabytes, and hashing every character of them would hold the frame the digest is read in */
+export function withoutPictureBytes(state: object): object {
+  const attachments = (state as { attachments?: unknown }).attachments;
+  if (!Array.isArray(attachments)) return state;
+  const told = attachments.map((a: unknown) => {
+    const url = a !== null && typeof a === "object" ? (a as { url?: unknown }).url : undefined;
+    return typeof url === "string" && url.length > BIG_TEXT ? { ...(a as object), url: `${url.length}|${url.slice(0, 4096)}|${url.slice(-4096)}` } : a;
+  });
+  return { ...state, attachments: told };
 }
 
 /** a part whole, as a digest. a text of megabytes is told by its length and its two ends: hashing every character of it at every change

@@ -4,6 +4,15 @@ all notable changes, newest first. versions follow semver. the release
 workflow publishes the section whose heading matches the version in
 `server/Cargo.toml`, so every release needs a `## <version>` heading here.
 
+## unreleased
+
+- **images in read rows.** a tool call that read images opens to thumbnails,
+  and a thumbnail opens the image full size. the cmx2 pin moves from 2364633
+  to 0bf2ba2, which adds `attachments` and `attachmentsDropped` to a completed
+  tool state (additive: at most 8 images and 4 mb of data urls a part). the
+  server's upstream frame cap goes from 4 mb to 8 mb so such a part is not
+  skipped.
+
 ## 0.1.0
 
 first version. it is a pre-release: everything below is built and tested, and

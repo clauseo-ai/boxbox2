@@ -33,6 +33,7 @@ export function weighItems(items: readonly Item[]): number {
     if (it.todos) for (const t of it.todos) chars += t.content.length + t.status.length;
     if (it.questions) for (const q of it.questions) chars += q.question.length + q.header.length + q.options.reduce((n, o) => n + o.label.length + o.description.length, 0);
     if (it.hunks) chars += it.hunks.length * 24;
+    if (it.images) for (const p of it.images) chars += p.url.length + p.filename.length + p.mime.length;
   }
   return chars * 2 + items.length * PER_ITEM;
 }

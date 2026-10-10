@@ -3,7 +3,7 @@
    pure; no dom. the components paint these. */
 
 import type { Evidence } from "./evidence";
-import { type Item, type Question, type Say, type Step, type Think, type Turn, homeAsTilde } from "./model";
+import { type Item, type Picture, type Question, type Say, type Step, type Think, type Turn, homeAsTilde } from "./model";
 import { type Token, base, commandTokens, dirOf, firstLine } from "./shell";
 
 /* ---------- folding ---------- */
@@ -186,12 +186,41 @@ export type RowModel = {
 
 export type Bed = { lines: string[]; cut?: { at: number; n: number }; /** a line shown was cut at the cap: the bed is not all of what the output holds, whatever it says it cut */ clipped?: boolean };
 export type DiffLine = { kind: "add" | "del" | "ctx" | "hunk" | "tail"; text: string };
-export type FileLine = { path: string; note: string; bar?: { total: number; reads: Array<{ start: number; end: number }>; hunks: Array<{ start: number; add: number; del: number }> }; diff?: DiffLine[]; created?: boolean; add?: number; del?: number };
+/** how many thumbnails one open row draws: a row of eight is a screen of them on a phone, and every one is an image the browser decodes */
+export const MAX_PICTURES = 8;
+
+/** the pictures of a row's groups (one group for each file it names), the first MAX_PICTURES of them in order, and how many are
+    left: the ones past the cap and the ones the daemon dropped past its own. the pictures are the same objects, and so the
+    same data url strings, as the steps hold */
+export function capPictures(groups: ReadonlyArray<readonly Picture[]>, dropped = 0): { groups: Picture[][]; more: number } {
+  let room = MAX_PICTURES, all = 0;
+  const kept = groups.map((g) => { all += g.length; const keep = g.slice(0, room); room -= keep.length; return keep; });
+  return { groups: kept, more: all - (MAX_PICTURES - room) + dropped };
+}
+/** the accessible names of a row's thumbnails, in order: "image foo.png". a name that comes more than once says its place among
+    them ("image foo.png, 2 of 3"), so every control in a row has a name of its own */
+export function pictureNames(pics: readonly Pick<Picture, "filename">[]): string[] {
+  const names = pics.map((p) => (p.filename ? `image ${p.filename}` : "image"));
+  const total = new Map<string, number>();
+  for (const name of names) total.set(name, (total.get(name) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return names.map((name) => {
+    const of = total.get(name) ?? 1;
+    if (of === 1) return name;
+    const at = (seen.get(name) ?? 0) + 1;
+    seen.set(name, at);
+    return `${name}, ${at} of ${of}`;
+  });
+}
+const imagesSaid = (shown: number, dropped: number): string => plural(shown + dropped, "image");
+
+export type FileLine = { path: string; note: string; /** what the read returned as images, for the thumbnails under the file's line */ images?: Picture[]; bar?: { total: number; reads: Array<{ start: number; end: number }>; hunks: Array<{ start: number; add: number; del: number }> }; diff?: DiffLine[]; created?: boolean; add?: number; del?: number };
 
 export type Body =
-  | { k: "shell"; facts: Fact[]; /** the command in its bed, as it is shown (home as ~): every open shell row has one, so its copy control is always on the command */ command?: string[]; /** the command as the agent sent it, which its copy control copies */ commandRaw?: string | undefined; output?: Bed; /** how many lines the output has, which its bed's header says */ outputLines?: number | undefined; /** the output as the store holds it, for its copy control to clean and copy at the press */ outputRaw?: string | undefined; error?: string }
+  | { k: "shell"; facts: Fact[]; /** the command in its bed, as it is shown (home as ~): every open shell row has one, so its copy control is always on the command */ command?: string[]; /** the command as the agent sent it, which its copy control copies */ commandRaw?: string | undefined; output?: Bed; /** how many lines the output has, which its bed's header says */ outputLines?: number | undefined; /** the output as the store holds it, for its copy control to clean and copy at the press */ outputRaw?: string | undefined; /** what the command returned as images, and how many more there were */ images?: Picture[]; more?: number; error?: string }
   | { k: "diff"; bar?: FileLine["bar"]; lines?: DiffLine[]; none?: string; error?: string }
-  | { k: "read"; files: FileLine[]; preview?: Bed; error?: string }
+  | { k: "read"; files: FileLine[]; preview?: Bed; /** images the row does not draw: past its cap, or dropped by the daemon */ more?: number; error?: string }
+  | { k: "images"; images: Picture[]; more?: number }
   | { k: "hits"; files: Array<{ path: string; hits: Array<{ line: string; text: string }> }>; list: string[]; spread: Array<{ name: string; n: number }>; error?: string }
   | { k: "agent"; facts: Fact[]; brief: string; name: string; /** its session, when it started: the door to its thread */ child?: string }
   | { k: "ask"; askID?: string; questions: AskQuestion[]; dismissed: boolean; pending: boolean }
@@ -314,6 +343,10 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
   let content: Inline[] = [], body: Body | undefined, face: RowModel["face"] = "mono", text = "", header = "";
   const error = bad && s.error ? { error: s.error } : {};
   const ask = askOn(s, ctx);
+  /* the images the tool returned, as many as a row draws, and the count of the rest */
+  const capped = capPictures([s.images ?? []], s.imagesDropped);
+  const shown = capped.groups[0] ?? [];
+  const pictured = shown.length ? { images: shown, ...(capped.more ? { more: capped.more } : {}) } : capped.more ? { more: capped.more } : {};
   switch (s.family) {
     case "shell": {
       const e = s.evidence;
@@ -336,7 +369,7 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
       } else {
         content = [{ t: "cmd", tokens: commandTokens(s.object).tokens }]; text = s.object.split("\n")[0] ?? "";
       }
-      body = { k: "shell", facts, ...(s.command ? { command: homeAsTilde(s.command).split("\n") } : {}), commandRaw: s.command || undefined, ...(s.output ? { output: bedOf(s.output) as Bed } : {}), outputLines: s.output ? s.outputLines : undefined, outputRaw: s.output?.raw, ...error };
+      body = { k: "shell", facts, ...(s.command ? { command: homeAsTilde(s.command).split("\n") } : {}), commandRaw: s.command || undefined, ...(s.output ? { output: bedOf(s.output) as Bed } : {}), outputLines: s.output ? s.outputLines : undefined, outputRaw: s.output?.raw, ...pictured, ...error };
       break;
     }
     case "edit": {
@@ -352,8 +385,10 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
       content = file(s.object); text = s.object;
       const partial = s.span?.total !== undefined && s.span.end - s.span.start + 1 < s.span.total;
       // a failed read has no file line: the row already names the file and the result, and the error bed says why
-      const files = s.status === "error" ? [] : [{ path: s.object, note: result.text, ...(partial && s.span ? { bar: { total: s.span.total as number, reads: [s.span], hunks: [] } } : {}) }];
-      body = { k: "read", files, ...(s.output ? { preview: bedOf(s.output) as Bed } : {}), ...error };
+      const files = s.status === "error" ? [] : [{ path: s.object, note: result.text || (s.images?.length ? plural(s.images.length, "image") : ""), ...(shown.length ? { images: shown } : {}), ...(partial && s.span ? { bar: { total: s.span.total as number, reads: [s.span], hunks: [] } } : {}) }];
+      body = { k: "read", files, ...(s.output ? { preview: bedOf(s.output) as Bed } : {}), ...(capped.more ? { more: capped.more } : {}), ...error };
+      // a read of a picture has no lines to count: the row says how many images instead, so a closed row says it opens
+      if (!result.text && s.status === "completed" && (s.images?.length || s.imagesDropped)) result = quiet(imagesSaid(s.images?.length ?? 0, s.imagesDropped ?? 0));
       if (ask.permission) { body = { k: "permission", askID: ask.permission.id, what: `read ${ask.permission.patterns[0] ?? base(s.object)}`, permission: ask.permission.permission, patterns: ask.permission.patterns }; result = { text: "wants you", tone: "lit" }; }
       break;
     }
@@ -430,6 +465,7 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
     }
     default: content = [{ t: "text", s: s.object }]; text = s.object;
   }
+  if (body === undefined && shown.length) body = { k: "images", images: shown, ...(capped.more ? { more: capped.more } : {}) };
   if (bad && s.error && body === undefined) body = { k: "error", error: s.error };
   /* a running question the daemon has not raised yet waits closed; a raised ask is open */
   const pendingAsk = running && (ask.permission !== undefined || ask.question !== undefined);
@@ -449,23 +485,32 @@ export function foldModel(f: FoldRow, ctx: RowCtx): RowModel {
   const steps = f.steps;
   const kind = kindOf(steps[0] as Step);
   if (f.family === "read") {
-    const byFile = new Map<string, { path: string; spans: Array<{ start: number; end: number }>; total?: number; preview?: Bed }>();
+    const byFile = new Map<string, { path: string; spans: Array<{ start: number; end: number }>; total?: number; preview?: Bed; images: Picture[] }>();
+    let dropped = 0;
     for (const s of steps) {
-      const x = byFile.get(s.object) ?? { path: s.object, spans: [], ...(s.output ? { preview: bedOf(s.output) as Bed } : {}) };
+      const x = byFile.get(s.object) ?? { path: s.object, spans: [], images: [], ...(s.output ? { preview: bedOf(s.output) as Bed } : {}) };
       if (s.span) { x.spans.push(s.span); if (s.span.total !== undefined) x.total = s.span.total; }
+      if (s.images) x.images.push(...s.images);
+      dropped += s.imagesDropped ?? 0;
       byFile.set(s.object, x);
     }
     const files = [...byFile.values()];
+    // the pictures of the whole fold, grouped under the file that returned them, up to what a row draws
+    const capped = capPictures(files.map((x) => x.images), dropped);
+    const pictures = files.reduce((a, x) => a + x.images.length, 0);
     const one = files.length === 1 ? files[0] : undefined;
-    const lines: FileLine[] = files.map((x) => {
+    const lines: FileLine[] = files.map((x, i) => {
       const read = x.spans.reduce((a, sp) => a + (sp.end - sp.start + 1), 0);
       const partial = x.total !== undefined && (x.spans.length > 1 || read < x.total);
-      const note = x.spans.length > 1 ? `${x.spans.length} reads` : x.total !== undefined && read < x.total ? `${n(read)} of ${n(x.total)}` : plural(x.total ?? read, "line");
-      return { path: x.path, note, ...(partial && x.total !== undefined ? { bar: { total: x.total, reads: x.spans, hunks: [] } } : {}) };
+      const note = !x.spans.length && x.images.length ? plural(x.images.length, "image") : x.spans.length > 1 ? `${x.spans.length} reads` : x.total !== undefined && read < x.total ? `${n(read)} of ${n(x.total)}` : plural(x.total ?? read, "line");
+      const images = capped.groups[i] ?? [];
+      return { path: x.path, note, ...(images.length ? { images } : {}), ...(partial && x.total !== undefined ? { bar: { total: x.total, reads: x.spans, hunks: [] } } : {}) };
     });
     const content: Inline[] = one ? file(one.path) : files.length <= 6 ? files.flatMap((x, i) => [...(i ? [{ t: "text", s: ", " } as const] : []), { t: "fn", s: base(x.path) } as const]) : [{ t: "text", s: plural(files.length, "file") }];
-    const result = one ? readout(steps[0] as Step) : none;
-    return { key: `fold:${f.at}`, kind, face: "mono", content, result, body: { k: "read", files: lines, ...(one?.preview ? { preview: one.preview } : {}) }, open: false, bad: false, stopped: false, running: false, label: `read ${one ? one.path : plural(files.length, "file")}${result.text ? `, ${result.text}` : ""}`, at: f.at, end: f.end, clamps: !one, partIDs: steps.map((s) => s.id) };
+    const base0 = one ? readout(steps[0] as Step) : none;
+    // pictures have no lines to count: the row says how many images there are instead, so a closed row says it opens
+    const result = !base0.text && (pictures || dropped) ? quiet(imagesSaid(pictures, dropped)) : base0;
+    return { key: `fold:${f.at}`, kind, face: "mono", content, result, body: { k: "read", files: lines, ...(one?.preview ? { preview: one.preview } : {}), ...(capped.more ? { more: capped.more } : {}) }, open: false, bad: false, stopped: false, running: false, label: `read ${one ? one.path : plural(files.length, "file")}${result.text ? `, ${result.text}` : ""}`, at: f.at, end: f.end, clamps: !one, partIDs: steps.map((s) => s.id) };
   }
   const objs = [...new Set(steps.map((s) => s.object))];
   const hits = steps.reduce((a, s) => a + (Number(/^(\d+)/.exec(s.result)?.[1]) || 0), 0);

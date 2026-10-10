@@ -8,14 +8,14 @@ import { type Copying, CopyButton } from "./copy-button";
 import { commandLabel, outputLabel, replyLabel, reportLabel } from "./copy-names";
 import { boundedPlain, newestOf, openLabel } from "./big-text";
 import { painter } from "./markdown";
-import { type Item, type Say, type Step, type Turn, spawnsOf } from "./model";
+import { type Item, type Picture, type Say, type Step, type Turn, spawnsOf } from "./model";
 import { SNAP, flip, installMotion, rise } from "./motion";
 import { type Live, ledgerOf, namesOf, sameCtxFor } from "./ledger";
 import { type Label, NONE, type Names, createNames, sameList } from "./names";
 import { type ThreadCaches, cacheKey, weighTurn } from "./memo-cache";
 import { type StageWindow, moveTo } from "./stage-window";
 import { COPY_OUTPUT_CAP, cleanOutput } from "./evidence";
-import { type Bed, type Body, type Child, type DiffLine, type FileLine, type Inline, type Result, type RowCtx, type RowModel, clock, clockDur, clockS, dur, firstSentence, heavy, isBad, n, plural, readout } from "./rows";
+import { type Bed, type Body, type Child, type DiffLine, type FileLine, type Inline, type Result, type RowCtx, type RowModel, clock, clockDur, clockS, dur, firstSentence, heavy, isBad, n, pictureNames, plural, readout } from "./rows";
 import { base, dirOf } from "./shell";
 import { shortWords } from "../asks/words";
 import { blockForKey, layoutTop } from "./ask-landing";
@@ -274,6 +274,7 @@ function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | unde
               <Show when={x.command}>{(c) => <BedView bed={{ lines: c() }} cls="wrap" copy={command} />}</Show>
               <Show when={x.facts.length}><Facts facts={x.facts} /></Show>
               <Show when={x.output} fallback={<Show when={!x.error}><div class="none">no output</div></Show>}>{(o) => <BedView bed={o()} copy={output} />}</Show>
+              <Show when={x.images || x.more}><Pictures groups={[{ pics: x.images ?? [] }]} more={x.more} /></Show>
               <Show when={x.error}>{(e) => <BedView bed={{ lines: e().split("\n").slice(0, 12) }} cls="err" />}</Show>
             </>
             );
@@ -287,11 +288,12 @@ function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | unde
           );
           case "read": return (
             <>
-              <For each={x.files}>{(f) => <div class="fl"><FileName path={f.path} /><span class="fv">{f.note}</span><Show when={f.bar}>{(bar) => <FileBar bar={bar()} />}</Show></div>}</For>
+              <Pictures more={x.more} groups={x.files.map((f) => ({ head: () => <div class="fl"><FileName path={f.path} /><span class="fv">{f.note}</span><Show when={f.bar}>{(bar) => <FileBar bar={bar()} />}</Show></div>, pics: f.images ?? [] }))} />
               <Show when={x.preview}>{(p) => <BedView bed={p()} />}</Show>
               <Show when={x.error}>{(e) => <BedView bed={{ lines: e().split("\n").slice(0, 12) }} cls="err" />}</Show>
             </>
           );
+          case "images": return <Pictures groups={[{ pics: x.images }]} more={x.more} />;
           case "hits": return (
             <>
               <Show when={x.files.length}>
@@ -313,6 +315,69 @@ function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | unde
         }
       })()}
     </>
+  );
+}
+
+/* ---------- the images a tool returned: thumbnails, and each one full size (docs/design.md, pictures) ---------- */
+
+type PictureGroup = { /** what introduces the group's thumbnails: a read's file line */ head?: () => JSX.Element; pics: readonly Picture[] };
+
+/** the images in an open row, each group of them under what introduces it (a file's line), as thumbnails of one fixed box: the
+    row's height is known before any image has loaded, so the window's heights hold. a press opens the image in a modal dialog
+    in the top layer, at the size of the screen, and a press on the image there takes it to its own size and back; escape,
+    the close control and a press outside it close it, and focus goes back to the thumbnail. the thumbnails are the same data
+    url strings the step holds (an img takes the string, there is no copy of it here), loaded lazily and decoded off the
+    main thread. what the row does not draw (past its cap, past the daemon's) is said, not hidden */
+function Pictures(props: { groups: readonly PictureGroup[]; more?: number | undefined }) {
+  const [viewing, setViewing] = createSignal<{ pic: Picture; name: string } | null>(null);
+  /* a name for each thumbnail that is its own in the row, whatever file it came from */
+  const names = createMemo(() => pictureNames(props.groups.flatMap((g) => g.pics)));
+  const starts = createMemo(() => { let at = 0; return props.groups.map((g) => { const from = at; at += g.pics.length; return from; }); });
+  return (
+    <>
+      <For each={props.groups}>{(g, gi) => (
+        <>
+          {g.head?.()}
+          <Show when={g.pics.length}>
+            <div class="pv-strip">
+              <For each={g.pics}>{(pic, i) => {
+                const name = () => names()[(starts()[gi()] ?? 0) + i()] ?? "image";
+                return (
+                  <button class="pv-t" aria-haspopup="dialog" aria-label={name()} onClick={() => setViewing({ pic, name: name() })}>
+                    <img src={pic.url} alt="" loading="lazy" decoding="async" draggable={false} />
+                  </button>
+                );
+              }}</For>
+            </div>
+          </Show>
+        </>
+      )}</For>
+      <Show when={props.more}>{(more) => <div class="pv-more">and {plural(more(), "more image")}</div>}</Show>
+      <Show when={viewing()}>{(v) => <PictureViewer pic={v().pic} name={v().name} onClose={() => setViewing(null)} />}</Show>
+    </>
+  );
+}
+
+function PictureViewer(props: { pic: Picture; name: string; onClose: () => void }) {
+  let dialog!: HTMLDialogElement;
+  const [actual, setActual] = createSignal(false);
+  onMount(() => dialog.showModal());
+  return (
+    /* the dialog's own box is the backdrop's edge: a press whose target is the dialog itself landed outside the card. escape closes
+       it (the dialog's own cancel) and goes no further: the stage's escape goes back to home */
+    <dialog ref={dialog} class="pv" aria-label={`${props.name}, full size`} on:keydown={(e) => e.key === "Escape" && e.stopPropagation()} on:close={() => props.onClose()} onClick={(e) => e.target === dialog && dialog.close()}>
+      <div class="pv-card">
+        <header class="pv-hd">
+          <span class="pv-name">{props.pic.filename || props.pic.mime}</span>
+          <button class="pv-x" aria-label={`close ${props.name}`} onClick={() => dialog.close()}>×</button>
+        </header>
+        <div class="pv-view">
+          <button class="pv-zoom" aria-pressed={actual() ? "true" : "false"} aria-label={`${props.name} at its own size`} onClick={() => setActual(!actual())}>
+            <img class="pv-img" src={props.pic.url} alt="" decoding="async" draggable={false} />
+          </button>
+        </div>
+      </div>
+    </dialog>
   );
 }
 

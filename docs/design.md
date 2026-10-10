@@ -372,6 +372,27 @@ showing the tail of what you just did.
   (`thread.md`, an agent's own thread): the agent's row is the small
   window, its open body holds the door, and the agent's stage is a layer
   stacked over the parent's, which stays mounted and inert beneath it.
+- **pictures a tool returned** (a read of an image, a command that wrote
+  one) are thumbnails in the open row, under the file's line when there is
+  one, so a read row that holds them says "1 image" where a text read says
+  its lines and opens to show them. a thumbnail is one fixed square (76 px,
+  96 on the wide stages, radius 12, the bed's colour and edge) with the image
+  filling it, cropped: the row's height never depends on a picture, so the
+  window's heights hold while images load. at most eight are drawn in a row,
+  the rest as "and 3 more images" in the quiet tone (the count includes what
+  the daemon dropped past its own cap). a press opens the picture in a modal
+  card of glass in the top layer over a dimmed page, as the spend's card is:
+  the image fits the card, whole, under a header with its file name and a
+  round close control; a press on the image shows it at its own size,
+  scrolling inside the card, and a press again fits it. escape, the close
+  control and a press outside close it, escape goes no further than the card
+  (it is not the stage's back), and focus returns to the thumbnail. only
+  png, jpeg, gif and webp are drawn, and only from a data url that says the
+  same; anything else a tool attached is not an image here. controls are named
+  "image shot.png" (thumbnail), "image shot.png, full size" (the card),
+  "close image shot.png" and "image shot.png at its own size" (pressed when
+  at its own size); a name that comes twice in a row says its place, "image
+  shot.png, 2 of 3".
 - **an ask** sits where it happened; while it is open and scrolled out of
   view, a pinned line above the composer carries the question and scrolls
   back to it, so it is never lost and never shown twice. a **review** that

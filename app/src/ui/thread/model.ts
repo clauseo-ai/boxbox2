@@ -11,6 +11,10 @@ export type Family = "read" | "search" | "edit" | "shell" | "web" | "spawn" | "m
 export type Question = { question: string; header: string; options: Array<{ label: string; description: string }>; custom: boolean; multiple: boolean; answer: string[] | undefined };
 export type Todo = { content: string; status: string };
 export type Agent = { name: string; nickname?: string; type?: string; brief: string; child?: string };
+/** an image a tool returned (a read of a picture, a screenshot a command wrote): its mime, the name it carries and its bytes as a
+    data url. the url is the string the wire held, never a copy: it is megabytes, and everything that passes a picture on passes
+    this object */
+export type Picture = { mime: string; filename: string; url: string };
 
 export interface Step {
   k: "step";
@@ -49,6 +53,11 @@ export interface Step {
   evidence?: Evidence;
   /** a read's lines, and the file's length when known */
   span?: Span;
+  /** the images the tool returned, the ones a browser draws (png, jpeg, gif, webp) and whose data url says the same: a read of a
+      picture, a command that wrote one. in the order the daemon sent them */
+  images?: Picture[];
+  /** how many more the daemon left out (its cap), which the row says */
+  imagesDropped?: number;
   /** where an edit landed */
   hunks?: Hunk[];
   /** the file's length after the edit, when a read in this session told us */
@@ -160,6 +169,26 @@ type Ctx = { root: string; commands: Map<string, string>; lengths: Map<string, n
 /** what one tool part says on its own, before the parts around it add what they know: a poll's command and a file's
     length. `starts` is a command session this part opened, `watches` the one it polls or types into */
 type Base = { step: Step; starts?: { session: string; command: string }; watches?: string };
+
+/** the image types a browser draws from a data url in an img: no svg (a document), no heic (not every browser) */
+const DRAWABLE = /^image\/(?:png|jpe?g|gif|webp)$/i;
+const DRAWABLE_URL = /^data:image\/(?:png|jpe?g|gif|webp)[;,]/i;
+
+/** the images a completed tool's state carries (`attachments`, each a `file` with a mime, a filename and a data url) and how many
+    the daemon dropped past its cap. an attachment whose mime or whose url is not an image the browser draws is not one: a
+    non-image data url never reaches an img. read through the loose readers, so it works with a contract that does not name the
+    field yet */
+export function picturesOf(state: unknown): { images: Picture[]; dropped: number } {
+  const s = record(state);
+  const images: Picture[] = [];
+  if (s?.["status"] === "completed") for (const a of list(s["attachments"])) {
+    const r = record(a);
+    const mime = string(r?.["mime"]), url = string(r?.["url"]);
+    if (mime === undefined || url === undefined || !DRAWABLE.test(mime) || !DRAWABLE_URL.test(url)) continue;
+    images.push({ mime, filename: string(r?.["filename"]) ?? "", url });
+  }
+  return { images, dropped: Math.max(0, Math.floor(number(s?.["attachmentsDropped"]) ?? 0)) };
+}
 
 /** when a step started: its own start, else its end, else the message it rides in. cmx2 leaves `time.start` null on native tool parts (gotchas.md) */
 function stepOf(part: ToolPart, root: string, messageAt: number): Base {
@@ -329,6 +358,9 @@ function stepOf(part: ToolPart, root: string, messageAt: number): Base {
       if (spawned) step.result = `started ${spawned === 1 ? "an agent" : `${spawned} agents`}`;
     }
   }
+  const pictures = picturesOf(state);
+  if (pictures.images.length) step.images = pictures.images;
+  if (pictures.dropped) step.imagesDropped = pictures.dropped;
   return made;
 }
 
@@ -375,6 +407,16 @@ type Remembered =
 /** the same value, by its json: a part the store replaced with an equal copy (a message's info changed) keeps its step */
 const sameJson = (a: unknown, b: unknown): boolean => a === b || JSON.stringify(a) === JSON.stringify(b);
 
+/** two reads of a part as the same step: the images are told by their strings (equal strings compare without making a copy),
+    and the json is of everything else, so a step with pictures never serialises megabytes of data url to be compared */
+function sameBase(a: Base, b: Base): boolean {
+  const x = a.step.images, y = b.step.images;
+  if (x?.length !== y?.length) return false;
+  if (x && y) for (let i = 0; i < x.length; i++) if (x[i]?.url !== y[i]?.url || x[i]?.mime !== y[i]?.mime || x[i]?.filename !== y[i]?.filename) return false;
+  const bare = (v: Base): Base => { const step = { ...v.step }; delete step.images; return { ...v, step }; };
+  return a === b || sameJson(bare(a), bare(b));
+}
+
 /** a said or thought part's item, the one from last pass when nothing it shows changed */
 function textItem(memo: PartMemo, seen: Set<string>, fresh: Say | Think): Say | Think {
   seen.add(fresh.id);
@@ -395,7 +437,7 @@ function stepIn(part: ToolPart, messageAt: number, ctx: Ctx, memo: PartMemo, see
   if (prior && prior.state === part.state && prior.messageAt === messageAt && prior.root === ctx.root) base = prior.base;
   else {
     const fresh = stepOf(part, ctx.root, messageAt);
-    base = prior && sameJson(prior.base, fresh) ? prior.base : fresh;
+    base = prior && sameBase(prior.base, fresh) ? prior.base : fresh;
   }
   const s = base.step;
   if (base.starts) ctx.commands.set(base.starts.session, base.starts.command);

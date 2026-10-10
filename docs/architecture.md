@@ -163,7 +163,7 @@ owner; every map has an eviction rule. the caps:
 |---|---|---|
 | journal ring | 16 mb or 100,000 events | oldest events fall out; a cursor older than the floor gets `reset` plus a snapshot |
 | client outbound channel | 512 kb | the stream is closed; the client resumes from its cursor. a slow phone can never grow the server |
-| upstream sse line buffer | 4 mb per frame | the frame is logged and skipped, the stream survives |
+| upstream sse line buffer | 8 mb per frame (a tool part's 4 mb of image attachments, whole) | the frame is logged and skipped, the stream survives |
 | transcript hydration proxy | streamed, never buffered whole; gzip on the wire (`http/compress.rs`) | n/a |
 | worker cache (indexeddb) and the threads in its memory | 40 opened threads, 16 held-only threads beside them, and 150 mb for both, by the size of each thread's json (a read's body, then every change applied) | the count caps evict their own kind, longest unused first; the byte cap evicts held-only threads first, then opened ones longest ago first, never the thread on stage or the one the open or read is for (the indexeddb layout, above) |
 | pty relay | 256 kb each way | the socket is closed; the relay redials with the cursor |

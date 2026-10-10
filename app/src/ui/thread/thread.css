@@ -232,7 +232,7 @@ button.row-h { cursor: pointer; }
 .thought-text p + p { margin-top: 0.6em; }
 .thought-text code { font-family: var(--mono); font-stretch: 90%; font-size: 0.8em; padding: 0.08em 0.3em; border-radius: 5px; background: var(--code-bg); }
 .fl { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s3); align-items: baseline; font-family: var(--mono); font-stretch: 90%; font-size: 11.5px; line-height: 1.5; padding: 3px 0; width: 100%; }
-.fl + .fl, .fdiff + .fl { border-top: 1px solid color-mix(in srgb, color-mix(in srgb, var(--window-top) 10%, transparent) calc(var(--L) * 100%), color-mix(in srgb, var(--text) 5%, transparent)); }
+.fl + .fl, .fdiff + .fl, .pv-strip + .fl { border-top: 1px solid color-mix(in srgb, color-mix(in srgb, var(--window-top) 10%, transparent) calc(var(--L) * 100%), color-mix(in srgb, var(--text) 5%, transparent)); }
 .fl .fn { color: var(--text); font-weight: 520; overflow-wrap: anywhere; }
 .fl .fv { color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .fl .fb { grid-column: 1 / -1; }
@@ -265,6 +265,32 @@ button.fl { border-radius: 8px; }
 .agent-door { justify-self: start; display: inline-flex; align-items: center; gap: var(--s2); min-height: 40px; padding: 0 14px 0 16px; border-radius: 14px; font-size: 14px; font-weight: 600; color: var(--accent); background: var(--well); box-shadow: var(--well-edge); }
 .agent-door i { width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-top: 1.5px solid currentColor; transform: rotate(45deg); opacity: 0.8; }
 @media (hover: hover) { .agent-door:hover { background: linear-gradient(var(--hover), var(--hover)), var(--well); } }
+
+/* the images a tool returned (thread.tsx, Pictures): thumbnails of one fixed box, so the row's height is known before an image has
+   loaded and the window's heights hold. an image fills its box and is cropped to it; the whole of it is one press away */
+.pv-strip { --pv: 76px; display: flex; flex-wrap: wrap; gap: var(--s2); padding: var(--s1) 0; }
+.wide .pv-strip { --pv: 96px; }
+.pv-t { flex: none; width: var(--pv); height: var(--pv); border-radius: 12px; overflow: hidden; background: var(--bed); box-shadow: var(--bed-edge); }
+.thread .pv-t:focus-visible { border-radius: 12px; }
+.pv-t img { display: block; width: 100%; height: 100%; object-fit: cover; }
+@media (hover: hover) { .pv-t:hover img { opacity: 0.88; } }
+.pv-more { font-size: 12px; color: var(--text-3); }
+/* the image full size: a card of glass in the top layer over a dimmed page, as the spend's is (details.css). the image fits the
+   card, whole; a press on it shows it at its own size, scrolling inside the card */
+.pv { width: min(960px, calc(100vw - 16px)); max-width: none; max-height: calc(100dvh - 16px); padding: 0; border: none; border-radius: 22px; overflow: hidden; background: var(--glass-deep); -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5); box-shadow: var(--glass-edge), var(--lift); color: var(--text); font-size: 14px; line-height: 1.35; }
+.pv::backdrop { background: color-mix(in srgb, color-mix(in srgb, var(--window-bottom, #101114) 20%, transparent) calc(var(--L, 0) * 100%), rgb(0 0 0 / 0.5)); }
+.pv[open] { display: flex; }
+.pv-card { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.pv-hd { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s3) var(--s2) var(--s4); }
+.pv-name { flex: 1; min-width: 0; font-family: var(--mono); font-stretch: 90%; font-size: 12px; color: var(--text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.pv-x { position: relative; flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--pill); color: var(--text-2); font-size: 18px; line-height: 1; }
+@media (hover: hover) { .pv-x:hover { color: var(--text); } }
+@media (pointer: coarse) { .pv-x::after { content: ""; position: absolute; inset: -6px; } }
+.pv-view { flex: 1; min-height: 0; display: flex; overflow: auto; padding: 0 var(--s3) var(--s3); }
+.pv-zoom { margin: auto; max-width: 100%; border-radius: 12px; overflow: hidden; cursor: zoom-in; }
+.pv-zoom[aria-pressed="true"] { max-width: none; cursor: zoom-out; }
+.pv-img { display: block; max-width: 100%; max-height: calc(100dvh - 88px); object-fit: contain; }
+.pv-zoom[aria-pressed="true"] .pv-img { max-width: none; max-height: none; }
 
 /* a bed: output, a diff, a file's lines. pressed in: dark, black on the flood; light, near-white paper edged in the repo's hue. it scrolls
    sideways and fades where it continues */
