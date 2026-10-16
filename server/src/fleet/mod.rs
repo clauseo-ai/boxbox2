@@ -32,6 +32,12 @@ pub mod clears;
 pub mod model;
 pub mod needs;
 pub mod read;
+#[cfg(feature = "record")]
+pub mod record;
+#[cfg(test)]
+mod replay;
+#[cfg(any(test, feature = "record"))]
+pub mod tape;
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -46,17 +52,15 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::cmx2;
 use crate::journal::{Cursor, Gap, Journal, sse_frame};
 use crate::push::presence::Looking;
 use crate::push::{Push, Thread};
+use crate::source::cmx2::translate;
+use crate::source::{SourceEvent, ThreadFacts};
 use crate::store::Store;
-use crate::upstream::HostStatus;
 use change::{Change, Control, JournalEntry, PROTOCOL, ResetReason};
 use clears::Clears;
-use model::{
-    ClearRefused, Device, Effect, HostRead, Model, ReadRefused, ReviewTarget, TailRead, TailRequest,
-};
+use model::{ClearRefused, Device, Effect, Model, ReadRefused, ReviewTarget, TailRequest};
 use needs::{Moved, Need, Needs};
 use read::{Mark, Reads};
 
@@ -83,28 +87,25 @@ pub const SERVED_LISTED: usize = 50;
 /// session goes back to unread, so the next change to it asks again.
 pub const TAIL_REQUESTS: usize = 512;
 
-/// what the watchers and their supervisor send.
+/// what the sources and their supervisor send.
 #[derive(Debug)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "nearly every message is a source event; boxing it would allocate per event to shrink the rare removal"
+)]
 pub enum Upstream {
-    /// a host's connection or health changed.
-    Host(HostStatus),
-    /// a host left the config.
+    /// a connection left the config: its agents go.
     HostRemoved(String),
-    /// a host was read afresh; its seqs are the floors for what follows.
-    HostRead(Box<HostRead>),
-    /// a session's newest messages, read for its window's tail.
-    TailRead(Box<TailRead>),
-    /// a session's tail could not be read; why, in plain words.
-    TailUnread { key: String, reason: String },
-    /// one daemon event, already past the watcher's dedupe.
-    Event {
-        host: Arc<str>,
+    /// one source event for one agent of a connection.
+    Source {
+        connection: Arc<str>,
+        agent: Arc<str>,
+        /// increases across the whole connection, or none.
         seq: Option<u64>,
-        /// the directory the daemon framed it with: the checkout, on a worktree event.
-        directory: Option<String>,
-        /// boxed: an event is many times the size of the other variants
-        event: Box<cmx2::Event>,
-        payload: Box<RawValue>,
+        event: crate::source::SourceEvent,
+        /// cmx2 only, while contract 1 lives: the whole event payload, byte
+        /// for byte, for contract 1's journal.
+        raw: Option<Box<RawValue>>,
     },
 }
 
@@ -188,8 +189,8 @@ enum Command {
     },
     Adopt {
         host: String,
-        info: Box<RawValue>,
-        reply: oneshot::Sender<Result<(), serde_json::Error>>,
+        thread: Box<ThreadFacts>,
+        reply: oneshot::Sender<()>,
     },
     AdoptedKeys {
         reply: oneshot::Sender<Vec<String>>,
@@ -237,8 +238,9 @@ pub struct Wiring {
     pub reads: Reads,
     /// the threads cleared off home.
     pub clears: Clears,
-    /// the threads opened from history that the store kept, as `(key, info)`.
-    pub adopted: Vec<(String, Box<RawValue>)>,
+    /// the threads opened from history that the store kept, as `(key,
+    /// thread)`; none for a row that no longer decodes.
+    pub adopted: Vec<(String, Option<ThreadFacts>)>,
     /// where window tails to read go (`upstream/tails.rs`).
     pub tails: mpsc::Sender<TailRequest>,
 }
@@ -249,7 +251,7 @@ pub struct Restored {
     pub needs: Needs,
     pub reads: Reads,
     pub clears: Clears,
-    pub adopted: Vec<(String, Box<RawValue>)>,
+    pub adopted: Vec<(String, Option<ThreadFacts>)>,
 }
 
 /// the ledger, the read marks, the clears and the adopted threads as `boxbox.db` kept them.
@@ -269,7 +271,11 @@ pub async fn restore(store: &Store) -> Result<Restored, crate::store::StoreError
             }
             let adopted = adopted::load(connection)?
                 .into_iter()
-                .filter_map(|(key, info)| Some((key, RawValue::from_string(info).ok()?)))
+                .filter_map(|(key, info)| {
+                    let info = RawValue::from_string(info).ok()?;
+                    // every kept row is a cmx2 session's info, as contract 1 journals it
+                    Some((key, translate::thread_from_json(info).ok()))
+                })
                 .collect();
             Ok(Restored {
                 needs: Needs::restore(open, served),
@@ -301,6 +307,19 @@ impl Fleet {
     pub fn detached() -> Self {
         let (upstream, _) = mpsc::channel(1);
         let (commands, _) = mpsc::channel(1);
+        Self { upstream, commands }
+    }
+
+    /// a handle whose actor takes every command and does nothing with it:
+    /// a command without a reply succeeds, one with a reply fails with
+    /// `Stopped`. for tests of routes that tell the fleet before they act.
+    #[cfg(test)]
+    #[must_use]
+    pub fn listening() -> Self {
+        let (upstream, mut events) = mpsc::channel(64);
+        let (commands, mut taken) = mpsc::channel::<Command>(64);
+        tokio::spawn(async move { while taken.recv().await.is_some() {} });
+        tokio::spawn(async move { while events.recv().await.is_some() {} });
         Self { upstream, commands }
     }
 
@@ -439,14 +458,15 @@ impl Fleet {
     /// a thread read from its daemon joins the fleet, if it is not in it.
     ///
     /// # Errors
-    /// the actor has stopped (outer), or `info` is not a session (inner).
-    pub async fn adopt(
-        &self,
-        host: String,
-        info: Box<RawValue>,
-    ) -> Result<Result<(), serde_json::Error>, Stopped> {
+    /// the actor has stopped.
+    pub async fn adopt(&self, host: String, thread: ThreadFacts) -> Result<(), Stopped> {
         let (reply, answer) = oneshot::channel();
-        self.command(Command::Adopt { host, info, reply }).await?;
+        self.command(Command::Adopt {
+            host,
+            thread: Box::new(thread),
+            reply,
+        })
+        .await?;
         answer.await.map_err(|_| Stopped)
     }
 
@@ -530,7 +550,7 @@ pub fn spawn(
         "journal started"
     );
     let actor = Actor {
-        model: Model::restore(wiring.needs, wiring.reads, wiring.clears, wiring.adopted),
+        model: Model::restored(wiring.needs, wiring.reads, wiring.clears, wiring.adopted),
         journal: Journal::new(epoch),
         live: Vec::new(),
         build,
@@ -639,9 +659,7 @@ impl Actor {
                 changed = looking.changed(), if watching => match changed {
                     Ok(()) => {
                         let devices = looking.borrow_and_update().clone();
-                        self.model.at(crate::now_ms());
-                        let moved = self.model.looking(devices);
-                        self.publish_all(&moved);
+                        self.looking(devices);
                     }
                     // push has stopped: the server is going down
                     Err(_) => watching = false,
@@ -660,7 +678,10 @@ impl Actor {
     }
 
     fn command(&mut self, command: Command) {
-        self.model.at(crate::now_ms());
+        let now = crate::now_ms();
+        #[cfg(feature = "record")]
+        record::command(now, &command);
+        self.model.at(now);
         match command {
             Command::Needs { reply } => {
                 let _ = reply.send(NeedsNow {
@@ -700,11 +721,14 @@ impl Actor {
             Command::ClearedAmong { rows, reply } => {
                 let _ = reply.send(self.model.cleared_among(&rows));
             }
-            Command::Adopt { host, info, reply } => {
-                let answer = self.model.adopt(&host, &info).map(|changes| {
-                    self.publish_all(&changes);
-                });
-                let _ = reply.send(answer);
+            Command::Adopt {
+                host,
+                thread,
+                reply,
+            } => {
+                let changes = self.model.adopt_thread(&host, *thread);
+                self.publish_all(&changes);
+                let _ = reply.send(());
             }
             Command::AdoptedKeys { reply } => {
                 let _ = reply.send(self.model.adopted_keys());
@@ -746,55 +770,71 @@ impl Actor {
     }
 
     fn upstream(&mut self, message: Upstream) {
-        self.model.at(crate::now_ms());
+        let now = crate::now_ms();
+        #[cfg(feature = "record")]
+        record::upstream(now, &message);
+        self.model.at(now);
         let changes = match message {
-            Upstream::Host(status) => self.model.host(status),
             Upstream::HostRemoved(host) => self.model.host_removed(&host),
-            Upstream::HostRead(read) => {
-                let (host, epoch, sessions) = (
-                    read.host.clone(),
-                    read.epoch.clone(),
-                    read.sessions.data.len(),
-                );
-                let changes = self.model.host_read(*read);
-                info!(
-                    host,
-                    epoch, sessions, "fleet replaced the host from its reads"
-                );
-                changes
-            }
-            Upstream::TailRead(read) => self.model.tail_read(*read),
-            Upstream::TailUnread { key, reason } => {
-                warn!(
-                    session = key,
-                    reason,
-                    "a window's tail could not be read; it shows what streams, and is read again when its host is"
-                );
-                self.model.tail_failed(&key);
-                return;
-            }
-            Upstream::Event {
-                host,
+            Upstream::Source {
+                connection,
+                agent,
                 seq,
-                directory,
                 event,
-                payload,
-            } => match self
-                .model
-                .event(&host, seq, directory.as_deref(), &event, &payload)
-            {
-                Ok(changes) => changes,
-                Err(e) => {
-                    warn!(host = %host, kind = event.kind().as_str(), error = %e, "an event's payload lacks what it decoded with; skipped");
+                raw,
+            } => match event {
+                SourceEvent::Connection(status) => self.model.connection(status),
+                SourceEvent::Snapshot(read) => {
+                    let (epoch, sessions) = (read.epoch.clone(), read.threads.len());
+                    let changes = self.model.agent_read(&agent, *read);
+                    info!(
+                        host = %agent,
+                        epoch = epoch.as_deref().unwrap_or("-"),
+                        sessions,
+                        "fleet replaced the host from its reads"
+                    );
+                    changes
+                }
+                SourceEvent::TailRead(read) => self.model.tail(&agent, *read),
+                SourceEvent::TailUnread { thread, reason } => {
+                    let key = model::session_key(&agent, &thread);
+                    warn!(
+                        session = key,
+                        reason,
+                        "a window's tail could not be read; it shows what streams, and is read again when its host is"
+                    );
+                    self.model.tail_failed(&key);
                     return;
+                }
+                event => {
+                    let kind = event.kind();
+                    match self.model.source(&agent, seq, event, raw.as_deref()) {
+                        Ok(changes) => changes,
+                        Err(e) => {
+                            warn!(connection = %connection, host = %agent, kind, error = %e, "an event's payload lacks what it was translated from; skipped");
+                            return;
+                        }
+                    }
                 }
             },
         };
         self.publish_all(&changes);
     }
 
+    fn looking(&mut self, devices: Vec<Looking>) {
+        let now = crate::now_ms();
+        #[cfg(feature = "record")]
+        record::looking(now, &devices);
+        self.model.at(now);
+        let moved = self.model.looking(devices);
+        self.publish_all(&moved);
+    }
+
     fn flush_tails(&mut self) {
-        self.model.at(crate::now_ms());
+        let now = crate::now_ms();
+        #[cfg(feature = "record")]
+        record::flush_tails(now);
+        self.model.at(now);
         let changes = self.model.flush_tails();
         self.publish_all(&changes);
     }
@@ -1056,7 +1096,7 @@ fn host_of(key: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::upstream::{Connection, FrameCounts};
+    use crate::upstream::{Connection, FrameCounts, HostStatus};
 
     fn actor() -> Actor {
         Actor {
@@ -1073,8 +1113,10 @@ mod tests {
         }
     }
 
+    /// the host's status, as the cmx2 source sends it.
     fn host(connects: u64) -> Upstream {
-        Upstream::Host(HostStatus {
+        let name: Arc<str> = Arc::from("desk");
+        let status = HostStatus {
             name: "desk".into(),
             url: "http://127.0.0.1:4840/".into(),
             origin: crate::config::Origin::Config,
@@ -1086,7 +1128,14 @@ mod tests {
             connects,
             frames: FrameCounts::default(),
             cursor: None,
-        })
+        };
+        Upstream::Source {
+            connection: Arc::clone(&name),
+            agent: name,
+            seq: None,
+            event: SourceEvent::Connection(translate::connection(status)),
+            raw: None,
+        }
     }
 
     fn text(frame: &Bytes) -> &str {

@@ -73,8 +73,8 @@ function staticName(row: HistoryApiRow): string {
 const idOf = (row: HistoryApiRow): string => row.key.slice(row.key.indexOf(":") + 1);
 
 /** for rows whose names would be the same (the same repo, title and machine in one minute: a bulk import, a fan of
-    retries), a suffix of the session id, as short as tells them apart, so every control has its own name (AGENTS.md
-    rule 5). rows with a name of their own get none */
+    retries), a suffix of the session id, as short as tells them apart, so every control has its own name (AGENTS.md,
+    accessibility). rows with a name of their own get none */
 export function collisionSuffixes(rows: readonly HistoryApiRow[]): Map<string, string> {
   const groups = new Map<string, HistoryApiRow[]>();
   for (const row of rows) {

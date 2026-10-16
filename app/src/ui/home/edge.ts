@@ -16,7 +16,12 @@
    - a card that grows commits its layout first. a card that shrinks commits it last: it stays as big as it was
      while its clip recedes and uncovers the column beneath it, and in the frame the move ends the layout, the
      transforms and the clip all let go at once, which paints exactly the frame before. the layout it will end
-     in is measured once up front, by committing it and putting it back before anything is painted. */
+     in is measured once up front, by committing it and putting it back before anything is painted.
+
+   the strip's fold moves the card's top edge (`moveTop`): the width never changes, so nothing can reflow and no box needs
+   a carry of its own beyond the way the edge goes. what hangs from the top (the stage's bar) travels with the edge; what
+   stands on the foot (the composer) stays; a scroller keeps the words the reader is on where they are, its scroll moved
+   by the room it gained or lost, and one that is at its end stays there. */
 
 import { play, prefersReducedMotion } from "../../motion/animate";
 import { FADE, ROLL_OUT, SHEET } from "../../motion/springs";
@@ -40,7 +45,7 @@ export type EdgeMove = {
   /** the card's lit edge, drawn above its content: the whole ring, and the end of it that travels (shown only while moving) */
   rim: { ring: HTMLElement; cap: HTMLElement };
   /** the edge of the card that travels */
-  side: "left" | "right";
+  side: "left" | "right" | "top";
   /** the card gets bigger: its edge travels outward */
   grow: boolean;
   /** lays the stage out for where the edge ends (true) or where it began (false), at once and synchronously */
@@ -136,10 +141,14 @@ const rounded = (n: number, places = 2) => Math.round(n * 10 ** places) / 10 ** 
 export function moveEdge(move: EdgeMove): { stop: () => void } {
   const { card, lift, rim, side, grow } = move;
   if (prefersReducedMotion()) {
+    const scrollers = side === "top" ? scrollersIn(card) : [];
+    const was = card.getBoundingClientRect().height;
     move.layout(true);
+    keepReading(scrollers, card.getBoundingClientRect().height - was);
     move.settled();
     return { stop: () => undefined };
   }
+  if (side === "top") return moveTop(move);
   const was = card.getBoundingClientRect();
   const tree = gather(card, new Set([lift, rim.ring, rim.cap]));
   move.layout(true);
@@ -213,6 +222,133 @@ export function moveEdge(move: EdgeMove): { stop: () => void } {
     for (const animation of animations) animation.cancel();
     // created before the next frame is painted, so the dissolved content is never seen whole in its new layout
     if (!grow) for (const el of swapped) play(el, [{ opacity: 0 }, { opacity: 1 }], FADE, { fill: "backwards" });
+    lift.style.transformOrigin = "";
+  };
+  void Promise.allSettled(animations.map((animation) => animation.finished)).then(finish);
+  return { stop: finish };
+}
+
+type Scrolled = { el: HTMLElement; atEnd: boolean };
+
+/** the scrollers inside the card, and whether each is at its end: one that is follows its end (the stage's pin), one that is
+    not keeps the words the reader is on */
+function scrollersIn(card: HTMLElement): Scrolled[] {
+  return [...card.querySelectorAll<HTMLElement>(".stage-scroll")].map((el) => ({ el, atEnd: el.scrollTop + el.clientHeight >= el.scrollHeight - 2 }));
+}
+
+/** a scroller whose top moved by `gained` (the room it gained, or lost when negative) is scrolled by as much, so the words in
+    it stay where they were on the screen; one at its end is left to its own pin, which holds the end */
+function keepReading(scrollers: readonly Scrolled[], gained: number): void {
+  for (const { el, atEnd } of scrollers) if (!atEnd && Math.abs(gained) >= 1) el.scrollTop = Math.max(0, el.scrollTop - gained);
+}
+
+/** the boxes inside the card that hang from its top: they moved with it, top and foot together, when the layout changed.
+    a box whose top moved and whose foot did not was stretched (the layer, the column, a scroller), and is looked into for
+    what hangs inside it; a scroller's words are kept in place by its scroll, never carried */
+function hanging(root: Element, moved: (el: Element) => number, depth = 0): Element[] {
+  const out: Element[] = [];
+  if (depth > 6) return out;
+  for (const child of root.children) {
+    if (child.classList.contains("stage-scroll")) continue;
+    const dy = moved(child);
+    if (dy > 0.5) out.push(child);
+    else if (dy < 0) out.push(...hanging(child, moved, depth + 1));
+  }
+  return out;
+}
+
+/** the strip folds or opens: the card's top edge travels and what hangs from it travels with it (see the head of this file) */
+function moveTop(move: EdgeMove): { stop: () => void } {
+  const { card, lift, rim, grow } = move;
+  const skip = new Set<Element>([lift, rim.ring, rim.cap]);
+  const scrollers = scrollersIn(card);
+  const was = card.getBoundingClientRect();
+  // where each box's top and foot are against the card's foot, which stays: a box that hangs from the top keeps its foot's
+  // distance to the top, and a box that stands on the foot keeps its own to the foot
+  const before = new Map<Element, DOMRect>();
+  const read = (root: Element, depth: number) => {
+    if (depth > 6) return;
+    for (const child of root.children) {
+      if (skip.has(child) || child.classList.contains("stage-scroll")) continue;
+      before.set(child, child.getBoundingClientRect());
+      read(child, depth + 1);
+    }
+  };
+  read(card, 0);
+  move.layout(true);
+  const will = card.getBoundingClientRect();
+  const by = Math.abs(will.height - was.height);
+  /* how far a box is carried: its top moved by the edge's travel and its height held (it hangs), > 0; it was stretched, < 0;
+     it stands on the foot, 0 */
+  const moved = (el: Element): number => {
+    const a = before.get(el);
+    if (!a || skip.has(el)) return 0;
+    const b = el.getBoundingClientRect();
+    const top = Math.abs(b.top - a.top);
+    if (top < 0.5) return 0;
+    return Math.abs(b.height - a.height) < 0.5 ? top : -1;
+  };
+  const carried = hanging(card, moved).filter((el) => !skip.has(el));
+  if (grow) keepReading(scrollers, will.height - was.height);
+  else move.layout(false);
+
+  const [small, big] = grow ? [was, will] : [will, was];
+  const animations: Animation[] = [];
+  const run = (animation: Animation | null) => {
+    if (animation) animations.push(animation);
+  };
+  const fill: FillMode = grow ? "none" : "forwards";
+  if (by >= 1) {
+    const radius = getComputedStyle(card).borderTopLeftRadius;
+    const bases = carried.map((el) => getComputedStyle(el).transform);
+    const whole = `inset(0px 0px 0px 0px round ${radius})`;
+    const cut = `inset(${rounded(by)}px 0px 0px 0px round ${radius})`;
+    run(play(card, grow ? [{ clipPath: cut }, { clipPath: whole }] : [{ clipPath: whole }, { clipPath: cut }], SHEET, { fill }));
+    const squeeze = `scaleY(${rounded(small.height / big.height, 4)})`;
+    lift.style.transformOrigin = "50% 100%";
+    run(play(lift, grow ? [{ transform: squeeze }, { transform: "none" }] : [{ transform: "none" }, { transform: squeeze }], SHEET, { fill }));
+    const reach = Number.parseFloat(radius);
+    const ringFrom = (inset: number) => `inset(${rounded(inset)}px 0px 0px 0px)`;
+    const apart = `translateY(${rounded(by)}px)`;
+    run(play(rim.ring, grow ? [{ clipPath: ringFrom(by + reach) }, { clipPath: ringFrom(reach) }] : [{ clipPath: ringFrom(reach) }, { clipPath: ringFrom(by + reach) }], SHEET, { fill: "forwards" }));
+    run(play(rim.cap, grow ? [{ transform: apart }, { transform: "none" }] : [{ transform: "none" }, { transform: apart }], SHEET, { fill: "forwards" }));
+    /* a scroller is not carried, so the dissolve under its bar (its mask, at its own top) stays behind while the bar travels:
+       it is cut where the bar's foot is on its way, which at rest is where the mask is clear anyway */
+    for (const { el } of scrollers) {
+      const bar = el.parentElement?.querySelector<HTMLElement>(".stage-bar");
+      const under = Math.max(0, (bar?.offsetHeight ?? 0) - 4);
+      const at = (top: number) => `inset(${rounded(top)}px 0px 0px 0px)`;
+      run(play(el, grow ? [{ clipPath: at(by + under) }, { clipPath: at(under) }] : [{ clipPath: at(under) }, { clipPath: at(by + under) }], SHEET, { fill }));
+    }
+    carried.forEach((el, i) => {
+      const base = bases[i] ?? "none";
+      const away = `translate(0px, ${rounded(by)}px)${base === "none" ? "" : ` ${base}`}`;
+      run(play(el, grow ? [{ transform: away }, { transform: base }] : [{ transform: base }, { transform: away }], SHEET, { fill }));
+    });
+  }
+  // the edge goes up as the card grows: a column that leaves goes up with it, one that arrives comes down to its place
+  const way = grow ? -1 : 1;
+  for (const el of move.leaving) {
+    run(play(el, [{ opacity: 1 }, { opacity: 0 }], FADE, { fill: "forwards" }));
+    run(play(el, [{ transform: "none" }, { transform: `translateY(${way * DRIFT_PX}px)` }], SHEET, { fill: "forwards" }));
+  }
+  const arriveAfter = grow ? ARRIVE_AFTER_MS : 0;
+  for (const el of move.arriving) {
+    run(play(el, [{ opacity: 0 }, { opacity: 1 }], FADE, { delay: arriveAfter, fill: "backwards" }));
+    run(play(el, [{ transform: `translateY(${-way * DRIFT_PX}px)` }, { transform: "none" }], SHEET, { delay: arriveAfter, fill: "backwards" }));
+  }
+
+  let over = false;
+  const finish = () => {
+    if (over) return;
+    over = true;
+    if (!grow) {
+      const height = card.getBoundingClientRect().height;
+      move.layout(true);
+      keepReading(scrollers, card.getBoundingClientRect().height - height);
+    }
+    move.settled();
+    for (const animation of animations) animation.cancel();
     lift.style.transformOrigin = "";
   };
   void Promise.allSettled(animations.map((animation) => animation.finished)).then(finish);

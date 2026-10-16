@@ -1,0 +1,100 @@
+[
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "e699b3d2-38ed-4e6f-9bf7-ffa21f04e04b",
+      "sessionKey": "agent:main:dashboard:f5b483f9-d244-4cd3-bb81-fdf0f9da43a4",
+      "agentId": "main",
+      "seq": 1,
+      "state": "status",
+      "phase": "preparing_workspace"
+    },
+    "seq": 1
+  },
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "e699b3d2-38ed-4e6f-9bf7-ffa21f04e04b",
+      "sessionKey": "agent:main:dashboard:f5b483f9-d244-4cd3-bb81-fdf0f9da43a4",
+      "agentId": "main",
+      "seq": 2,
+      "state": "status",
+      "phase": "preparing_context"
+    },
+    "seq": 3
+  },
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "e699b3d2-38ed-4e6f-9bf7-ffa21f04e04b",
+      "sessionKey": "agent:main:dashboard:f5b483f9-d244-4cd3-bb81-fdf0f9da43a4",
+      "agentId": "main",
+      "seq": 4,
+      "state": "status",
+      "phase": "starting_model"
+    },
+    "seq": 6
+  },
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "e699b3d2-38ed-4e6f-9bf7-ffa21f04e04b",
+      "sessionKey": "agent:main:dashboard:f5b483f9-d244-4cd3-bb81-fdf0f9da43a4",
+      "agentId": "main",
+      "seq": 6,
+      "state": "delta",
+      "deltaText": "the gateway is real and only the model is",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "the gateway is real and only the model is"
+          }
+        ],
+        "timestamp": 1792054850962
+      }
+    },
+    "seq": 9
+  },
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "e699b3d2-38ed-4e6f-9bf7-ffa21f04e04b",
+      "sessionKey": "agent:main:dashboard:f5b483f9-d244-4cd3-bb81-fdf0f9da43a4",
+      "agentId": "main",
+      "seq": 7,
+      "state": "delta",
+      "deltaText": " scripted, so every row, event and approval"
+    },
+    "seq": 12
+  },
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "e699b3d2-38ed-4e6f-9bf7-ffa21f04e04b",
+      "sessionKey": "agent:main:dashboard:f5b483f9-d244-4cd3-bb81-fdf0f9da43a4",
+      "agentId": "main",
+      "seq": 11,
+      "state": "final",
+      "stopReason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "the gateway is real and only the model is scripted, so every row, event and approval"
+          }
+        ],
+        "timestamp": 1792054851072
+      }
+    },
+    "seq": 15
+  }
+]

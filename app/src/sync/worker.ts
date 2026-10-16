@@ -29,6 +29,7 @@ import {
   viewOf,
 } from "./reducer";
 import { readTranscript } from "./read";
+import { type AskReply, keepReply, replyKey, restoreReplies } from "./replies";
 import { Sender } from "./sender";
 import { SseParser, type SseFrame } from "./sse";
 import { Telemetry } from "./telemetry";
@@ -109,6 +110,8 @@ class Sync {
 
   /** the composer's outbox and drafts */
   readonly sender: Sender;
+  /** this device's replies to asks, by book key, oldest first: what the cache holds under `ask:` (replies.ts) */
+  private replies: Record<string, AskReply> = {};
 
   constructor(device: string, deviceClass: ConstructorParameters<typeof Telemetry>[1]) {
     this.telemetry = new Telemetry(
@@ -150,12 +153,15 @@ class Sync {
     // the thread the url opens paints on the first frame, so its pages are read now; no other thread's are
     if (open) await this.restore(open, true);
     const ms = Math.round(performance.now() - started);
-    const composer = (await this.cache?.loadComposer().catch(() => null)) ?? { drafts: {}, outbox: [], rows: [] };
+    const composer = (await this.cache?.loadComposer().catch(() => null)) ?? { drafts: {}, outbox: [], rows: [], replies: [] };
     this.sender.restore(composer.outbox, composer.drafts);
     this.telemetry.restore(composer.rows);
+    const replies = restoreReplies(composer.replies);
+    this.replies = replies.book;
+    if (replies.dropped.length) void this.cache?.putReply(null, null, replies.dropped).catch(() => undefined);
     const views: Record<string, ThreadView> = {};
     for (const [key, thread] of Object.entries(this.state.threads)) views[key] = viewOf(thread);
-    const sync: UiSync = { fleet: this.state.fleet, threads: views, stream: this.stream, drafts: composer.drafts, outbox: this.sender.views() };
+    const sync: UiSync = { fleet: this.state.fleet, threads: views, stream: this.stream, drafts: composer.drafts, outbox: this.sender.views(), replies: Object.values(this.replies) };
     post({ type: "boot", sync });
     this.telemetry.emit("perf.cache", { what: "boot", threads: Object.keys(this.state.cold).length + Object.keys(this.state.threads).length, messages: Object.values(this.state.threads).reduce((n, t) => n + t.messages.length, 0) }, { ms, ok: true });
     void this.streamLoop();
@@ -183,6 +189,13 @@ class Sync {
 
   release(key: string): void {
     this.dispatch({ type: "release", key });
+  }
+
+  /** a stage's retry: a thread waiting on its read reads again now; one the worker does not hold in memory (evicted, or never
+      taken) is opened again, which restores or reads it */
+  async reread(key: string): Promise<void> {
+    if (this.state.threads[key]) this.dispatch({ type: "reread", key });
+    else await this.open(key);
   }
 
   /** reads a cold thread's pages and puts it back in memory. reads of one thread are shared; an entry that passes the
@@ -438,6 +451,7 @@ class Sync {
         wanted: () => !this.life.signal.aborted && this.state.threads[key]?.hydration === hydration,
         wait: (ms) => sleep(ms, this.life.signal),
         nextDelay: () => backoff.nextDelay(),
+        failed: (trouble) => this.dispatch({ type: "read-failed", key, hydration, trouble }),
       });
       if (read === null || read === "signed-out") return;
       this.dispatch({ type: "hydrated", key, hydration, upstreamEpoch: read.at.epoch, at: read.at.seq, messages: read.messages, bytes: read.bytes });
@@ -610,7 +624,16 @@ class Sync {
     this.telemetry.stop();
   }
 
+  /** keeps a reply's record, in memory and in the cache, and lets go of what fell past the cap. a write that fails costs the record
+      after a reload, nothing more: the row says the time alone then, as it would for another device's answer */
+  replied(record: AskReply): void {
+    const kept = keepReply(this.replies, record);
+    this.replies = kept.book;
+    void this.cache?.putReply(replyKey(record.thread, record.callID), record, kept.dropped).catch(() => undefined);
+  }
+
   async forget(): Promise<void> {
+    this.replies = {};
     this.stop();
     await this.telemetry.flush();
     await this.saving;
@@ -646,6 +669,9 @@ scope.addEventListener("message", (event) => {
       case "release":
         current.release(message.key);
         return;
+      case "reread":
+        await current.reread(message.key);
+        return;
       case "flush":
         await current.flush();
         return;
@@ -679,6 +705,9 @@ scope.addEventListener("message", (event) => {
         return;
       case "unsend":
         await current.sender.unsend(message.key, message.messageID, message.clientID, message.toDraft);
+        return;
+      case "replied":
+        current.replied(message.record);
         return;
       default:
         message satisfies never;

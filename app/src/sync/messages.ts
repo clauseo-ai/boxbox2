@@ -5,6 +5,7 @@
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
 import type { Draft, DraftMessage, OutboxView, Photo, Target, Verb } from "./outbox";
 import type { Counters, Fleet, Patch, ThreadView } from "./reducer";
+import type { AskReply } from "./replies";
 
 /** one telemetry event as the ui hands it to the worker, which owns the only emitter: the kind and its props agree */
 export type Emit = { [K in EventKind]: { kind: K; props: PropsOf<K>; envelope: EventEnvelope } }[EventKind];
@@ -28,6 +29,9 @@ export type UiSync = {
   drafts: Record<string, Draft>;
   /** sends the daemon has not echoed yet */
   outbox: OutboxView[];
+  /** this device's replies to asks, as indexeddb held them, oldest first (replies.ts); the worker always sends them, a story's
+      boot (which has no worker) may not */
+  replies?: AskReply[];
 };
 
 /** a send as the composer hands it to the worker */
@@ -61,6 +65,8 @@ export type ToWorker =
   /** a held thread is not needed now: its place is free at once, and the thread stays cached, first to be evicted. an
       opened thread is not changed by it */
   | { type: "release"; key: string }
+  /** a stage with nothing to show asks for its thread again now (its retry): a read that waits on its backoff starts over */
+  | { type: "reread"; key: string }
   /** write the cache and the telemetry queue now: the page is being hidden */
   | { type: "flush" }
   /** the same, and close the stream's socket now: the page is leaving (`pagehide`), to be unloaded or frozen */
@@ -82,7 +88,9 @@ export type ToWorker =
   /** take back a queued message by its provisional id; `clientID` names this device's own send when it is one. `toDraft`
       says the person means to write it again: its words and photos come back to the draft (`returned`). a steer or a run
       now that sends the words itself does not ask for that */
-  | { type: "unsend"; key: string; messageID: string; clientID: string | null; toDraft: boolean };
+  | { type: "unsend"; key: string; messageID: string; clientID: string | null; toDraft: boolean }
+  /** keep the record of a reply this device made to an ask, once the daemon settled it (replies.ts): the ui's store has it already */
+  | { type: "replied"; record: AskReply };
 
 export type FromWorker =
   | { type: "boot"; sync: UiSync }

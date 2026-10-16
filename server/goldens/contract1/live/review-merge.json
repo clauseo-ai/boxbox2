@@ -1,0 +1,25 @@
+{
+  "golden": "review-merge",
+  "proves": "a merge squashes the branch into its base: the daemon's answer as it came",
+  "request": {
+    "method": "POST",
+    "path": "/api/hosts/bench/sessions/<ses 1>/review/merge",
+    "accept-encoding": "gzip",
+    "body": {
+      "message": "add merge.txt from the checkout"
+    }
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "merged": true,
+    "commit": "<sha 1>",
+    "base": "main",
+    "branch": "cmx2/golden-merge",
+    "commits": 1,
+    "into": "<world>/repos/ledger",
+    "stopped": []
+  }
+}

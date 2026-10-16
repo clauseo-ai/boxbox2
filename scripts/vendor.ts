@@ -1,18 +1,29 @@
-/* the cmx2 contract, vendored from the one commit in cmx2.pin.
+/* the cmx2 contract, vendored from the one commit in cmx2.pin, and the
+   openclaw gateway protocol schema, vendored from the published npm tarball
+   at the version in openclaw.pin (docs/openclaw.md, 2.2).
 
-   `bun scripts/vendor.ts`         copies the files from the pinned commit
-   `bun scripts/vendor.ts --check` proves the vendored bytes are the pin's
+   `bun scripts/vendor.ts`                 copies both
+   `bun scripts/vendor.ts --only openclaw` copies only the openclaw schema
+   `bun scripts/vendor.ts --check`         proves the vendored bytes are the pins'
 
    the proof works without the cmx2 repo: vendor/cmx2/SOURCE records the
    git blob id of each file at the pin, and a blob id is the content's own
    address, so `git hash-object` of the vendored file must equal it. when
    the cmx2 repo is present (CMX2_REPO, default ../cmx2), the check also
    asks git for the blob ids at the pin, so a hand-edited SOURCE cannot
-   pass either. */
+   pass either.
+
+   the openclaw schema is not in openclaw's repository at any commit (it is
+   generated at prepack), so it comes from `npm pack`: the tarball's sha512
+   must equal `schema` in openclaw.pin, and the copied file's sha256 is
+   written to vendor/openclaw/protocol.schema.sha256, which the check
+   recomputes with no network. */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { readPin as readOpenclawPin } from "./openclaw-pinned";
 
 const ROOT = resolve(import.meta.dir, "..");
 const REPO = resolve(ROOT, process.env.CMX2_REPO ?? "../cmx2");
@@ -96,9 +107,71 @@ function check(): void {
   console.log(`vendor: ${FILES.length} files match cmx2 ${pin.slice(0, 7)}, ${how}`);
 }
 
+const OPENCLAW_SCHEMA = "vendor/openclaw/protocol.schema.json";
+const OPENCLAW_SHA = "vendor/openclaw/protocol.schema.sha256";
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function vendorOpenclaw(): void {
+  const pin = readOpenclawPin();
+  const pkg = `@openclaw/gateway-protocol@${pin.version}`;
+  mkdirSync("/tmp/boxbox-vendor", { recursive: true });
+  const dir = mkdtempSync("/tmp/boxbox-vendor/openclaw-");
+  try {
+    const pack = spawnSync("npm", ["pack", pkg, "--json", "--pack-destination", dir], { cwd: dir, encoding: "utf8" });
+    if (pack.status !== 0) throw new Error(`npm pack ${pkg} failed: ${pack.stderr.trim()}`);
+    const [info] = JSON.parse(pack.stdout) as { filename: string; integrity: string }[];
+    if (!info) throw new Error(`npm pack ${pkg} printed no tarball`);
+    const tarball = join(dir, info.filename.replace(/^@/, "").replace("/", "-"));
+    const integrity = `sha512-${createHash("sha512").update(readFileSync(tarball)).digest("base64")}`;
+    if (integrity !== pin.schema) throw new Error(`${pkg} has integrity ${integrity}, openclaw.pin says ${pin.schema}`);
+    const untar = spawnSync("tar", ["-xzf", tarball, "-C", dir, "package/protocol.schema.json"]);
+    if (untar.status !== 0) throw new Error(`${info.filename} has no package/protocol.schema.json`);
+    const bytes = readFileSync(join(dir, "package/protocol.schema.json"));
+    mkdirSync(join(ROOT, "vendor/openclaw"), { recursive: true });
+    writeFileSync(join(ROOT, OPENCLAW_SCHEMA), bytes);
+    writeFileSync(
+      join(ROOT, OPENCLAW_SHA),
+      `# written by \`just vendor\` from ${pkg} (${pin.schema})\n${sha256(bytes)}  protocol.schema.json\n`,
+    );
+    console.log(`vendored ${OPENCLAW_SCHEMA} from ${pkg} (${bytes.length} bytes, sha256 ${sha256(bytes)})`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function checkOpenclaw(): void {
+  const pin = readOpenclawPin();
+  const lines = readFileSync(join(ROOT, OPENCLAW_SHA), "utf8").split("\n");
+  const header = lines.find((l) => l.startsWith("#")) ?? "";
+  const recorded = lines.find((l) => l && !l.startsWith("#"))?.split(/\s+/)[0];
+  const failures: string[] = [];
+  if (!header.includes(`@${pin.version} (${pin.schema})`)) {
+    failures.push(`${OPENCLAW_SHA} is not from @openclaw/gateway-protocol@${pin.version} (${pin.schema}): run \`just vendor\``);
+  }
+  const actual = sha256(readFileSync(join(ROOT, OPENCLAW_SCHEMA)));
+  if (actual !== recorded) failures.push(`${OPENCLAW_SCHEMA} has sha256 ${actual}, ${OPENCLAW_SHA} records ${recorded}`);
+  if (failures.length > 0) {
+    for (const f of failures) console.error(`vendor: ${f}`);
+    process.exit(1);
+  }
+  console.log(`vendor: ${OPENCLAW_SCHEMA} matches @openclaw/gateway-protocol@${pin.version}, sha256 ${actual.slice(0, 12)}`);
+}
+
 try {
-  if (process.argv.includes("--check")) check();
-  else vendor();
+  const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : undefined;
+  if (process.argv.includes("--check")) {
+    check();
+    checkOpenclaw();
+  } else if (only === "openclaw") vendorOpenclaw();
+  else if (only === "cmx2") vendor();
+  else if (only !== undefined) throw new Error(`--only takes cmx2 or openclaw, not ${only}`);
+  else {
+    vendor();
+    vendorOpenclaw();
+  }
 } catch (error) {
   console.error(`vendor: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);

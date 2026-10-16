@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { args, type Colour, declarations, evaluate, lerp, over, stripComments, toHex } from "./css-colour";
 import { floodTop } from "../settings/chrome";
-import { contrast, REPO_COLOURS, type RepoColour } from "./repo";
+import { ALL_COLOURS, contrast, type RepoColour } from "./repo";
 
 /* the stage floods with the repo's colour in both appearances (design.md, colour), and every stop of the flood must
    hold 4.5:1 for the stage's text and accent. the flood is written once, in css, as color-mix recipes; this test reads
@@ -115,7 +115,7 @@ const BELOW_TITLE = SAMPLES.filter((t) => t >= 0.2);
 
 for (const [light, label] of [[0, "dark"], [1, "light"]] as const) {
   describe(`the ${label} flood`, () => {
-    for (const colour of REPO_COLOURS) {
+    for (const colour of ALL_COLOURS) {
       const { vars, get, evalIn, flood, barSubtitle } = tokens(colour, light);
       const ratioOn = (ink: Colour, back: Colour) => contrast(toHex(over(ink, back)), toHex(back));
 
@@ -169,10 +169,10 @@ for (const [light, label] of [[0, "dark"], [1, "light"]] as const) {
         for (const [stop] of flood) expect(ratioOn(get("--text-2"), stop), "--text-2").toBeGreaterThanOrEqual(4.5);
       });
 
-      // the ledger's and the tape's small words that carry something (a directory, a pause, a time label, a lane's name) are --text-2
-      // too: --text-3 decorates and falls under 4.5:1 on the flood. they sit on the flood, and the tape's words on its well
-      test(`${colour.name}: the small information-bearing words of the ledger and the tape are --text-2 and hold 4.5:1 on every stop and on the well`, () => {
-        for (const rule of [".dir", ".gap", ".tp-scale span", ".lane-hd", ".lane-name span"]) {
+      // the ledger's small words that carry something (a directory, a pause, a step group's line) are --text-2 too: --text-3
+      // decorates and falls under 4.5:1 on the flood. they sit on the flood, and in an open row on its well
+      test(`${colour.name}: the small information-bearing words of the ledger are --text-2 and hold 4.5:1 on every stop and on the well`, () => {
+        for (const rule of [".dir", ".gap", ".row.group .row-c"]) {
           expect(THREAD, rule).toMatch(new RegExp(`${rule.replace(/[.]/g, "\\.")} \\{[^}]*color: var\\(--text-2\\)`));
         }
         const well = get("--well");
@@ -182,13 +182,10 @@ for (const [light, label] of [[0, "dark"], [1, "light"]] as const) {
         }
       });
 
-      // a running turn's tape floats as a card in the flood's own foot colour, lifted toward the light (thread.css, --card)
-      test(`${colour.name}: the stuck tape's card is the flood's foot colour lifted toward the light, and its words hold 4.5:1 on it`, () => {
-        const card = declarations(THREAD, ".tape {").get("--card");
-        expect(card, "the tape's --card").toMatch(/var\(--flood-3\)/);
-        const back = evalIn(card as string);
-        expect(back.a, "the card is opaque").toBe(1);
-        for (const name of ["--text", "--text-2", "--accent", "--red"]) expect(ratioOn(get(name), back), `${name} on the card`).toBeGreaterThanOrEqual(4.5);
+      // a step group's strip draws its marks in ink, --text at the alphas the dark flood always had, which reads the appearance,
+      // so the strip holds on the light flood as on the deep one; only the light tone, the add green and red are colours
+      test(`${colour.name}: the strip's marks and lanes are ink that reads the appearance`, () => {
+        for (const rule of [".strip-track {", ".strip-bed {", ".strip-mk {", ".strip-mk.spawn {"]) expect(declarations(THREAD, rule).get("background"), rule).toMatch(/var\(--text\)/);
       });
 
       // dark is what it always was: every base token the stage declares again is the page's own value at --L: 0
@@ -258,7 +255,7 @@ for (const [light, label] of [[0, "dark"], [1, "light"]] as const) {
 // (settings/chrome.ts, floodTop): js writes the same mix the css makes, and this holds the two equal, so a change to
 // the flood's recipe cannot leave a band of the old colour above the stage
 describe("the browser chrome over a deck's stage", () => {
-  for (const colour of REPO_COLOURS) {
+  for (const colour of ALL_COLOURS) {
     test(`${colour.name}: is the flood's top, exactly, in both appearances`, () => {
       const chrome = floodTop(colour);
       expect(toHex(tokens(colour, 0).get("--flood-1")), "dark").toBe(chrome.dark);

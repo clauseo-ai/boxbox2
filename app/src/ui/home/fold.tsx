@@ -1,8 +1,11 @@
-/* the folded rail (design.md, one layout law: the rail is the switcher and the watch, so folded it is a column of
-   swatches and not nothing). top to bottom: the toggle that unfolds it, the new-thread disc, one swatch per window in
-   the inbox order, and at the foot history and machines as marks. a swatch is a window folded to its colour: two
-   letters of its repo, its state on its corner, and, with a fine pointer, a small card beside it after a moment.
-   what a swatch says is decided in swatch.ts; the motion between this and the open rail is edge.ts. */
+/* the windows folded (design.md, one layout law: the windows are the switcher and the watch, so folded they are swatches
+   and not nothing). on the rail a 76 px column, top to bottom: the toggle that unfolds it, the new-thread disc, one swatch
+   per window in the inbox order, and at the foot history and machines as marks. on the strip the same pieces in one bar
+   across the top, as tall as the open bar, with the toggle at its end where the open bar's sits, so a fold and an unfold
+   land on the same spot (the native app's stripchevron). a tap on the fold's ground, between its swatches and buttons,
+   unfolds it: folded is never a dead end. a swatch is a window folded to its colour: two letters of its repo, its state
+   on its corner, and, with a fine pointer, a small card beside it (below it, on the strip) after a moment. what a swatch
+   says is decided in swatch.ts; the motion between this and the open windows is edge.ts. */
 
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { colourStyle } from "../window/repo";
@@ -10,6 +13,7 @@ import { openSuffix } from "../window/clear";
 import { type WindowView, windowName } from "../window/view";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { markOf, stateWords } from "./swatch";
+import { type Beside, toggleName, type WindowsState } from "./windows";
 import "./fold.css";
 
 /** the pointer rests on a swatch this long before its card shows */
@@ -17,10 +21,10 @@ const CARD_AFTER_MS = 250;
 /** and leaves it this long before the card goes, so crossing the gap to the next swatch keeps it */
 const CARD_LINGER_MS = 120;
 
-/** a rounded rectangle with a rule near its left edge: the sidebar the toggle folds, its pane filled while the sidebar is
-    open and an outline while it is folded, so the glyph says the state and the toggle never changes colour. the details
-    toggle in the stage's bar (app/src/ui/thread/details.tsx) draws its mirror, so the two read as a pair at the stage's
-    two edges */
+/** a rounded rectangle with a rule near its left edge: the sidebar the rail's toggle folds, its pane filled while the
+    windows are open and an outline while they are folded, so the glyph says the state and the toggle never changes colour.
+    the details toggle in the stage's bar (app/src/ui/thread/details.tsx) draws its mirror, so the two read as a pair at the
+    stage's two edges */
 function SidebarGlyph(props: { open: boolean }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -33,24 +37,42 @@ function SidebarGlyph(props: { open: boolean }) {
   );
 }
 
-/** the open rail's column of windows (home.tsx), which the toggles disclose */
-export const RAIL_WINDOWS = "rail-windows";
+/** the strip's: the same frame with a band across its top, filled while the row of windows is open */
+function BandGlyph(props: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="4.5" width="16" height="15" rx="3" />
+      <path d="M4 10h16" />
+      <Show when={props.open}>
+        <path class="pane" d="M4 7.5a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3V10H4z" />
+      </Show>
+    </svg>
+  );
+}
 
-/** a disclosure of the windows column, named for what it opens and closes and never for the way it would go: "windows", with
-    its state in `aria-expanded` (and in the glyph's filled pane). a button of each, one in the open bar and one in the folded
-    column; whichever is not on screen is inert, so the name is on the screen once */
-export function FoldToggle(props: { folded: boolean; onToggle: () => void }) {
+/** the open windows (home.tsx's row or column), which the toggles disclose */
+export const WINDOWS_ID = "home-windows";
+
+/** the windows' one control (windows.ts): the layout's glyph, named for what a tap does, its state in `aria-expanded`.
+    a button of each, one in the open bar and one on the fold at the same place, and while the windows are put away a round
+    at the start of the stage's bar (`round`); whichever is not on screen is inert or absent, so the name is on the screen
+    once */
+export function FoldToggle(props: { form: Beside; state: WindowsState; onToggle: () => void; round?: boolean }) {
+  const open = () => props.state === "open";
   return (
     <button
-      class="pill icon fold-toggle"
+      class={props.round ? "round windows-toggle" : "pill icon fold-toggle"}
       type="button"
-      aria-label="windows"
-      aria-expanded={props.folded ? "false" : "true"}
-      aria-controls={RAIL_WINDOWS}
-      aria-keyshortcuts="["
+      aria-label={toggleName(props.form, props.state)}
+      aria-expanded={open() ? "true" : "false"}
+      aria-controls={WINDOWS_ID}
+      aria-keyshortcuts={props.state === "hidden" ? "Meta+Shift+F [" : "["}
+      title={toggleName(props.form, props.state)}
       onClick={() => props.onToggle()}
     >
-      <SidebarGlyph open={!props.folded} />
+      <Show when={props.form === "strip"} fallback={<SidebarGlyph open={open()} />}>
+        <BandGlyph open={open()} />
+      </Show>
     </button>
   );
 }
@@ -107,7 +129,9 @@ function Swatch(props: SwatchProps) {
   );
 }
 
-export type FoldedRailProps = {
+export type FoldedProps = {
+  /** the column of the rail, or the bar of the strip */
+  form: Beside;
   /** the windows in the inbox order */
   keys: readonly string[];
   viewOf: (key: string) => WindowView | null;
@@ -121,17 +145,17 @@ export type FoldedRailProps = {
   onMachines: () => void;
   /** where a keyboard's focus lands again after history or machines (app/src/shell): only on the rail that is on screen */
   returns: boolean;
-  /** whether nothing in it can be reached: it is the rail that is not on screen */
+  /** whether nothing in it can be reached: it is the fold that is not on screen */
   inert: boolean;
   /** the swatch of a window, kept by home so a reorder moves them with the snap spring and a tap pours from them */
   swatchRef: (key: string, el: HTMLElement | null) => void;
   ref: (el: HTMLElement) => void;
 };
 
-export function FoldedRail(props: FoldedRailProps) {
+export function Folded(props: FoldedProps) {
   /* the card: one element that follows the swatch the pointer is on. with the pointer already on one, the next shows at
      once; from rest it waits. only a fine pointer has one: a finger has no hover and a long press means something else */
-  const [card, setCard] = createSignal<{ key: string; y: number } | null>(null);
+  const [card, setCard] = createSignal<{ key: string; x: number; y: number } | null>(null);
   const [shown, setShown] = createSignal(false);
   let wait: ReturnType<typeof setTimeout> | undefined;
   let linger: ReturnType<typeof setTimeout> | undefined;
@@ -145,7 +169,8 @@ export function FoldedRail(props: FoldedRailProps) {
     clearTimeout(wait);
     const show = () => {
       const box = el.getBoundingClientRect();
-      setCard({ key, y: box.top + box.height / 2 });
+      // beside the rail's swatch, at its middle; under the strip's
+      setCard(props.form === "strip" ? { key, x: box.left + box.width / 2, y: box.bottom + 10 } : { key, x: box.right + 24, y: box.top + box.height / 2 });
       setShown(true);
     };
     if (shown()) show();
@@ -162,8 +187,20 @@ export function FoldedRail(props: FoldedRailProps) {
   };
 
   return (
-    <div class="fold" ref={props.ref} role="group" aria-label="threads, folded" inert={props.inert}>
-      <FoldToggle folded onToggle={props.onUnfold} />
+    <div
+      class="fold"
+      ref={props.ref}
+      data-form={props.form}
+      role="group"
+      aria-label="threads, folded"
+      inert={props.inert}
+      onClick={(event) => {
+        if (!(event.target instanceof Element && event.target.closest("button"))) props.onUnfold();
+      }}
+    >
+      <Show when={props.form === "rail"}>
+        <FoldToggle form="rail" state="folded" onToggle={props.onUnfold} />
+      </Show>
       <Show when={props.onNew}>
         {(start) => (
           <button class="fold-new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onClick={() => start()()}>
@@ -216,7 +253,10 @@ export function FoldedRail(props: FoldedRailProps) {
           </svg>
         </button>
       </div>
-      <div class="fold-card" data-on={shown() ? "" : undefined} aria-hidden="true" style={{ "--y": `${card()?.y ?? 0}px` }}>
+      <Show when={props.form === "strip"}>
+        <FoldToggle form="strip" state="folded" onToggle={props.onUnfold} />
+      </Show>
+      <div class="fold-card" data-on={shown() ? "" : undefined} aria-hidden="true" style={{ "--x": `${card()?.x ?? 0}px`, "--y": `${card()?.y ?? 0}px` }}>
         <Show when={cardView()}>
           {(view) => (
             <div class="fold-card-body" style={colourStyle(view().colour)}>

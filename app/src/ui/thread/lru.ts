@@ -1,5 +1,5 @@
 /* a size-capped least-recently-used map: the oldest entries leave when the bytes held pass the cap (every map has an eviction rule,
-   AGENTS.md rule 7). the highlighter's cache of painted code and the thread's caches (memo-cache.ts) are this one class. no dom. */
+   AGENTS.md, memory and latency). the highlighter's cache of painted code and the thread's caches (memo-cache.ts) are this one class. no dom. */
 
 export class Lru<V = string> {
   private readonly held = new Map<string, { value: V; bytes: number }>();

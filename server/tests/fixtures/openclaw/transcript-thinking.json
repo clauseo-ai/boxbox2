@@ -1,0 +1,204 @@
+{
+  "sessionKey": "agent:main:dashboard:532f3678-8301-4287-bd84-aad6ac05b41c",
+  "sessionId": "9e223729-42d0-403f-813b-8bda27c558bd",
+  "messages": [
+    {
+      "role": "user",
+      "content": "think, then answer",
+      "timestamp": 1792054851250,
+      "idempotencyKey": "5816b5ad-2113-437f-afa3-aea813a4d1b3:user",
+      "__openclaw": {
+        "senderIsOwner": true,
+        "transport": {
+          "clients": [
+            {
+              "id": "gateway-client",
+              "mode": "backend",
+              "displayName": "boxbox bench"
+            }
+          ]
+        },
+        "id": "6d678bc9-b154-4ce1-982b-d757d8d87a6c",
+        "idempotencyKey": "5816b5ad-2113-437f-afa3-aea813a4d1b3:user",
+        "recordTimestampMs": 1792054851920,
+        "transcriptPosition": {
+          "source": "rDfOdhbDWwT9mJpVYYXOjpZlAOF8nJBDGp096tbou48",
+          "rawSeq": 1
+        },
+        "seq": 1
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "the person wants a short answer, so one line will do."
+        },
+        {
+          "type": "text",
+          "text": "one line, after thinking.",
+          "textSignature": "{\"v\":1,\"id\":\"msg_bench_mv9b6svd_2\"}"
+        }
+      ],
+      "api": "openai-responses",
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "input": 64,
+        "output": 32,
+        "totalTokens": 96,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop",
+      "timestamp": 1792054852215,
+      "responseId": "resp_bench_mv9b6svd",
+      "diagnostics": [
+        {
+          "type": "openai_responses_terminal",
+          "timestamp": 1792054852234,
+          "details": {
+            "eventType": "response.completed",
+            "stopReason": "stop",
+            "endTurn": "absent"
+          }
+        }
+      ],
+      "__openclaw": {
+        "runId": "5816b5ad-2113-437f-afa3-aea813a4d1b3",
+        "id": "7f5504dd-b5c2-4aff-be5c-12d39a6bc396",
+        "recordTimestampMs": 1792054852236,
+        "transcriptPosition": {
+          "source": "rDfOdhbDWwT9mJpVYYXOjpZlAOF8nJBDGp096tbou48",
+          "rawSeq": 4
+        },
+        "seq": 2
+      }
+    }
+  ],
+  "hasMore": false,
+  "totalMessages": 2,
+  "pendingInputs": {
+    "items": [],
+    "total": 0,
+    "queuedCount": 0
+  },
+  "deltaCursor": "eyJhZ2VudElkIjoibWFpbiIsImdlbmVyYXRpb24iOiJiNWViOTYyZWJjYjM0MGRlYmE1OTg0MjI1MzQ2ZGY5ZCIsImxhc3RTZXEiOjQsInNlc3Npb25JZCI6IjllMjIzNzI5LTQyZDAtNDAzZi04MTNiLThiZGEyN2M1NThiZCIsInZlcnNpb24iOjF9",
+  "defaults": {
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "contextTokens": 128000,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "modelSelectionTarget": "session"
+  },
+  "sessionInfo": {
+    "key": "agent:main:dashboard:532f3678-8301-4287-bd84-aad6ac05b41c",
+    "visibility": "shared",
+    "permissionModePending": false,
+    "spawnDepth": 0,
+    "createdVia": "operator",
+    "participants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "expandedParticipants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "participantCount": 1,
+    "createdAt": 1792054851198,
+    "kind": "direct",
+    "label": "record thinking 1792054851106",
+    "classification": "direct",
+    "agentId": "main",
+    "isMain": false,
+    "isBackground": false,
+    "displayName": "record thinking 1792054851106",
+    "chatType": "direct",
+    "updatedAt": 1792054852307,
+    "archived": false,
+    "pinned": false,
+    "unread": true,
+    "lastInteractionAt": 1792054851509,
+    "lastActivityAt": 1792054852305,
+    "sessionId": "9e223729-42d0-403f-813b-8bda27c558bd",
+    "systemSent": true,
+    "abortedLastRun": false,
+    "effectiveFastMode": false,
+    "effectiveFastModeSource": "default",
+    "fastAutoOnSeconds": 60,
+    "totalTokensFresh": false,
+    "status": "running",
+    "startedAt": 1792054852202,
+    "endedAt": 1792054852305,
+    "runtimeMs": 103,
+    "lastRunId": "5816b5ad-2113-437f-afa3-aea813a4d1b3",
+    "parentSessionKey": "agent:main:main",
+    "effectiveResponseUsage": "off",
+    "effectiveQueueMode": "steer",
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "modelOverrideSource": null,
+    "runtimeSelectionLocked": false,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "contextTokens": 128000,
+    "snapshotAt": 1792054852332,
+    "placement": {
+      "state": "local",
+      "generation": 0,
+      "createdAtMs": 1792054851969,
+      "updatedAtMs": 1792054852300,
+      "stateChangedAtMs": 1792054851969
+    },
+    "activitySummary": {
+      "state": "unavailable",
+      "canEnsure": true
+    },
+    "sharingRole": "admin",
+    "sendDisabledReason": null,
+    "hasActiveRun": true,
+    "activeLeafEntryId": "7f5504dd-b5c2-4aff-be5c-12d39a6bc396"
+  }
+}

@@ -6,9 +6,12 @@
 
 import type { Ask, SessionEntry, SessionInfo, SessionStatus } from "../../sync/protocol";
 import { headerWords, questionsOf, waitingWords } from "../asks/words";
+import { type Need, needOf, permissionWhat } from "./need";
 import { repoRootOf } from "../composer/place";
 import { colourOf, type RepoColour, repoName } from "./repo";
-import { type TailLine, tailLines } from "./tail";
+import type { Strip } from "../thread/groups";
+import { runOf } from "./run";
+import type { TailLine } from "./tail";
 
 export type WindowState = "wants" | "failed" | "done" | "working" | "queued" | "parked" | "idle";
 
@@ -42,8 +45,13 @@ export type WindowView = {
   chip: { text: string; tone: ChipTone } | null;
   /** what the clock counts from, ms: the turn's start, the ask's arrival, the park */
   since: number | null;
+  /** what the body shows (run.ts): working, the run's latest lines under what you asked; done, the agent's words */
   tail: TailLine[];
+  /** the working run's strip, a slot a step in order; null when the body shows words */
+  strip: Strip | null;
   ask: AskView | null;
+  /** what the thread needs, from every pending ask: the window's tray and the answer sheet say it (need.ts) */
+  need: Need | null;
   /** queued prompts behind the running turn */
   queued: number;
   /** subagents with a turn running */
@@ -74,6 +82,7 @@ export function windowView(entry: SessionEntry, asks: readonly Ask[], extra: Ext
   const parked = status?.type === "idle" && status.parked ? status.parked : null;
   const state = stateOf({ ask: ask !== null, failure: extra.failure ?? null, busy, queued, parked: parked !== null, agents: parked?.agents ?? 0, seen: extra.seen ?? false });
   const summary = info.summary;
+  const run = runOf(entry.tail, state);
   return {
     key: entry.key,
     host: entry.host,
@@ -84,8 +93,10 @@ export function windowView(entry: SessionEntry, asks: readonly Ask[], extra: Ext
     state,
     chip: chipOf(state, queued, extra.review !== undefined),
     since: sinceOf(state, status, info),
-    tail: tailLines(entry.tail),
+    tail: run.lines,
+    strip: run.strip,
     ask: ask ? askView(ask) : null,
+    need: needOf(asks),
     queued,
     agents: entry.agents,
     parkedAgents: parked?.agents ?? 0,
@@ -150,24 +161,7 @@ function askView(ask: Ask): AskView {
   }
   const permission = typeof ask.request.permission === "string" ? ask.request.permission : "something";
   const patterns = Array.isArray(ask.request.patterns) ? ask.request.patterns.filter((p): p is string => typeof p === "string") : [];
-  return { ...base, kind: "permission", text: patterns.length > 0 ? `${verbOf(permission)} ${patterns.join(", ")}` : `wants to use ${permission}` };
-}
-
-function verbOf(permission: string): string {
-  switch (permission) {
-    case "shell":
-    case "bash":
-      return "run";
-    case "edit":
-    case "write":
-      return "edit";
-    case "read":
-      return "read";
-    case "webfetch":
-      return "fetch";
-    default:
-      return `use ${permission} on`;
-  }
+  return { ...base, kind: "permission", text: patterns.length > 0 ? permissionWhat(ask) : `wants to use ${permission}` };
 }
 
 /** m:ss, or h:mm:ss past an hour: the working clock and the ask's wait */

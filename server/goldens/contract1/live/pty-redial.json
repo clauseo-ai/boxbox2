@@ -1,0 +1,91 @@
+{
+  "golden": "pty-redial",
+  "proves": "a terminal's relay: the first dial ends its replay with a meta cursor, a redial with that cursor replays nothing and carries on, a redial from 0 replays everything, -1 replays nothing",
+  "steps": [
+    {
+      "step": "dial with no cursor, type a line, hang up",
+      "sent": "golden one\\r",
+      "frames": [
+        {
+          "kind": "meta",
+          "cursor": 0
+        },
+        {
+          "kind": "text",
+          "text": "golden one\r\ngolden one\r\n"
+        },
+        {
+          "kind": "closed",
+          "code": 1000,
+          "reason": ""
+        }
+      ],
+      "cursor": 24
+    },
+    {
+      "step": "redial with that cursor: nothing replayed, then type again",
+      "cursor": 24,
+      "sent": "golden two\\r",
+      "frames": [
+        {
+          "kind": "meta",
+          "cursor": 24
+        },
+        {
+          "kind": "text",
+          "text": "golden two\r\ngolden two\r\n"
+        },
+        {
+          "kind": "closed",
+          "code": 1000,
+          "reason": ""
+        }
+      ],
+      "after": 48
+    },
+    {
+      "step": "redial from 0: everything retained, then the meta frame",
+      "cursor": 0,
+      "frames": [
+        {
+          "kind": "text",
+          "text": "golden one\r\ngolden one\r\ngolden two\r\ngolden two\r\n"
+        },
+        {
+          "kind": "meta",
+          "cursor": 48
+        },
+        {
+          "kind": "closed",
+          "code": 1000,
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "step": "redial with -1: only what comes next",
+      "cursor": -1,
+      "frames": [
+        {
+          "kind": "meta",
+          "cursor": 48
+        },
+        {
+          "kind": "closed",
+          "code": 1000,
+          "reason": ""
+        }
+      ]
+    },
+    {
+      "step": "a websocket dial with a cursor below -1 is refused before the upgrade",
+      "status": 400,
+      "body": {
+        "error": {
+          "code": "bad-request",
+          "message": "the cursor is -1 or more"
+        }
+      }
+    }
+  ]
+}

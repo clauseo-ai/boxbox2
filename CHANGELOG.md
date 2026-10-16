@@ -6,6 +6,13 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the openclaw dev gateway.** `openclaw.pin` pins openclaw e178c39 (2026.10.1,
+  protocol 4), `vendor/openclaw/protocol.schema.json` is vendored from the
+  published `@openclaw/gateway-protocol@2026.10.1` and held by `just check`,
+  and `just openclaw` builds the pinned gateway and runs it with a scripted
+  model (docs/openclaw.md, section 11). recorded wire fixtures live in
+  `server/tests/fixtures/openclaw/`.
+
 - **images in read rows.** a tool call that read images opens to thumbnails,
   and a thumbnail opens the image full size. the cmx2 pin moves from 2364633
   to 0bf2ba2, which adds `attachments` and `attachmentsDropped` to a completed

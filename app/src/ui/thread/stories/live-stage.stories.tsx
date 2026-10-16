@@ -74,8 +74,7 @@ function askOn(key: string, at: number, last: Message): void {
 const ANSWER = "the tvOS build is done and the three streams now share one upscale path.\n\n- **upscaling**: the strategy lives in `UpscaleStrategy.swift`, 46 lines added and none removed\n- **tests**: all 54 pass on the simulator\n- **left for you**: a run on the device, which needs the tv on\n\nnothing is committed yet, so the working tree is the whole change.";
 
 /** plays one message into the store: it is born with no parts, and each part arrives as the daemon would send it */
-async function playMessage(key: string, at: number, source: Message, gone: () => boolean): Promise<void> {
-  const rate = speed();
+async function playMessage(key: string, at: number, source: Message, gone: () => boolean, rate = speed()): Promise<void> {
   const born = Date.now();
   const parts: Part[] = [];
   const put = (completed?: number) => applyPatches([{ path: ["threads", key, "messages", at], value: { info: { ...source.info, time: { created: born, ...(completed === undefined ? {} : { completed }) } }, parts: [...parts] } }]);
@@ -155,6 +154,79 @@ export const LiveHeavyTurn = (): ReactElement => {
       el.dataset["done"] = "1";
     })();
     return () => { gone = true; stop(); };
+  }, []);
+  return createElement("div", { ref, className: "shell-story" });
+};
+
+/* ---------- the foot room: a run folding whole keeps its room at the end ---------- */
+
+/** watches the live turn while the reader is pinned to the end, each frame: how often (and how far) the turn's top moved down, which is
+    what a pinned reader sees when the transcript gives room back above the end and nothing keeps it, and the most room the foot kept */
+function watchDrops(el: HTMLElement): () => void {
+  let before: { top: number; pinned: boolean } | null = null, drops = 0, most = 0, room = 0;
+  const scroller = el.querySelector<HTMLElement>(".stage-scroll");
+  const transcript = el.querySelector<HTMLElement>(".stage-scroll > .thread");
+  if (!scroller || !transcript) return () => {};
+  /* read in a resize observer made after the stage's, so in the same delivery and after it: the layout the frame paints, with the
+     stage's answer to the change (the room it keeps, the end it follows) in it. a read from a frame callback can land between the
+     patches the frame applies and that answer, a layout nobody saw */
+  const read = () => {
+    const turn = [...el.querySelectorAll<HTMLElement>("section.turn[data-turn]")].at(-1);
+    if (!turn) return;
+    const pinned = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
+    const top = turn.getBoundingClientRect().top;
+    if (before?.pinned && pinned && top - before.top > 1) { drops++; most = Math.max(most, top - before.top); }
+    before = { top, pinned };
+    room = Math.max(room, parseFloat(scroller.style.getPropertyValue("--hold")) || 0);
+    Object.assign(el.dataset, { drops: String(drops), dropMost: String(Math.round(most)), roomMost: String(Math.round(room)) });
+  };
+  const ro = new ResizeObserver(read);
+  ro.observe(transcript);
+  ro.observe(scroller);
+  return () => ro.disconnect();
+}
+
+/** the heavy turn's opening, played until the agent first writes words after a run of steps: the run folds whole into its group as the
+    words begin, and the room its open row had stays at the end (foot.ts). the host says how often the turn moved down under a pinned
+    reader (`data-drops`, which must stay 0) and the most room kept (`data-room-most`) */
+export const FootRoom = (): ReactElement => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const stop = mountShell(el, "thread");
+    let gone = false, unwatch = () => {};
+    void (async () => {
+      while (!gone && !el.dataset["ready"]) await sleep(100);
+      const key = state.openThread;
+      if (gone || !key) return;
+      const file = (await (await fetch(northstarUrl)).json()) as { messages: Message[] };
+      const users = file.messages.flatMap((m, i) => (m.info.role === "user" ? [i] : []));
+      const from = users[1] ?? 0, to = users[2] ?? file.messages.length;
+      const turn = file.messages.slice(from, to);
+      /* the messages up to the first one that writes words after a run of steps: the fold this story is about */
+      const words = turn.findIndex((m, i) => i > 2 && m.parts.some((p) => p.type === "text" && p.text.trim() !== ""));
+      const played = turn.slice(1, words < 0 ? turn.length : words + 1);
+      applyPatches([
+        { path: ["threads", key, "messages"], value: file.messages.slice(0, from) },
+        { path: ["fleet", "asks"], value: {} },
+        { path: ["fleet", "sessions", key, "status"], value: { type: "busy", since: Date.now() } },
+      ]);
+      await sleep(600);
+      el.querySelector<HTMLElement>(".stage-scroll")?.scrollTo({ top: Number.MAX_SAFE_INTEGER });
+      await sleep(600);
+      const user = turn[0] as Message;
+      applyPatches([{ path: ["threads", key, "messages", from], value: { info: { ...user.info, time: { created: Date.now() } }, parts: user.parts } }]);
+      unwatch = watchDrops(el);
+      for (const [i, message] of played.entries()) {
+        if (gone) return;
+        // three times the recorded pace, so the shot's wait holds it; the fold is the same at any pace
+        await playMessage(key, from + 1 + i, message, () => gone, 3 * speed());
+      }
+      await sleep(400);
+      el.dataset["done"] = "1";
+    })();
+    return () => { gone = true; unwatch(); stop(); };
   }, []);
   return createElement("div", { ref, className: "shell-story" });
 };

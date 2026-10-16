@@ -14,35 +14,22 @@
 //! one that refuses boxbox's credential, answers in boxbox's own shape.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use axum::Json;
-use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderValue, StatusCode, header};
-use axum::response::{IntoResponse, Response};
-use reqwest::Method;
+use axum::response::Response;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use utoipa::{IntoParams, ToSchema};
 
 use super::AppState;
+use super::agents;
 use super::error::{ApiError, ErrorBody};
-use crate::config::HostConfig;
-use crate::upstream::{plain, request};
+use crate::wire::Capability;
 
-/// how long the daemon may take to accept a send; it answers 202 at once.
-const ACCEPT_TIMEOUT: Duration = Duration::from_secs(20);
-/// a reply is small; a list of providers or files is a few hundred kb at most.
-const MAX_ANSWER: usize = 4 * 1024 * 1024;
 /// a send with a few clamped photos; the router's default is too small for one.
 pub const SEND_BODY: usize = 8 * 1024 * 1024;
 /// how many attachments one send may carry.
 const MAX_PARTS: usize = 8;
-/// the daemon's headers a client needs; nothing else crosses.
-const PASSED: [&str; 2] = ["x-cmx2-seq", "x-cmx2-repeat"];
-/// who is answering, as the daemon shows it to the next client that tries.
-pub(super) const CLIENT_NAME: &str = "boxbox";
 
 /// a prompt, a queued prompt or a steer: what the person typed, with what
 /// they attached and the model and effort they chose for it.
@@ -118,7 +105,7 @@ pub struct FileQuery {
 }
 
 macro_rules! send_route {
-    ($name:ident, $route:literal, $doc:literal, $verb:literal) => {
+    ($name:ident, $route:literal, $doc:literal, $verb:ident) => {
         #[doc = $doc]
         #[utoipa::path(
             post,
@@ -143,9 +130,9 @@ macro_rules! send_route {
             Json(send): Json<Send>,
         ) -> Result<Response, ApiError> {
             check_send(&send)?;
-            let route = format!("/session/{}/{}", segment(&session)?, $verb);
-            let host = find(&state, &host)?;
-            call(&state, &host, Method::POST, &route, Some(to_json(&send)?), ACCEPT_TIMEOUT).await
+            let session = segment(&session)?;
+            let source = agents::cmx2(&state, &host, Some(Capability::Queue))?;
+            source.$verb(session, to_json(&send)?).await
         }
     };
 }
@@ -154,7 +141,7 @@ send_route!(
     queue,
     "/api/hosts/{host}/sessions/{session}/queue",
     "a prompt for after the running turn; on an idle session it starts one.",
-    "queue"
+    queue_raw
 );
 
 /// runs what is queued now, on an idle session ("run now" after a stop).
@@ -177,9 +164,9 @@ pub async fn run_now(
     State(state): State<Arc<AppState>>,
     Path((host, session)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
-    let route = format!("/session/{}/loop", segment(&session)?);
-    let host = find(&state, &host)?;
-    call(&state, &host, Method::POST, &route, None, ACCEPT_TIMEOUT).await
+    let session = segment(&session)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Queue))?;
+    source.run_now_raw(session).await
 }
 
 /// takes back a queued prompt before the model sees it ("unsend").
@@ -203,13 +190,9 @@ pub async fn unsend(
     State(state): State<Arc<AppState>>,
     Path((host, session, message)): Path<(String, String, String)>,
 ) -> Result<Response, ApiError> {
-    let route = format!(
-        "/session/{}/message/{}",
-        segment(&session)?,
-        segment(&message)?
-    );
-    let host = find(&state, &host)?;
-    call(&state, &host, Method::DELETE, &route, None, ACCEPT_TIMEOUT).await
+    let (session, message) = (segment(&session)?, segment(&message)?);
+    let source = agents::cmx2(&state, &host, Some(Capability::Queue))?;
+    source.unsend_raw(session, message).await
 }
 
 /// the host's providers and models, and its defaults, for the composer's
@@ -233,14 +216,8 @@ pub async fn providers(
     Path(host): Path<String>,
     Query(scope): Query<Scope>,
 ) -> Result<Response, ApiError> {
-    let host = find(&state, &host)?;
-    scoped(
-        &state,
-        &host,
-        "/config/providers",
-        scope.directory.as_deref(),
-    )
-    .await
+    let source = agents::cmx2(&state, &host, Some(Capability::Model))?;
+    source.providers_raw(scope.directory.as_deref()).await
 }
 
 /// files in a project matching what was typed after `@`, relative paths.
@@ -264,7 +241,7 @@ pub async fn find_file(
     Path(host): Path<String>,
     Query(find): Query<FileQuery>,
 ) -> Result<Response, ApiError> {
-    let host = find_host(&state, &host)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Files))?;
     let mut query = Vec::new();
     if let Some(q) = find.query.as_deref().filter(|q| !q.is_empty()) {
         query.push(format!("query={}", urlencode(q)));
@@ -275,115 +252,9 @@ pub async fn find_file(
         }
         query.push(format!("limit={limit}"));
     }
-    let route = if query.is_empty() {
-        "/find/file".to_owned()
-    } else {
-        format!("/find/file?{}", query.join("&"))
-    };
-    scoped(&state, &host, &route, find.directory.as_deref()).await
-}
-
-/// a read scoped to a project directory through the `x-cmx2-directory` header.
-async fn scoped(
-    state: &AppState,
-    host: &HostConfig,
-    route: &str,
-    directory: Option<&str>,
-) -> Result<Response, ApiError> {
-    let mut call = request(&state.client, host, Method::GET, route);
-    if let Some(directory) = directory {
-        if directory.len() > 4096 || directory.contains('\n') {
-            return Err(ApiError::BadRequest("that is not a directory".into()));
-        }
-        call = call.header("x-cmx2-directory", directory);
-    }
-    answer(state, host, call, Method::GET, route, ACCEPT_TIMEOUT).await
-}
-
-/// one call to the host, answered with its status and body as they came;
-/// only a host that cannot be reached, or refuses the credential, becomes
-/// boxbox's error.
-async fn call(
-    state: &AppState,
-    host: &HostConfig,
-    method: Method,
-    route: &str,
-    body: Option<Vec<u8>>,
-    timeout: Duration,
-) -> Result<Response, ApiError> {
-    let mut call =
-        request(&state.client, host, method.clone(), route).header("x-cmx2-client", CLIENT_NAME);
-    if let Some(body) = body {
-        call = call
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(body);
-    }
-    answer(state, host, call, method, route, timeout).await
-}
-
-async fn answer(
-    _state: &AppState,
-    host: &HostConfig,
-    call: reqwest::RequestBuilder,
-    method: Method,
-    route: &str,
-    timeout: Duration,
-) -> Result<Response, ApiError> {
-    let started = Instant::now();
-    let unreachable = |reason: String| ApiError::HostUnreachable {
-        host: host.name.clone(),
-        reason,
-    };
-    let (status, kind, passed, bytes) = tokio::time::timeout(timeout, async {
-        let answer = call.send().await?;
-        let status = answer.status();
-        let kind = answer.headers().get(reqwest::header::CONTENT_TYPE).cloned();
-        let passed: Vec<(&'static str, Vec<u8>)> = PASSED
-            .iter()
-            .filter_map(|name| {
-                answer
-                    .headers()
-                    .get(*name)
-                    .map(|v| (*name, v.as_bytes().to_vec()))
-            })
-            .collect();
-        let bytes = answer.bytes().await?;
-        Ok::<_, reqwest::Error>((status, kind, passed, bytes))
-    })
-    .await
-    .map_err(|_| unreachable(format!("no answer within {}s", timeout.as_secs())))?
-    .map_err(|e| unreachable(plain(&e)))?;
-    info!(
-        host = %host.name,
-        %method,
-        route = route.split('?').next().unwrap_or(route),
-        status = status.as_u16(),
-        latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        "session call"
-    );
-    if bytes.len() > MAX_ANSWER {
-        return Err(unreachable(format!(
-            "the answer was {} kb, past any list",
-            bytes.len() / 1024
-        )));
-    }
-    if status.as_u16() == 401 {
-        return Err(ApiError::HostRefused(host.name.clone()));
-    }
-    let mut response = Body::from(bytes).into_response();
-    *response.status_mut() =
-        StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-    let headers = response.headers_mut();
-    if let Some(kind) = kind.and_then(|k| HeaderValue::from_bytes(k.as_bytes()).ok()) {
-        headers.insert(header::CONTENT_TYPE, kind);
-    }
-    for (name, value) in passed {
-        if let Ok(value) = HeaderValue::from_bytes(&value) {
-            headers.insert(name, value);
-        }
-    }
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    Ok(response)
+    source
+        .find_file_raw(&query, find.directory.as_deref())
+        .await
 }
 
 fn check_send(send: &Send) -> Result<(), ApiError> {
@@ -466,21 +337,6 @@ fn segment(id: &str) -> Result<&str, ApiError> {
     } else {
         Err(ApiError::BadRequest(format!("\"{id}\" is not an id")))
     }
-}
-
-fn find(state: &AppState, name: &str) -> Result<Arc<HostConfig>, ApiError> {
-    find_host(state, name)
-}
-
-pub(super) fn find_host(state: &AppState, name: &str) -> Result<Arc<HostConfig>, ApiError> {
-    state
-        .upstreams
-        .hosts
-        .borrow()
-        .iter()
-        .find(|h| h.config.name == name)
-        .map(|h| Arc::clone(&h.config))
-        .ok_or_else(|| ApiError::UnknownHost(name.to_owned()))
 }
 
 fn to_json(body: &impl Serialize) -> Result<Vec<u8>, ApiError> {

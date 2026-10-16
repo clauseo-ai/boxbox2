@@ -6,6 +6,7 @@
 //! which is the right backpressure for a disk. the thread stops once every
 //! handle is dropped, after the job in hand.
 
+pub mod ids;
 mod schema;
 
 use std::path::{Path, PathBuf};
@@ -111,6 +112,74 @@ impl Store {
     }
 }
 
+/// a source's secrets (`source_secrets`, `docs/agents.md` section 4): a
+/// gateway device key, device token, instance id. the values never reach a
+/// log or an api answer; callers wrap them in types whose `Debug` hides
+/// them.
+impl Store {
+    /// the secret `name` of `connection`, if one is kept.
+    ///
+    /// # Errors
+    /// the writer has stopped, or sqlite failed.
+    pub async fn secret(
+        &self,
+        connection: &str,
+        name: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        let (connection, name) = (connection.to_owned(), name.to_owned());
+        self.call(move |c| {
+            use rusqlite::OptionalExtension;
+            c.query_row(
+                "SELECT value FROM source_secrets WHERE connection = ?1 AND name = ?2",
+                (&connection, &name),
+                |row| row.get(0),
+            )
+            .optional()
+        })
+        .await
+    }
+
+    /// keeps `value` as the secret `name` of `connection`, replacing any.
+    ///
+    /// # Errors
+    /// the writer has stopped, or sqlite failed (a value over 64 KiB is refused).
+    pub async fn put_secret(
+        &self,
+        connection: &str,
+        name: &str,
+        value: Vec<u8>,
+    ) -> Result<(), StoreError> {
+        let (connection, name) = (connection.to_owned(), name.to_owned());
+        let now = crate::now_ms();
+        self.call(move |c| {
+            c.execute(
+                "INSERT INTO source_secrets (connection, name, value, updated) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT (connection, name) DO UPDATE SET value = excluded.value, updated = excluded.updated",
+                (&connection, &name, &value, now),
+            )
+            .map(drop)
+        })
+        .await
+    }
+
+    /// forgets the secret `name` of `connection`; forgetting one that is
+    /// not kept is not an error.
+    ///
+    /// # Errors
+    /// the writer has stopped, or sqlite failed.
+    pub async fn forget_secret(&self, connection: &str, name: &str) -> Result<(), StoreError> {
+        let (connection, name) = (connection.to_owned(), name.to_owned());
+        self.call(move |c| {
+            c.execute(
+                "DELETE FROM source_secrets WHERE connection = ?1 AND name = ?2",
+                (&connection, &name),
+            )
+            .map(drop)
+        })
+        .await
+    }
+}
+
 fn open_connection(path: &Path) -> Result<Connection, StoreError> {
     create_private_file(path).map_err(|source| StoreError::Create {
         path: path.into(),
@@ -168,6 +237,46 @@ pub(crate) mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let (store, thread) = Store::open(&dir.join("boxbox.db")).unwrap();
         (store, thread, dir)
+    }
+
+    #[tokio::test]
+    async fn a_secret_is_kept_per_connection_replaced_and_forgotten() {
+        let (store, thread, dir) = scratch();
+        assert_eq!(store.secret("vm-b", "device_token").await.unwrap(), None);
+        store
+            .put_secret("vm-b", "device_token", b"one".to_vec())
+            .await
+            .unwrap();
+        store
+            .put_secret("vm-c", "device_token", b"other".to_vec())
+            .await
+            .unwrap();
+        store
+            .put_secret("vm-b", "device_token", b"two".to_vec())
+            .await
+            .unwrap();
+        assert_eq!(
+            store
+                .secret("vm-b", "device_token")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(&b"two"[..])
+        );
+        store.forget_secret("vm-b", "device_token").await.unwrap();
+        store.forget_secret("vm-b", "device_token").await.unwrap();
+        assert_eq!(store.secret("vm-b", "device_token").await.unwrap(), None);
+        assert_eq!(
+            store
+                .secret("vm-c", "device_token")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(&b"other"[..])
+        );
+        drop(store);
+        thread.join().unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]

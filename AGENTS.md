@@ -1,124 +1,110 @@
 # boxbox, notes for coding agents
 
-boxbox is a client for cmx2, a coding-agent runtime that runs one daemon per
-machine. a small rust server watches every daemon, and a web app installed
-to the home screen shows the agents' work on a phone, a tablet or a laptop.
-a 17-key hardware board is a second client. `README.md` explains the
-project and `docs/README.md` maps the code. this file is the contract for
-anyone changing it, human or agent.
+boxbox is one place to control every agent. a small rust server watches
+agents of any kind, each through a source behind one seam (`docs/agents.md`,
+the agent source seam), and computes the fleet once (threads, needs, order,
+read state, tails). the clients show the agents' work and send verbs back:
+a web app installed to the home screen on a phone, a tablet or a laptop, a
+17-key hardware board, and a native ios app in its own repository.
 
-the standard is the same everywhere. code, logs, error copy, empty states,
-edge cases and tests get the care the screens get. nothing ships by
-accident of a default, and nothing waits for a polish pass.
+the kinds: cmx2, a coding-agent runtime with one daemon per machine, is
+supported; openclaw assistants are being built (m9); hermes is next (m10);
+claude code and codex are planned. a new kind of agent is a new source
+behind the seam and a new `boxbox.toml` entry, never a change to the wire
+or a client switch on the source (decisions 28 and 30). `README.md`
+explains the project and `docs/README.md` maps the code.
 
-## read order
+this file holds facts and the constraints that protect something real. how
+much process a change gets is yours to judge: a one-line fix and a new
+subsystem deserve different amounts of ceremony.
 
-`docs/README.md`, then `docs/decisions.md`, `docs/design.md`,
-`docs/architecture.md`, `docs/scars.md`, `docs/cmx2-asks.md`,
-`docs/plan.md` and `docs/verification.md`, then the milestone you are on.
-read `docs/gotchas.md` before touching an area it mentions. `docs/open.md`
-is the one list of what is known wrong on main. a fix starts there and
-moves what it closes to the bottom, in the same commit.
+## product
 
-## golden rules
+- **thin clients.** the server computes needs, order, read state and tails
+  (decision 16); the web app, the board and the ios app render them and
+  send verbs back.
+- **design law.** `docs/design.md` decides layout, type, colour, depth,
+  motion and every budget; `home.md`, `thread.md`, `composer.md` and
+  `terminal.md` extend it and bind the same way. where the law is silent,
+  match the screens that exist and record what you decided in
+  `docs/design.md`.
+- **copy:** lowercase, plain verbs, no em or en dashes, no emojis, no
+  corporate speak. errors say what happened and what to do, and never
+  apologise.
+- **memory and latency** are features. every buffer has a byte cap and an
+  owner, every map an eviction rule, and every budget in `docs/design.md`
+  and `docs/architecture.md` has a `perf.*` telemetry row and a gate. a
+  change that regresses a budget does not land.
+- **accessibility** is the automation contract: every interactive element
+  has a real, unique accessible name, and verification drives the
+  accessibility tree.
+- **the bar:** code, logs, error copy, empty states, edge cases and tests
+  get the care the screens get. nothing ships by accident of a default.
 
-1. **everything on day one.** the milestones in `docs/plan.md` order the
-   work and do not shrink it. there are no phases, no mvp and no "later".
-2. **claims discipline.** never call anything verified, working or done
-   unless you drove it end to end against a real running cmx2 daemon in
-   this session and can point to the printed evidence. a passing build is
-   not verification, and neither is a unit test.
-3. **narrowest tier first** (`docs/verification.md`): types, unit, real
-   loop, devices, budgets. climb only as far as the question needs. every
-   milestone gate needs its full tier.
-4. **no mocks in integration tests.** run against a real cmx2 daemon.
-   fixtures are only for wire parsing, recorded from a real daemon.
-5. **accessibility is the automation contract.** every interactive element
-   has a real, unique accessible name, and verification drives the
-   accessibility tree. a control it cannot name is a bug.
-6. **the design law is binding.** `docs/design.md` decides layout, type,
-   colour, depth, motion and every budget. do not invent ui it does not
-   describe. if the law is silent, match the screens that exist and record
-   what you decided in `docs/design.md` in the same change.
-7. **memory and latency are features.** every buffer has a byte cap and an
-   owner, every map has an eviction rule, and every budget in
-   `docs/design.md` and `docs/architecture.md` has a `perf.*` telemetry
-   row and a gate. measure in the loop, not at the end. a change that
-   regresses a budget does not land.
-8. **gaps in cmx2 are asks, never workarounds** (decision 9). append the
-   gap to cmx2's `docs/engineering/ASKS.md` as an unassigned row (see
-   "cmx2" below), argue it in `docs/cmx2-asks.md`, and never patch around
-   it in boxbox. if the gap blocks the milestone, say so in your report
-   and stop.
-9. **the board is frozen** (decisions 1, 11, 14). only
-   `board/daemon/src/client.ts` changes. a checksum test holds every other
-   board file to the v1 bytes.
-10. **telemetry kinds are never renamed.** new kinds go into
-    `telemetry/schema.ts`. outcomes are honest (`ok` comes from the echo,
-    not the local call), and labels never carry user content.
-11. **copy follows the voice.** lowercase, plain verbs, no em or en
-    dashes, no emojis, no corporate speak. errors say what happened and
-    what to do, and never apologise.
-12. **this is a public repo.** nothing in code, config, docs or fixtures
-    identifies a real person's machines, hosts, repos, credentials or
-    usage data. describe setups as patterns with placeholder names.
-13. **leave running daemons and servers alone.** never restart, kill,
-    reload or point a dev build at a cmx2 daemon or boxbox server you did
-    not start for the dev loop. the cmx2 dev daemon runs on a port from
-    4840 to 4849, the boxbox dev server on 3001.
-14. **one dev server at a time, and kill what you start**, with `ps`
-    printed before a task completes. stop a process by the pid you noted
-    or the one `lsof` finds on your own port, never with `pkill` or
-    `killall` by name or pattern. parallel worktrees run the same command
-    lines (`docs/gotchas.md`, parallel lanes).
-15. **dependencies earn their place.** good libraries that make the code
-    faster and more reliable are fine. nothing for a trivial utility, no
-    abandoned crates or packages, and every addition goes into
-    `THIRD_PARTY.md` with its licence.
-16. **commits** say what changed and why, in plain words. no attribution
-    trailers and no "generated with" lines.
-17. **feed `docs/gotchas.md`** the moment something bites, so nobody pays
-    for it twice.
-18. **no time estimates.** report outcomes with evidence, worse news
-    first. if a test fails, say so and show the output.
-19. **scratch projects and harness serves live under `/tmp`**, never inside
-    this repo or next to its worktrees. a project inside a git checkout
-    makes every sibling worktree part of it (`docs/gotchas.md`, the board
-    trace harness).
-20. **a worktree that finds the main checkout dirty with someone else's
-    work stops.** it lands nothing, leaves that work alone, and reports
-    the exact landing command for its own branch.
+## constraints
+
+- **the live fleet.** never restart, kill, reload or point a dev build at a
+  cmx2 daemon, boxbox server or production machine you did not start. those
+  are someone's daily tools. the dev daemon runs on a port from 4840 to
+  4849, the boxbox dev server on 3001.
+- **dev processes.** stop what you start by the pid you noted or the one
+  `lsof` finds on your own port, never `pkill` or `killall` by name or
+  pattern: parallel worktrees run the same command lines (`docs/gotchas.md`,
+  parallel lanes).
+- **scratch in /tmp.** scratch projects and harness worlds live under
+  `/tmp`, never inside this repo or next to its worktrees: a project inside
+  a git checkout makes every sibling worktree part of it.
+- **someone else's work.** a main checkout dirty with someone else's work is
+  left alone; land nothing onto it and say how your branch would land.
+- **public repo.** nothing in code, config, docs or fixtures identifies a
+  real person's machines, hosts, repos, credentials or usage data. describe
+  setups as patterns with placeholder names.
+- **secrets** stay out of code, logs, fixtures and commits.
+- **commits:** only your own files, saying what changed and why. no
+  attribution trailers or "generated with" lines. never bypass git hooks.
+- **cmx2** is read, never edited (see below). its gaps are asks, never
+  workarounds in boxbox (decision 9).
+- **the board is frozen** (decisions 1, 11, 14). only
+  `board/daemon/src/client.ts` changes; a checksum test holds every other
+  board file to the v1 bytes.
+- **telemetry.** kinds are never renamed; new kinds go into
+  `telemetry/schema.ts`. outcomes are honest (`ok` comes from the echo, not
+  the local call), and labels never carry user content.
+- **dependencies** earn their place: no crate or package for a trivial
+  utility, nothing abandoned, and every addition in `THIRD_PARTY.md` with
+  its licence.
+
+## working
+
+- debug by reading the code first. reproduce when it helps confirm a
+  theory, not as a gate.
+- claims: say what you checked and how. never call something verified that
+  you did not check.
+- when something bites, add it to `docs/gotchas.md`.
+- **docs move with the code.** the change that makes a doc wrong fixes it
+  in the same commit; docs are not a separate pass.
 
 ## cmx2
 
-- **where.** boxbox needs a cmx2 checkout beside it (`../cmx2`, or the path
-  in `CMX2_REPO`). read it. never edit its code and never run anything from
-  its working tree.
+- **where.** a cmx2 checkout beside this one (`../cmx2`, or `CMX2_REPO`).
+  read it; never edit its code and never run anything from its working
+  tree.
 - **the pin.** `cmx2.pin` holds the one cmx2 commit boxbox builds against.
   `vendor/cmx2/openapi.json` and `vendor/cmx2/manifest.ts` are copied from
-  that commit, byte for byte (`git -C <cmx2 checkout> show
-  <pin>:packages/client/openapi.json` and
-  `<pin>:packages/contract/src/manifest.ts`). `just check` fails if they
-  differ from the pinned commit. every generated type comes from the
-  vendored files.
-- **moving the pin** is a deliberate step, never a side effect. update
-  `cmx2.pin`, run `just vendor`, regenerate, run `just check`, run the
-  probes in `docs/verification.md`, and record the move in `CHANGELOG.md`
-  with what changed in the contract.
-- **the dev daemon.** it runs from the pinned commit, not the working tree.
-  `just cmx2` exports the commit with `git archive` into `.cmx2/<pin>/`
-  (gitignored), installs it, and starts it on a port from 4840 to 4849 with
-  its own data dir and a bench password, never an inherited one. the boxbox
-  dev server runs on 3001 against it.
-- **gaps.** when boxbox needs something the pinned cmx2 does not serve,
-  append a row to cmx2's `docs/engineering/ASKS.md` table
-  (`| aN | ask | unassigned | shape |`, the next free number), write the
-  evidence and argument as a section in `docs/cmx2-asks.md` under the same
-  number, and stop at the gate if the milestone needs it. that row is the
-  only edit boxbox ever makes in the cmx2 repo. never work around a gap in
-  boxbox.
+  it byte for byte (`just vendor`), every generated type comes from them,
+  and `just check` fails if they drift.
+- **moving the pin** is deliberate, never a side effect: `just vendor`,
+  regenerate, the probes in `docs/verification.md`, and a `CHANGELOG.md`
+  entry saying what changed in the contract.
+- **the dev daemon** runs from the pinned commit, not the working tree:
+  `just cmx2` exports it into `.cmx2/<pin>/` (gitignored) and starts it on a
+  port from 4840 to 4849 with its own data dir and a bench password.
+- **gaps.** the only edit boxbox makes in the cmx2 repo is a row appended to
+  its `docs/engineering/ASKS.md` table (`| aN | ask | unassigned | shape |`,
+  the next free number), argued under the same number in
+  `docs/cmx2-asks.md`.
 
-## engineering standard
+## engineering
 
 ### rust (`server/`)
 
@@ -128,36 +114,31 @@ moves what it closes to the bottom, in the same commit.
   configuration. errors are typed (`thiserror`), mapped to http in one
   place, and logged once with structured fields (`tracing`).
 - state has one owner, a task, and moves by message. every channel is
-  bounded and says what happens when it is full. no locks on the hot path.
-- nothing blocks the async runtime. sqlite lives on its writer thread, and
-  file io goes through `spawn_blocking` or the writer.
-- payloads are serialized once and shared (`Bytes`, `Arc<str>`), never
-  re-serialized per listener.
-- modules mirror the tasks in `docs/architecture.md`. names say what things
-  are, with no abbreviations beyond the domain's own (`seq`, `id`, `pty`).
+  bounded. nothing blocks the async runtime: sqlite lives on its writer
+  thread, file io goes through `spawn_blocking` or the writer.
+- payloads are serialized once and shared (`Bytes`, `Arc<str>`).
 
 ### typescript (`app/`, `board/daemon/src/client.ts`)
 
 - `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`. no
-  `any`. a non-null assertion carries a comment proving it.
+  `any`; a non-null assertion carries a comment proving it.
 - decoders are generated, never hand-written. the reducer is exhaustive
-  over the event union, with a `never` check the compiler enforces.
-- state lives in the store. components read store paths and hold no
-  shadow copies. the worker owns the stream, the cursor and indexeddb.
-- motion obeys the law. only transform, opacity, clip-path and filter
-  animate. layout is measured once per transition (flip), never read inside
-  a frame loop, and the owner of every timer and listener clears it.
-- no global mutable singletons outside the store.
+  over the event union, checked with `never`.
+- state lives in the store; components hold no shadow copies, and there
+  are no global mutable singletons outside it. the worker owns the stream,
+  the cursor and indexeddb.
+- only transform, opacity, clip-path and filter animate. layout is measured
+  once per transition, never inside a frame loop. whoever starts a timer or
+  listener clears it.
 
 ### everywhere
 
+- **integration tests** run against a real cmx2 daemon, never a mock.
+  fixtures are only for wire parsing, recorded from a real daemon.
 - comments explain why, not what. no commented-out code. a `todo` needs an
   entry in `docs/open.md`.
-- tests read like documentation of the behaviour. they are named for what
-  they prove, pure logic is unit-tested, and integration runs against a real
-  daemon.
-- logs are for the person debugging at 2 am: one line per event, with host,
-  route, status, latency and the id that ties it together.
+- logs: one line per event, with host, route, status, latency and the id
+  that ties it together.
 
 ## commands
 
@@ -171,15 +152,26 @@ moves what it closes to the bottom, in the same commit.
 | `just api` | regenerates the app's api types (boxbox's utoipa document and the vendored cmx2 one) |
 | `just dictionary` | regenerates `telemetry/schema.json` from `telemetry/schema.ts` |
 | `bun bench/session.ts [--words N]` | the scripted session against the dev daemon |
-| `just check` | fmt, clippy (warnings denied), `tsc --noEmit`, unit tests, schema drift, vendored cmx2 files against the pin, board checksums |
+| `just check` | fmt, clippy (warnings denied), `tsc --noEmit`, unit tests, schema drift, vendored cmx2 files against the pin, board checksums. what ci runs |
 | `just build` | the release binary with the app embedded |
 | `just release [--allow-dirty] [arch]` | the linux release (static, aarch64 and x86_64) with `install.sh` and `SHA256SUMS` in `target/dist` (`docs/deploy.md`) |
 | `boxbox init` and `boxbox doctor` | write a first `boxbox.toml` (0600, never over an existing one), and report whether an install can run, redacted |
 | `bun scripts/telemetry.ts schema \| examples \| query` | the telemetry dictionary and query tool |
 
-## working in milestones
+## where knowledge lives
 
-work in the milestones from `docs/plan.md`. each one ends with printed
-evidence: test output, request logs, screenshots described, rss and timing
-numbers, telemetry rows. if a milestone cannot finish, report what is done,
-what is verified, what is not, and the exact next command.
+- `docs/README.md`: the pieces, the words, how a request travels.
+- `docs/decisions.md`: every locked decision; a change is a new row.
+- `docs/plan.md`: the milestones and their order.
+- `docs/architecture.md`: how the server and app are built, with budgets.
+- `docs/design.md`: the design law; `home.md`, `thread.md`, `composer.md`,
+  `terminal.md`, `push.md` go deep on one surface each.
+- `docs/agents.md`, `docs/openclaw.md`: agents beyond cmx2, and the openclaw
+  source.
+- `docs/verification.md`: the bench and the verification tiers;
+  `docs/board-verification.md` for the board.
+- `docs/cmx2-asks.md`: the argument for each cmx2 ask.
+- `docs/gotchas.md`: what bit during the build; `docs/scars.md`: v1's,
+  classified.
+- `docs/open.md`: what is known wrong or unproven on main.
+- `docs/deploy.md`: installing on a mac or a vm.

@@ -32,7 +32,7 @@ export type Scroller = { scrollTop: number; readonly scrollHeight: number; reado
 /** how far the view is above the end of the content, px */
 export const gapOf = (s: Scroller): number => s.scrollHeight - s.scrollTop - s.clientHeight;
 
-/** the room a settle leaves under the end so the view stays where it was (the scroller's `--hold`, its end padding): how far the foot of
+/** the room a settle leaves under the end so the view stays where it was (the scroller's `--hold`, the spacer under the transcript): how far the foot of
     the view (`top` plus `view`) is past where the content ends now (`end` plus its own end padding `pad`). the end is only ever a row
     or two shorter, so room that would fill the view with the padding is not room to keep but content that is gone (the list was made
     again between the reading and the settle): none, and the view goes to the new end. it matters that it is bounded: padding is part of

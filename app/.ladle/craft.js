@@ -18,6 +18,8 @@
   };
   const isSurface = (el) => {
     if (el.matches(skip) || !visible(el)) return false;
+    /* a layer under another (inert, drawn scaled behind the one on top) is not what is being read: its insets are the top layer's to keep */
+    if (el.closest("[inert]")) return false;
     const c = getComputedStyle(el);
     if (c.display === "inline") return false;
     if (el.tagName === "BUTTON" && el.getBoundingClientRect().height <= 36) return false;
@@ -62,7 +64,7 @@
     if (gap < MIN_GAP && gap > -a.height) touch.push({ a: s.className.toString().slice(0, 30), b: sib.className.toString().slice(0, 30), gap: Math.round(gap) });
   }
   const edge = [];
-  for (const s of surfaces) { if (s.closest(".strip-row, .wins")) continue; const r = s.getBoundingClientRect(); const d = Math.min(r.left, innerWidth - r.right); if (d < MIN_EDGE && d > -1) edge.push({ surface: s.className.toString().slice(0, 40), d: Math.round(d) }); }
+  for (const s of surfaces) { /* a sheet from the screen's foot spans a phone's width, and the reader the whole screen, by design */ if (s.closest(".strip-row, .wins, .rep-sheet, .reader")) continue; const r = s.getBoundingClientRect(); const d = Math.min(r.left, innerWidth - r.right); if (d < MIN_EDGE && d > -1) edge.push({ surface: s.className.toString().slice(0, 40), d: Math.round(d) }); }
   const group = (arr, key) => Object.entries(arr.reduce((m, x) => { const k = key(x); (m[k] ||= []).push(x); return m; }, {})).map(([k, v]) => ({ k, n: v.length, eg: v[0] })).sort((a, b) => b.n - a.n).slice(0, 12);
   return JSON.stringify({ surfaces: surfaces.length, crowding: crowd.length, touching: touch.length, atEdge: edge.length, crowdBy: group(crowd, (x) => `${x.surface} ${x.side}`), touchBy: group(touch, (x) => `${x.a} | ${x.b}`), edgeBy: group(edge, (x) => x.surface) }, null, 1);
 })()

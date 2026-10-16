@@ -1,0 +1,90 @@
+/* an assistant's card: what it adds to a machine's window (ui/machines/machines.css), whose material, head, figures, foot
+   and confirmation it wears unchanged (docs/home.md, the agents) */
+
+/* the round mark (22) beside the name; the name keeps the ellipsis, the mark never shrinks */
+.ah-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* the chip's dot by state (home.md's table): waiting and connecting ring the dot and leave it empty in the second ink,
+   syncing rings it and fills its lower half, not answering and refused are the failure tone. nothing pulses */
+.ah-card[data-look="ring"] .host-chip,
+.ah-card[data-look="half"] .host-chip {
+  color: var(--text-2);
+}
+
+.ah-card[data-look="ring"] .host-chip i {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.ah-card[data-look="half"] .host-chip i {
+  background: linear-gradient(to top, currentColor 50%, transparent 50%);
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.ah-card[data-look="fail"] .host-chip {
+  background: color-mix(in srgb, color-mix(in srgb, var(--red) 10%, transparent) calc(var(--L) * 100%), color-mix(in srgb, var(--red) 16%, transparent));
+  color: var(--red);
+}
+
+.ah-card[data-look="fail"] .host-chip i {
+  background: var(--red);
+}
+
+/* the untested version's last word, in the light tone */
+.ah-lit {
+  color: var(--accent);
+}
+
+/* a note under the mono line in the second ink: never red, nothing is wrong (untested; reading its threads) */
+.ah-says {
+  margin: 12px 0 0;
+  font-size: var(--meta);
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+/* waiting for approval: the line on where, the gateway's own words verbatim in a mono bed pressed into the window, and
+   two quiet words under it */
+.ah-approve {
+  margin-top: 16px;
+}
+
+.ah-approve > p {
+  margin: 0;
+  font-size: var(--meta);
+  line-height: 1.4;
+}
+
+.ah-bed {
+  margin: 10px 0 0;
+  padding: 11px 13px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--win-press) calc(var(--L) * 100%), rgb(0 0 0 / 0.26));
+  box-shadow: var(--win-press-edge);
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ah-approve-verbs {
+  flex-wrap: wrap;
+  margin-top: 6px;
+  margin-bottom: -10px;
+}
+
+.ah-copied {
+  margin: 12px 0 0;
+  font-size: var(--meta);
+  color: var(--accent);
+}

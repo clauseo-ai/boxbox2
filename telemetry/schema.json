@@ -324,6 +324,111 @@
       ]
     },
     {
+      "kind": "perf.media",
+      "doc": "media paints and serves (docs/design.md, voice and media; docs/agents.md, media). card and viewer are the app's: an image card's image painted within 300 ms of entering the view, the viewer opened within its spring; ok = 1 inside the budget. serve is the server's: GET /api/media/{id} from the request to the answer's head (the index read, the file opened), one row per play or open (a whole file, a range from byte 0, or a refusal), never one per scrub; ok = 1 when the file was served (200, 206, 304), 0 for a refusal (400, 404, 410, 416, 503).",
+      "props": [
+        {
+          "name": "what",
+          "type": "TEXT",
+          "doc": "which paint or serve",
+          "values": [
+            "card",
+            "viewer",
+            "serve"
+          ],
+          "required": true
+        },
+        {
+          "name": "status",
+          "type": "INTEGER",
+          "doc": "serve only: the http status answered."
+        },
+        {
+          "name": "bytes",
+          "type": "INTEGER",
+          "doc": "serve: the bytes the answer carries (the range's length for a 206); card and viewer: the image's size."
+        }
+      ]
+    },
+    {
+      "kind": "media.stored",
+      "doc": "a file reached the media store, or was refused: one row per upload (POST /api/media) or agent copy (the ingest the sources call on first sight). ms is the whole take, the body streamed, hashed and committed; ok = 1 when the store holds the bytes (stored or duplicate). a run of busy uploads says four were in flight; full says nothing old enough was left to evict and [media] max_bytes wants raising.",
+      "props": [
+        {
+          "name": "origin",
+          "type": "TEXT",
+          "doc": "who brought the bytes",
+          "values": [
+            "upload",
+            "agent"
+          ],
+          "required": true
+        },
+        {
+          "name": "outcome",
+          "type": "TEXT",
+          "doc": "stored: new bytes written. duplicate: the store held them already (an upload retried, a voice note read back from the agent). busy: four uploads (or eight copies) were running. too-large: past 64 MiB. empty: no bytes. refused-kind: a declared image, audio or video type the bytes contradict (uploads only). full: no room even after evicting everything allowed to go. source-failed: the body stopped arriving. failed: the disk or the store failed.",
+          "values": [
+            "stored",
+            "duplicate",
+            "busy",
+            "too-large",
+            "empty",
+            "refused-kind",
+            "full",
+            "source-failed",
+            "failed"
+          ],
+          "required": true
+        },
+        {
+          "name": "family",
+          "type": "TEXT",
+          "doc": "the declared type's family, never the type or a name",
+          "values": [
+            "image",
+            "audio",
+            "video",
+            "document",
+            "other"
+          ]
+        },
+        {
+          "name": "bytes",
+          "type": "INTEGER",
+          "doc": "the file's size when it was read whole, else the length its sender announced; null when neither is known."
+        }
+      ]
+    },
+    {
+      "kind": "media.evicted",
+      "doc": "the media store dropped its least recently used files to make room for a new one (docs/agents.md, media, eviction): one row per eviction, which runs until the store, the new file included, is under 90% of the cap. pinned files and files under a day old never go. their ids answer 410 from then on.",
+      "props": [
+        {
+          "name": "files",
+          "type": "INTEGER",
+          "doc": "how many files went.",
+          "required": true
+        },
+        {
+          "name": "bytes",
+          "type": "INTEGER",
+          "doc": "the bytes they freed.",
+          "required": true
+        },
+        {
+          "name": "total",
+          "type": "INTEGER",
+          "doc": "the bytes the store holds after, the new file included."
+        },
+        {
+          "name": "cap",
+          "type": "INTEGER",
+          "doc": "[media] max_bytes."
+        }
+      ]
+    },
+    {
       "kind": "perf.memo",
       "doc": "what the thread's memo caches held when a thread's stage closed (docs/thread.md, what is remembered): one row for each cache. the turns the stage built, the row models of settled turns, the sanitised html of settled markdown, and the heights of turns that were measured. bytes is what the cache alone keeps alive against its cap, hits and misses count its reads over its life, evicted the entries its cap pushed out.",
       "props": [

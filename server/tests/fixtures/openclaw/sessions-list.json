@@ -1,0 +1,1963 @@
+{
+  "ts": 1792054871667,
+  "path": "(multiple)",
+  "count": 13,
+  "totalCount": 13,
+  "limitApplied": 50,
+  "nextOffset": null,
+  "hasMore": false,
+  "owners": [],
+  "defaults": {
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "contextTokens": 128000,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "thinkingLevels": [
+      {
+        "id": "off",
+        "label": "off"
+      },
+      {
+        "id": "minimal",
+        "label": "minimal"
+      },
+      {
+        "id": "low",
+        "label": "low"
+      },
+      {
+        "id": "medium",
+        "label": "medium"
+      },
+      {
+        "id": "high",
+        "label": "high"
+      },
+      {
+        "id": "ultra",
+        "label": "ultra"
+      }
+    ],
+    "thinkingOptions": [
+      "off",
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "ultra"
+    ],
+    "thinkingDefault": "medium",
+    "modelSelectionTarget": "session"
+  },
+  "sessions": [
+    {
+      "key": "agent:helper:dashboard:04be48a2-24b6-4503-9508-692c5f1e9be3",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054870376,
+      "kind": "direct",
+      "label": "record helper 1792054869776",
+      "classification": "direct",
+      "agentId": "helper",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record helper 1792054869776",
+      "lastMessagePreview": "hello helper",
+      "chatType": "direct",
+      "updatedAt": 1792054871659,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054871009,
+      "lastActivityAt": 1792054871658,
+      "sessionId": "00a0e7a5-8a2d-486e-8c15-3b8f10258fe1",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "totalTokensFresh": false,
+      "status": "running",
+      "startedAt": 1792054871597,
+      "endedAt": 1792054871658,
+      "runtimeMs": 61,
+      "lastRunId": "b9f76342-3ca6-4c80-a46e-f72192c6aa54",
+      "parentSessionKey": "agent:helper:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054871477,
+        "updatedAtMs": 1792054871656,
+        "stateChangedAtMs": 1792054871477
+      },
+      "hasActiveRun": true,
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:22fdc842-a127-455a-9301-414275764906",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054868788,
+      "kind": "direct",
+      "label": "record question 1792054868768",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record question 1792054868768",
+      "lastMessagePreview": "noted the greeting you picked.",
+      "chatType": "direct",
+      "updatedAt": 1792054869341,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054868880,
+      "lastActivityAt": 1792054869258,
+      "sessionId": "4888a873-6559-4b94-89eb-8809af6d9df6",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 75,
+      "outputTokens": 23,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054869157,
+      "endedAt": 1792054869258,
+      "runtimeMs": 101,
+      "lastRunId": "c3f4744c-ab10-4c43-a390-25072d452a32",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054869150,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 17916,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 90084,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 0,
+        "unwindowedMessageCount": 0,
+        "sessionId": "4888a873-6559-4b94-89eb-8809af6d9df6"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054869054,
+        "updatedAtMs": 1792054869256,
+        "stateChangedAtMs": 1792054869054
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:db26502e-19af-4446-a71e-7741ea8c9bd9",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054867799,
+      "kind": "direct",
+      "label": "record approval 1792054867775",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record approval 1792054867775",
+      "lastMessagePreview": "the command ran, or was refused; either way the turn is over.",
+      "chatType": "direct",
+      "updatedAt": 1792054868307,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054867875,
+      "lastActivityAt": 1792054868254,
+      "sessionId": "f1b7b245-9bbf-4396-811a-a5f0bace9dde",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 75,
+      "outputTokens": 23,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054868137,
+      "endedAt": 1792054868254,
+      "runtimeMs": 117,
+      "lastRunId": "6b39f387-249b-4d09-af60-c17589e2bb81",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054868131,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 17918,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 90082,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 0,
+        "unwindowedMessageCount": 0,
+        "sessionId": "f1b7b245-9bbf-4396-811a-a5f0bace9dde"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054868035,
+        "updatedAtMs": 1792054868252,
+        "stateChangedAtMs": 1792054868035
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:d050f9c1-22ac-4341-865c-b6e954dc130a",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054865799,
+      "kind": "direct",
+      "label": "record compaction 1792054865779",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record compaction 1792054865779",
+      "lastMessagePreview": "the gateway is real and only",
+      "chatType": "direct",
+      "updatedAt": 1792054867854,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054867533,
+      "lastActivityAt": 1792054867756,
+      "sessionId": "b7b56af0-1878-4882-ba72-f96e9c4b74af",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 11,
+      "outputTokens": 7,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054867705,
+      "endedAt": 1792054867756,
+      "runtimeMs": 51,
+      "lastRunId": "05ba5969-9f77-483b-8ac2-7b734f9223d7",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054867697,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 18194,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 89806,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 2,
+        "unwindowedMessageCount": 2,
+        "sessionId": "b7b56af0-1878-4882-ba72-f96e9c4b74af"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054866015,
+        "updatedAtMs": 1792054867754,
+        "stateChangedAtMs": 1792054866015
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:e2e98eca-7492-4866-9199-8d5238aa3bb6",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054864572,
+      "kind": "direct",
+      "label": "record reset 1792054864548",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record reset 1792054864548",
+      "lastMessagePreview": "the gateway is real and only",
+      "chatType": "direct",
+      "updatedAt": 1792054865842,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054865467,
+      "lastActivityAt": 1792054865761,
+      "sessionId": "015fb29b-d12e-4659-ae98-9b1a0fb28723",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 11,
+      "outputTokens": 7,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054865718,
+      "endedAt": 1792054865761,
+      "runtimeMs": 43,
+      "lastRunId": "6d7d1a49-84f2-4d1c-8c75-a88ac531e19e",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054865711,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 17916,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 90084,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 0,
+        "unwindowedMessageCount": 0,
+        "sessionId": "015fb29b-d12e-4659-ae98-9b1a0fb28723"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054865625,
+        "updatedAtMs": 1792054865759,
+        "stateChangedAtMs": 1792054865625
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:182828bb-9b4d-4f6f-a7c7-74f62ae764c1",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054863702,
+      "kind": "direct",
+      "label": "record reply 1792054863682",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record reply 1792054863682",
+      "lastMessagePreview": "the gateway is real",
+      "chatType": "direct",
+      "updatedAt": 1792054864613,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054864345,
+      "lastActivityAt": 1792054864531,
+      "sessionId": "f3ff93e8-ce86-41ec-a456-435b896a14ba",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 11,
+      "outputTokens": 7,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054864490,
+      "endedAt": 1792054864531,
+      "runtimeMs": 41,
+      "lastRunId": "7eaaac50-df85-482b-87d2-63eb854c80fd",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054864483,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 11494,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 96506,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 2,
+        "unwindowedMessageCount": 2,
+        "sessionId": "f3ff93e8-ce86-41ec-a456-435b896a14ba"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054863911,
+        "updatedAtMs": 1792054864529,
+        "stateChangedAtMs": 1792054863911
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:e238e020-a7e6-4aa7-8edc-72bf5fd003fd",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054861867,
+      "kind": "direct",
+      "label": "record tts 1792054861839",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record tts 1792054861839",
+      "lastMessagePreview": "Audio reply",
+      "chatType": "direct",
+      "updatedAt": 1792054863363,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054861930,
+      "lastActivityAt": 1792054862295,
+      "sessionId": "1af796b8-7595-49b7-af39-a92462b38ea4",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 11,
+      "outputTokens": 7,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054862236,
+      "endedAt": 1792054862295,
+      "runtimeMs": 59,
+      "lastRunId": "f6bab58d-adeb-40ef-ae99-e7225a4d0fb5",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054862229,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 17918,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 90082,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 0,
+        "unwindowedMessageCount": 0,
+        "sessionId": "1af796b8-7595-49b7-af39-a92462b38ea4"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054862109,
+        "updatedAtMs": 1792054862293,
+        "stateChangedAtMs": 1792054862109
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:a45fb618-10d0-48f1-9f1e-55a3190a0988",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054855842,
+      "kind": "direct",
+      "label": "record attachment 1792054855802",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record attachment 1792054855802",
+      "lastMessagePreview": "the gateway is real and only",
+      "chatType": "direct",
+      "updatedAt": 1792054861906,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054861395,
+      "lastActivityAt": 1792054861820,
+      "sessionId": "9d8d0ad5-9ced-4846-9a40-80ab1faa4261",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 11,
+      "outputTokens": 7,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054861759,
+      "endedAt": 1792054861820,
+      "runtimeMs": 61,
+      "lastRunId": "64e3f593-1d8e-47db-8412-d563c6d09638",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054861752,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 18212,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 89788,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 0,
+        "unwindowedMessageCount": 0,
+        "sessionId": "9d8d0ad5-9ced-4846-9a40-80ab1faa4261"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054861625,
+        "updatedAtMs": 1792054861817,
+        "stateChangedAtMs": 1792054861625
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:3ac0628a-47c8-4e84-803a-dbb5e72a3b9d",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054853632,
+      "kind": "direct",
+      "label": "record image 1792054853586",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record image 1792054853586",
+      "lastMessagePreview": "here is the picture.",
+      "chatType": "direct",
+      "updatedAt": 1792054855555,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054853896,
+      "lastActivityAt": 1792054855236,
+      "sessionId": "ce5c9f8d-87c7-4eb0-9f67-32638116b04f",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 11,
+      "outputTokens": 7,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054855156,
+      "endedAt": 1792054855236,
+      "runtimeMs": 80,
+      "lastRunId": "851795bd-e004-4d6a-8226-851ef7cd40f1",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054855143,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 17917,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 90083,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 0,
+        "unwindowedMessageCount": 0,
+        "sessionId": "ce5c9f8d-87c7-4eb0-9f67-32638116b04f"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054854772,
+        "updatedAtMs": 1792054855232,
+        "stateChangedAtMs": 1792054854772
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:b6d34168-d727-4cfa-83a0-6fbfcce02df3",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054852396,
+      "kind": "direct",
+      "label": "record tools 1792054852334",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record tools 1792054852334",
+      "lastMessagePreview": "read the notes: one greeting line, nothing else.",
+      "chatType": "direct",
+      "updatedAt": 1792054853873,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054852567,
+      "lastActivityAt": 1792054853501,
+      "sessionId": "18601247-bebf-48be-9615-07212774158b",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 75,
+      "outputTokens": 23,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054853259,
+      "endedAt": 1792054853501,
+      "runtimeMs": 242,
+      "lastRunId": "adf5a6ae-1947-4515-9c3b-adff7b34edc4",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054853247,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 17916,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 90084,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 0,
+        "unwindowedMessageCount": 0,
+        "sessionId": "18601247-bebf-48be-9615-07212774158b"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054852940,
+        "updatedAtMs": 1792054853494,
+        "stateChangedAtMs": 1792054852940
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:532f3678-8301-4287-bd84-aad6ac05b41c",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054851198,
+      "kind": "direct",
+      "label": "record thinking 1792054851106",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record thinking 1792054851106",
+      "lastMessagePreview": "one line, after thinking.",
+      "chatType": "direct",
+      "updatedAt": 1792054852483,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054851509,
+      "lastActivityAt": 1792054852305,
+      "sessionId": "9e223729-42d0-403f-813b-8bda27c558bd",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 64,
+      "outputTokens": 32,
+      "totalTokens": 64,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054852202,
+      "endedAt": 1792054852305,
+      "runtimeMs": 103,
+      "lastRunId": "5816b5ad-2113-437f-afa3-aea813a4d1b3",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054852189,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 17917,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 90083,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 0,
+        "unwindowedMessageCount": 0,
+        "sessionId": "9e223729-42d0-403f-813b-8bda27c558bd"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054851969,
+        "updatedAtMs": 1792054852300,
+        "stateChangedAtMs": 1792054851969
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:f5b483f9-d244-4cd3-bb81-fdf0f9da43a4",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054850376,
+      "kind": "direct",
+      "label": "record text 1792054850341",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "record text 1792054850341",
+      "lastMessagePreview": "the gateway is real and only the model is scripted, so every row, event and approval",
+      "chatType": "direct",
+      "updatedAt": 1792054851434,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054850489,
+      "lastActivityAt": 1792054851068,
+      "sessionId": "ac2f773a-c630-4b5a-93b4-d529d6456220",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 11,
+      "outputTokens": 7,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054850919,
+      "endedAt": 1792054851068,
+      "runtimeMs": 149,
+      "lastRunId": "e699b3d2-38ed-4e6f-9bf7-ffa21f04e04b",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054850898,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 17916,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 90084,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 0,
+        "unwindowedMessageCount": 0,
+        "sessionId": "ac2f773a-c630-4b5a-93b4-d529d6456220"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054850717,
+        "updatedAtMs": 1792054851064,
+        "stateChangedAtMs": 1792054850717
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    },
+    {
+      "key": "agent:main:dashboard:c89ddf71-4e25-4051-b5ea-0376b3eb0de1",
+      "visibility": "shared",
+      "permissionModePending": false,
+      "spawnDepth": 0,
+      "createdVia": "operator",
+      "participants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "expandedParticipants": [
+        {
+          "identity": {
+            "type": "observation",
+            "pluginId": null,
+            "accountId": null,
+            "senderKind": "unknown",
+            "id": "gateway-client"
+          }
+        }
+      ],
+      "participantCount": 1,
+      "createdAt": 1792054839032,
+      "kind": "direct",
+      "label": "bench smoke 1792054837181",
+      "classification": "direct",
+      "agentId": "main",
+      "isMain": false,
+      "isBackground": false,
+      "displayName": "bench smoke 1792054837181",
+      "lastMessagePreview": "noted the greeting you picked.",
+      "chatType": "direct",
+      "updatedAt": 1792054850459,
+      "archived": false,
+      "pinned": false,
+      "unread": true,
+      "lastInteractionAt": 1792054849619,
+      "lastActivityAt": 1792054850243,
+      "sessionId": "11e3088a-40f7-4b44-beae-38f22d8bd3f1",
+      "systemSent": true,
+      "abortedLastRun": false,
+      "thinkingLevels": [
+        {
+          "id": "off",
+          "label": "off"
+        },
+        {
+          "id": "minimal",
+          "label": "minimal"
+        },
+        {
+          "id": "low",
+          "label": "low"
+        },
+        {
+          "id": "medium",
+          "label": "medium"
+        },
+        {
+          "id": "high",
+          "label": "high"
+        },
+        {
+          "id": "ultra",
+          "label": "ultra"
+        }
+      ],
+      "thinkingOptions": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "ultra"
+      ],
+      "thinkingDefault": "medium",
+      "effectiveFastMode": false,
+      "effectiveFastModeSource": "default",
+      "fastAutoOnSeconds": 60,
+      "inputTokens": 75,
+      "outputTokens": 23,
+      "totalTokens": 11,
+      "totalTokensFresh": true,
+      "estimatedCostUsd": 0,
+      "status": "done",
+      "startedAt": 1792054849970,
+      "endedAt": 1792054850243,
+      "runtimeMs": 273,
+      "lastRunId": "ad55c0cc-b005-40e2-ad65-39b54de85781",
+      "parentSessionKey": "agent:main:main",
+      "effectiveResponseUsage": "off",
+      "effectiveQueueMode": "steer",
+      "modelProvider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "modelOverrideSource": null,
+      "runtimeSelectionLocked": false,
+      "agentRuntime": {
+        "id": "openclaw",
+        "cloudPlacementSupported": true,
+        "cloudPlacementExecutionMode": "worker-turn",
+        "devicePlacement": {
+          "requiredNodeCommands": [],
+          "consumesWorkerSlot": true
+        },
+        "devicePlacementSupported": true,
+        "source": "model"
+      },
+      "contextTokens": 128000,
+      "contextBudgetStatus": {
+        "schemaVersion": 1,
+        "source": "pre-prompt-estimate",
+        "updatedAt": 1792054849961,
+        "provider": "mock-openai",
+        "model": "gpt-5.6-luna",
+        "route": "fits",
+        "shouldCompact": false,
+        "estimatedPromptTokens": 11403,
+        "contextTokenBudget": 128000,
+        "promptBudgetBeforeReserve": 108000,
+        "reserveTokens": 20000,
+        "effectiveReserveTokens": 20000,
+        "remainingPromptBudgetTokens": 96597,
+        "overflowTokens": 0,
+        "toolResultReducibleChars": 0,
+        "messageCount": 8,
+        "unwindowedMessageCount": 8,
+        "sessionId": "11e3088a-40f7-4b44-beae-38f22d8bd3f1"
+      },
+      "snapshotAt": 1792054871667,
+      "placement": {
+        "state": "local",
+        "generation": 0,
+        "createdAtMs": 1792054843654,
+        "updatedAtMs": 1792054850239,
+        "stateChangedAtMs": 1792054843654
+      },
+      "hasActiveRun": false,
+      "activeRunIds": [],
+      "sharingRole": "admin",
+      "sendDisabledReason": null
+    }
+  ]
+}

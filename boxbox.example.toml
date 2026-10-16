@@ -27,6 +27,19 @@ secure = true
 # delivers to iphones and ipads, wants a real one.
 contact = "mailto:you@example.com"
 
+[media]
+# the most bytes of voice notes, photos and files the server keeps, every
+# file counted (2 GiB unless set). past it the least recently played or
+# opened go first, never one under a day old or one still being sent.
+max_bytes = 2147483648
+
+# connections: one entry per agent runtime boxbox watches. each kind has its
+# own table: [[cmx2]] (or [[host]]) for cmx2 coding agents, supported;
+# [[openclaw]] for openclaw assistants, being built in m9; [[hermes]] for
+# hermes agents, reserved until m10. claude code and codex get their tables
+# with their milestones (docs/plan.md). every connection name, of any kind,
+# is one namespace: no two alike.
+
 # one [[host]] per cmx2 daemon. the name is part of every thread's identity
 # (`desk:ses_...`), so pick it once: lowercase letters, digits and dashes.
 [[host]]
@@ -40,5 +53,50 @@ password = "the daemon's password"
 # there for it, and writes this.
 # [[host]]
 # name = "vm"
-# url = "https://vm.your-tailnet.ts.net:4097"
+# url = "https://vm.example.ts.net:4097"
 # bearer = "the credential the daemon's POST /pair answered"
+
+# [[cmx2]] is the same entry as [[host]], with the same fields; use either.
+# every connection name below, of any kind, is one namespace: no two alike.
+# [[cmx2]]
+# name = "vm-a"
+# url = "https://vm-a.example.ts.net:4097"
+# password = "the daemon's password"
+
+# one [[openclaw]] per openclaw gateway (docs/openclaw.md, config). the name
+# is at most 24 characters, so the agent keys made from it fit. the url is
+# wss://, or ws:// only to this machine (127.0.0.1, ::1 or localhost).
+# [[openclaw]]
+# name = "vm-b"
+# url = "wss://vm-b.example.ts.net"
+# the gateway's token (gateway.auth.token) on one line, in a file of its
+# own with mode 0600. boxbox reads it when it connects, never shows it.
+# token_file = "/etc/boxbox/openclaw-vm-b.token"
+# a device key of your own, mode 0600; boxbox makes and keeps one when left
+# out (docs/openclaw.md, the device identity).
+# device_key = "/etc/boxbox/openclaw-vm-b.key"
+# the computer it runs on, as labels say it; the name when left out.
+# machine = "vm-b"
+# "watch" sends nothing that writes, for the first days on a new gateway.
+# mode = "full"
+
+# optional, one table per gateway agent id: pins its key, a name, and one
+# of the assistant palettes: coral, lime, jade, lagoon, orchid.
+# [openclaw.agents.main]
+# key = "assistant"
+# name = "assistant"
+# palette = "coral"
+
+# the transcript cache of assistant threads, across every gateway, in bytes.
+# 256 MiB when left out.
+# [cache]
+# transcript_bytes = 268435456
+
+# one [[hermes]] per hermes gateway. m10 builds its source; until then the
+# entry is read and checked, and nothing connects (decision 35). the name
+# follows the openclaw rule, the url is wss://, or ws:// only to this machine.
+# [[hermes]]
+# name = "vm-c"
+# url = "wss://vm-c.example.ts.net"
+# token_file = "/etc/boxbox/hermes-vm-c.token"
+# machine = "vm-c"

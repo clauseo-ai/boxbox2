@@ -64,6 +64,7 @@ import type {
   ThreadEntry,
 } from "./protocol";
 import { placeBefore } from "./order";
+import type { ReadTrouble } from "./read";
 
 export type Counters = {
   /** journal entries applied, each exactly once */
@@ -133,6 +134,9 @@ export type Thread = {
   /** an estimate of what it holds, in the size of its json (the wire's and the cache's measure): the read's bytes,
       then every change the reducer applies. the byte cap counts it (`BYTE_CAP`) */
   bytes: number;
+  /** why its read is failing while it waits to try again (read.ts), null while nothing failed: set by each failed try,
+      cleared by the read that lands. in memory only, like the lease: a reload reads afresh and says what it finds */
+  trouble: ReadTrouble | null;
 };
 
 /** a thread whose pages are in the cache and not in memory: its head, as the cache saved it */
@@ -182,10 +186,10 @@ export type SyncState = {
 export const INITIAL_STATE: SyncState = { cursor: null, head: 0, fleet: EMPTY_FLEET, threads: {}, cold: {}, unfit: {}, reads: 0, counters: ZERO_COUNTERS };
 
 /** the ui's view of a thread: the part it renders */
-export type ThreadView = { key: string; status: ThreadStatus; messages: Message[] };
+export type ThreadView = { key: string; status: ThreadStatus; messages: Message[]; /** set while its read is failing */ trouble?: ReadTrouble };
 
 export function viewOf(thread: Thread): ThreadView {
-  return { key: thread.key, status: thread.status, messages: thread.messages };
+  return { key: thread.key, status: thread.status, messages: thread.messages, ...(thread.trouble ? { trouble: thread.trouble } : {}) };
 }
 
 export type PathSegment = string | number;
@@ -221,7 +225,12 @@ export type Action =
   | { type: "restored"; key: string; messages: Message[] | null; bytes?: number }
   /** `bytes` is the read's size where the worker measured it, else it is measured here */
   | { type: "hydrated"; key: string; hydration: number; upstreamEpoch: string; at: number; messages: Message[]; bytes?: number }
-  | { type: "refetched"; key: string; hydration: number; messageID: string; message: Message | null };
+  | { type: "refetched"; key: string; hydration: number; messageID: string; message: Message | null }
+  /** a try of read `hydration` failed and waits its backoff to try again: why, for a stage with nothing to show */
+  | { type: "read-failed"; key: string; hydration: number; trouble: ReadTrouble }
+  /** the person asked for a thread that is waiting on its read again (a stage's retry): the read starts over now, under a
+      new number and without the backoff the old one was sitting out. a thread that is live, or not held, is left alone */
+  | { type: "reread"; key: string };
 
 export type Result = { state: SyncState; patches: Patch[]; effects: Effect[] };
 
@@ -284,6 +293,12 @@ export function reduce(state: SyncState, action: Action): Result {
       break;
     case "refetched":
       next = refetched(work, state, action);
+      break;
+    case "read-failed":
+      next = readFailed(work, state, action);
+      break;
+    case "reread":
+      next = reread(work, state, action.key);
       break;
     default:
       return unreachable(action);
@@ -684,6 +699,7 @@ function fresh(work: Work, key: string, openedAt: number, heldAt: number, leased
     heldAt,
     leased,
     bytes: 0,
+    trouble: null,
   };
 }
 
@@ -778,6 +794,7 @@ function restored(work: Work, state: SyncState, action: Extract<Action, { type: 
     heldAt: head.heldAt,
     leased: head.leased,
     bytes: action.messages ? (action.bytes ?? head.bytes) : 0,
+    trouble: null,
   };
   if (again) {
     thread = rehydrate(work, thread);
@@ -907,6 +924,7 @@ function hydrated(work: Work, state: SyncState, action: Extract<Action, { type: 
     buffer: [],
     refetching: {},
     bytes: action.bytes ?? sizeOf(action.messages),
+    trouble: null,
   };
   work.patch(["threads", action.key], viewOf(thread));
   for (const buffered of held.buffer) thread = threadEntry(work, thread, buffered);
@@ -914,6 +932,24 @@ function hydrated(work: Work, state: SyncState, action: Extract<Action, { type: 
   const room = makeRoom(work, state, { ...state.threads, [action.key]: thread }, state.cold, action.key);
   // a child that fit now has no size to be refused for
   return { ...state, ...room, unfit: room.threads[action.key] ? forget(room.unfit, action.key) : room.unfit };
+}
+
+/** a try of the thread's current read failed: it is said once per change, so a read failing the same way each try sends
+    nothing new. an answer for a read that is no longer the thread's is ignored */
+function readFailed(work: Work, state: SyncState, action: Extract<Action, { type: "read-failed" }>): SyncState {
+  const held = state.threads[action.key];
+  if (!held || held.status !== "hydrating" || held.hydration !== action.hydration) return state;
+  if (held.trouble?.gone === action.trouble.gone && held.trouble.problem === action.trouble.problem) return state;
+  work.patch(["threads", action.key, "trouble"], action.trouble);
+  return { ...state, threads: { ...state.threads, [action.key]: { ...held, trouble: action.trouble } } };
+}
+
+/** the read starts over now: the one out is dropped (its number is no longer the thread's), and what it buffered with it,
+    since the new read is newer than all of it. the trouble stays until a read lands */
+function reread(work: Work, state: SyncState, key: string): SyncState {
+  const held = state.threads[key];
+  if (held?.status !== "hydrating") return state;
+  return { ...state, threads: { ...state.threads, [key]: rehydrate(work, held) } };
 }
 
 function refetched(work: Work, state: SyncState, action: Extract<Action, { type: "refetched" }>): SyncState {

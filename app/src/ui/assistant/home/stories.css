@@ -1,0 +1,77 @@
+/* the frames the assistant-home stories stand in: a deck window at the deck's size, the agents screen's column, and a
+   new-thread sheet at rest on the page (the sheet's own material, as composer.css draws .cz-sheet, without its fixed
+   place over the page) */
+
+.ahs-deck {
+  --window-width: 330px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 24px;
+  padding: 28px 16px;
+}
+
+.ahs-deck > .win {
+  height: 580px;
+}
+
+.ahs-agents {
+  width: min(1080px, 100%);
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 28px 20px 48px;
+  container: hosts / inline-size;
+}
+
+.ahs-agents:not(.ahs-screen) .host-list {
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.ahs-screen {
+  display: grid;
+  gap: 18px;
+}
+
+.ahs-sheet-frame {
+  box-sizing: border-box;
+  max-width: 624px;
+  margin: 0 auto;
+  padding: 32px 12px 48px;
+}
+
+.ahs-sheet {
+  padding: 22px 12px 14px;
+  border-radius: 34px;
+  background: linear-gradient(172deg, color-mix(in srgb, var(--win-deep-1) calc(var(--L) * 100%), color-mix(in srgb, var(--p1) 55%, #14151a)), color-mix(in srgb, var(--win-deep-2) calc(var(--L) * 100%), #0e0f13) 70%);
+  box-shadow: var(--win-edge), 0 40px 80px -20px color-mix(in srgb, color-mix(in srgb, var(--p2) 40%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.9));
+  color: var(--text);
+}
+
+.ahs-sheet h2 {
+  margin: 0;
+  padding: 0 10px;
+  font-size: 22px;
+  font-weight: 680;
+  font-stretch: 116%;
+  letter-spacing: -0.035em;
+}
+
+.ahs-sheet-body {
+  margin-top: 16px;
+}
+
+/* the composer's place, with its placeholder: the composer itself is the composer's (ui/composer) */
+.ahs-composer {
+  display: flex;
+  align-items: flex-start;
+  min-height: 96px;
+  box-sizing: border-box;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--win-press) calc(var(--L) * 100%), rgb(0 0 0 / 0.3));
+  box-shadow: var(--win-press-edge);
+  font-size: 16.5px;
+  color: var(--text-3);
+}

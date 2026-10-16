@@ -40,7 +40,7 @@ use super::dial::{DialError, Dialer, Socket, plain};
 use super::protocol::{self, Position, Settled, Upstream};
 use super::pump::{Drain, Feed, pump};
 use super::telemetry::{Row, Stamp, emit};
-use crate::config::HostConfig;
+use crate::source::cmx2::Cmx2Source;
 use crate::upstream::backoff::Backoff;
 
 /// each pump's byte budget (architecture: memory caps).
@@ -76,7 +76,7 @@ pub mod code {
 /// the terminal a relay serves.
 #[derive(Debug, Clone)]
 pub struct Target {
-    pub host: Arc<HostConfig>,
+    pub source: Arc<Cmx2Source>,
     pub pty: String,
 }
 
@@ -255,7 +255,7 @@ impl Relay {
         let overflows = counters.overflows.load(Ordering::Relaxed);
         info!(
             relay = %self.id,
-            host = %self.target.host.name,
+            host = %self.target.source.name(),
             pty = %self.target.pty,
             end = end.label(),
             down_bytes,
@@ -311,7 +311,7 @@ impl Relay {
             }
             let socket = match self
                 .dialer
-                .dial(&self.target.host, &self.target.pty, from)
+                .dial(&self.target.source, &self.target.pty, from)
                 .await
             {
                 Ok(socket) => socket,
@@ -334,7 +334,7 @@ impl Relay {
             };
             warn!(
                 relay = %self.id,
-                host = %self.target.host.name,
+                host = %self.target.source.name(),
                 pty = %self.target.pty,
                 cause = cause.label(),
                 why = %why,
@@ -381,7 +381,7 @@ impl Relay {
         };
         warn!(
             relay = %self.id,
-            host = %self.target.host.name,
+            host = %self.target.source.name(),
             pty = %self.target.pty,
             error = %error,
             "terminal dial failed"
@@ -504,7 +504,7 @@ impl Relay {
         };
         info!(
             relay = %self.id,
-            host = %self.target.host.name,
+            host = %self.target.source.name(),
             pty = %self.target.pty,
             cursor,
             replayed = settled.replayed,

@@ -1,0 +1,25 @@
+{
+  "golden": "prompt-not-a-device",
+  "proves": "a prompt without a device class boxbox knows is 400 before the daemon hears it",
+  "request": {
+    "method": "POST",
+    "path": "/api/hosts/bench/sessions/<ses 1>/prompt",
+    "accept-encoding": "gzip",
+    "body": {
+      "device": "golden-phone",
+      "deviceClass": "toaster",
+      "clientID": "golden-prompt-2",
+      "text": "[bench:words 4 1] say four words"
+    }
+  },
+  "status": 400,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "code": "bad-request",
+      "message": "\"toaster\" is not a device class; send one of ipad, iphone, mac, android, desktop, board, server, automation"
+    }
+  }
+}

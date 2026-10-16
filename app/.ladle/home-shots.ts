@@ -139,11 +139,12 @@ const BAR = `(() => {
 })()`;
 
 /* home is never inert under nothing: on the deck the windows and the dock are inert only while a thread's layer is on
-   the stage (a thread opened from a url the fleet does not hold once left every tap dead) */
+   the stage, or a sheet is up over them (the answer sheet, a new-thread sheet that has not let go). a thread opened from
+   a url the fleet does not hold once left every tap dead */
 const INERT = `(() => {
   const home = document.querySelector(".home[data-arrangement=deck]");
   if (!home) return "";
-  const covered = document.querySelector(".stage .layer") !== null;
+  const covered = document.querySelector(".stage .layer, .asks-sheet, .cz-sheet:not([data-away])") !== null;
   const inert = [...home.querySelectorAll(".bar, .wins, .home-dock")].some((el) => el.inert);
   return inert && !covered ? "the deck is inert and no thread is on the stage" : "";
 })()`;

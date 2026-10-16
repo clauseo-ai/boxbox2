@@ -4,13 +4,14 @@ the writing law for boxbox: what the composer is, where it mounts, every
 state it can be in, what each one is made of on the wire, and what the
 pinned cmx2 does not serve yet. it extends `design.md` (the composer,
 starting a thread, input, the motion law) and is binding the same way
-(AGENTS.md, rule 6).
+(AGENTS.md, design law).
 
 ## where it lives
 
 | path | what |
 |---|---|
-| `app/src/ui/composer/composer.tsx` | the component: a target, a mount, the window, the line, the queue's cards, the menus, the full stage |
+| `app/src/ui/composer/composer.tsx` | the component: a target, a mount, the window, the line, the queue's verbs, the menus, the full stage |
+| `app/src/ui/composer/queue.tsx` | the queue's strip above the window (one message, "+N", the edges behind, swipe and long press) and the list of every message with its verbs that a tap on it opens |
 | `app/src/ui/composer/sheet.tsx` | the new-thread sheet: machine, repos by recency, a folder finder for any other folder, checkout or fresh worktree, the progress and the failure of the first send, the hand-over to the open thread |
 | `app/src/ui/composer/model-menu.tsx`, `models.ts` | the model menu (favorites, the whole list by provider, search, the keys) and its rules as pure functions (tested) |
 | `app/src/ui/composer/dial.tsx`, `thumbed.tsx`, `effort.ts` | the effort meter and the dial on the sliding-thumb control the sheet's "where it runs" shares, and the ladder rules (tested) |
@@ -18,7 +19,9 @@ starting a thread, input, the motion law) and is binding the same way
 | `app/src/ui/composer/favorites.ts`, `compact.ts`, `context.tsx`, `icons.tsx` | the star's route (optimistic, newest press wins), the compact call and its state in the store, the context ring, and the icons |
 | `app/src/ui/composer/dock.tsx` | home's new-thread dock: one button in the colour of the window in view, naming repo and host |
 | `app/src/ui/composer/place.ts` | where a thread can start, as pure rules: repo root of a session, recency order, the repo filter, typed paths (tested) |
-| `app/src/ui/composer/words.ts` | every sentence it says (placeholder, send's word, the line, each card's why), pure and tested |
+| `app/src/ui/composer/drop.ts` | drops: what a drop holds (photos, files to mention, words) as pure rules (tested), and `fileDrop`, the target the composer puts on itself and on the stage its mount passes as `dropZone` |
+| `app/src/ui/composer/inline.ts` | the live line's markdown read inline: its runs (strong, emphasis, code), the marks gone, a mark still open dropped (tested) |
+| `app/src/ui/composer/words.ts` | every sentence it says (placeholder, send's word, the line, each card's why and when it goes, the strip's lead), pure and tested |
 | `app/src/ui/composer/photo.ts`, `fit.ts`, `heic.ts` | photos clamped on the device: 1568 px on the long side, jpeg under 1.5 mb, heic decoded where the browser can; where it cannot, the original sent as `image/heic` or `image/heif` under its own limit, found by type, extension or the `ftyp` brand (`heic.ts`, pure and tested); `fit.ts` holds every photo limit and the room rules |
 | `app/src/ui/composer/reads.ts` | the menus' reads through boxbox: commands, files, models, repos, and the folders inside a folder; kept per host and directory in a fixed-size map (folders are read per pause in typing, never kept) |
 | `app/src/sync/outbox.ts`, `sender.ts` | the outbox's rules (pure) and the worker's io: drafts and sends in indexeddb, posts with a client id, retries with the same id, settles on the echo; the outbox's byte cap for photos and each post's time by its bytes |
@@ -42,8 +45,31 @@ to steer", "after this turn and the 2 waiting", "lands in the running
 turn, after this step"), because a message that waits for no visible reason is confusing. its controls follow the law for an ask: the
 model and effort are pressed into the window's top row, the tools are behind one plus key, and send sits on it in the light tone
 and says its word: an arrow when it sends, "queue" while the agent works,
-"steer" in white while held. queued messages are small windows of the same
-colour above it, in order, each saying why it waits and what sends it.
+"steer" in white while held. messages on their way fold into one strip
+above it that says when the one it shows goes; a tap lists them all, in
+order, each saying why it waits and what sends it.
+
+### the glass (2026-10-16, the ios app's decisions 15, 16 and 23)
+
+under a thread the composer is clear liquid glass (`.lg` tokens in
+`styles.css`, read by `composer.css`): it floats over the log as the stage
+bar's rounds do, so the transcript moves under it, brightened and barely
+blurred, lit along the rim, with the clear lens's short drop in place of the
+window's long shadow. its words stay legible the way the system keeps them
+on clear glass: a pool of shade inside the pane behind them (8 px in from the
+rim, its radius 20, the window's lit top colour on light, its deep colour
+most of the way to black on dark, feathered by a 10 px blur), and a brighter
+ink for what send will do and the placeholder. the plus, send, the chips, the
+dial's close and the problem's dismiss are drops of glass over a breath of
+ink (8% black on light, 10% white on dark; clear glass inside glass draws
+white on light), with no pressed-in edge; on (send ready, a menu open, a
+retry) is the glass tinted with the accent; a press swells the lens rather
+than shrinking the key. a shell line tints the glass with its dark bed. the
+queue's strip is a drop of the same glass with its own pool; the edges
+behind it, its list, the menus, the sheet and the full stage keep the repo
+material, since they sit on grounds of their own or would stack glass on
+glass. under reduced transparency, or without backdrop-filter, none of it
+applies and the window and its pressed keys stand as above.
 
 ### what it beat, and why
 
@@ -111,8 +137,8 @@ and three **mounts**, the same component in each:
 
 | mount | where | what changes |
 |---|---|---|
-| **bar** | the stage's dock slot under a thread (`stage.tsx`, `.stage-dock[data-slot=composer]`) | the top row (the line, the model chip, the effort chip), the plus key and the words with send beside them; the queue lives above it |
-| **sheet** | the dock on the phone and deck, the new thread pill on every arrangement, `⌘n` (also plain `n` when not typing; control-n is left alone, it is the emacs next-line in every text field on a mac) | adds the machine, the repo chips and the folder finder, and checkout or fresh worktree; sending shows the thread being made, and when it exists the stage opens on it |
+| **bar** | the stage's dock slot under a thread (`stage.tsx`, `.stage-dock[data-slot=composer]`) | the top row (the line, the model chip, the effort chip), then the words: on one line between the plus key and send, from a second line the window's full width with the plus and send on a row of their own under them (the layout, below); the queue's strip lives above it |
+| **sheet** | the dock on the phone and deck, the new thread pill on every arrangement, `⌘n` (also plain `n` when not typing; control-n is left alone, it is the emacs next-line in every text field on a mac) | adds the place line (the machine, the recent repos and the folder finder behind it), and the fresh worktree switch; sending shows the thread being made, and when it exists the stage opens on it |
 | **full stage** | the expand control once a draft passes six lines | the draft becomes the page, with the top row at its head, back returns to the bar with the caret where it was |
 
 the composer never reads viewport geometry itself: the stage owns the
@@ -146,6 +172,14 @@ before m3's gate, and appears in all three prototypes.
 | photo refused | the thumbnail with a red edge and why ("too large", "not an image the model can read") |
 | heic refused | the words say the size and what to do: "<file> is 11.2 mb, over the 9 mb a heic goes at. export it as a jpeg, or shoot it at a lower resolution, and add it again" |
 | file mentioned (`@`) | the path inline as written; the host inlines the file on send |
+| dragged over the composer or its stage | the window's edge lights in the accent and the line says "drop a photo to add it, or a file to mention it" |
+| dropped | an image joins the photos (the same clamp and the same four as a picked one); any other file is mentioned after an `@` by its name, its spaces gone (the host's file list finds it, as a typed mention does); dropped words join the draft (`drop.ts`) |
+
+the drop target is the composer and, where its mount passes one (`dropZone`),
+the stage around it: a drop anywhere on an open thread lands in its composer.
+the browser hands a dropped file over without its path on the host, so a file
+that is not an image is named, never sent (until the agent takes `attachments`,
+below).
 
 ### menus
 
@@ -167,13 +201,13 @@ return choose, escape closes; in the model menu shift and return stars the row t
 |---|---|---|
 | sending (idle session) | `POST /prompt_async {clientID}` | the message in the transcript, faded |
 | acknowledged | `message.updated` with that `clientID` | solid |
-| queued (busy) | 202 `{queued: <provisional id>}`, `message.updated {queued: true}` | a queued card, "next", then "then" |
-| two queued | | two cards in order; unsend on each, run now on the first, steer now on the first |
+| queued (busy) | 202 `{queued: <provisional id>}`, `message.updated {queued: true}` | the queue's strip: "next, after this turn" and its words; no bubble in the transcript until it lands |
+| two queued | | one strip showing the first, "+1" and the edge of the one behind; a tap lists both in order: unsend and edit on each, run now and steer now on the first |
 | unsent | `DELETE /session/:id/message/:id` 2xx | the card leaves; with an empty draft its words return to the draft, and its photos come back with them in the same step (to a draft that holds some, the photos join them) |
 | unsend too late | 409 | the card stays and says "already sent" |
 | run now | `abort` then `loop` | the turn stops; the first card becomes your message |
 | run now on a steer | take the steer back (`DELETE …/messages/:message`), `abort`, then a prompt with its words | the turn stops and the steer's words start the turn that answers them; what waits behind it still waits. one that already went is the agent's, and the card says so |
-| queue advances | `message.removed` provisional, then the transcript id | the next card rises into the thread as your message |
+| queue advances | `message.removed` provisional, then the transcript id | the strip rises into the thread as your message, and shows the next |
 | steer | `POST /session/:id/steer {clientID}` | the text lands in the live window as a steer row |
 | send failed | network error, 5xx, or no acknowledgement in 5 s | stays where it was, "not sent", the reason, retry, back to draft |
 | retried | the same `clientID` | the daemon answers the first result again; it never doubles |
@@ -254,7 +288,7 @@ new-thread route makes one before the session when asked.
   lobe icons, `THIRD_PARTY.md`) sits in its row's tile, on its header in the
   whole list and on the chip; a provider with no mark gets its first letter in
   the same tile. the mark never carries a name alone: the provider is always
-  in the text beside it (rule 5).
+  in the text beside it (AGENTS.md, accessibility).
 - **the effort is a meter.** one bar per level of the model's own ladder
   (none is not a bar), rising like signal strength, the bars up to the
   chosen level lit (`effort.ts`, tested); the chip is the meter and the
@@ -271,9 +305,12 @@ new-thread route makes one before the session when asked.
   arrows move the thumb, home and end go to the ends, return picks and the
   dial folds into its chip after the thumb has landed (240 ms, none under
   reduced motion), escape closes; a dial opened from the keyboard hands
-  focus back to its chip. the sheet's "where it runs" is the same control.
-- **a thread can be compacted.** the plus menu has "compact" and the slash
-  menu has `/compact` (a typed `/compact` sent with return does the same).
+  focus back to its chip.
+- **a thread can be compacted.** the plus menu has "compact", the slash
+  menu has `/compact` (a typed `/compact` sent with return does the same),
+  and the stage's thread menu has "compact" too, calling the same
+  `compactThread`: one compaction per thread, whichever asked, and this
+  card says it.
   the daemon answers once the summary is in and refuses a thread with a turn
   running, so the row says "after this turn" and a press says why it cannot (the line under the words). while
   it runs a card above the window says so with a clock (the one thing that
@@ -285,12 +322,26 @@ new-thread route makes one before the session when asked.
   cmx2 a10), a ring beside compact shows how full the window is, with a tick
   where the daemon compacts by itself; a thread that reports none shows no
   ring.
-- **the sheet reads at a glance.** a close key beside the title (escape and
-  the scrim still close it), a machine icon on the machine chips, a clear
-  key in the search, an icon on every row of the finder, and "where it runs"
-  as the sliding-thumb control with a branch for the checkout, a branch that
-  ends in a plus for a fresh worktree, and one line saying what the pick does.
-  every control shows a focus ring in the place's light tone, never on a tap.
+- **the sheet reads at a glance** (the native app's newthread, ported
+  2026-10-16): the title and the stage bar's round of liquid glass to close
+  it (escape and the scrim still close it); one place line, as tall as a
+  field, with the repo's real mark (its favicon once read), its name and
+  "on <host>", named "starts in <repo> on <host>" with `aria-expanded`; the
+  composer under it; and "a fresh worktree" as one quiet switch
+  (`role="switch"`) with one line under it saying what the choice means, or
+  why this folder cannot have one. a press on the place line opens it in
+  place into the pickers: the machine chips when there are two or more, the
+  twelve recent repos as their marks (52 px, the name under each, the chosen
+  one ringed in its own accent with a hair of the card between, scrolled
+  into view as they open), and the finder ("find a repo, or type a path").
+  a repo or a folder picked closes the pickers onto the words, the caret in
+  them; a machine picked keeps them open on the finder. with nowhere chosen
+  they open by themselves. in place of the recent marks the line says
+  "looking." while the machine's repos are being read, the read's own words
+  when it failed, and "nothing has run on <host> yet. find a folder to start
+  in." only when the machine has answered with none. every control shows a
+  focus ring in the place's light tone, never on a tap. the composer's own
+  top line still names the place too; it is the composer's to drop.
 
 - **usability over a look, both kept.** the window material, the colours and the
   worded send stay. what changed is only what stood in a person's way:
@@ -321,7 +372,7 @@ new-thread route makes one before the session when asked.
     reaches over the repos or off the screen.
   - **the tools live behind a plus key** left of the words (decided here:
     the tools row cost a row on focus; four keys beside the words cost the
-    words their width on a phone). the keys keep their names (rule 5): the
+    words their width on a phone). the keys keep their names (AGENTS.md, accessibility): the
     plus is "add to the message", the menu rows are "add a photo",
     "commands", "mention a file", "run in the shell", "write on the full
     stage". in the sheet the plus is the photo key, since nothing else
@@ -337,23 +388,23 @@ new-thread route makes one before the session when asked.
   a real button named "new thread in <repo> on <host>". the dock and the
   sheet follow the window in view on the deck (its colour, repo root and
   host) and, with nothing in view, the newest thread's repo.
-- **where a thread can start.** the sheet shows the machine row when
-  `hostNames` has more than one, then repo chips (your repos by their
-  newest thread, then the machine's other projects) and an "other folder"
-  chip. that opens a finder: a field that filters the repos by name or
+- **where a thread can start.** the place line's pickers show the machine
+  row when `hostNames` has more than one, then the recent repos (your repos
+  by their newest thread, then the machine's other projects), then a
+  finder: a field that filters the repos by name or
   path, or, when the text starts with `/` or `~`, lists the folders inside
   that path (`GET /api/hosts/{host}/folders`, which boxbox serves from
   cmx2's `/global/fs`), with a row to go up, a row to look inside, a row
   marked repo for a git folder, and "use <path>" for the typed path as is
   (return takes it). switching the machine or the repo moves the draft to
   the new target's key, so words typed are not lost to a pick. that holds
-  for every pick that changes the target: a repo chip, a folder from the
+  for every pick that changes the target: a recent repo, a folder from the
   finder, a machine, and the repo the sheet takes by itself once a machine's
   list arrives (it used to move the target without moving the words, and the
   text sat under `new:<host>:` for good). the rule is `followDraft`
   (place.ts): the words you just typed replace what the place you arrive at
-  held, an empty draft moves nothing. a place with words waiting stays a
-  chip with a dot, so it is one tap away (`draftedPlaces`).
+  held, an empty draft moves nothing. a place with words waiting stays
+  among the recent marks with a dot, so it is one tap away (`draftedPlaces`).
 - **a folder is one chip, whatever name it was reached by.** cmx2 names a
   git project by its resolved path ("/private/tmp/x" for "/tmp/x"), so a
   folder walked to by the name it was typed under would sit beside the
@@ -361,7 +412,7 @@ new-thread route makes one before the session when asked.
   directory already has (`canonicalDirectory`, from the fleet's sessions);
   boxbox cannot resolve a path on a host it only speaks to over http, and
   the daemon offers no route for it.
-- **the folders route is bounded (rule 7).** it takes a `prefix` and
+- **the folders route is bounded (AGENTS.md, memory and latency).** it takes a `prefix` and
   narrows on the server, answers at most 500 folders with `truncated`, and
   reads at most 4 MiB of the host's answer (every upstream read is capped at
   16 MiB, past which the answer is the host's failure). 6000 subfolders were
@@ -382,10 +433,21 @@ new-thread route makes one before the session when asked.
   the thread in <repo> on <host>", after 8 s it says the machine is slow and
   keeps waiting, and on a refusal it says "the thread did not start: <why>"
   with retry (one send, the same client id) and edit (the words go back to
-  the draft). when the thread exists the stage opens on it growing from the
-  sheet's window, as a tap on a window does (`onOpened` to home's
-  `openBorn`; if a transition refuses the grow the thread opens in place),
-  and the sheet fades out. it works the same on the strip and rail.
+  the draft). **the sheet lets go of the screen as the message goes** (the
+  native app's decision 21, ported 2026-10-16): it slides off as a close
+  does but stays mounted, hidden and inert (`away`, held by home), so the
+  send and its state are kept while home is usable under it. the dock says
+  what the sheet would ("making the thread in <repo> on <host>.", the slow
+  line, or the connection's) in place of its place line, also as its
+  `aria-description`; a tap on the dock, the new thread pill or `⌘n` brings
+  the same sheet back as it opened. a refusal brings it back by itself with
+  the words, retry and edit, and retry lets go again. when the thread
+  exists the stage opens on it growing from the dock while the sheet is
+  away (from the sheet's window when it is up), as a tap on a window does
+  (`onOpened` to home's `openBorn`; if a transition refuses the grow the
+  thread opens in place), and the sheet goes. the strip and the rail have no
+  dock: the sheet lets go there too, and the new thread pill brings it
+  back. `composer / new thread sheet lets go` is the story.
   **which thread it opens is the one this send made, and only that one.**
   the worker says `born {clientID, key}` once, from the server's answer to
   that client id (or from the echo, when the answer was missed); the sheet
@@ -456,7 +518,16 @@ new-thread route makes one before the session when asked.
   show, begun at a word: the server keeps a part's last 280 characters,
   so a long part's piece of a first word is left out, and the prose is
   anchored to its end, two lines tall, so what is said now is what shows
-  and what is cut goes a whole line at a time from the top. it rolls in
+  and what is cut goes a whole line at a time from the top. the agent's
+  prose is markdown and is drawn as such, inline (`inline.ts`): strong in
+  the full ink, emphasis slanted, code in the mono face, a link as its
+  words, and no star, underscore or backtick shown; a mark still open at
+  the stream's end is dropped rather than drawn as a literal star that turns
+  bold a moment later, and a heading's hashes or a list's bullet go before
+  the prose is cut. a question the agent asked, settled or not, and its own
+  todo list are never the line (they are the ask card's and the window's
+  to leave out, as the window's cards do), so the step before them shows.
+  it rolls in
   when a new row begins, a step or a new part; the same row's words
   growing change in place with no roll. a turn's start is told apart from
   the last turn's end: the busy status can land a few milliseconds before
@@ -469,10 +540,52 @@ new-thread route makes one before the session when asked.
   being empty moves nothing, and the dock's height is the same from the
   first frame of a turn to its settle, focused or not. the live line's
   prose is two lines at most, anchored to its end.
+- **the layout: no line is ever under a key** (the ios app's composerrow). one
+  line of words sits between the plus key and send, inset clear of both (52 px,
+  and send's own width, 104 px while it is worded). a second line, a wrap at
+  that room or a return, puts the words the window's full width with the plus
+  and send on a row of their own under them, in the corners, as the claude and
+  chatgpt apps do. the wrap is measured by an unseen ruler of the words at the
+  one-row inset (`.cz-ruler`), on each keystroke and when the width changes, so
+  the shape never flips back and forth at the width in between. the keys move
+  to their row on the snap spring (`flip`) and the words glide sideways from
+  their inset; the window's height changes at once, since only transform
+  animates. the sheet's words stand two lines tall over the keys, so there the
+  third line is the one that stacks; the full stage is always stacked. the
+  words grow to six lines, or fewer when the screen above the keyboard cannot
+  hold the whole composer with six (the largest type, a short landscape
+  screen): whole lines, read from the visual viewport on focus and on its own
+  resize events, so the last line in sight is whole and the keys stay above the
+  keyboard.
 - **send's word.** a disc with an arrow when it sends; it opens by clip
   into a worded pill for queue, steer, answer, run (a `!` line) and start.
-- **the first queued card** carries steer now and run now on a row of its
-  own, so its text keeps the width at 390; the others carry only unsend.
+- **the queue is one strip** (`queue.tsx`; the ios app's decision 23). a card per
+  message stacked above the window took 330 px of a phone's thread at three, and
+  the daemon's provisional message drew a bubble in the transcript beside it. now
+  a message on its way has one place until it lands: a 52 px strip above the
+  window showing one message (one that did not go first, else the first in
+  line, `leadOf`) with its label and when it goes on the first line ("steer, at
+  its next step", "next, after this turn", `cardWhen`), its words (or, for one
+  that did not go, what went wrong) on the second, "+N" for the ones behind and
+  their edges peeking 4 px over its top (two at most, the room for both kept
+  whatever waits, so a second message moves nothing). on the strip: retry and
+  edit on one that did not go, steer now and run now from 700 px up, and the
+  cross that unsends. a swipe left past 96 px (or a fling half as far again)
+  unsends, the strip following the finger by transform and saying "unsend"
+  under it; a long press on touch, a right click or the context menu key opens
+  every verb as a menu. a tap opens every message with its verbs (the cards
+  below) in a list that floats over the thread as the plus menu does, the
+  composer's width on a phone and 440 px wide from 700 px up, so nothing under
+  it moves; escape or a press outside closes it. the strip is the lead
+  message's element, so it is what flies into the thread when that one lands.
+- **the first queued card** in the list carries steer now and run now on a row
+  of its own, so its text keeps the width at 390; the others carry unsend, and
+  edit while the draft is empty.
+- **edit on a waiting message** takes it back into the empty draft with the
+  caret in its words: an unsend named for what it is for, offered on the list's
+  cards and in the long press while the draft holds nothing (a draft with words
+  has no room for them). one that did not go keeps its own edit, back to the
+  draft with its photos.
 - **a steer can be run now.** a steer waits for the next
   tool boundary, and a long command or a wait on agents can put that boundary
   far off, so its card carries run now (and unsend) on a row of its own, like
@@ -520,7 +633,7 @@ new-thread route makes one before the session when asked.
   refuses anything unclamped rather than relaying it.
 - **a heic the browser cannot decode goes as it is (decided here, a30).**
   chrome and firefox, on the desktop and on android, cannot decode heic, and
-  people were converting by hand. conversion is cmx2's (rule 8, a30), so
+  people were converting by hand. conversion is cmx2's (AGENTS.md, cmx2; ask a30), so
   the composer sends the original and the host converts it to jpeg.
   - **the browser path is always tried first** (`createImageBitmap`): where it
     decodes (safari) the photo is fitted to 1568 px and sent as jpeg under
@@ -543,7 +656,7 @@ new-thread route makes one before the session when asked.
     | all of one message's photos | 18 mb of files (24 mb as data urls) | two heics at the limit, or four jpegs (6 mb of data url) with room over; it is also what the body limit is built from |
     | the body of prompt, steer and new thread | 25 mb (`PROMPT_BODY`, was 7) | the photos' 24 mb and a 100,000 character text in json (under 1 mb) |
     | photos in flight on the server | 100 mb of memory (`PHOTO_BUDGET_MIB`): two messages at the body limit, each counted twice, by the size its body announces | a body is held twice over while it is read (the bytes it came in, then the strings parsed from them), so a message costs twice its size at its peak: the budget is what the process can reach, not what it is told. a middleware takes the room before a byte is read. a message that does not fit waits for room, up to 2 minutes (`PHOTO_WAIT`): nothing of it has been read, so waiting holds no memory, and a message behind two that are being converted goes when they are done. one that has had no turn in two minutes is answered 503 `photos-busy` ("other photos kept boxbox busy for two minutes, so it could not take this message"), which the sender takes as an answer and does not try again (three tries would be six minutes of waiting): the card says not sent, with retry. words (a body under 256 KiB) are never counted. measured below |
-    | the outbox and the drafts together | 72 mb of data url | three messages at the limit (rule 7). the composer asks before it takes a photo (every draft's photos and every unsent message's, `noRoomFor`). the sender holds the same cap for real: a message that would pass it does not take its photos into the outbox, they go straight back to the draft they came from (`returned`), and the message stays as a failed card with its words alone, which says so ("its photos are back in the draft. edit it back there too, and send it when the others have gone") and is not offered a retry (that would send the words without them). a person does not meet this (the composer asks first); it is the backstop for another tab. a data url string per photo in memory, in indexeddb and in a worker message, so it is the bytes this device spends on photos nobody has received |
+    | the outbox and the drafts together | 72 mb of data url | three messages at the limit (AGENTS.md, memory and latency). the composer asks before it takes a photo (every draft's photos and every unsent message's, `noRoomFor`). the sender holds the same cap for real: a message that would pass it does not take its photos into the outbox, they go straight back to the draft they came from (`returned`), and the message stays as a failed card with its words alone, which says so ("its photos are back in the draft. edit it back there too, and send it when the others have gone") and is not offered a retry (that would send the words without them). a person does not meet this (the composer asks first); it is the backstop for another tab. a data url string per photo in memory, in indexeddb and in a worker message, so it is the bytes this device spends on photos nobody has received |
     | a post from the device | 5 s, the wait for room (2 min, for any message with photos), the upload at 200 kB a second, and what the server gives the host (`postBudgetMs`) | the post outlasts everything the server waits for: two heics at the limit are given about eight and a half minutes. a retry carries the same client id, so a post cut after the server took it is answered with the first answer |
     | boxbox to the daemon | 15 s, then per photo bytes at 256 KiB a second, and 75 s more for each heic or heif (`accept_timeout`) | the daemon answers once it holds the message, and cmx2 converts a heic before it does, giving each 60 s in all (each converter gets what is left of it, 45 s at most); 15 s more is the margin. the device's post is given this on top of the upload, so the server's answer, not the device's timeout, is what a slow host produces |
     | the daemon's own body | 128 MiB (cmx2 `MAX_BODY_BYTES`, read at the heic checkout) | well above 25 mb |
@@ -563,7 +676,7 @@ new-thread route makes one before the session when asked.
     as on any photo. the mark is in the top right corner and the glyph and the
     word keep to the left and below it, so nothing sits under the mark at any
     width (the tile is 60 px at 390 and at 1512). nothing is decoded in script for a preview: a wasm
-    decoder would be a dependency (rule 15) and megabytes of script for a
+    decoder would be a dependency (AGENTS.md, dependencies) and megabytes of script for a
     thumbnail the host will not use. its accessible name carries the file's
     name, the kind and the size, and says the host converts it; the glyph and
     the word inside are hidden from assistive technology, so that name is the
@@ -682,6 +795,172 @@ new-thread route makes one before the session when asked.
   `architecture.md` says ("the whole app's first load"); a chunk only a
   later action imports is printed and not counted (`scripts/compress.ts`).
 
+## voice, files and assistants (2026-10-15)
+
+the composer under an assistant's thread is today's composer in the
+assistant's palette (the approved screens): the window, the line, the
+chips, the plus key. what changes is gated on the agent's capabilities by
+name (`design.md`, agents: who a window belongs to), never on its
+runtime, so a cmx thread's composer is exactly what it was.
+on the web the mic key, the recorder and the thinking chip are built as
+standalone pieces (`app/src/ui/assistant/voice/voice-composer.tsx`,
+`thinking.tsx`; ladle group `assistant-composer`) that the composer takes
+when contract 2 is wired.
+
+### the chips
+
+- **the model chip** shows when the agent declares `model`, as today.
+- **the thinking chip.** the chip beside it is the agent's `reasoning`:
+  its `word` is the chip's word ("effort" for cmx, "thinking" for an
+  assistant), the meter has one bar per entry in `levels`, and a press
+  opens today's dial over those levels, named by the agent ("off",
+  "minimal", "low", "medium", "high"). a pick is the thread's from the
+  next message on, as effort is today; how the agent applies it is the
+  source's (`docs/openclaw.md` sets it on the session before the send,
+  not as a one-turn override), so the chip always shows the thread's own
+  level, never a per-message one. an agent
+  without `reasoning` has no chip and the model chip takes the row's
+  room.
+- **the placeholder** names who reads it: "message <name>" under an
+  assistant (idle), "queue a message" while it works, as today; "reply"
+  stays cmx's.
+
+### the mic key
+
+- with `voice` (`notes`), the round key at the right of the words is the
+  **mic** while the draft is empty (no words, no attachments) and send
+  the moment it is not. the two cross in the fade curve in one 44 px box,
+  so nothing moves. without `voice` the key is send, as today.
+- the mic is quiet at rest (the plus key's material, the first ink), not
+  in the accent: send is the primary, and a mic in the accent beside an
+  empty field would read as the thing to press.
+- dictation still works in the words (the keyboard's own mic), and still
+  has no state of its own.
+
+### recording
+
+| state | how you get there | shown |
+|---|---|---|
+| asking for the microphone | the first press, ever, on this device | nothing of boxbox's own: the platform's prompt. the press does not record; a granted prompt leaves the composer as it was, and the next press records |
+| refused | the platform says no, or the permission was turned off | the composer's line says "boxbox cannot use the microphone. turn it on in settings, then try again." (in a safari tab: "allow the microphone for this site in safari's settings, then try again."); the mic key stays, and a press says it again |
+| no microphone | the device has none, or the web has no `MediaRecorder` | the mic key is not offered; send is the key |
+| holding | press and hold the mic key | the recorder: the red dot, the timer (`0:09`, mono 15 px 600 tabular), the live waveform on the top row; "slide to cancel" with a chevron where the words were; the key grown, filled with `--rec`; the lock capsule above it; the plus key stays, dimmed and inert. the header's live line says "<name> · listening" |
+| sliding to cancel | drag left while holding | the words follow the finger and fade as they near the cancel line (120 px, or a third of the composer's width, whichever is less) |
+| cancelled | release past the cancel line, or `esc` | the recording is dropped from memory at once; the composer returns to its empty state. nothing is sent and nothing is kept |
+| locking | drag up while holding | the lock's track fills with the drag |
+| locked | release past the lock line (72 px up), or a tap on the lock, or `⌘⇧m`, or a tap on the mic by a screen reader or a pointer that cannot hold (the web with a mouse: a click locks at once) | the recorder stays without a finger: "cancel" (a word) where "slide to cancel" was, and send (the arrow on the accent) as the key |
+| sent | release the hold short of both lines (a hold under 600 ms is a tap, below), or send while locked, or `return` while locked | the note goes as a message (`audio`, `flavour: voice`, with its `durationMs` and 64 peaks), into the thread as your voice bubble, faded until it is acknowledged, as any send; while the agent works it queues as a message would |
+| too short | a hold released before 600 ms | nothing is sent; the line says "hold to record, or tap the lock to record hands free." for 4 s |
+| near the cap | 60 s before the cap | the timer carries "1 min left" after it in the second ink |
+| at the cap | 15 minutes, or 12 mb, or the agent's `attachments.maxBytes` when less | the recording stops by itself and stays locked, not sent: "this is as long as a voice note can be. send it, or cancel it." |
+| interrupted | a call, another app taking the microphone, the page hidden on the web | the recording stops and stays locked with what it has, "recording stopped when another app took the microphone." the note is never sent by an interruption |
+| send failed | as any send | your voice bubble says "not sent" with retry; "back to draft" returns the note to the locked state, not to the words |
+| not confirmed | the gateway's receipt says neither yes nor no | the bubble says "not confirmed: <name> may not have it." with "send it again"; boxbox never resends by itself (`thread.md`, a send that is not confirmed) |
+
+- **a voice note is a message.** it takes the composer's whole send:
+  quote, attachments, and words cannot ride it (a voice note goes alone,
+  as on every messenger). a reply strip that is open when you record
+  quotes the note to what it replies to.
+- **what is captured** is encoded as it goes (`design.md`, buttery: the
+  buffers): opus in webm or ogg where the browser records it, aac in mp4
+  where it does not (safari), and aac in m4a natively; the upload says
+  its kind, and what reaches the agent is the server's business
+  (`docs/agents.md`, the upload: it transcodes to what the agent takes).
+  a transcript is made on the device where the platform can do it there
+  (native, on-device speech recognition, never a server), and rides the
+  part as `transcript`; the web makes none.
+- **the audio session** (native) is taken for recording only while the
+  recorder is open, and given back with playback ducked, never left
+  holding the microphone. starting a recording stops any note playing.
+
+### the reply strip
+
+- with `quotes`, a swipe right on any message (yours or the agent's
+  words, a voice note, a card) past 64 px opens the **reply strip** above
+  the composer: a glass tab the composer's width less 8 px a side, 52 px
+  tall, its top corners round (22) and its foot joined to the composer.
+  it holds a reply glyph, a 3 px rule in the accent, the author ("<name>"
+  or "you") 12.5 px 650 in the accent over one line of the message's
+  words 13.5 px in the second ink (a voice note's is "voice note 0:22",
+  its duration from the quote's `durationMs`, or "voice note" without one;
+  a card's its file name), and a 26 px round close.
+- on the web with a fine pointer the swipe is a **reply control** at the
+  row's end, shown on hover and on focus within the row (under `(hover:
+  hover)`), and `r` on a focused row. every platform has "reply" in the
+  row's long-press menu as well, so it is never a gesture alone.
+- the strip lives in the draft: it is saved with it, survives a relaunch,
+  and goes with the send. `esc` or the close takes it away. replying to a
+  second row replaces the first. the words take focus when it opens
+  (not on touch, where focus would raise the keyboard uninvited).
+- the strip rides above the queue's cards and below the pinned line; the
+  dock's height grows by its 52 px on the snap spring and the transcript's
+  bottom stays anchored.
+
+### attachments: any file
+
+- with `attachments`, the plus menu's first rows are **add a photo**
+  (the photo library, as today) and **add a file** (the platform's file
+  picker; the web's `<input type=file>`, native's document picker), each
+  offered only when the agent's `kinds` take something of that sort. a
+  drop onto the composer and a paste of a file do the same on the web.
+- **a file in the draft** is a tile beside the photos' thumbnails: its
+  type tile, its name cut in the middle ("booking-con…firm.pdf") and its
+  size, with remove. a message takes the agent's `maxCount` and
+  `maxBytes`, under boxbox's own outbox cap; photos are clamped as today,
+  files go as their own bytes.
+- refused before it goes, with the words saying what and what to do,
+  every number the agent's own `maxBytes` and `maxCount`: "<file> is 31
+  mb. <name> takes files up to <maxBytes>.", "<name> does not take .zip
+  files.", "<name> takes <maxCount> files on a message. this one did
+  not fit.". uploading, a determinate ring; failed, a red edge and "the
+  upload stopped. tap to try again." (`thread.md`, pictures and files).
+- cmx keeps photos alone: its `attachments.kinds` are images, so "add a
+  file" is not offered there.
+
+### start something with an agent
+
+- **the agent row** takes the place row's spot at the sheet's head (the
+  machine was a choice inside the place row; it is now the agent): a 54
+  px row pressed into the sheet, the
+  agent's mark (33 px: square with the machine's initials for cmx, round
+  in its palette for an assistant), the agent's name (16.5 px 600) and
+  under it its runtime and machine ("on vm-a" for cmx, "openclaw · vm-b"),
+  with a chevron. the sheet's colour follows the agent: an assistant's
+  palette, or for cmx the repo picked below it.
+- **the picker** opens under the row as a deeper card of the window
+  plane, rows 48 px: every cmx agent, one per machine (square marks, "cmx"
+  and the machine), a hairline, then every assistant that declares
+  `threads` (round marks, the name and "openclaw · vm-b"), the chosen one
+  carrying a check. an agent that is not answering, or still waiting for
+  approval on its gateway, is listed dim with that in its second line and
+  is not a choice. arrows walk it, return takes one, `esc` closes it.
+- **with cmx chosen**, the place row follows (the repo chips and the
+  folder finder, `places`) and the worktree toggle (`worktree`), as
+  today.
+- **with an assistant chosen**, there is no place row and no worktree
+  toggle, because the agent declares neither: the composer follows the
+  agent row directly, its placeholder "message <name>", and one line
+  under it in the second ink: "<name> starts a new thread on vm-b." the
+  first message makes the thread (`docs/agents.md`), and the stage opens
+  on it as today.
+- an agent without `threads` is not in the picker; its one thread is
+  opened by the dock when its window is in view (`home.md`).
+- the sheet opens on the agent of the window in view, as it opens on its
+  repo today.
+
+### web and native
+
+| | web | native (boxbox-ios) |
+|---|---|---|
+| capture | `MediaRecorder` on a `getUserMedia` stream, chunks every 1 s into the recorder's capped buffer; the live levels from an `AnalyserNode` read once per 100 ms | `AVAudioRecorder` (aac, m4a) with metering read once per 100 ms |
+| hold, slide, lock | pointer events with capture on the key; a mouse click locks at once (holding a mouse button while sliding is not a web idiom) | a long-press recognizer that tracks the finger; the lock and cancel lines with a haptic tick each |
+| keyboard | `⌘⇧m` records locked, `return` sends, `esc` cancels; `r` replies to the focused row | the same with a hardware keyboard |
+| reply | the hover reply control and `r`; swipe on touch | swipe right; the context menu |
+| files | `<input type=file>`, drop, paste | the document picker, the photo picker, paste |
+| transcript | none made here | on-device speech recognition |
+
+the mic needs `MediaRecorder`; a browser without it never offers the key.
+
 ## telemetry
 
 `perf.send` (`telemetry/schema.ts`): ms from the tap to the daemon's echo
@@ -693,3 +972,10 @@ outbox entry, live or found in a transcript it read whole after a reset.
 draft that held words or photos, with the most characters and photos it
 held and how long it was open; a draft cleared by its send is not one. no
 prompt text ever enters a label.
+
+`perf.send` carries the voice note and file verbs too (`what: voice`,
+`what: file`), with the bytes and the post's time. `perf.record`
+(2026-10-15, `design.md`, buttery) is emitted per recording: the press to
+the recorder painted, the press to the first sample, the bars' main
+thread time, and how it ended (`sent`, `cancelled`, `cap`, `interrupted`,
+`refused`), with its length in seconds; never a word of what was said.

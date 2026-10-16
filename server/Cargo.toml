@@ -1,7 +1,7 @@
 [package]
 name = "boxbox"
 version = "0.1.0"
-description = "the boxbox server: one binary between your cmx2 daemons and your devices"
+description = "the boxbox server: one binary between your agents and your devices"
 keywords = ["coding-agents", "cmx2", "web-push", "sse"]
 edition.workspace = true
 license.workspace = true
@@ -19,7 +19,15 @@ path = "src/main.rs"
 [lints]
 workspace = true
 
+[features]
+# the fleet actor writes every input it takes, with the clock it took it at,
+# to the file named by BOXBOX_RECORD (`fleet/record.rs`). off in every
+# release; `bun bench/golden.ts record` builds with it to record the replay
+# fixture.
+record = []
+
 [dependencies]
+aws-lc-rs = { version = "1.18.1", default-features = false, features = ["aws-lc-sys"] }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio", "tower-log", "ws"] }
 base64ct = { version = "1.8", features = ["alloc"] }
 bytes = "1.12"

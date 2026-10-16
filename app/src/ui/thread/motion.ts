@@ -15,7 +15,7 @@ export function installMotion(): void {
 /** the device's choice in settings, or the system's when it left it there (motion/animate.ts) */
 export const reducedMotion = (): boolean => prefersReducedMotion();
 
-const FLIPPED = ".row, .you, .answer, .tape, .turn-mark, .report, .sumcard, .fl, .fdiff, .gap";
+const FLIPPED = ".row, .you, .answer, .turn-mark, .report, .sumcard, .fl, .fdiff, .gap";
 
 /** measures what is near the view, applies the change, and slides everything that moved from where it was;
     the revealed element, if any, opens under a clip. nothing reads layout inside a frame loop. */

@@ -1,0 +1,87 @@
+[
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "f6bab58d-adeb-40ef-ae99-e7225a4d0fb5",
+      "sessionKey": "agent:main:dashboard:e238e020-a7e6-4aa7-8edc-72bf5fd003fd",
+      "agentId": "main",
+      "seq": 1,
+      "state": "status",
+      "phase": "preparing_workspace"
+    },
+    "seq": 82
+  },
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "f6bab58d-adeb-40ef-ae99-e7225a4d0fb5",
+      "sessionKey": "agent:main:dashboard:e238e020-a7e6-4aa7-8edc-72bf5fd003fd",
+      "agentId": "main",
+      "seq": 2,
+      "state": "status",
+      "phase": "preparing_context"
+    },
+    "seq": 84
+  },
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "f6bab58d-adeb-40ef-ae99-e7225a4d0fb5",
+      "sessionKey": "agent:main:dashboard:e238e020-a7e6-4aa7-8edc-72bf5fd003fd",
+      "agentId": "main",
+      "seq": 4,
+      "state": "status",
+      "phase": "starting_model"
+    },
+    "seq": 87
+  },
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "f6bab58d-adeb-40ef-ae99-e7225a4d0fb5",
+      "sessionKey": "agent:main:dashboard:e238e020-a7e6-4aa7-8edc-72bf5fd003fd",
+      "agentId": "main",
+      "seq": 6,
+      "state": "delta",
+      "deltaText": "a voice reply follows.\n[[tts:text]]the bench speaks this line.[[/tts:text]]",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "a voice reply follows.\n[[tts:text]]the bench speaks this line.[[/tts:text]]"
+          }
+        ],
+        "timestamp": 1792054862250
+      }
+    },
+    "seq": 90
+  },
+  {
+    "type": "event",
+    "event": "chat",
+    "payload": {
+      "runId": "f6bab58d-adeb-40ef-ae99-e7225a4d0fb5",
+      "sessionKey": "agent:main:dashboard:e238e020-a7e6-4aa7-8edc-72bf5fd003fd",
+      "agentId": "main",
+      "seq": 10,
+      "state": "final",
+      "stopReason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "a voice reply follows.\n[[tts:text]]the bench speaks this line.[[/tts:text]]"
+          }
+        ],
+        "timestamp": 1792054862297
+      }
+    },
+    "seq": 95
+  }
+]

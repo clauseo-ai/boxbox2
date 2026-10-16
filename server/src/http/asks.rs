@@ -7,7 +7,7 @@
 //! serves or the turn it starts is attributed to the device.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -15,22 +15,21 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tracing::info;
 use utoipa::ToSchema;
 
 use super::AppState;
+use super::agents;
 use super::compose::{Message, Photo, accept_timeout, content, message_body, model_and_effort};
 use super::error::{ApiError, ErrorBody};
+#[cfg(test)]
 use crate::config::HostConfig;
 use crate::fleet::model::{Device, session_key};
 use crate::push::devices;
+#[cfg(test)]
+use crate::source::cmx2::verbs::asks::{ANSWER_TIMEOUT, COMPACT_TIMEOUT, summarize};
 use crate::telemetry::dictionary;
-use crate::upstream::{plain, request};
-
-/// how long the daemon may take to answer a verb.
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
-/// the most of a host's answer one call reads: past it the answer is the host's failure.
-const BODY_MAX: usize = 16 * 1024 * 1024;
+use crate::upstream::plain;
+use crate::wire::Capability;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -136,15 +135,10 @@ pub async fn permission(
     if let Some(message) = body.message.filter(|m| !m.trim().is_empty()) {
         sent["message"] = Value::String(message);
     }
-    answer(
-        &state,
-        &host,
-        &ask,
-        device,
-        &format!("/permission/{}/reply", segment(&ask)?),
-        &sent,
-    )
-    .await
+    let id = segment(&ask)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Approvals))?;
+    answering(&state, &host, &ask, device).await?;
+    source.permission(id, &sent).await.map(Json)
 }
 
 /// answers a question.
@@ -174,15 +168,10 @@ pub async fn question(
         ));
     }
     let sent = json!({ "answers": body.answers, "by": device.class, "clientID": client_id });
-    answer(
-        &state,
-        &host,
-        &ask,
-        device,
-        &format!("/question/{}/reply", segment(&ask)?),
-        &sent,
-    )
-    .await
+    let id = segment(&ask)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Questions))?;
+    answering(&state, &host, &ask, device).await?;
+    source.question(id, &sent).await.map(Json)
 }
 
 /// dismisses a question without an answer.
@@ -206,15 +195,10 @@ pub async fn reject(
     let device = device_of(&body.device, &body.device_class)?;
     let client_id = client_id(&body.client_id)?;
     let sent = json!({ "by": device.class, "clientID": client_id });
-    answer(
-        &state,
-        &host,
-        &ask,
-        device,
-        &format!("/question/{}/reject", segment(&ask)?),
-        &sent,
-    )
-    .await
+    let id = segment(&ask)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Questions))?;
+    answering(&state, &host, &ask, device).await?;
+    source.reject(id, &sent).await.map(Json)
 }
 
 /// sends a prompt (it starts a turn, or queues behind the running one) and
@@ -240,7 +224,7 @@ pub async fn prompt(
     let client_id = client_id(&body.client_id)?.to_owned();
     let limit = accept_timeout(&body.photos);
     let parts = content(&body.text, std::mem::take(&mut body.photos))?;
-    let route = format!("/session/{}/prompt_async", segment(&session)?);
+    let id = segment(&session)?;
     let key = session_key(&host, &session);
     state
         .fleet
@@ -249,7 +233,8 @@ pub async fn prompt(
         .map_err(|_| ApiError::Stopping)?;
     let mut sent = message_body(parts, &client_id);
     model_and_effort(&mut sent, body.model.as_deref(), body.effort.as_deref())?;
-    let done = post_body(&state, &host, &route, sent, limit).await?;
+    let source = agents::cmx2(&state, &host, None)?;
+    let done = source.prompt(id, sent, limit).await?;
     answer_review(&state, key, device).await;
     Ok((StatusCode::ACCEPTED, Json(done)).into_response())
 }
@@ -282,18 +267,15 @@ pub async fn abort(
 ) -> Result<Json<Done>, ApiError> {
     device_of(&body.device, &body.device_class)?;
     client_id(&body.client_id)?;
-    let route = format!("/session/{}/abort", segment(&session)?);
+    let id = segment(&session)?;
     state
         .fleet
         .own_action(session_key(&host, &session))
         .await
         .map_err(|_| ApiError::Stopping)?;
-    post(&state, &host, &route, &json!({})).await.map(Json)
+    let source = agents::cmx2(&state, &host, None)?;
+    source.abort(id).await.map(Json)
 }
-
-/// how long the daemon may take to compact a thread: it answers once the summary is in, and a long thread's summary
-/// is a model call of its own.
-const COMPACT_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// compacts the thread now, on the model it already uses. the daemon answers once the summary is in, so a thread with
 /// a turn running is refused (stop it first), and a failed compaction leaves the thread as it was.
@@ -318,297 +300,28 @@ pub async fn compact(
     device_of(&body.device, &body.device_class)?;
     client_id(&body.client_id)?;
     segment(&session)?;
-    let host = super::hosts::find(&state, &host)?;
-    summarize(&state.client, &host.config, &session, COMPACT_TIMEOUT)
-        .await
-        .map(Json)
+    let source = agents::cmx2(&state, &host, Some(Capability::Compact))?;
+    source.compact(&session).await.map(Json)
 }
 
-/// one compaction on one host. the daemon takes the thread's own model when the body names none, but holds the body
-/// as required, so it gets an empty one.
-async fn summarize(
-    client: &reqwest::Client,
-    host: &HostConfig,
-    session: &str,
-    limit: Duration,
-) -> Result<Done, ApiError> {
-    let route = format!("/session/{}/summarize", segment(session)?);
-    let done = call_host_text(
-        client,
-        host,
-        reqwest::Method::POST,
-        &route,
-        Some(json!({}).to_string().into_bytes()),
-        None,
-        limit,
-        BODY_MAX,
-    )
-    .await;
-    compaction_refusal(done, &host.name, session)
-}
-
-/// the daemon's refusals of a compaction, in the words that fit it: its generic ones (gone, already sent, already
-/// answered) are written for asks and sends.
-fn compaction_refusal(
-    done: Result<Done, ApiError>,
-    host: &str,
-    session: &str,
-) -> Result<Done, ApiError> {
-    let said = |message: &str| ApiError::HostSaid {
-        host: host.to_owned(),
-        status: 409,
-        message: message.to_owned(),
-    };
-    done.map_err(|error| match error {
-        ApiError::Gone => ApiError::NoSuchSession(session_key(host, session)),
-        ApiError::AlreadySent => said("a turn is running. stop it or wait for it, then compact"),
-        ApiError::Settled { .. } => {
-            said("this thread is history imported from cmx and cannot be compacted")
-        }
-        other => other,
-    })
-}
-
-async fn answer(
+/// the fleet is told `device` is answering `ask` before the answer goes, so the need it
+/// serves is attributed to the device.
+async fn answering(
     state: &AppState,
     host: &str,
     ask: &str,
     device: Device,
-    route: &str,
-    sent: &Value,
-) -> Result<Json<Done>, ApiError> {
+) -> Result<(), ApiError> {
     state
         .fleet
         .answering(host.to_owned(), ask.to_owned(), device)
         .await
-        .map_err(|_| ApiError::Stopping)?;
-    post(state, host, route, sent).await.map(Json)
-}
-
-/// the daemon's error body, read loosely: a6's 409 carries who settled the
-/// ask and when.
-#[derive(Debug, Deserialize)]
-struct HostError {
-    name: Option<String>,
-    data: Option<HostErrorData>,
-}
-
-#[derive(Debug, Deserialize)]
-struct HostErrorData {
-    message: Option<String>,
-    by: Option<String>,
-    #[serde(rename = "settledAt")]
-    settled_at: Option<f64>,
-}
-
-pub(super) async fn post(
-    state: &AppState,
-    host: &str,
-    route: &str,
-    sent: &Value,
-) -> Result<Done, ApiError> {
-    upstream(
-        state,
-        host,
-        reqwest::Method::POST,
-        route,
-        Some(sent),
-        None,
-        ANSWER_TIMEOUT,
-    )
-    .await
-}
-
-/// a message with photos, which can be tens of megabytes: the body is written once and the value it came from
-/// is dropped before the call, so what is held while the daemon takes it (and converts a heic, which can take
-/// a minute) is the body alone, not the body and a tree of the same strings (rule 7). `limit` is the daemon's
-/// own time to answer (`accept_timeout`).
-pub(super) async fn post_body(
-    state: &AppState,
-    host: &str,
-    route: &str,
-    sent: Value,
-    limit: Duration,
-) -> Result<Done, ApiError> {
-    let text = body_bytes(&sent);
-    drop(sent);
-    let view = host_view(state, host)?;
-    call_host_text(
-        &state.client,
-        &view.config,
-        reqwest::Method::POST,
-        route,
-        Some(text),
-        None,
-        limit,
-        BODY_MAX,
-    )
-    .await
-}
-
-/// one call to a host on a person's behalf: logged once, the daemon's
-/// answer passed back whole, its refusals mapped to what they mean here.
-/// `directory` scopes a read the way cmx2 scopes them (`x-cmx2-directory`).
-pub(super) async fn upstream(
-    state: &AppState,
-    host: &str,
-    method: reqwest::Method,
-    route: &str,
-    sent: Option<&Value>,
-    directory: Option<&str>,
-    limit: Duration,
-) -> Result<Done, ApiError> {
-    upstream_within(state, host, method, route, sent, directory, limit, BODY_MAX).await
-}
-
-/// `upstream` with the most body it will read: an answer past it is the host's failure, not a buffer
-/// that grows to the size of whatever a host sends (rule 7).
-#[allow(
-    clippy::too_many_arguments,
-    reason = "upstream's own arguments and the cap"
-)]
-pub(super) async fn upstream_within(
-    state: &AppState,
-    host: &str,
-    method: reqwest::Method,
-    route: &str,
-    sent: Option<&Value>,
-    directory: Option<&str>,
-    limit: Duration,
-    cap: usize,
-) -> Result<Done, ApiError> {
-    let view = host_view(state, host)?;
-    call_host_text(
-        &state.client,
-        &view.config,
-        method,
-        route,
-        sent.map(|sent| sent.to_string().into_bytes()),
-        directory,
-        limit,
-        cap,
-    )
-    .await
-}
-
-/// a message's body as json, in a buffer made the size of the strings it holds: `to_string` grows by doubling, which for
-/// tens of megabytes of photo is as much again held for the moment it takes.
-fn body_bytes(sent: &Value) -> Vec<u8> {
-    let strings: usize = sent["parts"].as_array().map_or(0, |parts| {
-        parts
-            .iter()
-            .map(|part| {
-                ["url", "text"]
-                    .iter()
-                    .filter_map(|field| part[field].as_str())
-                    .map(str::len)
-                    .sum::<usize>()
-            })
-            .sum()
-    });
-    let mut buffer = Vec::with_capacity(strings + 4096);
-    // a Value always serializes
-    if serde_json::to_writer(&mut buffer, sent).is_err() {
-        buffer.clear();
-    }
-    buffer
-}
-
-/// the host `name` as the upstreams hold it now.
-fn host_view(state: &AppState, name: &str) -> Result<crate::upstream::HostView, ApiError> {
-    state
-        .upstreams
-        .hosts
-        .borrow()
-        .iter()
-        .find(|h| h.config.name == name)
-        .cloned()
-        .ok_or_else(|| ApiError::UnknownHost(name.to_owned()))
-}
-
-/// `upstream_within` once the host is found: the call itself, apart from the state that holds the hosts.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "upstream's own arguments and the cap"
-)]
-async fn call_host_text(
-    client: &reqwest::Client,
-    config: &HostConfig,
-    method: reqwest::Method,
-    route: &str,
-    sent: Option<Vec<u8>>,
-    directory: Option<&str>,
-    limit: Duration,
-    cap: usize,
-) -> Result<Done, ApiError> {
-    let host = config.name.as_str();
-    let started = Instant::now();
-    let unreachable = |reason: String| ApiError::HostUnreachable {
-        host: host.to_owned(),
-        reason,
-    };
-    let mut call = request(client, config, method.clone(), route);
-    if let Some(sent) = sent {
-        call = call
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(sent);
-    }
-    if let Some(directory) = directory {
-        call = call.header("x-cmx2-directory", directory);
-    }
-    let answer = tokio::time::timeout(limit, call.send())
-        .await
-        .map_err(|_| unreachable(format!("no answer within {}s", limit.as_secs())))?
-        .map_err(|e| unreachable(plain(&e)))?;
-    let status = answer.status().as_u16();
-    let repeat = answer.headers().contains_key("x-cmx2-repeat");
-    let body = read_capped(answer, host, limit, cap).await?;
-    info!(
-        host,
-        %method,
-        route,
-        status,
-        repeat,
-        latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        "verb sent to the host"
-    );
-    if (200..300).contains(&status) {
-        // a blocking send starts its body with a space; json reads past it
-        let answer = serde_json::from_slice(&body).unwrap_or(Value::Null);
-        return Ok(Done { repeat, answer });
-    }
-    let error: Option<HostError> = serde_json::from_slice(&body).ok();
-    let name = error
-        .as_ref()
-        .and_then(|e| e.name.clone())
-        .unwrap_or_default();
-    let data = error.and_then(|e| e.data);
-    match (status, name.as_str()) {
-        (401, _) => Err(ApiError::HostRefused(host.to_owned())),
-        (404, _) => Err(ApiError::Gone),
-        (409, "BusyError") => Err(ApiError::AlreadySent),
-        (409, "ConflictError") => {
-            let (by, at) = data.map_or((None, None), |d| (d.by, d.settled_at));
-            #[allow(clippy::cast_possible_truncation, reason = "a ms stamp fits an i64")]
-            let at = at.map(|at| at as i64);
-            Err(ApiError::Settled {
-                by: by.unwrap_or_else(|| "someone".into()),
-                at,
-            })
-        }
-        _ => Err(ApiError::HostSaid {
-            host: host.to_owned(),
-            status,
-            message: data
-                .and_then(|d| d.message)
-                .unwrap_or_else(|| format!("status {status}")),
-        }),
-    }
+        .map_err(|_| ApiError::Stopping)
 }
 
 /// a host's answer body, read at most `cap` bytes and within `limit` in all: past either the call fails instead of
 /// buffering, or waiting on, whatever a host sends.
-pub(super) async fn read_capped(
+pub(crate) async fn read_capped(
     mut answer: reqwest::Response,
     host: &str,
     limit: Duration,
@@ -681,7 +394,7 @@ pub(super) fn client_id(id: &str) -> Result<&str, ApiError> {
 }
 
 /// a daemon id as one path segment.
-pub(super) fn segment(id: &str) -> Result<&str, ApiError> {
+pub(crate) fn segment(id: &str) -> Result<&str, ApiError> {
     let fits = !id.is_empty()
         && id.len() <= 128
         && id

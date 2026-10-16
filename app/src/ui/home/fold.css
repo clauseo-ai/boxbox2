@@ -1,4 +1,4 @@
-/* the folded rail: a 76 px column of swatches (docs/design.md, one layout law: why the stage never empties). the page's
+/* the folded windows: on the rail a 76 px column of swatches, on the strip a bar of them across the top (docs/design.md, one layout law: why the stage never empties). the page's
    own plane, with a window folded to its colour on it: the swatch is a window's material at 44 px (the plane's tokens,
    styles.css), and the badge on its corner is ringed in the ground, which is the page's in both. */
 
@@ -19,14 +19,38 @@
   visibility: hidden;
 }
 
-.home[data-rail="folded"] .fold,
-.home[data-moving="rail"] .fold {
+.home[data-arrangement="rail"][data-rail="folded"] .fold,
+.home[data-arrangement="strip"][data-strip="folded"] .fold,
+.home[data-moving="rail"] .fold,
+.home[data-moving="strip"] .fold {
   visibility: visible;
 }
 
-/* the new thread: the solid pill's material as a disc, the one loud thing in the column */
+/* the strip's: one row as tall as the open bar, in its side padding, the toggle at its end where the open bar's is. its
+   middle is the open bar's (18 over the row, 12 under): 6 px over a row that runs to the card */
+.home .fold[data-form="strip"] {
+  grid-row: 1;
+  justify-self: stretch;
+  flex-direction: row;
+  gap: 8px;
+  width: auto;
+  height: var(--strip-bar);
+  padding: 6px 26px 0;
+}
+
+.home .fold[data-form="strip"] .fold-new {
+  margin-top: 0;
+}
+
+.home .fold[data-form="strip"] .fold-foot {
+  flex-direction: row;
+}
+
+/* the new thread: the one loud thing in the column, a drop of glass tinted with the ink as the system's prominent glass is
+   (its press is the pill's, home.css). under reduced transparency the ink lies on the solid fill, an ink disc */
 .home .fold-new {
   all: unset;
+  position: relative;
   display: grid;
   flex: none;
   place-items: center;
@@ -35,9 +59,13 @@
   height: 44px;
   margin-top: 14px;
   border-radius: 50%;
-  background: var(--text);
+  background: color-mix(in srgb, var(--text) 86%, var(--lg-fill));
+  -webkit-backdrop-filter: var(--lg-filter);
+  backdrop-filter: var(--lg-filter);
+  box-shadow: var(--lg-rim), var(--lg-drop);
   color: var(--ground);
   cursor: pointer;
+  transition: transform var(--press-t), opacity var(--fade-t);
 }
 
 .home .fold-new svg {
@@ -72,6 +100,18 @@
   scrollbar-width: none;
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+}
+
+.home .fold[data-form="strip"] .fold-list {
+  flex-direction: row;
+  align-self: stretch;
+  width: auto;
+  height: auto;
+  padding: 0 14px;
+  overflow: auto hidden;
+  overscroll-behavior: auto contain;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 14px), transparent);
 }
 
 .home .fold-list::-webkit-scrollbar {
@@ -119,14 +159,17 @@
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  background: radial-gradient(90% 50% at 20% 0%, var(--win-glow), transparent 60%);
+  background: radial-gradient(90% 50% at 20% 0%, var(--win-glow), color-mix(in srgb, var(--win-glow) 78%, transparent) 12%, color-mix(in srgb, var(--win-glow) 42%, transparent) 27%, color-mix(in srgb, var(--win-glow) 14%, transparent) 42%, color-mix(in srgb, var(--win-glow) 3%, transparent) 53%, transparent 60%);
   pointer-events: none;
 }
 
+/* the stage's ring, as on an open window (window.css): outside the edge with 2 px of ground between */
 .home .swatch[data-current] {
   box-shadow:
     var(--win-lit),
-    0 0 0 2px var(--accent),
+    var(--win-rim),
+    0 0 0 2px var(--ground),
+    0 0 0 4px var(--accent),
     var(--sw-cast);
 }
 
@@ -226,12 +269,17 @@
 .home .fold-card {
   position: fixed;
   top: 0;
-  left: 84px;
+  left: 0;
   z-index: 20;
   pointer-events: none;
   opacity: 0;
-  transform: translateY(clamp(8px, calc(var(--y) - 50%), calc(100vh - 100% - 8px)));
+  transform: translate(var(--x), clamp(8px, calc(var(--y) - 50%), calc(100vh - 100% - 8px)));
   transition: opacity var(--fade-t);
+}
+
+/* under the strip's swatch, centred on it and kept on the screen */
+.home .fold[data-form="strip"] .fold-card {
+  transform: translate(clamp(8px, calc(var(--x) - 50%), calc(100vw - 100% - 8px)), var(--y));
 }
 
 .home .fold-card[data-on] {
@@ -282,4 +330,26 @@
   .home .fold-card {
     display: none;
   }
+}
+
+/* put away (focus), the fold goes with the open windows; the card's edge glides over whichever was showing */
+.home[data-windows="hidden"]:not([data-moving="windows"]) .fold {
+  visibility: hidden;
+}
+
+/* while the windows are away, their toggle leads the stage's bar: one of its rounds, with the windows' glyph (a pane filled
+   never, since they are away) */
+.home .windows-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home .windows-toggle:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
 }

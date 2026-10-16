@@ -7,6 +7,8 @@
 
 import { type Accessor, createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup, runWithOwner, untrack } from "solid-js";
 import type { Message } from "../../sync/protocol";
+import type { ReadTrouble } from "../../sync/read";
+import type { AskReply } from "../../sync/replies";
 import { holdThread, releaseThread } from "../../sync/client";
 import { state } from "../../store";
 import { type Item, type Turn, projectRoot, spawnsOf } from "./model";
@@ -37,6 +39,8 @@ export type ThreadData = {
   /** the worker has answered for it at least once (cached or hydrated) */
   held: Accessor<boolean>;
   hydrating: Accessor<boolean>;
+  /** why its read is failing while the worker tries again (sync/read.ts), undefined while nothing failed */
+  trouble: Accessor<ReadTrouble | undefined>;
   turns: Accessor<Turn[]>;
   /** the ids of `turns` (they change when a turn comes or goes), a turn by its id, and the rest of a long thread: shown a few turns at a time
       from the newest (turns.ts, `first`) */
@@ -100,6 +104,13 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
     for (const a of asks().values()) if (a.callID) out.set(a.callID, a);
     return out;
   });
+  /* this device's replies to this thread's asks, by call id: a new map only when one of them came or went or changed, so a reply
+     kept for another thread wakes nothing here */
+  const replies = createMemo(() => {
+    const out = new Map<string, AskReply>();
+    for (const r of Object.values(state.replies)) if (r.thread === key()) out.set(r.callID, r);
+    return out;
+  }, new Map(), { equals: (a, b) => a.size === b.size && [...a].every(([call, r]) => b.get(call) === r) });
   const { turns, count, ids, turnOf, more, grow, all } = createTurns(rawMessages, root, key, caches, { ...turnsOptions, need: () => new Set(asksByCall().keys()) });
   const title = () => session()?.info.title || key().split(":")[1] || key();
   /* the project root, as the window hashes it (window/view.ts), so a worktree's stage keeps its repo's colour */
@@ -131,8 +142,10 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
       const items = createMemo(() => own.turns().flatMap((t) => t.items));
       const summary = createMemo<Child | undefined>(() => {
         const entry = state.fleet.sessions[k];
-        /* the fleet knows the parent and not the child: the child was archived or deleted (it is gone, and its door with
-           it). the fleet not yet knowing either is a cold load, and the row waits */
+        /* the fleet knows the parent and not the child: the fleet holds only each host's newest 300 threads, so an agent's own
+           session is often older than them, or it was archived. which is not known, so it is not called gone: its door opens it
+           by its key (a thread the server cannot find says so, reading.ts), and its state is idle, as the ios app has it. the
+           fleet not yet knowing either is a cold load, and the row waits */
         if (!entry && !session()) return undefined;
         /* a thread read into the store: one whose messages can be shown, live or restored from the cache and stale. one the worker has
            only started (hydrating, nothing in it yet) is not read, and says no step count, never "0 steps" */
@@ -144,7 +157,7 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
         const end = loaded ? (state.threads[k]?.messages.at(-1)?.info.time.completed ?? first) : entry?.info.time.updated ?? first;
         const asked = Object.values(state.fleet.asks).some((a) => a.key === k);
         const status = entry?.status;
-        const state_: ChildState = !entry ? "gone" : asked ? "wants" : status?.type === "busy" || status?.type === "retry" ? "working" : status?.type === "idle" && status.parked ? "parked" : "idle";
+        const state_: ChildState = !entry ? "idle" : asked ? "wants" : status?.type === "busy" || status?.type === "retry" ? "working" : status?.type === "idle" && status.parked ? "parked" : "idle";
         return { steps: loaded ? all.reduce((n, x) => n + (x.k === "step" ? 1 : 0), 0) : 0, ms: Math.max(0, end - first), items: all, held: loaded, state: state_, since: status?.since ?? first, created: entry?.info.time.created ?? first, title: entry?.info.title ?? "" };
       }, undefined, { equals: sameChild });
       return { summary, dispose };
@@ -227,11 +240,12 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
 
   /* the context a row is painted in, without the clock: it changes when a child, an ask, a report or the thinking setting does,
      never for a delta to the running turn nor for a second passing (the clock is `now`, handed to the turns that show it) */
-  const ctx = createMemo<RowCtx>(() => ({ turns: reports(), children: children(), asks: asksByCall(), thinking: thinking() }));
+  const ctx = createMemo<RowCtx>(() => ({ turns: reports(), children: children(), asks: asksByCall(), replies: replies(), thinking: thinking() }));
   return {
     key, host, title, directory, repoRoot, tone,
     held: () => thread() !== undefined,
     hydrating: () => thread()?.status === "hydrating",
+    trouble: () => thread()?.trouble,
     count, turns, ids, turnOf, more, grow, all, ctx, working, now, asks, children, kin, seen,
   };
 }

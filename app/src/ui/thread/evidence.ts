@@ -113,3 +113,58 @@ export function headTail(s: string): { lines: string[]; cut: number; cutAt: numb
   const lines = shown.map((l) => (l.length > LINE_MAX ? `${l.slice(0, LINE_MAX - 1)}…` : l));
   return whole ? { lines, cut: 0, cutAt: -1, clipped } : { lines, cut: all.length - 24, cutAt: 8, clipped };
 }
+
+/* —— beds that open to their whole length (docs/thread.md, code and copying; the native client's code bed) —— */
+
+/** a file this long, in lines, shows whole in its row; a longer one shows its first CODE_PREVIEW lines under a fade, then
+    "show all N lines" opens the bed to every line. a diff the same with its own lengths */
+export const CODE_WHOLE = 40, CODE_PREVIEW = 14, DIFF_WHOLE = 60, DIFF_PREVIEW = 24;
+
+/** the most of an output or a file one bed opens to, in characters: the copy's own cap, so the bed and the clipboard agree */
+export const WHOLE_CHARS = COPY_OUTPUT_CAP;
+
+/** the lines a read returned, whole, from the tool's output as the store holds it: without the `<path>…<content>` wrapper, the line
+    numbers (`   12\tcode` from cmx2, `12: code` from opencode) and the notes the tools write after a blank line (a page's range,
+    "(End of file…)"). `from` is the first line's number. null when the output is not numbered lines (a directory's entries, a
+    picture, a format this does not know), so the row keeps its preview and says so */
+export function readLines(out: string): { lines: string[]; from: number } | null {
+  let body = out;
+  if (body.startsWith("<path>")) {
+    const open = body.indexOf("<content>\n");
+    if (open < 0) return null;
+    body = body.slice(open + "<content>\n".length);
+    const close = body.lastIndexOf("</content>");
+    if (close >= 0) body = body.slice(0, close);
+  }
+  for (;;) {
+    const note = body.lastIndexOf("\n\n(");
+    if (note < 0 || !/\)\n?$/.test(body)) break;
+    body = body.slice(0, note);
+  }
+  body = body.replace(/\n+$/, "");
+  const lines: string[] = [];
+  let from: number | undefined;
+  for (const line of body.split("\n")) {
+    const m = /^ *(\d{1,9})(?:\t|: |:$)/.exec(line);
+    if (!m) {
+      // an unnumbered line among the lines is the wrapped tail of the one before; the first must be numbered
+      if (from === undefined) return null;
+      lines[lines.length - 1] += `\n${line}`;
+      continue;
+    }
+    from ??= Number(m[1]);
+    lines.push(line.slice(m[0].length));
+  }
+  return from === undefined || !lines.length ? null : { lines, from };
+}
+
+/** an output's lines whole, up to WHOLE_CHARS characters: the lines, and how many past the cap were left out (said under them) */
+export function wholeLines(text: string, cap = WHOLE_CHARS): { lines: string[]; rest: number } {
+  const all = text.split("\n");
+  let used = 0, i = 0;
+  for (; i < all.length; i++) {
+    used += (all[i]?.length ?? 0) + 1;
+    if (used > cap && i > 0) break;
+  }
+  return { lines: all.slice(0, i), rest: all.length - i };
+}

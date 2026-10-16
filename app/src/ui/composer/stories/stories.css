@@ -8,6 +8,9 @@
 .cz-story-log { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 16px; padding: 24px 20px 12px; max-width: 724px; width: 100%; margin: 0 auto; }
 .cz-story-you { align-self: flex-end; max-width: 84%; background: linear-gradient(var(--you-1), var(--you-2)); color: var(--you-ink); border-radius: 20px 20px 6px 20px; padding: 11px 15px; font-size: 15.5px; line-height: 1.42; }
 .cz-story-say { font-size: 16px; line-height: 1.55; color: var(--prose); }
+/* the log runs on under the bar, as a long thread scrolled to its end does under the stage's dock */
+.cz-story[data-under] .cz-story-log { padding-bottom: 0; }
+.cz-story[data-under] .cz-story-stage > .composer { margin-top: -150px; }
 .cz-story-keyboard { flex: none; height: 336px; background: rgb(43 43 46); }
 .home-story { justify-content: flex-end; }
 /* a window standing in for the deck, in the green of the repo palette, made of the plane's material like the real one */

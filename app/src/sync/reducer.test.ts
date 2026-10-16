@@ -156,6 +156,42 @@ describe("hydration", () => {
   });
 });
 
+describe("a read that fails", () => {
+  const opened = () => run(INITIAL_STATE, [reset(), { type: "open", key: KEY, at: 1 }]).state;
+  const failing = (gone = false, problem: string | null = "vm-a is not answering"): Action => ({ type: "read-failed", key: KEY, hydration: 1, trouble: { gone, problem } });
+
+  test("says why on the thread and in a patch, once per change", () => {
+    const first = reduce(opened(), failing());
+    expect(first.state.threads[KEY]?.trouble).toEqual({ gone: false, problem: "vm-a is not answering" });
+    expect(first.patches).toEqual([{ path: ["threads", KEY, "trouble"], value: { gone: false, problem: "vm-a is not answering" } }]);
+    expect(reduce(first.state, failing()).patches).toEqual([]);
+    expect(reduce(first.state, failing(true, null)).state.threads[KEY]?.trouble).toEqual({ gone: true, problem: null });
+  });
+
+  test("a failure of a read that is no longer the thread's says nothing", () => {
+    const again = run(opened(), [reset(0)]).state;
+    expect(reduce(again, failing()).patches).toEqual([]);
+  });
+
+  test("the read that lands clears it, in the view it patches", () => {
+    const { state, results } = run(opened(), [failing(), { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, messages: [] }]);
+    expect(state.threads[KEY]?.trouble).toBeNull();
+    const view = results[1]?.patches.find((p) => p.path.length === 2)?.value as Record<string, unknown>;
+    expect("trouble" in view).toBe(false);
+  });
+
+  test("a reread starts the read over under a new number, keeps the trouble until it lands, and leaves a live thread alone", () => {
+    const failed = reduce(opened(), failing()).state;
+    const { state, effects } = reduce(failed, { type: "reread", key: KEY });
+    expect(effects).toEqual([{ type: "hydrate", key: KEY, hydration: 2 }]);
+    expect(state.threads[KEY]?.trouble).toEqual({ gone: false, problem: "vm-a is not answering" });
+    // the old read's answer is no longer the thread's
+    expect(reduce(state, { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, messages: [] }).state.threads[KEY]?.status).toBe("hydrating");
+    expect(reduce(openThread(), { type: "reread", key: KEY }).effects).toEqual([]);
+    expect(reduce(INITIAL_STATE, { type: "reread", key: KEY }).effects).toEqual([]);
+  });
+});
+
 describe("deltas", () => {
   test("a hole in the text refetches that message, holds later deltas, then applies them", () => {
     const journal = streamingJournal(0);

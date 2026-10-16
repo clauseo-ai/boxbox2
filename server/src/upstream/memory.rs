@@ -25,7 +25,7 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
 const BODY_CAP: usize = 4 * 1024;
 
 /// what the daemon says about its own memory.
-#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(as = HostMemory)]
 pub struct Memory {

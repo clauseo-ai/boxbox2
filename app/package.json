@@ -1,6 +1,6 @@
 {
   "name": "boxbox-app",
-  "description": "the boxbox web app: a home-screen client for cmx2 coding agents",
+  "description": "the boxbox web app: a home-screen client for every agent boxbox watches",
   "license": "MIT",
   "repository": {
     "type": "git",

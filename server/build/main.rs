@@ -3,6 +3,9 @@
 //!
 //! - `cmx2.rs`: every cmx2 schema and the `Event` union, from
 //!   `vendor/cmx2/openapi.json` (the file `cmx2.pin` vouches for).
+//! - `openclaw.rs`: openclaw's gateway protocol types, from
+//!   `vendor/openclaw/protocol.schema.json` (the file `openclaw.pin`
+//!   vouches for).
 //! - `telemetry.rs`: the telemetry dictionary, from `telemetry/schema.json`
 //!   (itself generated from `telemetry/schema.ts`, decision 17).
 //!
@@ -18,6 +21,7 @@
 )]
 
 mod cmx2;
+mod openclaw;
 mod telemetry;
 
 use std::path::{Path, PathBuf};
@@ -32,6 +36,15 @@ fn main() {
     let openapi = root.join("vendor/cmx2/openapi.json");
     rerun_if_changed(&openapi);
     write(&out.join("cmx2.rs"), &cmx2::generate(&read(&openapi)));
+
+    let schema = root.join("vendor/openclaw/protocol.schema.json");
+    let pin = root.join("openclaw.pin");
+    rerun_if_changed(&schema);
+    rerun_if_changed(&pin);
+    write(
+        &out.join("openclaw.rs"),
+        &openclaw::generate(&read(&schema), &read(&pin)),
+    );
 
     let dictionary = root.join("telemetry/schema.json");
     rerun_if_changed(&dictionary);

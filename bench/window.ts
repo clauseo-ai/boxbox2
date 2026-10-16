@@ -1122,9 +1122,14 @@ async function reachAsk(d: Driver, session: string, ask: string, where: string, 
   if (!wide) return record("3", d.engine, `${where} answer pill`, null, "on the deck home's windows lie under the open stage; the pill is reached through back, which closes the stage, so the stage's own go to an ask is driven by the dock line and the push here");
   await d.eval("__win.toTop()");
   await d.eval("__win.settle(400, 8000)");
-  const pill = await d.eval<{ x: number; y: number } | null>(`(() => { const b = document.querySelector('.win[data-key="bench:${session}"] .wask-go'); if (!b) return null; b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
-  if (!pill) return record("3", d.engine, `${where} answer pill`, false, "home shows no window with an \"answer\" pill for the thread");
+  const pill = await d.eval<{ x: number; y: number } | null>(`(() => { const b = document.querySelector('.win[data-key="bench:${session}"] .wask'); if (!b) return null; b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+  if (!pill) return record("3", d.engine, `${where} answer pill`, false, "home shows no window with an \"answer\" tray for the thread");
   await d.click(pill.x, pill.y);
+  // the tray opens the answer sheet over home (asks/sheet.tsx); its "open the thread" goes to the ask on the stage
+  await Bun.sleep(600);
+  const open = await d.eval<{ x: number; y: number } | null>("(() => { const b = document.querySelector('.asks-sheet .asks-open'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()");
+  if (!open) return record("3", d.engine, `${where} answer pill`, false, "the tray opened no answer sheet with \"open the thread\"");
+  await d.click(open.x, open.y);
   judgeAskLanding(d, where, "answer pill", await landing(d, ASK_ROW), "ask");
 }
 

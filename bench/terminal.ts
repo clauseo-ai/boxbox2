@@ -42,7 +42,7 @@ import {
   writeDaemonConfig,
 } from "../scripts/pinned";
 
-/** the harness world lives in the system temp dir, never inside a git checkout (AGENTS.md, rule 19) */
+/** the harness world lives in the system temp dir, never inside a git checkout (AGENTS.md, scratch in /tmp) */
 const BENCH = join(tmpdir(), "boxbox-term-bench");
 const OUT = join(BENCH, "out");
 /** the release binary; BOXBOX_BINARY points --hold at a debug build, which serves app/dist from disk */

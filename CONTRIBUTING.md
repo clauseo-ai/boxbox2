@@ -3,6 +3,15 @@
 thanks for looking. boxbox is small and strict, so read this before a first
 pull request.
 
+boxbox is one place to control every agent: a server that watches agents of
+any kind and clients that show their work. cmx2 is supported, openclaw and
+hermes are being added, and claude code and codex are planned. support for a
+new kind of agent is the most natural contribution: it is a source behind
+the seam in `docs/agents.md` (the agent source seam), with its capabilities
+declared, a `boxbox.toml` entry, and a dev gateway or daemon in the bench
+with a scripted model so the checks never call a paid api. open an issue
+before you start one, so the kind gets a milestone in `docs/plan.md`.
+
 ## setup
 
 you need rust 1.92.0 (rustup installs it from `rust-toolchain.toml`), bun
@@ -32,6 +41,10 @@ paid model api, because the dev daemon runs against a scripted model.
   `vendor/cmx2/openapi.json`, boxbox's own api is described with utoipa,
   and the telemetry ingest is generated from `telemetry/schema.ts`.
   regenerate with `just api` and `just dictionary`.
+- **a source never leaks its runtime.** a new kind maps into contract 2's
+  shapes and publishes capabilities; a client never switches on the source.
+- **docs move with the code.** the change that makes a doc wrong fixes it
+  in the same commit.
 - **the cmx2 pin moves on purpose.** edit `cmx2.pin`, run `just vendor` and
   `just check`, run the probes in `docs/verification.md`, and say in
   `CHANGELOG.md` what changed in the contract.

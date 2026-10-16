@@ -5,7 +5,7 @@
   <img src="assets/hero.svg" alt="boxbox. agents on three machines stream into one inbox, a question rises to the top, and a phone buzzes." width="900">
 </picture>
 
-**see every coding agent on every machine, and answer the one that needs you.**
+**one place to control every agent: see what each one is doing, and answer the one that needs you.**
 
 <!-- the version badge reads server/Cargo.toml on main. swap it for the github release badge once the first release is cut -->
 [![licence: mit](https://img.shields.io/github/license/clauseo-ai/boxbox2?style=flat-square&labelColor=171240&color=34298a&label=licence)](LICENSE)
@@ -17,15 +17,31 @@
 
 </div>
 
-boxbox is a remote control for coding agents. it shows every live agent
-thread on your machines as a window in a web app you install to your phone's
-home screen, tells you when one needs an answer or has finished, and lets you
-reply, steer or open a terminal from the couch, a tablet or a laptop. it is
-the client for [cmx2](https://github.com/clauseo-ai/cmx2), a coding-agent
-runtime that runs one daemon per machine. **boxbox needs a cmx2 daemon to
-talk to.** without one it has nothing to show.
+boxbox is one place to control every agent you run. a small rust server
+watches your agents, coding agents and personal assistants alike, each
+through a source that speaks its runtime, and works out once what they are
+doing and which one needs you. clients show that work and send your verbs
+back: a web app you install to your phone's home screen, an optional 17-key
+hardware board, and a native ios app kept in its own repository. boxbox
+tells you when an agent needs an answer or has finished, and lets you reply,
+steer or open a terminal from the couch, a tablet or a laptop.
 
-each person runs their own boxbox against their own daemons. there are no
+| kind of agent | what it is | status |
+|---|---|---|
+| [cmx2](https://github.com/clauseo-ai/cmx2) | a coding-agent runtime, one daemon per machine | supported |
+| openclaw | personal assistants behind an openclaw gateway | being built (m9) |
+| hermes | hermes agents, one per profile | next (m10) |
+| claude code | a coding agent | planned |
+| codex | a coding agent | planned |
+
+every kind is one source behind the same seam ([docs/agents.md](docs/agents.md),
+the agent source seam), and the clients draw from what an agent can do,
+never from which kind it is. adding a kind is how boxbox grows: a new
+source module and a new `boxbox.toml` entry, with no change to the wire or
+the clients. **boxbox needs at least one agent to talk to**, and today that
+means a cmx2 daemon.
+
+each person runs their own boxbox against their own agents. there are no
 accounts and nothing is shared.
 
 status: pre-release, version 0.1.0. the server, the app, push, the terminal and the board
@@ -63,16 +79,19 @@ boxbox is a rust server with its web app built into the same binary. the app is
 written in typescript with solid, and the server serves it from inside the binary, so
 there is nothing else to deploy.
 
-each cmx2 daemon hosts agent sessions on its machine and exposes them over
-http. boxbox keeps one long-lived event stream open to every daemon and builds
-a single picture of the fleet from them: which threads are alive, which ones
+each agent is reached through a connection, one entry in `boxbox.toml`,
+and each kind of connection has a source in the server that speaks its
+runtime. a cmx2 daemon hosts coding sessions on its machine and exposes them
+over http, and its source keeps one long-lived event stream open to it; an
+openclaw source holds a websocket to its gateway. boxbox folds what every
+source reports into a single picture of the fleet: which threads are alive, which ones
 wait for you, what you have read. it serves that picture to your devices over
 one resumable stream, so a phone that reconnects picks up where it left off
 and never shows a stale screen. replies, answers and permission decisions go
-back through boxbox to the daemon that owns the thread. when a thread needs
+back through boxbox to the agent that owns the thread. when a thread needs
 you and no screen is watching it, boxbox sends a web push notification.
 
-daemon credentials stay on the boxbox server. a browser only ever holds a
+agent credentials (daemon passwords, gateway tokens) stay on the boxbox server. a browser only ever holds a
 cookie for boxbox's own password. [docs/README.md](docs/README.md) goes
 through the pieces and follows one request from tap to agent.
 
@@ -86,7 +105,7 @@ through the pieces and follows one request from tap to agent.
 </p>
 
 an agent asks a question on one machine. its daemon puts the ask on the event
-stream, the watcher for that machine hands it to the fleet model, and the
+stream, the source for that connection hands it to the fleet model, and the
 fleet model raises a need. if no screen is showing that thread, boxbox sends
 a web push and your phone shows a banner. tapping it opens the app, which
 resumes from the last cursor it saw and puts the question in front. the answer
@@ -97,7 +116,7 @@ client id so a retry cannot send it twice.
 
 | tool | version | why |
 |---|---|---|
-| a cmx2 daemon | the commit in `cmx2.pin` or newer, reachable from the boxbox machine | the thing boxbox shows |
+| an agent | today a cmx2 daemon at the commit in `cmx2.pin` or newer, reachable from the boxbox machine | the thing boxbox shows |
 | [rust](https://rustup.rs) | 1.92.0, pinned in `rust-toolchain.toml` and installed by rustup on first use | builds the server |
 | [bun](https://bun.sh) | 1.3.14 | builds the app, runs the tests and scripts |
 | [just](https://just.systems) | 1.51.0 | the build and check recipes |
@@ -219,6 +238,7 @@ variant. edit those scripts, not the svg files.
 
 - [docs/README.md](docs/README.md): the architecture for newcomers and a map of every doc.
 - [docs/architecture.md](docs/architecture.md): the full design, with budgets.
+- [docs/agents.md](docs/agents.md) and [docs/openclaw.md](docs/openclaw.md): the agent source seam every kind of agent plugs into, and the openclaw source.
 - [docs/deploy.md](docs/deploy.md): releases, systemd and launchd, https, upgrades, rollback.
 - [docs/design.md](docs/design.md), [docs/home.md](docs/home.md), [docs/thread.md](docs/thread.md), [docs/composer.md](docs/composer.md), [docs/terminal.md](docs/terminal.md) and [docs/push.md](docs/push.md): how each part of the app works.
 - [docs/decisions.md](docs/decisions.md) and [docs/plan.md](docs/plan.md): what was decided and in what order the work landed.
@@ -227,7 +247,8 @@ variant. edit those scripts, not the svg files.
 
 ## related projects
 
-- [cmx2](https://github.com/clauseo-ai/cmx2) is the runtime boxbox controls. boxbox builds against one pinned cmx2 commit and asks cmx2 for what it lacks.
+- [cmx2](https://github.com/clauseo-ai/cmx2) is the coding-agent runtime boxbox started with and supports fully. boxbox builds against one pinned cmx2 commit and asks cmx2 for what it lacks.
+- openclaw, hermes, claude code and codex are the other kinds boxbox is adding, each as its own source (see the table at the top).
 - [cmx](https://github.com/clauseo-ai/codemaxxxing) is the earlier agent runtime that cmx2 replaces.
 
 ## licence

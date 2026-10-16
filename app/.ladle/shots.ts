@@ -41,6 +41,13 @@ const ab = async (...a: string[]) => {
 /** stories that carry a check of their own, beyond the craft check: the page is asked once it is ready (and, for a story that plays, once it has finished), and anything the check finds fails the story.
     `wait` is true when the story is done; `find` lists what is wrong, as strings, or nothing */
 const CHECKS: Array<{ id: RegExp; wait: string; find: string }> = [
+  /* a read that keeps failing is said once the stage has waited its ten seconds (reading.ts), never "reading the thread." for ever */
+  /* the jump to the latest shows once the reader has scrolled up, with the count of what came below (stage.tsx) */
+  { id: /^stage--jump-far$/, wait: "!!document.querySelector('.jump.on')", find: "(() => document.querySelector('.jump.on .jump-n') ? ['a count with nothing new'] : [])()" },
+  { id: /^stage--jump-(new-below|many)$/, wait: "!!document.querySelector('.jump.on .jump-n')", find: "(() => { const n = document.querySelector('.jump-n')?.textContent; return n === '3' || n === '99+' ? [] : [`the count says ${n}`]; })()" },
+  /* a run folding whole as the agent writes again keeps its room at the end: the turn never moves down under a pinned reader (foot.ts) */
+  { id: /^stage--foot-room$/, wait: "document.querySelector('.shell-story')?.dataset.done === '1'", find: "(() => { const d = document.querySelector('.shell-story')?.dataset; return d?.drops === '0' && Number(d.roomMost) > 0 ? [] : [`the turn moved down ${d?.drops ?? '?'} times (at most ${d?.dropMost ?? '?'} px) under a pinned reader; the most room kept was ${d?.roomMost ?? '?'} px`]; })()" },
+  { id: /^stage--reading-failed$/, wait: "!!document.querySelector('.stage-trouble')", find: "(() => document.querySelector('.stage-retry[aria-label=\"read the thread again\"]') ? [] : ['no retry after the patience'])()" },
   /* a reply streamed through fences must replace no settled block (markdown.ts): `data-replaced` counts the ones it replaced */
   { id: /--said-streaming-through-fences$/, wait: "document.querySelector('.stage-sample')?.dataset.replay === 'done'", find: "(() => { const d = document.querySelector('.stage-sample')?.dataset; return d?.replaced === '0' ? [] : [`${d?.replaced ?? 'no count'} settled blocks were replaced while the reply streamed (it must be 0)`]; })()" },
   /* html written to look like our controls keeps none of its classes and no button (markdown.ts, the sanitiser) */

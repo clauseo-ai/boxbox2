@@ -150,10 +150,60 @@ impl Push {
         }
     }
 
+    /// a handle that keeps what it is handed, for tests that judge what
+    /// push was asked to send (`fleet/replay.rs`, the push goldens).
+    #[cfg(test)]
+    #[must_use]
+    pub fn capturing(capacity: usize) -> (Self, Captured) {
+        let (commands, held) = mpsc::channel(capacity);
+        let push = Self {
+            commands,
+            store: Store::detached(),
+            public_key: "".into(),
+        };
+        (push, Captured(held))
+    }
+
     fn send(&self, command: Command) {
         if let Err(error) = self.commands.try_send(command) {
             warn!(error = %error, "the push task is not keeping up; a push command was dropped");
         }
+    }
+}
+
+/// what a capturing handle was handed, in order.
+#[cfg(test)]
+#[derive(Debug)]
+pub struct Captured(mpsc::Receiver<Command>);
+
+/// one thing the fleet asked push to do.
+#[cfg(test)]
+#[derive(Debug)]
+pub enum Asked {
+    Notify(Notice),
+    Continued(Thread),
+    Served {
+        id: String,
+        by: String,
+        how: &'static str,
+    },
+}
+
+#[cfg(test)]
+impl Captured {
+    /// what was handed since the last call; presence and device changes
+    /// are not the fleet's and are left out.
+    pub fn take(&mut self) -> Vec<Asked> {
+        let mut asked = Vec::new();
+        while let Ok(command) = self.0.try_recv() {
+            match command {
+                Command::Notify(notice) => asked.push(Asked::Notify(notice)),
+                Command::Continued(thread) => asked.push(Asked::Continued(thread)),
+                Command::Served { id, by, how } => asked.push(Asked::Served { id, by, how }),
+                _ => {}
+            }
+        }
+        asked
     }
 }
 

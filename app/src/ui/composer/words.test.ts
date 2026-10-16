@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type Agent, type Card, cardVerbs, cardWords, compactionWords, compactMeta, contextFill, DRAFTS_FULL, fateLine, matchModels, liveLine, menuOf, menuQuery, modelsNote, placeholder, proseOf, refusedStart, effortChoices, sendWord, tailPrint, tokensWords, typedAnswers, waitedWords, withFile } from "./words";
+import { type Agent, type Card, cardVerbs, cardWhen, cardWords, leadOf, stripName, swipeUnsends, UNSEND_AT, compactionWords, compactMeta, contextFill, DRAFTS_FULL, fateLine, matchModels, liveLine, menuOf, menuQuery, modelsNote, placeholder, proseOf, refusedStart, effortChoices, sendWord, tailPrint, tokensWords, typedAnswers, waitedWords, withFile } from "./words";
 
 describe("send says what it will do", () => {
   test("an idle thread sends, a working one queues, a held send steers, a question is answered", () => {
@@ -72,7 +72,7 @@ describe("a queued card is legible", () => {
 });
 
 describe("what a card offers", () => {
-  const none = { retry: false, edit: false, steerNow: false, runNow: false, unsend: false, apart: false };
+  const none = { retry: false, edit: false, editWaiting: false, steerNow: false, runNow: false, unsend: false, apart: false };
 
   test("the first waiting message while the agent works can be steered in, or the turn stopped for it, and unsent", () => {
     expect(cardVerbs({ state: "queued", place: 0 }, "working")).toEqual({ ...none, steerNow: true, runNow: true, unsend: true, apart: true });
@@ -116,6 +116,13 @@ describe("what a card offers", () => {
     expect(cardVerbs({ state: "waiting", place: 0 }, "offline")).toEqual(none);
   });
 
+  test("a waiting message is edited by taking it back into an empty draft; a draft that holds words has no room for it", () => {
+    expect(cardVerbs({ state: "queued", place: 1 }, "working", true)).toEqual({ ...none, editWaiting: true, unsend: true });
+    expect(cardVerbs({ state: "steer", place: 0 }, "idle", true)).toEqual({ ...none, editWaiting: true, unsend: true });
+    expect(cardVerbs({ state: "queued", place: 1 }, "working", false).editWaiting).toBe(false);
+    for (const state of ["sending", "waiting", "failed"] as const) expect(cardVerbs({ state, place: 0, error: "no" }, "idle", true).editWaiting).toBe(false);
+  });
+
   test("a steer's card names run now only when it offers it", () => {
     expect(cardWords({ state: "steer", place: 0 }, "working").why).toBe("the agent reads it at its next step, without stopping. run\u00a0now stops the turn and runs it.");
     expect(cardWords({ state: "steer", place: 0, photos: 1 }, "working").why).toBe("the agent reads it at its next step, without stopping");
@@ -151,6 +158,19 @@ describe("the live line", () => {
     expect(liveLine([say, prompt, { kind: "reasoning", text: "", messageID: "n", partID: "r", role: "assistant" }])).toBeNull();
     expect(liveLine([say, { kind: "text", text: "", messageID: "m", partID: "b", role: "assistant" }])?.key).toBe("m/a");
     expect(liveLine([{ kind: "text", text: "go", messageID: "u", partID: "p", role: "user" }])).toBeNull();
+  });
+
+  test("a settled question, or the agent's own list, is never the line: the step before it is", () => {
+    const step = { kind: "tool" as const, tool: "shell", text: "bun test", messageID: "m", partID: "p1", role: "assistant" as const };
+    const asked = { kind: "tool" as const, tool: "question", text: "which branch?", messageID: "m", partID: "p2", role: "assistant" as const };
+    const list = { kind: "tool" as const, tool: "todowrite", text: "3 todos", messageID: "m", partID: "p3", role: "assistant" as const };
+    expect(liveLine([step, asked])?.key).toBe("m/p1");
+    expect(liveLine([step, asked, list])?.key).toBe("m/p1");
+    expect(liveLine([asked])).toBeNull();
+  });
+
+  test("a heading's hashes and a list's bullet are not the line's words", () => {
+    expect(liveLine([{ kind: "text", text: "## the plan\n- read the **notes**", messageID: "m", partID: "p", role: "assistant" }])?.text).toBe("the plan read the **notes**");
   });
 
   test("a row growing is the same line: its key is the part, not its words", () => {
@@ -299,5 +319,38 @@ describe("the compaction card", () => {
 
   test("done is a receipt", () => {
     expect(compactionWords({ state: "done", at: 0 }, 0)).toEqual({ label: "compacted", text: "the summary is in the thread", why: "the context has room again.", clock: null });
+  });
+});
+
+describe("the queue's strip", () => {
+  test("says when each waiting message goes, beside its label", () => {
+    expect(cardWhen({ state: "steer", place: 0 }, "working")).toBe("at its next step");
+    expect(cardWhen({ state: "steer", place: 0 }, "idle")).toBe("with the next turn");
+    expect(cardWhen({ state: "queued", place: 0 }, "working")).toBe("after this turn");
+    expect(cardWhen({ state: "queued", place: 0 }, "idle")).toBe("waiting to run");
+    expect(cardWhen({ state: "queued", place: 2 }, "working")).toBe("after the one before it");
+    expect(cardWhen({ state: "sending", place: 0 }, "idle")).toBe("on its way");
+    expect(cardWhen({ state: "waiting", place: 0 }, "offline")).toBe("when the connection is back");
+    expect(cardWhen({ state: "failed", place: 0 }, "idle")).toBeNull();
+  });
+
+  test("shows one that did not go first, else the first in line", () => {
+    const at = (state: Card["state"]) => ({ card: { state, place: 0 } });
+    expect(leadOf([])).toBe(-1);
+    expect(leadOf([at("queued"), at("queued")])).toBe(0);
+    expect(leadOf([at("queued"), at("failed"), at("failed")])).toBe(1);
+  });
+
+  test("is named for how many are on their way and the one it shows", () => {
+    expect(stripName(1, "next", "after this turn", "push it")).toBe("next, after this turn: push it");
+    expect(stripName(3, "not sent", null, "push it")).toBe("3 messages on their way. not sent: push it");
+  });
+
+  test("a swipe left past the line, or flung well past it, unsends; anything short springs back", () => {
+    expect(swipeUnsends(-UNSEND_AT, 0)).toBe(true);
+    expect(swipeUnsends(-40, 0)).toBe(false);
+    expect(swipeUnsends(-60, -1)).toBe(true);
+    expect(swipeUnsends(-60, 0.2)).toBe(false);
+    expect(swipeUnsends(30, -0.1)).toBe(false);
   });
 });

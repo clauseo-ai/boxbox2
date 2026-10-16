@@ -33,6 +33,8 @@
     "../src/ui/home/**/*.ts",
     "../src/ui/home/**/*.tsx",
     "../src/ui/window/**/*.tsx",
+    "../src/ui/assistant/**/*.ts",
+    "../src/ui/assistant/**/*.tsx",
     "../src/shell/**/*.ts",
     "../src/shell/**/*.tsx"
   ]

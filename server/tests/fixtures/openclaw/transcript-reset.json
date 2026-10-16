@@ -1,0 +1,222 @@
+{
+  "sessionKey": "agent:main:dashboard:e2e98eca-7492-4866-9199-8d5238aa3bb6",
+  "sessionId": "015fb29b-d12e-4659-ae98-9b1a0fb28723",
+  "messages": [
+    {
+      "role": "system",
+      "content": [
+        {
+          "type": "text",
+          "text": "Reset"
+        }
+      ],
+      "timestamp": 1792054865354,
+      "__openclaw": {
+        "kind": "reset",
+        "id": "b6f7f443-227c-46f4-85f6-4f8f70a18d2b",
+        "transcriptPosition": {
+          "source": "oe3P4k0SnKIIGfpWvIk39Y9pFlsHvF8nv25mh1_j6TU",
+          "rawSeq": 5
+        },
+        "seq": 1
+      }
+    },
+    {
+      "role": "user",
+      "content": "after the reset",
+      "timestamp": 1792054865434,
+      "idempotencyKey": "6d7d1a49-84f2-4d1c-8c75-a88ac531e19e:user",
+      "__openclaw": {
+        "senderIsOwner": true,
+        "transport": {
+          "clients": [
+            {
+              "id": "gateway-client",
+              "mode": "backend",
+              "displayName": "boxbox bench"
+            }
+          ]
+        },
+        "id": "f38e5cfe-3ee9-4261-a06c-5c4b9421cdf4",
+        "idempotencyKey": "6d7d1a49-84f2-4d1c-8c75-a88ac531e19e:user",
+        "recordTimestampMs": 1792054865602,
+        "transcriptPosition": {
+          "source": "oe3P4k0SnKIIGfpWvIk39Y9pFlsHvF8nv25mh1_j6TU",
+          "rawSeq": 6
+        },
+        "seq": 2
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "the gateway is real and only",
+          "textSignature": "{\"v\":1,\"id\":\"msg_e2e_1\"}"
+        }
+      ],
+      "api": "openai-responses",
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "input": 11,
+        "output": 7,
+        "totalTokens": 18,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop",
+      "timestamp": 1792054865724,
+      "responseId": "resp_e2e",
+      "diagnostics": [
+        {
+          "type": "openai_responses_terminal",
+          "timestamp": 1792054865736,
+          "details": {
+            "eventType": "response.completed",
+            "stopReason": "stop",
+            "endTurn": "absent"
+          }
+        }
+      ],
+      "__openclaw": {
+        "runId": "6d7d1a49-84f2-4d1c-8c75-a88ac531e19e",
+        "id": "bad47912-e27c-4d97-84da-3ecd4a36cdf4",
+        "recordTimestampMs": 1792054865737,
+        "transcriptPosition": {
+          "source": "oe3P4k0SnKIIGfpWvIk39Y9pFlsHvF8nv25mh1_j6TU",
+          "rawSeq": 7
+        },
+        "seq": 3
+      }
+    }
+  ],
+  "hasMore": false,
+  "totalMessages": 3,
+  "pendingInputs": {
+    "items": [],
+    "total": 0,
+    "queuedCount": 0
+  },
+  "deltaCursor": "eyJhZ2VudElkIjoibWFpbiIsImdlbmVyYXRpb24iOiJlMjMxNDM1Yjg0NWQ0OGZiODhkOTczMGJhODJmZjJjMCIsImxhc3RTZXEiOjcsInNlc3Npb25JZCI6IjAxNWZiMjliLWQxMmUtNDY1OS1hZTk4LTliMWEwZmIyODcyMyIsInZlcnNpb24iOjF9",
+  "defaults": {
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "contextTokens": 128000,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "modelSelectionTarget": "session"
+  },
+  "sessionInfo": {
+    "key": "agent:main:dashboard:e2e98eca-7492-4866-9199-8d5238aa3bb6",
+    "visibility": "shared",
+    "permissionModePending": false,
+    "spawnDepth": 0,
+    "createdVia": "operator",
+    "participants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "expandedParticipants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "participantCount": 1,
+    "createdAt": 1792054864572,
+    "kind": "direct",
+    "label": "record reset 1792054864548",
+    "classification": "direct",
+    "agentId": "main",
+    "isMain": false,
+    "isBackground": false,
+    "displayName": "record reset 1792054864548",
+    "chatType": "direct",
+    "updatedAt": 1792054865762,
+    "archived": false,
+    "pinned": false,
+    "unread": true,
+    "lastInteractionAt": 1792054865467,
+    "lastActivityAt": 1792054865761,
+    "sessionId": "015fb29b-d12e-4659-ae98-9b1a0fb28723",
+    "systemSent": true,
+    "abortedLastRun": false,
+    "effectiveFastMode": false,
+    "effectiveFastModeSource": "default",
+    "fastAutoOnSeconds": 60,
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "totalTokensFresh": true,
+    "status": "running",
+    "startedAt": 1792054865718,
+    "endedAt": 1792054865761,
+    "runtimeMs": 43,
+    "lastRunId": "6d7d1a49-84f2-4d1c-8c75-a88ac531e19e",
+    "parentSessionKey": "agent:main:main",
+    "effectiveResponseUsage": "off",
+    "effectiveQueueMode": "steer",
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "modelOverrideSource": null,
+    "runtimeSelectionLocked": false,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "contextTokens": 128000,
+    "snapshotAt": 1792054865778,
+    "placement": {
+      "state": "local",
+      "generation": 0,
+      "createdAtMs": 1792054865625,
+      "updatedAtMs": 1792054865759,
+      "stateChangedAtMs": 1792054865625
+    },
+    "activitySummary": {
+      "state": "unavailable",
+      "canEnsure": true
+    },
+    "sharingRole": "admin",
+    "sendDisabledReason": null,
+    "hasActiveRun": true,
+    "activeLeafEntryId": "bad47912-e27c-4d97-84da-3ecd4a36cdf4"
+  }
+}

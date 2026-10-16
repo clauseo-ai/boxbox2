@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { INSPECTOR_KEY, RAIL_KEY, readInspector, readRail, rememberInspector, rememberRail } from "./remembered";
+import { FOCUS_KEY, INSPECTOR_KEY, readFocus, readInspector, readStrip, rememberFocus, rememberInspector, rememberStrip, STRIP_KEY } from "./remembered";
 
 function memory(initial: Record<string, string> = {}) {
   const held = new Map(Object.entries(initial));
@@ -15,30 +15,26 @@ const refusing = {
   },
 };
 
-describe("the rail", () => {
-  test("is open until the person folds it", () => {
-    expect(readRail(memory())).toBe("open");
+describe("the windows put away", () => {
+  test("are shown until the person puts them away", () => {
+    expect(readFocus(memory())).toBe("shown");
   });
 
-  test("comes back folded after it was folded", () => {
+  test("come back away after they were put away", () => {
     const store = memory();
-    rememberRail("folded", store);
-    expect(store.held.get(RAIL_KEY)).toBe("folded");
-    expect(readRail(store)).toBe("folded");
+    rememberFocus("hidden", store);
+    expect(store.held.get(FOCUS_KEY)).toBe("hidden");
+    expect(readFocus(store)).toBe("hidden");
   });
 
-  test("ignores a value nobody wrote", () => {
-    expect(readRail(memory({ [RAIL_KEY]: "collapsed" }))).toBe("open");
+  test("ignore a value nobody wrote, and the rail's old fold", () => {
+    expect(readFocus(memory({ [FOCUS_KEY]: "folded", "boxbox.rail": "folded" }))).toBe("shown");
   });
 
-  test("survives storage that refuses to read or write", () => {
-    expect(readRail(refusing)).toBe("open");
-    expect(() => rememberRail("folded", refusing)).not.toThrow();
-  });
-
-  test("survives there being no storage at all", () => {
-    expect(readRail(null)).toBe("open");
-    expect(() => rememberRail("folded", null)).not.toThrow();
+  test("survive storage that refuses to read or write, or none at all", () => {
+    expect(readFocus(refusing)).toBe("shown");
+    expect(() => rememberFocus("hidden", refusing)).not.toThrow();
+    expect(readFocus(null)).toBe("shown");
   });
 });
 
@@ -63,5 +59,16 @@ describe("the inspector", () => {
   test("survives storage that refuses to read or write", () => {
     expect(readInspector(refusing)).toBe("details");
     expect(() => rememberInspector("turns", refusing)).not.toThrow();
+  });
+});
+
+describe("the strip", () => {
+  test("is open until the person folds it, and apart from the rail", () => {
+    const store = memory({ [FOCUS_KEY]: "hidden" });
+    expect(readStrip(store)).toBe("open");
+    rememberStrip("folded", store);
+    expect(store.held.get(STRIP_KEY)).toBe("folded");
+    expect(readStrip(store)).toBe("folded");
+    expect(readStrip(refusing)).toBe("open");
   });
 });

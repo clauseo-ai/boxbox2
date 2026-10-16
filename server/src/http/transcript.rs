@@ -5,24 +5,15 @@
 //! stream's transcript events after it.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
-use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderValue, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use serde::Deserialize;
-use tracing::info;
 use utoipa::IntoParams;
 
 use super::AppState;
+use super::agents;
 use super::error::{ApiError, ErrorBody};
-use crate::upstream::{get, plain};
-
-/// how long the daemon may take to begin its answer.
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
-/// the daemon's headers a client needs; nothing else crosses.
-const PASSED: [&str; 3] = ["x-cmx2-seq", "x-next-cursor", "x-cmx2-repeat"];
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct PageQuery {
@@ -54,7 +45,7 @@ pub async fn messages(
     Path((host, session)): Path<(String, String)>,
     Query(page): Query<PageQuery>,
 ) -> Result<Response, ApiError> {
-    let mut route = format!("/session/{}/message", segment(&session)?);
+    let session = segment(&session)?;
     let mut query = Vec::new();
     if let Some(limit) = page.limit {
         query.push(format!("limit={limit}"));
@@ -62,10 +53,8 @@ pub async fn messages(
     if let Some(before) = page.before {
         query.push(format!("before={before}"));
     }
-    if !query.is_empty() {
-        route = format!("{route}?{}", query.join("&"));
-    }
-    proxy(&state, &host, &route).await
+    let source = agents::cmx2(&state, &host, None)?;
+    source.transcript_raw(session, &query).await
 }
 
 /// one message of the session, `{info, parts}`, streaming or finished; a
@@ -89,12 +78,9 @@ pub async fn message(
     State(state): State<Arc<AppState>>,
     Path((host, session, message)): Path<(String, String, String)>,
 ) -> Result<Response, ApiError> {
-    let route = format!(
-        "/session/{}/message/{}",
-        segment(&session)?,
-        segment(&message)?
-    );
-    proxy(&state, &host, &route).await
+    let (session, message) = (segment(&session)?, segment(&message)?);
+    let source = agents::cmx2(&state, &host, None)?;
+    source.message_raw(session, message).await
 }
 
 /// a daemon id as one path segment; anything that could step out of it is refused.
@@ -111,74 +97,6 @@ fn segment(id: &str) -> Result<&str, ApiError> {
             "\"{id}\" is not a session or message id"
         )))
     }
-}
-
-async fn proxy(state: &AppState, host: &str, route: &str) -> Result<Response, ApiError> {
-    let view = state
-        .upstreams
-        .hosts
-        .borrow()
-        .iter()
-        .find(|h| h.config.name == host)
-        .cloned()
-        .ok_or_else(|| ApiError::UnknownHost(host.to_owned()))?;
-    let started = Instant::now();
-    let answer = tokio::time::timeout(
-        ANSWER_TIMEOUT,
-        get(&state.client, &view.config, route).send(),
-    )
-    .await
-    .map_err(|_| ApiError::HostUnreachable {
-        host: host.to_owned(),
-        reason: format!("no answer within {}s", ANSWER_TIMEOUT.as_secs()),
-    })?
-    .map_err(|e| ApiError::HostUnreachable {
-        host: host.to_owned(),
-        reason: plain(&e),
-    })?;
-    let status = StatusCode::from_u16(answer.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-    let seq = answer
-        .headers()
-        .get("x-cmx2-seq")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("-")
-        .to_owned();
-    info!(
-        host,
-        route = route.split('?').next().unwrap_or(route),
-        status = status.as_u16(),
-        latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        seq,
-        "transcript read"
-    );
-    let mut headers = Vec::with_capacity(PASSED.len() + 1);
-    if let Some(kind) = answer.headers().get(reqwest::header::CONTENT_TYPE) {
-        headers.push((header::CONTENT_TYPE, kind.as_bytes().to_vec()));
-    }
-    let passed: Vec<(&'static str, Vec<u8>)> = PASSED
-        .iter()
-        .filter_map(|name| {
-            answer
-                .headers()
-                .get(*name)
-                .map(|v| (*name, v.as_bytes().to_vec()))
-        })
-        .collect();
-    let mut response = Body::from_stream(answer.bytes_stream()).into_response();
-    *response.status_mut() = status;
-    let out = response.headers_mut();
-    for (name, value) in headers {
-        if let Ok(value) = HeaderValue::from_bytes(&value) {
-            out.insert(name, value);
-        }
-    }
-    for (name, value) in passed {
-        if let Ok(value) = HeaderValue::from_bytes(&value) {
-            out.insert(name, value);
-        }
-    }
-    out.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    Ok(response)
 }
 
 #[cfg(test)]

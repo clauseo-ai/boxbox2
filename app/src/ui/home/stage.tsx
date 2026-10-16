@@ -5,8 +5,8 @@
    bar that condenses, the ledger, the asks in place, the ruler and the
    turns). the thread's bar is the header home's back gesture pulls on. */
 
-import { Show } from "solid-js";
-import type { InspectorLink } from "../thread/inspector";
+import { type JSX, Show } from "solid-js";
+import type { DetailsRoom, InspectorLink } from "../thread/inspector";
 import { Stage } from "../thread/stage";
 import { colourStyle } from "../window/repo";
 import type { WindowView } from "../window/view";
@@ -19,12 +19,19 @@ export type LayerProps = {
   ref?: (el: HTMLElement) => void;
   /** the header and the edge, for the back gesture */
   gestureRefs?: (edge: HTMLElement | undefined, header: HTMLElement) => void;
-  /** an agent's thread opens as a layer over this one */
-  onOpenAgent: (key: string) => void;
+  /** an agent's thread opens as a layer over this one, named by the row that opened it when it gives a name */
+  onOpenAgent: (key: string, name?: string) => void;
+  /** the thread this layer sits over (an agent's parent): its back returns there even when the fleet does not hold the
+      agent's session, whose `parentID` would say it */
+  parent?: string;
   /** another layer sits over this one (an agent's thread): it keeps its place but takes no input and is out of the tree */
   covered?: boolean;
   /** the inspector column beside the stage (the rail, 1400 wide and up): only the layer on top is given it, and only there */
   inspector?: InspectorLink;
+  /** below the inspector's width, where the stage's own panel goes: only the layer on top is given it */
+  room?: DetailsRoom;
+  /** what leads the stage's bar: the windows' toggle while they are put away, the only way back to them on screen */
+  barStart?: JSX.Element;
 };
 
 export function Layer(props: LayerProps) {
@@ -40,8 +47,12 @@ export function Layer(props: LayerProps) {
         deck={props.deck}
         onBack={props.onBack}
         onOpenAgent={props.onOpenAgent}
+        {...(props.parent ? { parent: props.parent } : {})}
+        {...(props.parent ? { fallback: { title: props.view.title, root: props.view.root } } : {})}
         headerRef={(header) => queueMicrotask(() => props.gestureRefs?.(edge, header))}
         {...(props.inspector ? { inspector: props.inspector } : {})}
+        {...(props.room ? { room: props.room } : {})}
+        {...(props.barStart ? { barStart: props.barStart } : {})}
       />
       <Show when={props.deck}>
         <div class="veil plane-window" aria-hidden="true" />

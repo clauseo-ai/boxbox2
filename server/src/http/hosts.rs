@@ -6,28 +6,24 @@
 //! host's credential, which never leaves the server.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use reqwest::{Method, Url};
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::info;
 use utoipa::ToSchema;
 
 use super::AppState;
+use super::agents;
 use super::error::{ApiError, ErrorBody};
 use crate::config::{self, Credential, Origin, Secret};
+use crate::source::cmx2::verbs::hosts::{ANSWER_TIMEOUT, message_of, read_capped};
 use crate::upstream::paired::{self, CLIENT_NAME, Paired};
-use crate::upstream::{HostChange, HostStatus, HostView, plain, request, route_url};
-
-/// `/global/reload` waits up to 15 s for mcp servers to reconnect.
-const RELOAD_TIMEOUT: Duration = Duration::from_secs(20);
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
-/// a pairing, a restart or a reload answers in a few hundred bytes; the
-/// model list of a host with every provider configured stays well under.
-const BODY_CAP: usize = 1024 * 1024;
+use crate::upstream::{HostChange, HostStatus, HostView, plain, route_url};
+use crate::wire::Capability;
 /// the efforts a model can take, least to most.
 const EFFORTS: [&str; 7] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 /// a one-time token from `cmx2 pair` is 40-odd characters.
@@ -115,6 +111,7 @@ pub async fn pair(
         ));
     }
     refuse_taken(&state, &name, &url)?;
+    refuse_reserved(&state, &name).await?;
     let answer = trade(&state.client, &url, token).await?;
     let credential = Secret::new(answer.credential);
     if answer.scheme != "Bearer" || Credential::Bearer(credential.clone()).header().is_none() {
@@ -255,13 +252,6 @@ pub struct McpServer {
     pub status: String,
 }
 
-#[derive(Deserialize)]
-struct ReloadAnswer {
-    changed: Vec<String>,
-    flushed: Vec<String>,
-    mcp: Vec<McpServer>,
-}
-
 /// the daemon re-reads its config and flushes skills, agents, commands,
 /// the model list and language servers, and reconnects mcp servers.
 /// sessions are untouched.
@@ -280,25 +270,8 @@ pub async fn reload(
     State(state): State<Arc<AppState>>,
     Path(host): Path<String>,
 ) -> Result<Json<Reloaded>, ApiError> {
-    let view = find(&state, &host)?;
-    let bytes = call(
-        &state,
-        &view,
-        Method::POST,
-        "/global/reload",
-        RELOAD_TIMEOUT,
-    )
-    .await?;
-    let answer: ReloadAnswer =
-        serde_json::from_slice(&bytes).map_err(|e| ApiError::HostFailed {
-            host: host.clone(),
-            detail: format!("its reload answer did not read ({e})"),
-        })?;
-    Ok(Json(Reloaded {
-        changed: answer.changed,
-        flushed: answer.flushed,
-        mcp: answer.mcp,
-    }))
+    let source = agents::cmx2(&state, &host, Some(Capability::Admin))?;
+    Ok(Json(source.reload_global().await?))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -324,15 +297,8 @@ pub async fn restart(
     State(state): State<Arc<AppState>>,
     Path(host): Path<String>,
 ) -> Result<(StatusCode, Json<Restarting>), ApiError> {
-    let view = find(&state, &host)?;
-    call(
-        &state,
-        &view,
-        Method::POST,
-        "/global/restart",
-        ANSWER_TIMEOUT,
-    )
-    .await?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Admin))?;
+    source.restart_global().await?;
     info!(%host, "host restarting on request");
     Ok((StatusCode::ACCEPTED, Json(Restarting { host })))
 }
@@ -371,26 +337,14 @@ pub async fn models(
     State(state): State<Arc<AppState>>,
     Path(host): Path<String>,
 ) -> Result<Json<HostModels>, ApiError> {
-    let view = find(&state, &host)?;
-    let bytes = call(
-        &state,
-        &view,
-        Method::GET,
-        "/config/providers",
-        ANSWER_TIMEOUT,
-    )
-    .await?;
-    let answer: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|e| ApiError::HostFailed {
-            host: host.clone(),
-            detail: format!("its model list did not read ({e})"),
-        })?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Model))?;
+    let answer = source.provider_models().await?;
     Ok(Json(read_models(&answer)))
 }
 
 /// `/config/providers` read loosely: past `id`, `providerID` and `name` the
 /// contract leaves a model open, and variants arrive as a map by name.
-fn read_models(answer: &serde_json::Value) -> HostModels {
+pub(crate) fn read_models(answer: &serde_json::Value) -> HostModels {
     let mut models = Vec::new();
     let mut default = None;
     for provider in answer["providers"].as_array().into_iter().flatten() {
@@ -458,6 +412,33 @@ fn refuse_taken(state: &AppState, name: &str, url: &Url) -> Result<(), ApiError>
     Ok(())
 }
 
+/// connection names and agent keys are one namespace (`agents.md`, section
+/// 3, collisions): a paired host never takes the name of an `[[openclaw]]`
+/// or `[[hermes]]` connection, a key one of them pins, or a key an agent
+/// already holds, since read marks, needs and clears are keyed by it.
+async fn refuse_reserved(state: &AppState, name: &str) -> Result<(), ApiError> {
+    if let Some(taken) = state.upstreams.reservation(name) {
+        return Err(ApiError::NameReserved {
+            name: name.to_owned(),
+            holder: taken.holder,
+            agent_key: false,
+        });
+    }
+    let owner = state
+        .store
+        .agent_key_owner(name)
+        .await
+        .map_err(|_| ApiError::StoreDown)?;
+    if let Some((connection, _)) = owner {
+        return Err(ApiError::NameReserved {
+            name: name.to_owned(),
+            holder: format!("the key of an agent on {connection}"),
+            agent_key: true,
+        });
+    }
+    Ok(())
+}
+
 /// a name from the address: its first label, lowercased, anything else a
 /// dash. `http://studio.tail1234.ts.net:4096` is `studio`.
 fn name_from(url: &Url) -> String {
@@ -484,79 +465,6 @@ fn name_from(url: &Url) -> String {
     } else {
         name.to_owned()
     }
-}
-
-/// one request to a host on the machines screen's behalf, logged in one
-/// line with host, route, status and latency.
-async fn call(
-    state: &AppState,
-    view: &HostView,
-    method: Method,
-    route: &'static str,
-    limit: Duration,
-) -> Result<Vec<u8>, ApiError> {
-    let host = view.config.name.clone();
-    let started = Instant::now();
-    let sent = tokio::time::timeout(
-        limit,
-        request(&state.client, &view.config, method.clone(), route).send(),
-    )
-    .await;
-    let response = match sent {
-        Err(_) => {
-            warn!(%host, %method, route, latency_ms = started.elapsed().as_millis(), "host did not answer in time");
-            return Err(ApiError::HostUnreachable {
-                host,
-                reason: format!("no answer within {}s", limit.as_secs()),
-            });
-        }
-        Ok(Err(error)) => {
-            let reason = plain(&error);
-            warn!(%host, %method, route, %reason, latency_ms = started.elapsed().as_millis(), "host did not answer");
-            return Err(ApiError::HostUnreachable { host, reason });
-        }
-        Ok(Ok(response)) => response,
-    };
-    let status = response.status();
-    info!(%host, %method, route, status = status.as_u16(), latency_ms = started.elapsed().as_millis(), "host answered");
-    if status == StatusCode::UNAUTHORIZED {
-        return Err(match view.config.origin {
-            Origin::Config => ApiError::HostRefused(host),
-            Origin::Paired => ApiError::CredentialRevoked(host),
-        });
-    }
-    let bytes = read_capped(response)
-        .await
-        .map_err(|reason| ApiError::HostUnreachable {
-            host: host.clone(),
-            reason,
-        })?;
-    if !status.is_success() {
-        return Err(ApiError::HostFailed {
-            host,
-            detail: format!("it answered {status}: {}", message_of(&bytes)),
-        });
-    }
-    Ok(bytes)
-}
-
-async fn read_capped(mut response: reqwest::Response) -> Result<Vec<u8>, String> {
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|e| plain(&e))? {
-        if body.len() + chunk.len() > BODY_CAP {
-            return Err(format!("the answer passed {} kb", BODY_CAP / 1024));
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body)
-}
-
-/// the message in a cmx2 error body, or the start of whatever came back.
-fn message_of(body: &[u8]) -> String {
-    serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| v["data"]["message"].as_str().map(str::to_owned))
-        .unwrap_or_else(|| String::from_utf8_lossy(&body[..body.len().min(200)]).into_owned())
 }
 
 #[cfg(test)]

@@ -14,12 +14,16 @@ import { type Arrangement, Window } from "../../window/window";
 import journal from "../fixtures/journal.ndjson?raw";
 import { endOf, keyOf, parseJournal, replay, TITLES } from "../fixtures/replay";
 import { Home } from "../home";
-import { INSPECTOR_KEY, RAIL_KEY } from "../remembered";
+import { FOCUS_KEY, INSPECTOR_KEY, STRIP_KEY } from "../remembered";
 import { notesTranscript } from "../../thread/stories/transcript";
 import { askWith, asking, fleetAsking, LONG_ASK, type Question, TWO_QUESTIONS } from "../../thread/stories/asks";
 import { sweep } from "../../../motion/animate";
+import { NewThreadDock } from "../../composer/dock";
+import { colourStyle } from "../../window/repo";
+import { RepoMark } from "../../repo-mark/repo-mark";
 import "../../window/window.css";
 import "../home.css";
+import "../fold.css";
 
 /** a device that remembers nothing of the folds: every story that does not set them starts with both columns open */
 const forgetful = { getItem: () => null, setItem: () => undefined };
@@ -49,6 +53,7 @@ const ASKS: Partial<Record<StateStory | HomeStory, Question[]>> = {
   "wants-two": TWO_QUESTIONS,
   "ask-long": LONG_ASK,
   "ask-two": TWO_QUESTIONS,
+  "answer-two": TWO_QUESTIONS,
 };
 
 const ARRANGEMENTS: Arrangement[] = ["deck", "strip", "rail"];
@@ -93,14 +98,15 @@ export function mountState(el: HTMLElement, story: StateStory): () => void {
   );
 }
 
-export type HomeStory = "live" | "ask-long" | "ask-two" | "offline" | "reload" | "long" | "stale" | "crowd" | "gone" | "empty" | "rail-folded" | "inspector-folded" | "both-folded" | "inspector-turns";
+export type HomeStory = "live" | "stray" | "answer" | "answer-two" | "ask-long" | "ask-two" | "offline" | "reload" | "long" | "stale" | "crowd" | "gone" | "empty" | "windows-hidden" | "inspector-folded" | "hidden-inspector-folded" | "inspector-turns" | "strip-folded" | "details";
 
 /** what each story's device remembers of the rail and the inspector (home.tsx, `memory`): its own, so no story leaks into the next */
 const FOLDS: Partial<Record<HomeStory, Record<string, string>>> = {
-  "rail-folded": { [RAIL_KEY]: "folded" },
+  "windows-hidden": { [FOCUS_KEY]: "hidden" },
   "inspector-folded": { [INSPECTOR_KEY]: "folded" },
-  "both-folded": { [RAIL_KEY]: "folded", [INSPECTOR_KEY]: "folded" },
+  "hidden-inspector-folded": { [FOCUS_KEY]: "hidden", [INSPECTOR_KEY]: "folded" },
   "inspector-turns": { [INSPECTOR_KEY]: "turns" },
+  "strip-folded": { [STRIP_KEY]: "folded" },
 };
 
 /** a repo name longer than a phone's bar has room for beside its pills, for the story that proves the bar's line wraps
@@ -201,6 +207,33 @@ function watchFirstLeave(): void {
   }, 2500);
 }
 
+/** the spawn-only agent the stray story's thread starts: the fleet never holds its session */
+export const STRAY = { id: "ses_stray_scout", name: "notes_scout" };
+
+/** the thread with one more turn at its end: a spawn whose child session is `STRAY`, as the daemon writes it */
+function withStrayAgent(thread: Awaited<ReturnType<typeof notesTranscript>>): Awaited<ReturnType<typeof notesTranscript>> {
+  const last = [...thread.messages].reverse().find((m) => m.info.role === "assistant");
+  if (!last) return thread;
+  const at = AT - 30_000;
+  const sessionID = last.info.sessionID;
+  const info = { ...last.info, id: "m_stray", time: { created: at, completed: at + 900 } } as typeof last.info;
+  const part = {
+    id: "p_stray", sessionID, messageID: "m_stray", type: "tool", callID: "p_stray", tool: "spawn",
+    state: { status: "completed", input: { brief: "read the notes and say which greeting they use" }, output: "", metadata: { agents: [{ id: STRAY.id, name: STRAY.name, seat: "scout" }], child_session_id: STRAY.id }, time: { start: at, end: at + 900 } },
+  } as unknown as (typeof last.parts)[number];
+  return { ...thread, messages: [...thread.messages, { info, parts: [part] }] };
+}
+
+/** opens the asking thread (the deck has nothing on the stage until a window is tapped), then the spawn's row and its door, as
+    a person would; ready once the agent's layer is up */
+function openStray(el: HTMLElement, wants: string): void {
+  if (!matchMedia("(min-width: 700px)").matches) setTimeout(() => setOpenThread(wants), 300);
+  const press = (selector: string) => document.querySelector<HTMLButtonElement>(selector)?.click();
+  setTimeout(() => press('.stage .row[data-part="p_stray"] .row-h, .stage .row[data-part="p_stray"] button'), 1500);
+  setTimeout(() => press(".stage .agent-door"), 2100);
+  setTimeout(() => el.querySelector("div")?.setAttribute("data-ready", ""), 3200);
+}
+
 /** the whole of home, from the journal's last frame; the arrangement follows the story's width. at the ipad and mac
     widths home puts the window that wants you on the stage, so its transcript is held as the worker would hold it */
 export function mountHome(el: HTMLElement, story: HomeStory): () => void {
@@ -212,7 +245,9 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     const wants = keyOf(final.state, TITLES.wants);
     const asks = fleetAsking(final.state.fleet, ASKS[story]);
     const pending = Object.values(asks.asks).find((a) => a.key === wants);
-    const transcript = await notesTranscript(wants);
+    const recorded = await notesTranscript(wants);
+    // the stray story: the asking thread started an agent whose session the fleet does not hold (a spawn-only agent)
+    const transcript = story === "stray" ? withStrayAgent(recorded) : recorded;
     // the thread on the stage holds the question the window previews, running at its end, as the daemon holds it
     const threads = { [wants]: pending ? asking(transcript, pending) : transcript };
     if (gone) return;
@@ -224,14 +259,28 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     if (story === "gone") watchFirstLeave();
     const kept = { ...FOLDS[story] };
     const memory = { getItem: (key: string) => kept[key] ?? null, setItem: (key: string, value: string) => void (kept[key] = value) };
+    // the answer sheet's stories press the asking window's tray, as a person would, and are ready once it is up
+    const answering = story === "answer" || story === "answer-two";
+    // the details' story asks for them from the stage's bar, as a person would: docked beside the folded rail on a landscape
+    // ipad, a sheet on a portrait one, the inspector already showing them at the mac's width
+    const detailing = story === "details";
     dispose = render(
       () => (
-        <div data-ready>
+        <div data-ready={answering || detailing || story === "stray" ? undefined : ""}>
           <Home onMachines={() => undefined} onHistory={() => undefined} at={AT} measure={false} memory={memory} />
         </div>
       ),
       el,
     );
+    if (story === "stray") openStray(el, wants);
+    if (detailing) {
+      setTimeout(() => el.querySelector<HTMLButtonElement>(".stage-bar .details-toggle[aria-expanded=false]")?.click(), 700);
+      setTimeout(() => el.querySelector("div")?.setAttribute("data-ready", ""), 1600);
+    }
+    if (answering) {
+      setTimeout(() => el.querySelector<HTMLButtonElement>(".win .wask")?.click(), 700);
+      setTimeout(() => el.querySelector("div")?.setAttribute("data-ready", ""), 1400);
+    }
   })();
   return () => {
     gone = true;
@@ -302,4 +351,74 @@ export function mountMoments(el: HTMLElement): () => void {
   };
   (window as unknown as { boxboxMoments: typeof moments }).boxboxMoments = moments;
   return dispose;
+}
+
+/** home's liquid glass controls (styles.css, `.lg`; docs/home.md, the bar) laid over live windows so the glass has
+    something to bend: the bar's pills and rounds, the clear pill, the fold's new-thread disc, the capsule and the dock.
+    the second panel is the same controls on the solid material that reduced transparency (or a browser without
+    backdrop-filter) gives them, forced by the tokens on the panel, since a story cannot set the system's preference; it is
+    a picture to compare, so it is inert and its controls do not repeat the first panel's names */
+export function mountGlass(el: HTMLElement): () => void {
+  const views = (["working", "wants", "done"] as const).map((story) => {
+    const key = keyOf(final.state, SOURCES[story].title);
+    const entry = final.state.fleet.sessions[key];
+    if (!entry) throw new Error(`no session for ${story}`);
+    return windowView(entry, Object.values(final.state.fleet.asks).filter((a) => a.key === key), SOURCES[story].extra);
+  });
+  const asking = views[1];
+  if (!asking) throw new Error("no asking window");
+  const panel = (solid: boolean) => (
+    <figure class="glass-panel" data-solid={solid ? "" : undefined}>
+      <div class="glass-ground" data-arrangement="rail" aria-hidden="true" inert>
+        <For each={views}>
+          {(view) => <Window view={view} live={false} current={false} offline={false} showHost={false} now={AT} onOpen={() => undefined} onOpenAsk={() => undefined} />}
+        </For>
+      </div>
+      <div class="glass-over" aria-hidden={solid ? "true" : undefined} inert={solid}>
+        <button
+          class="capsule"
+          type="button"
+          style={{ "--c1": asking.colour.top, "--c2": asking.colour.bottom, "--hi": asking.colour.light }}
+          aria-label={`open ${asking.repo}, it wants you`}
+        >
+          <RepoMark host={asking.host} root={asking.root} name={asking.repo} colour={asking.colour} size={34} />
+          <span>
+            <b>{asking.repo}</b> wants you: which greeting
+          </span>
+          <em>open</em>
+        </button>
+        <div class="pills">
+          <button class="pill new" type="button" aria-label="new thread">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            <span class="new-word" aria-hidden="true">new thread</span>
+          </button>
+          <button class="pill" type="button" aria-label="clear 3">clear 3</button>
+          <button class="pill" type="button" aria-label="history">history</button>
+          <button class="pill icon" type="button" aria-label="machines">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="4.5" width="16" height="6.5" rx="2.2" />
+              <rect x="4" y="13" width="16" height="6.5" rx="2.2" />
+              <path d="M8 7.75h.01M8 16.25h.01" />
+            </svg>
+          </button>
+          <button class="fold-new" type="button" aria-label="new thread disc">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+        </div>
+        <div class="glass-dock" style={colourStyle(asking.colour)}>
+          <NewThreadDock host={asking.host} directory={asking.root} showHost={false} onOpen={() => undefined} />
+        </div>
+      </div>
+      <figcaption>{solid ? "solid: reduced transparency, or no backdrop-filter" : "liquid glass"}</figcaption>
+    </figure>
+  );
+  return render(
+    () => (
+      <div class="home story-glass" data-ready>
+        {panel(false)}
+        {panel(true)}
+      </div>
+    ),
+    el,
+  );
 }

@@ -6,6 +6,7 @@
    and typing. */
 
 import type { Middleware } from "openapi-fetch";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { api } from "../../../api/client";
 import { installMotionProperties } from "../../../motion/animate";
@@ -18,13 +19,15 @@ import { colourOf, colourStyle } from "../../window/repo";
 import { Composer } from "../composer";
 import { NewThreadDock } from "../dock";
 import { NewThreadSheet } from "../sheet";
-import { AT, browse, COMMANDS, DIRECTORY, draft, FAVORITES, FILES, HOST, IDLE, IDLE_NEARLY_FULL, IDLE_ON_OPUS, IDLE_WITH_CONTEXT, KEY, MODELS, MODELS_MANY, OTHER, PROMPTS, photoUrl, QUESTION, SESSION, sent, TARGET, WORKING, WORKING_WITH_CONTEXT } from "./fixtures";
+import { AT, browse, COMMANDS, DIRECTORY, draft, FAVORITES, FILES, HOST, IDLE, IDLE_NEARLY_FULL, IDLE_ON_OPUS, IDLE_WITH_CONTEXT, KEY, MODELS, MODELS_MANY, OTHER, PROMPTS, photoUrl, QUESTION, SESSION, sent, TARGET, WORKING, WORKING_MARKDOWN, WORKING_WITH_CONTEXT } from "./fixtures";
 
 export type ComposerStory =
   | "empty-done"
   | "empty-working"
   | "empty-wants"
+  | "live-markdown"
   | "draft"
+  | "draft-line"
   | "long"
   | "full"
   | "shell"
@@ -35,7 +38,17 @@ export type ComposerStory =
   | "steer"
   | "steer-run-now"
   | "failed"
+  | "queue-three"
+  | "queue-failed-lead"
+  | "queue-list"
+  | "queue-list-draft"
+  | "queue-verbs"
   | "offline"
+  | "drop-over"
+  | "glass"
+  | "glass-queue"
+  | "glass-shell"
+  | "dropped"
   | "model"
   | "slash"
   | "at"
@@ -73,9 +86,11 @@ export type ComposerStory =
   | "sheet-failed"
   | "sheet-fresh"
   | "sheet-model"
-  | "sheet-dial";
+  | "sheet-dial"
+  | "sheet-place"
+  | "sheet-away";
 
-const HOME_STORIES = ["dock", "dock-nowhere", "sheet", "sheet-hosts", "sheet-finder", "sheet-browse", "sheet-starting", "sheet-failed", "sheet-fresh", "sheet-model", "sheet-dial"] as const;
+const HOME_STORIES = ["dock", "dock-nowhere", "sheet", "sheet-hosts", "sheet-finder", "sheet-browse", "sheet-starting", "sheet-failed", "sheet-fresh", "sheet-model", "sheet-dial", "sheet-place", "sheet-away"] as const;
 type HomeStory = (typeof HOME_STORIES)[number];
 const isHome = (story: ComposerStory): story is HomeStory => (HOME_STORIES as readonly string[]).includes(story);
 
@@ -89,7 +104,14 @@ type Drive = {
   hit: (key: string) => void;
   type: (selector: string, text: string) => void;
   later: (ms: number, then: () => void) => void;
+  /** a long press or a right click on what the selector finds */
+  menu: (selector: string) => void;
+  /** a drag of two files (a spec and a log) entering, or dropped on, what the selector finds */
+  drag: (type: "dragenter" | "drop", selector: string) => void;
 };
+
+/** a steer, then two waiting for the turn to end */
+const three = (): OutboxView[] => [sent("c3", PROMPTS.steer, "queued", { verb: "steer" }), sent("c1", PROMPTS.docs, "queued", { at: AT + 5000 }), sent("c2", PROMPTS.push, "queued", { at: AT + 9000 })];
 
 type Setup = {
   entry: SessionEntry;
@@ -116,6 +138,8 @@ type Setup = {
   focus?: boolean;
   full?: boolean;
   keyboard?: boolean;
+  /** the log runs on under the bar, as a long thread does, so the glass has something to bend */
+  under?: boolean;
 };
 
 const LIVE: StreamStatus = { state: "live", since: AT - 600_000, lastEventAt: AT };
@@ -124,7 +148,11 @@ const SETUPS: Record<Exclude<ComposerStory, HomeStory>, () => Setup> = {
   "empty-done": () => ({ entry: IDLE }),
   "empty-working": () => ({ entry: WORKING }),
   "empty-wants": () => ({ entry: WORKING, asks: [QUESTION] }),
+  // the agent's markdown in the live line: strong drawn strong, code in mono, the open mark at the end dropped
+  "live-markdown": () => ({ entry: WORKING_MARKDOWN }),
   draft: () => ({ entry: WORKING, draft: draft(PROMPTS.perf), focus: true }),
+  // one line: the words between the plus and send, inset clear of both
+  "draft-line": () => ({ entry: IDLE, draft: draft("ship it"), focus: true }),
   long: () => ({ entry: WORKING, draft: draft(PROMPTS.long), focus: true }),
   full: () => ({ entry: WORKING, draft: draft(PROMPTS.long), focus: true, full: true }),
   shell: () => ({ entry: IDLE, draft: draft(""), type: "!git log --oneline -5" }),
@@ -146,6 +174,24 @@ const SETUPS: Record<Exclude<ComposerStory, HomeStory>, () => Setup> = {
   // a steer waiting for its boundary and a message waiting for the turn to end: the two cards that can stop the turn, one above the other
   "steer-run-now": () => ({ entry: WORKING, outbox: [sent("c3", PROMPTS.steer, "queued", { verb: "steer" }), sent("c1", PROMPTS.docs, "queued", { at: AT + 5000 })] }),
   failed: () => ({ entry: IDLE, outbox: [sent("c4", PROMPTS.deploy, "failed", { error: "the desk host did not answer", attempts: 3 })] }),
+  // three on their way: the strip shows the first with +2 and the edges of two behind it
+  "queue-three": () => ({ entry: WORKING, outbox: three() }),
+  // one that did not go leads the strip, whatever its place
+  "queue-failed-lead": () => ({ entry: WORKING, outbox: [sent("c1", PROMPTS.docs, "queued"), sent("c4", PROMPTS.deploy, "failed", { error: "the desk host did not answer", attempts: 3, at: AT + 3000 })] }),
+  // a tap on the strip: every message with its verbs, over the thread; an empty draft offers edit on the waiting ones
+  "queue-list": () => ({ entry: WORKING, outbox: three(), drive: (go) => go.press("3 messages on their way") }),
+  // with words in the draft a waiting message has nowhere to go back to, so edit is not offered
+  "queue-list-draft": () => ({ entry: WORKING, draft: draft("and the readme"), outbox: three(), drive: (go) => go.press("3 messages on their way") }),
+  // a long press (or a right click): every verb the strip's message has
+  "queue-verbs": () => ({ entry: WORKING, outbox: three(), drive: (go) => go.menu(".cz-strip") }),
+  // the bar is clear glass over the log: the thread's words run under it, and the shade behind its words keeps them legible
+  glass: () => ({ entry: WORKING, draft: draft("and the readme too"), focus: true, under: true }),
+  "glass-queue": () => ({ entry: WORKING, outbox: three(), under: true }),
+  "glass-shell": () => ({ entry: IDLE, draft: draft(""), type: "!git log --oneline -5", under: true }),
+  // a file dragged over the stage: the composer's edge lights and its line says what a drop does
+  "drop-over": () => ({ entry: IDLE, draft: draft(""), drive: (go) => go.drag("dragenter", ".cz-story-stage") }),
+  // a spec and a log dropped on the stage: each mentioned by its name after what the draft held
+  "dropped": () => ({ entry: IDLE, draft: draft("compare these"), drive: (go) => go.drag("drop", ".cz-story-stage") }),
   offline: () => ({ entry: WORKING, stream: "down", outbox: [sent("c5", PROMPTS.push, "waiting", { attempts: 0 })] }),
   model: () => ({ entry: IDLE_ON_OPUS, draft: draft(PROMPTS.perf), focus: true, type: "", favorites: FAVORITES.slice(0, 2), drive: (go) => go.press("model") }),
   "models-favorites": () => ({ entry: IDLE_ON_OPUS, draft: draft(""), many: true, favorites: FAVORITES, drive: (go) => go.press("model") }),
@@ -241,6 +287,13 @@ function driving(el: HTMLElement): Drive {
       field.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }));
     },
     later: (ms, then) => void setTimeout(then, ms),
+    menu: (selector) => el.querySelector(selector)?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 })),
+    drag: (type, selector) => {
+      const data = new DataTransfer();
+      data.items.add(new File(["# the spec"], "deploy spec.md", { type: "text/markdown" }));
+      data.items.add(new File(["ok"], "health.log", { type: "text/plain" }));
+      el.querySelector(selector)?.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data }));
+    },
   };
 }
 
@@ -264,13 +317,14 @@ export function mountComposer(el: HTMLElement, story: ComposerStory): () => void
   const colour = colourStyle(colourOf({ host: HOST, root: DIRECTORY }));
   const dispose = render(
     () => (
-      <div class="cz-story" data-keyboard={setup.keyboard ? "" : undefined} style={colour}>
+      <div class="cz-story" data-keyboard={setup.keyboard ? "" : undefined} data-under={setup.under ? "" : undefined} style={colour}>
         <div class="cz-story-stage">
           <div class="cz-story-log">
             <p class="cz-story-you" data-message="msg_you">{PROMPTS.first}</p>
             <p class="cz-story-say">four files changed, the tests pass, and the deploy script now waits for the health check before it moves on.</p>
+            {setup.under ? <p class="cz-story-say">the rollback keeps the last two builds on each machine, and the health check reads the same endpoint the load balancer does, so a build that passes here passes there. the logs for the run are in the deploy folder, one file per machine, and the summary at the top says which steps were skipped and why.</p> : null}
           </div>
-          <Composer target={TARGET} mount="bar" title="deploy across the machines" agents={{ count: 2, open: () => undefined }} />
+          <Composer target={TARGET} mount="bar" title="deploy across the machines" agents={{ count: 2, open: () => undefined }} dropZone={() => el.querySelector<HTMLElement>(".cz-story-stage")} />
         </div>
         {setup.keyboard ? <div class="cz-story-keyboard" aria-hidden="true" /> : null}
       </div>
@@ -300,12 +354,25 @@ function mountHome(el: HTMLElement, story: HomeStory, restore: () => void): () =
   boot({ entry: IDLE, many: story === "sheet-model", favorites: FAVORITES });
   if (story === "sheet-hosts") bootSync({ fleet: { ...EMPTY_FLEET, sessions: { [KEY]: IDLE }, order: [KEY], hostNames: [HOST, OTHER], asks: {} }, threads: {}, stream: LIVE, drafts: {}, outbox: [] });
   const nowhere = story === "dock-nowhere";
+  // the sheet that lets go on send, wired as home wires it: away and the dock's making line, a tap on the dock brings it back
+  const [away, setAway] = createSignal(false);
+  const [making, setMaking] = createSignal<string | null>(null);
+  const letsGo = story === "sheet-away";
+  const starts = story === "sheet-failed" || story === "sheet-starting" || letsGo;
   const dispose = render(
     () => (
       <div class="cz-story home-story" data-ready>
         <div class="cz-story-deck plane-window" aria-hidden="true" />
-        <NewThreadDock host={HOST} directory={nowhere ? null : DIRECTORY} showHost={false} onOpen={() => undefined} />
-        {story.startsWith("sheet") ? <NewThreadSheet host={HOST} directory={story === "sheet-failed" || story === "sheet-starting" ? "/Users/dev/code/new-thing" : DIRECTORY} onOpened={() => undefined} onClose={() => undefined} /> : null}
+        <NewThreadDock host={HOST} directory={nowhere ? null : DIRECTORY} showHost={false} making={making()} onOpen={() => away() && setAway(false)} />
+        {story.startsWith("sheet") ? (
+          <NewThreadSheet
+            host={HOST}
+            directory={starts ? "/Users/dev/code/new-thing" : DIRECTORY}
+            {...(letsGo ? { away: away(), onAway: setAway, onMaking: setMaking } : {})}
+            onOpened={() => undefined}
+            onClose={() => undefined}
+          />
+        ) : null}
       </div>
     ),
     el,
@@ -323,10 +390,13 @@ function mountHome(el: HTMLElement, story: HomeStory, restore: () => void): () =
     if (story === "sheet-model") setTimeout(() => press("model for the new thread"), 80);
     if (story === "sheet-dial") setTimeout(() => press("effort for the new thread"), 80);
     if (story === "sheet-fresh") setTimeout(() => press("a fresh worktree"), 80);
+    // the finder is behind the place line: it is opened first, as a person would
+    if (story === "sheet-place" || story === "sheet-hosts") setTimeout(() => press("starts in"), 40);
     if (story === "sheet-finder" || story === "sheet-browse") {
-      setTimeout(() => typeFinder(story === "sheet-browse" ? "/Users/dev/code/" : "stra"), 40);
+      setTimeout(() => press("starts in"), 20);
+      setTimeout(() => typeFinder(story === "sheet-browse" ? "/Users/dev/code/" : "stra"), 60);
     }
-    if (story === "sheet-starting" || story === "sheet-failed") {
+    if (story === "sheet-starting" || story === "sheet-failed" || story === "sheet-away") {
       const words = el.querySelector<HTMLTextAreaElement>(".cz-body textarea");
       if (words) {
         words.value = PROMPTS.first;

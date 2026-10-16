@@ -1,0 +1,19 @@
+{
+  "golden": "transcript-unknown-host",
+  "proves": "a host boxbox does not know is a 404 naming it",
+  "request": {
+    "method": "GET",
+    "path": "/api/hosts/nowhere/sessions/<ses 1>/messages",
+    "accept-encoding": "gzip"
+  },
+  "status": 404,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "code": "unknown-host",
+      "message": "no machine named \"nowhere\""
+    }
+  }
+}

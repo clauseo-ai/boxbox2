@@ -1,0 +1,34 @@
+{
+  "golden": "review-read-merge",
+  "proves": "a checkout's review: the branch beyond its base, files with counts, the patch, and the open review need's checkout name",
+  "request": {
+    "method": "GET",
+    "path": "/api/hosts/bench/sessions/<ses 1>/review",
+    "accept-encoding": "gzip"
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "additions": 1,
+    "base": "main",
+    "baseRef": "main",
+    "branch": "cmx2/golden-merge",
+    "checkout": "golden-merge",
+    "commits": 1,
+    "deletions": 0,
+    "diff": "diff --git a/merge.txt b/merge.txt\nnew file mode 100644\nindex 0000000..<short 1>\n--- /dev/null\n+++ b/merge.txt\n@@ -0,0 +1 @@\n+from the checkout\n",
+    "dirty": false,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 0,
+        "path": "merge.txt",
+        "status": "added"
+      }
+    ],
+    "mergeable": true,
+    "truncated": false
+  }
+}

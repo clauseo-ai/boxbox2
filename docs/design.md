@@ -123,7 +123,9 @@ a window can leave home by hand, and come back on its own.
 - **the mark lives on the server** (`clears`, migration 4), not on a
   device, so every device agrees. the mark is the thread's `time.updated`
   at clear time. the thread comes back, for good, when it goes busy,
-  asks, or its updated time moves past the mark. there is no "unclear"
+  asks, or its updated time moves past the mark (for an assistant's
+  thread, its `said` time: a run that only checked something does not
+  bring it back, `home.md`, quieter runs). there is no "unclear"
   control: coming back is what the thread does.
 - **motion.** the window leaves by the fade curve (opacity and the
   transform it already had), and only once it is gone does the POST go
@@ -152,7 +154,7 @@ a window can leave home by hand, and come back on its own.
 | state | chip | what the window shows |
 |---|---|---|
 | working | "working" with a live elapsed clock | the live tail |
-| wants you | filled with the repo's light tone: "wants you" | a preview of the ask rises out of the tail (its question, what waits, an "answer" pill); the window keeps its size |
+| wants you | filled with the repo's light tone: "wants you" | a tray of its accent rises out of the tail (what it needs in one line, what answering takes, "answer"), its edge lit; the window keeps its size |
 | done, unseen | "done" and the time | the last lines of the answer, the result counts |
 | failed | the one red in the system: "stopped" plus the reason | the error line, "retry" and "open" |
 | queued | "3 next" beside the state | the next prompt, dimmed, under the tail |
@@ -212,17 +214,35 @@ self-inflicted unread).
 
 the inbox has no screen of its own: home's windows are ordered by the
 server's needs, so the front of the deck and the top of the strip and
-rail are what wants you. a window that wants you carries a **preview** of
-its ask in place of the tail's foot, and keeps the size it rests at (see
-"an ask never grows its window", below): the question's header as a small
-label, if it has one; the question, clamped (three lines in the strip and
-the rail, six in the deck's tall window); one quiet line that says what
-waits ("3 options", "2 questions", "allow once, always allow or deny" for a permission, the
-card's own words for its three replies);
-and an "answer" pill in the repo's light tone, the material of the "wants
-you" chip. the pill is named for the repo and the question ("answer ledger:
-which greeting should the notes use?"). a tap on the pill or on the window
-opens the thread with the ask in front: the same path a push tap takes.
+rail are what wants you. a window that wants you wears a **tray** of its
+accent in place of the tail's foot (the native app's decision 24), and
+keeps the size it rests at (see "an ask never grows its window", below):
+a slab of the repo's accent inside the window, its corner concentric with
+the window's, in the accent's ink. it says what the thread needs in one
+line, read from every pending ask (`window/need.ts`): the question itself
+under its header when there is one question, "asks 3 questions" over the
+questions' headers when there are several, "wants permission to run bun
+test" for a permission, both halves ("asks a question and wants permission
+to run bun test", "2 asks waiting") when a thread asks both; clamped to six
+lines on the deck and two on the strip and the rail. one quiet line says
+what answering takes ("3 options", "allow once, always allow or deny"), and
+"answer" sits at its end as the accent turned over. the whole tray is one
+button, named for the repo and the line ("answer ledger: which greeting
+should the notes use?"), and it opens the **answer sheet** over home
+(`asks/sheet.tsx`): every pending ask of the thread as the thread's own
+card, on the repo's deep window material, answered in place, with "open
+the thread" at its foot. on the deck it rises from the foot; on the strip
+and the rail it hangs from the window that asked (below it on the strip,
+beside it on the rail), so the stage stays in view. an answered ask leaves
+it while the rest stay, and it closes when the last has gone; escape and a
+press outside close it, and the focus goes back to the tray. the asking
+window's edge is lit in its accent (1.5 px at 85%, inside the edge, apart
+from the stage's ring outside it), and when it starts wanting you in front
+of you one ring of its accent leaves its edge to 6% past it and fades on
+the ping curve, once, drawn on the page at the window's box since the
+window clips; nothing loops, and reduced motion draws no ring. a tap on the
+window itself, "open the thread", the bar's "wants you" and the capsule
+open the thread with the ask in front: the same path a push tap takes.
 the thread opens on the stage (strip and rail) or full screen (deck), the
 ask's row scrolls to just below the bar (the bar's own height and its 36 px fade, so the
 row's label and ring are whole; an ask near the thread's end sits lower, whole, where
@@ -316,6 +336,17 @@ the tail's grammar, so it reads at a glance and never floods:
   bubble: the report is the agent's, not yours).
 - prose shows the last two sentences; older lines fade out under the top
   mask.
+- **what the body shows follows the state** (the native app's decision
+  25, `window/run.ts`). working or queued, the run it is in: what you
+  asked, the turn's newest eight lines under it, and the turn's strip (the
+  step group's lane, `thread/strip.tsx`) under them, one slot a step for
+  the newest twelve steps in order, since the tail carries no clock: a
+  thought a span on its track, a tool a mark by its kind, the running one
+  lit, a failure red. done, idle, failed or parked, only the agent's words
+  since your message (its last words anywhere when it said none since),
+  640 characters kept from their end, cut at a word behind an ellipsis;
+  with no words at all, the run settled, nothing running. an asking window
+  keeps its tail as it was.
 
 ## the stage: a thread
 
@@ -408,8 +439,12 @@ showing the tail of what you just did.
   words, "the review did not load", with a "reload" button. the card folds to
   "answered, 23:49" once answered.
 - **scroll.** while you are at the bottom, new text keeps you there. the
-  moment you scroll up, nothing moves; a "new below" pill in the repo's
-  tone counts what arrived. reopening a thread restores where you were.
+  moment you scroll up, nothing moves; the jump to the latest, a round
+  liquid-glass control (44 px, tinted with the flood's foot) above the dock,
+  shows while you are a screen or more above the end or something arrived,
+  with what arrived as its count (an 18 px capsule in the accent hung on its
+  corner, "99+" past 99). a tap or ⌘↓ cuts most of a long way and glides the
+  last screen. reopening a thread restores where you were.
   one exception, by the reader's own hand: sending a message takes you to
   the end, where it lands, wherever you had scrolled to.
 
@@ -433,6 +468,10 @@ showing the tail of what you just did.
 - **voice.** on the phone and ipad, the keyboard's dictation (the web
   speech api is unreliable in standalone mode). on the mac, the board's
   talk key fills the focused thread's composer exactly as today.
+  dictation turns speech into a draft; a **voice note** is different: the
+  recording itself is the message, for an agent whose `voice` declares
+  `notes` (2026-10-15). such a composer has a mic key where send sits while the
+  draft is empty (`composer.md`, voice, files and assistants).
 - the keyboard never covers the composer or the last line: the stage
   follows the visual viewport, and opening the keyboard keeps the bottom
   of the transcript anchored (the ios viewport scar, `scars.md`).
@@ -484,7 +523,9 @@ about a thread is on its resting screen, and the long tail lives behind
   model changed says so in the turns list ("switched to opus 5.5, high").
   - where they show: the **inspector**, the column beside the stage at the
     rail 1400 wide and up (one layout law, below); **docked** beside the
-    log in a wide stage below that, a surface pressed into the flood (a
+    log below that where the column beside them keeps 704 px (the open
+    rail folding to its swatches for them at the rail), a surface pressed
+    into the flood (a
     well, not glass), because a person reading at a laptop or an ipad
     keeps watching the figures while the log moves; a **sheet** on the
     phone, headed by the thread's title and "repo, on host".
@@ -586,8 +627,9 @@ colour of the window in view. tapping either raises the composer as a
 sheet set to the window you were looking at (its repo and machine); on a
 machine with more than one, the machine is a choice, and the repos are
 chips in their colours by recency, with an "other folder" finder for any
-folder on that machine, typed or walked to. the sheet's top row says what
-the new thread starts on (model and effort, changeable there); the plus key
+folder on that machine, typed or walked to. the sheet's composer row is the
+model and effort chips alone, changeable there (the place line above it already
+says where the thread starts, so the row never repeats it); the plus key
 adds a photo. sending does not close the sheet on a guess: it says the
 thread is being made, says plainly if the machine refused, and when the
 thread exists the stage opens on it, growing from the sheet's window the
@@ -605,7 +647,7 @@ gets the ipad-portrait layout. three arrangements:
 | arrangement | when | home | a thread |
 |---|---|---|---|
 | **deck** | width under 700 | full-height windows in a snap pager, one per screen, the next one peeking | fills the screen; back by button, edge swipe or pulling the header down |
-| **strip** | 700 and up, portrait | the windows as a row across the top, 2 to 4 visible, tails live | always on stage below the strip |
+| **strip** | 700 and up, portrait | the windows as a row across the top, 2 to 4 visible, tails live; the row folds to a bar of swatches | always on stage below the strip |
 | **rail** | 1000 and up, landscape | the windows as a column on the left, tails live | always on stage beside the rail; the inspector joins at 1400; both columns fold |
 
 why the stage never empties at strip and rail sizes: on the mac, home was
@@ -619,10 +661,11 @@ is home because the phone is hub and spoke (home to thread and back).
 |---|---|---|---|---|
 | windows | 330 × about 580, one in view | 240 × 200, tails 3 lines | 300 wide, 150 to 260 tall | 260 × 220 |
 | stage measure | full width, 22 px gutters | 640 px prose measure | 680 px prose measure, diffs and code take the full stage | 720 px measure |
+| composer, bar title | the words' gutters | the measure's column | the measure's column | the measure's column |
 | an ask | a preview on the window (the window keeps its size); the thread holds the card | a preview on the window; the card is in the thread on the stage | as the strip | as the strip |
 | body text | 16.5 px | 17 px | 15.5 px | 16 px |
 | touch target | 44 pt minimum | 44 pt | 28 px (pointer), 44 pt on ipad | 28 px |
-| details | sheet | docked beside the log | the inspector at 1400 and up, else docked | docked |
+| details | sheet | a sheet (docked only where the column beside keeps 704 px) | the inspector at 1400 and up; below it docked beside the rail folded to its swatches, or a sheet where even that leaves too little | docked |
 | the clock | none: the words take the width | in the margin | in the margin where the stage leaves room | in the margin |
 
 ### the inspector and the folds (the rail)
@@ -635,8 +678,10 @@ collapse (2026-10-02). as built:
   hidden), holding the thread's details or its turns (the header, the
   details and the menu, above). it is quieter than the stage on purpose:
   figures to glance at beside the thing you read.
-- **the rail folds** to a 76 px column, not to nothing, because the rail is
-  the switcher and the watch: the fold toggle (its middle on the stage
+- **the rail folds** to a 76 px column while the details need its room
+  (one layout law's table: the open rail gives way first, the native app's
+  ipadfit), not to nothing, because the rail is the switcher and the
+  watch: the windows' toggle (its middle on the stage
   bar's control line, 46 px down), a new-thread disc (44 px, the solid
   pill's material), one swatch per window in the inbox order, scrolling
   and fading under the disc and the foot, and history and machines at the
@@ -649,10 +694,25 @@ collapse (2026-10-02). as built:
   rail window wears. it is named and opened exactly as its window is.
   with a fine pointer a glass card names it after 250 ms; touch has no
   hover, and a tap opens the thread, whose title says it.
-- **the toggles are a pair** at the two edges of the stage: the rail's at
-  the end of its first row (atop the folded column), the details' in the
-  stage's bar. each is a frame with a pane, the pane on its own side, and
-  says its state by filling it; neither is ever lit in the tone.
+- **the strip folds** the same way (the native app's stripux): its bar and
+  row give way to one bar as tall as the open bar, the new-thread disc, a
+  swatch per window across, history and machines, and the toggle at its
+  end where the open bar's sits, so a fold and an unfold land on one spot.
+  the card's top edge glides; the words being read keep their place.
+- **focus puts the windows away**: the open rail's toggle, `⇧⌘F` at the
+  strip and the rail, and the windows come back from a round leading the
+  stage's bar (the only one on screen while they are away), `⇧⌘F` or
+  `[`. the card takes the screen, 14 px in, its edge on the windows' side
+  gliding over whatever was showing (the open windows or a fold).
+- **the toggles are a pair** at the two edges of the stage: the windows'
+  at the end of the rail's first row (atop the folded column) or of the
+  strip's bar, the details' in the stage's bar. each is a frame with a
+  pane, the pane on its own side (the strip's a band across the top, where
+  its windows are), and says its state by filling it; neither is ever lit
+  in the tone. the windows' toggle is named for what a tap does ("fold the
+  windows" on the open strip, "hide the windows" on the open rail, "show
+  the windows" folded or away); one is on the screen at a time, and a tap
+  on a fold's ground unfolds it (the folded rail's closes the details).
 - **motion.** the stage card's edge glides on the sheet spring by
   clip-path and its contents are carried by translate, with the layout
   committed once (first when the card grows, last when it shrinks, the
@@ -661,8 +721,10 @@ collapse (2026-10-02). as built:
   paragraph would change width (the rail between 1000 and about 1075 wide,
   or 1400 to about 1468 with the inspector), a carry cannot follow it, so
   the content swaps on the fade instead. reduced motion: instant.
-- **remembered on the device.** `boxbox.rail` (open, folded) and
-  `boxbox.inspector` (details, turns, folded); keys `[` and `]` (input).
+- **remembered on the device.** `boxbox.strip` (open, folded),
+  `boxbox.focus` (shown, hidden) and `boxbox.inspector` (details, turns,
+  folded); keys `[`, `]` and `⇧⌘F` (input). the rail's fold follows the
+  details and is not kept (`boxbox.rail` is no longer read).
 
 **an ask never grows its window, at any size** (2026-10-05, above). the
 window of an asking thread keeps the size it rests at in the deck, the strip
@@ -687,10 +749,21 @@ glide to an ask after 4 s idle, the cue and the capsule are as before.
 | steer instead of queue | long-press send | `⌘return` |
 | stop the turn | the stop control in the header's live line | `⌘.` |
 | answer an ask | tap the option | `1` `2` `3` while the ask has focus |
+| reply to a message (`quotes`) | swipe the row right, or long-press it and "reply" | hover the row and press its reply control, or `r` on a focused row (not while typing) |
+| record a voice note (`voice`) | hold the mic key; slide up to lock, left to cancel | `⌘⇧m` starts a locked recording, `return` sends it, `esc` cancels it |
 | thread menu | `⋯` or long-press the header | `⌘/` |
-| fold the windows (the rail) | the toggle at the end of the rail's first row, or atop the folded column | `[` |
+| fold the windows (the strip) | the toggle at the end of the strip's bar, or on the fold, or a tap on the fold's ground | `[` |
+| put the windows away, bring them back (the strip, the rail) | the open rail's toggle; back by the round leading the stage's bar | `⇧⌘F` (`[` brings them back) |
 | fold the details (the rail, 1400 and up) | the details toggle in the stage's bar | `]` |
 | the board | n/a | unchanged (decision 1): its focus and compose verbs drive the same stage and the same motion as a tap |
+
+the native app's windows menu (fold the windows, put them away, the
+details, the previous and next window, a window by position) has no
+menu bar to live in on the web, in a tab or installed: each of its items
+is a key in this table instead, named on its control by
+`aria-keyshortcuts` (`[`, `⇧⌘F`, `]`, `⌥↑` `⌥↓`, `⌥1` to `⌥9`), and
+each control is also the click. a menu of our own drawn in the bar would
+be a second control for every one of them.
 
 `⌘n` and `⌘1` to `⌘9` belong to the browser in a tab; the build verifies
 them in the installed chromium pwa and falls back to `n` (when not typing)
@@ -889,7 +962,13 @@ colour matched (2026-10-02). what holds both appearances together now:
   own tokens (`--win-*`, `--accent`, `--on-accent` on the plane block in
   `app/src/styles.css`), read from the surface's palette (`--p1..3`: the
   repo's top, bottom and light tone, or the app's violet). dark is the
-  deep pair, the light tone's accents, a white 16% lit edge. light is the
+  deep pair, the light tone's accents, a white 16% lit edge, and the
+  highlight from the top left in the repo's light tone at 13% (white greyed
+  the corner into a haze), on an eased falloff that ends flat instead of a
+  straight ramp with an edge. the window on the stage, at the strip and the
+  rail, wears a 2 px ring of its accent outside its edge with 2 px of
+  ground between, and keeps its own lit edge; a folded swatch on the stage
+  wears the same (the native app's decision 22). light is the
   light tone at 30% in white at the top and 12% in near-white at the foot,
   a touch lighter than the flood so a window over the stage still reads
   raised; accents are the deep top colour with near-white ink on them;
@@ -939,7 +1018,7 @@ colour matched (2026-10-02). what holds both appearances together now:
   lit white knob with the repo's edge, and glass edges and shadows take the
   repo's hue, so nothing on the stage reads as the page's grey.
 - **paper, not slabs.** on the light flood a well (an open row, a report,
-  an ask's option, the tape at rest, the docked details) is lit paper: white
+  an ask's option, the docked details) is lit paper: white
   at 52% over the flood, a white lit top, the repo's hue as its edge and a
   short soft shadow in its bottom colour. a bed (code, output, a diff)
   lifts toward white with a trace of the hue and is pressed into whatever
@@ -1075,6 +1154,295 @@ is `aria-hidden`. one component, `RepoMark`
 | composer full head | no | it carries the thread's title, not a repo |
 | clear and ask cards | no | named by the window they sit in |
 
+### agents: who a window belongs to (2026-10-15)
+
+boxbox drove one kind of agent, cmx, which works in repos on a machine.
+it now drives assistants too: an agent behind a gateway (openclaw is the
+first) that keeps conversations, not repos, and talks on other channels
+(whatsapp) as well as here. the approved screens fit an assistant into
+boxbox as it is: the same deck, stage, ledger, asks and composer, with
+its own colour and a round mark where a repo's square one sits. nothing
+about a surface is decided by asking "is this openclaw". every surface
+below is gated on a **capability** the agent declares, by name, and an
+agent that lacks one simply does not show that surface.
+
+- **two kinds, one model.** a cmx agent is one per machine and its
+  windows belong to a repo, so a cmx window's identity is its repo (the
+  mark, the palette) and the agent rides beside it. an assistant's
+  windows belong to the assistant: its name and palette lead, and it has
+  no repo, no worktree and no branch.
+- **how an agent is named.** the agent's `label` joined with " · ": cmx
+  is `cmx · <machine>` ("cmx · vm-a"); an assistant is `<name> ·
+  <runtime> · <machine>` ("<name> · openclaw · vm-b"). where each form is
+  used:
+
+| surface | cmx | an assistant |
+|---|---|---|
+| a window's header | the repo's mark and name, then `cmx · vm-a` in the light tone at 60% (14 px), shown once more than one agent is paired; with one agent the header is as it was | the round mark and `<name>` in the light tone (15.5 px, 500); nothing after it |
+| the stage's title block, live line | the repo line as before | `<name> · thinking` (or `· listening`, `· working 0:40`), the name in the second ink |
+| the start something picker | `cmx` (16 px, 600) and `vm-a` (14 px, second ink) | `<name>` and `openclaw · vm-b` |
+| the agent row of start something | `cmx` over `on vm-a` | `<name>` over `openclaw · vm-b` |
+| the dock's second line | `in ledger · cmx · vm-a` (more than one agent) or `in ledger` | `with <name>` |
+| the agents screen | the machine's name, `cmx2 0.8.3 · up 3 h · paired` | `<name>`, `openclaw 2026.10.1 · paired` |
+| accessible names | "cmx on vm-a" | "<name>, openclaw on vm-b" (a middle dot is not read the same by every screen reader) |
+
+- **assistant palettes** are five named slots beside the ten repo hues,
+  in the same recipe (top, bottom, light tone), chosen to sit in the gaps
+  the ten leave on the colour wheel, so an assistant next to a repo of a
+  near hue still reads as another thing. they feed `--p1..3` exactly as a
+  repo's palette does, so the plane, the flood, the accent, the paper and
+  both appearances follow with no rule of their own. the agent's
+  `palette` names its slot (`docs/agents.md` says how one is given); the
+  person can change it in settings, as a repo's. each holds the three
+  proofs the ten hold (white body text at both ends at 4.5:1, the light
+  tone on the top colour, the bottom colour on the light tone), and the
+  plane and flood tests run over fifteen palettes, not ten.
+
+| name | top | bottom | light tone | sits between |
+|---|---|---|---|---|
+| coral | `#5c2129` | `#290b11` | `#ffa39a` | rose and clay (the first assistant's, as approved) |
+| lime | `#2f4a17` | `#132008` | `#c3ec86` | olive and green |
+| jade | `#14483a` | `#07211a` | `#88e8c6` | green and teal |
+| lagoon | `#0f4458` | `#061e28` | `#8ad9f5` | teal and blue |
+| orchid | `#521f58` | `#240c27` | `#f5a6f0` | plum and rose |
+
+  measured for this table (wcag relative luminance): white on the tops
+  9.9 to 12.4, on the bottoms 16.9 to 18.3; the light tone on its top 6.4
+  to 7.4; the bottom on its light tone 9.5 to 12.7.
+
+- **the round mark.** an assistant's mark is a circle where a repo's is a
+  squircle: the shape says the kind (square is a place an agent works in,
+  round is an agent you talk to), the colour says which one. it is the
+  same component (`RepoMark` with `shape="round"`), the same material,
+  ring and accent, the same sizes and the same rules (identity only,
+  `aria-hidden`, no state, one arrival). it always shows one letter, the
+  name's first, set as the one-letter size: an assistant's name is a word,
+  and two letters read as a code. it never draws a favicon or the
+  gateway's avatar: identity stays in boxbox's material, and a photo of a
+  face on a deck of colour tiles is the one thing that would shout.
+- **a machine's square mark.** in the picker a cmx row is a square mark
+  holding the machine's initials (two letters: `va` for vm-a) in the
+  page's quiet material (white at 8% on dark, the ink at 6% on light, a
+  ring of the second ink at 30%), since cmx has no colour of its own
+  until a repo is chosen.
+- **where the round mark goes** follows the governing rule above: a
+  window's header (22, leads the name), the capsule (34), a folded swatch
+  (30), a history row (36), the picker's rows (30) and the agent row (33),
+  and the agents screen's card (22, beside the name). the summary line
+  and the dock carry none, as for a repo.
+- **capabilities.** each surface names the capability that gates it, by
+  its key on `agent.capabilities` (`docs/agents.md` holds the wire and
+  wins if a name here drifts from it). an agent that does not declare one
+  never shows its surface, and a surface never guesses from the runtime's
+  name:
+
+| capability | surfaces it gates |
+|---|---|
+| `voice` (`notes`) | the mic key and recording; `notes` alone decides it |
+| `voice` (`replies`) | nothing: it says the agent may answer with audio, and an `audio` part is drawn whenever one arrives, so no surface waits on it |
+| `attachments` (`kinds`, `maxBytes`, `maxCount`) | the plus key's "add a file" and "add a photo", and what each accepts; its limits are the composer's, under boxbox's own outbox cap |
+| `quotes` | the reply strip, the swipe and the hover reply, quote blocks on what you send (a quote the agent sends is drawn whenever it arrives) |
+| `reactions` | the react control and the picker (reactions the agent sends are drawn whenever they arrive) |
+| `reasoning` (`word`, `levels`) | the chip beside the model: "effort" or "thinking", as `word` says, with `levels` as its dial |
+| `model` | the model chip |
+| `places` | the place row (repo chips, the folder finder) and a repo's mark |
+| `worktree` | the fresh worktree toggle |
+| `threads` | start something with that agent; without it the agent has its one thread and the dock opens it |
+| `approvals`, `questions` | the permission card, the question card |
+| `origins` | the origin line in a bubble ("via whatsapp"), a window's footer origin, scheduled runs and their quiet window |
+| `admin` | reload, restart and memory on the agents screen |
+| `history` | the agent's rows in history and its agent chip there |
+| `archive` | the thread menu's archive |
+| `terminal`, `review`, `compact`, `queue`, `steer`, `commands`, `files`, `shell`, `spend`, `subagents` | today's surfaces of those names, unchanged |
+
+a cmx2 agent declares what today's surfaces need, so a cmx thread is
+exactly what it was. the mark's shape is the agent's `mark` (`square`,
+`round`) and its palette the agent's `palette` (a slot name, or none for
+an agent whose windows take their repo's), so the client draws what the
+server says and never infers either from `kind` or `source`. an agent
+of kind `other` takes the round mark only when its `mark` says so, as
+any agent. every verb on a contract 2 agent (send, steer, queue, unsend,
+stop, react, archive, clear, read, history) goes through the
+agent-scoped routes `docs/agents.md` names; the `/api/hosts/...` routes
+this law names elsewhere are cmx's under contract 1.
+
+- **"paired"** on a card's mono line is how the connection was made
+  (`connection.origin: paired`, as against one written in `boxbox.toml`),
+  not its state: the state is the chip ("connected", "syncing",
+  "waiting", and so on, `home.md`, the agents).
+
+- **red for recording.** the law keeps red for failure. one other meaning
+  is allowed, and only while it is true: a microphone that is capturing.
+  the recording dot and the hot mic key are `--rec` (`#ff4f4f` on dark,
+  `#c42b2b` on light), a hue apart from failure's `#ff6b6b`, never used
+  for anything at rest, and gone the moment capture stops. the convention
+  is universal enough that a recording in any other colour reads as not
+  recording.
+- **reactions are content.** boxbox's own words never use emoji (copy,
+  below). a reaction is the one place an emoji glyph appears, because it
+  is what a person or an agent sent, as a message's words are; it is
+  named in words for a screen reader (its cldr short name).
+
+### the new rows: type and colour (2026-10-15)
+
+every new row is built from tokens the stage already has; the numbers are
+the approved screens' (the phone, 402 pt wide). "the bubble" is your
+message's material (light on the dark flood, the deep pair on the light
+one); "a well" is white at 7% with a white 10% edge on dark and the
+paper on light (the two appearances, above).
+
+| row | shape | type | colour |
+|---|---|---|---|
+| origin line in your bubble | the bubble's time slot, right aligned | 12.5 px, tabular: `09:12 · via whatsapp` | the bubble's quiet ink (`#7a7a80` on the light bubble) |
+| your voice note | the bubble, radius 22 22 8 22, padding 10 14 10 10; a 34 px play disc, the waveform, the duration, the time under them | duration 13 px tabular; time 12.5 px | disc: the bubble's ink (`#1c1c1e`) with the bubble's colour as its glyph; played bars the bubble's ink, unplayed at 35% |
+| an agent's voice note | a well, radius 20, padding 10 14 10 10; a 36 px play disc, the waveform, then the duration over "<name>'s voice" | duration 13 px 600 tabular in the first ink; label 12.5 px second ink | disc: the accent, its glyph `--on-accent`; played bars the accent, unplayed the first ink at 30% |
+| a fold under a note ("transcript", "what <name> said") | a 13.5 px line with a chevron, right aligned under your bubble, left under the agent's card | 13.5 px | third ink; open, the text is prose in a well (yours 15.5 px; the agent's as its said rows) |
+| a generated image | a card at most 300 x 190 (the image's own ratio inside those bounds, never taller than 360), radius 20, a white 12% edge | caption mono 12 px | caption on black 35% with white 90% ink, radius 8, at its foot when the image has a name |
+| a file card | a well, radius 18, padding 11 16 11 12; a 32 px type tile, the name, the size under it | name 15 px 600; size mono 12.5 px | size in the second ink; the tile: a page glyph with the type's word (`pdf`, `doc`, `zip`, `txt`) in mono 9 px on the accent |
+| a quote block in your bubble | inside the bubble's top, margin -4 -6 8, radius 8, padding 5 9 6, a 3 px rule on its left | author 12.5 px 650; excerpt 13 px, one line, cut with an ellipsis | fill: the bubble's ink at 6%; rule and author: the quoted author's deep colour (the palette's top on the light bubble; your own: the bubble's quiet ink); excerpt in the bubble's quiet ink |
+| a quote above an agent's words | a line over the said row: a 2 x 16 px rule, the author, the excerpt | 13.5 px; author 600 | rule and excerpt in the third ink, the author in the second |
+| a reaction | a pill 24 tall hanging 10 px over the bottom edge of what it reacts to, at the bubble's left corner or under a said row's start; glyph 14 px, a count 12 px tabular when more than one | count 12 px | a well on the flood; your own reaction carries a 1.5 px ring of the accent |
+| the folded step group | the step group as built (`thread.md`, the step group): the chevron, "3 steps · checked calendar, searched 2", the time; under it its strip | 13.5 px second ink (full ink open, and for what a live run is doing); time mono 11.5 px | the strip, 16 px: a 3 px thinking track with spans in the accent, a tools bed from 6 px with marks in ink by kind (edits in the add green, long commands and the running step in the accent, failures red), over ink at 6% and 4% |
+| an agent's permission card | the ask card as built: radius 26, padding 15 16 16 | "permission" 13.5 px 600 at 62%; the question 17 px 650 wide (108); a command in it mono 14.5 px 600; options 15 px 620, 34 px pills | the light tone with `--on-accent` ink, options pressed in at ink 10%, the primary on the ink with the light tone as its word (as every ask) |
+| an answered permission | the card folded to one line, radius 22, padding 14 15 | "permission" 13 px 600 at 62%; "allowed once · brew upgrade on vm-a" 15 px 650 | the light tone at 55% over the flood, so it reads settled beside a live ask |
+| the live "thinking" line | a 6 px dot and the word at the live edge | mono 13 px | the accent; the dot at 80%, still (nothing pulses) |
+| a scheduled run's start line | a mark line where your bubble would be | 13.5 px: "scheduled, 08:00: morning check", "heartbeat, 08:30" | second ink, the kind word in the first |
+| media still being copied (`media.state: pending`) | the card's own box at its size | | a well; a still quarter arc, 20 px, in the third ink (the copy has no progress to say, and nothing spins); no tap |
+| media the gateway lost (`missing`) | the card's own box, kept at its size | 13.5 px: "no longer on vm-b" | a well with a dashed white 14% edge; the name and size stay in the second ink |
+| media boxbox evicted (410, `media-evicted`) | the same | 13.5 px: "no longer on the server" | the same; the name, the size and any transcript stay; no play or open control |
+| an upload in flight | the attachment's own box | | a 20 px determinate ring in the accent at the box's centre over black 30%; the bubble is faded as any unsent message |
+| an upload that failed | the same box | 13.5 px red words under it | a red (`#ff6b6b`) 1.5 px edge |
+
+### accessible names for agent surfaces (2026-10-15)
+
+AGENTS.md, accessibility, for every new control. names are told apart as the thread's are
+(`namesOf`: "again", "third time", in document order), name a row by its
+author and clock and the first 40 characters of its words where that is
+what tells it apart, and hold still while the thing they name changes
+state (a toggle says its state in `aria-pressed` or `aria-expanded`, not in
+its name).
+
+| control | name |
+|---|---|
+| the mic key | "record a voice note for <name>" (under a thread), "record a voice note for the new thread" (the sheet) |
+| the lock (a button too, for a keyboard and assistive technology) | "lock the recording" |
+| send while recording or locked | "send the voice note" |
+| cancel while locked | "cancel the voice note" |
+| the timer | `role="timer"`, "recording time", not live |
+| the live waveform | `aria-hidden` |
+| play on a note (a toggle, `aria-pressed`) | "play your voice note, 11:31, 0:14", "play <name>'s voice note, 11:34, 0:22" |
+| the scrubber | a slider, "position in <name>'s voice note, 11:34", value "0:12 of 0:22" |
+| the speed control (only on the note playing) | "playback speed, 1.5 times" (the value is the control) |
+| a transcript fold (`aria-expanded`) | "transcript of your voice note, 11:31", "what <name> said, 11:34" |
+| the now playing line's pause and its jump | "pause <name>'s voice note", "go to <name>'s voice note, 11:34" |
+| an image card | "image <file>" (as pictures a tool returned), "image from <name>, 11:34" when it has no name |
+| the viewer | "image <file>, 2 of 5"; "previous image", "next image", "save image <file>", "share image <file>", "close image <file>"; "zoom in", "zoom out", "fit the image" (keyboard `+`, `-`, `0`) |
+| a file card | "open <file>, pdf, 84 kb" |
+| a quote block | "go to the message it quotes, from <name>: <excerpt>" |
+| a reply control on a row (hover, and the row's menu) | "reply to <name>, 11:34: <excerpt>", "reply to your message, 11:31: <excerpt>" |
+| the reply strip | a group, "replying to <name>: <excerpt>"; its close "stop replying" |
+| a react control | "react to <name>, 11:34: <excerpt>"; the picker's options "react with thumbs up" |
+| a reaction | "thumbs up from <name>"; your own, a button, "your reaction, thumbs up. remove it" |
+| a send that was not confirmed | "send it again: <excerpt>" |
+| an ask's answer by line | `role="timer"`, "time left to answer", not live until the last minute |
+| the thinking chip | "thinking for this message, low"; the dial's options "off", "low thinking", and so on, by the agent's own `levels` |
+| the plus menu's rows | "add a file", "add a photo" |
+| an attachment in the draft | "<file>, pdf, 84 kb", with "remove <file>"; while it uploads "<file>, sending, 40%"; failed, "send <file> again" |
+| the agent row (`aria-expanded`) | "agent for the new thread: <name>, openclaw on vm-b" |
+| the picker's options | "cmx on vm-a", "<name>, openclaw on vm-b", with ", not answering" or ", waiting for approval" when it cannot take a thread |
+| the dock | "start something with <name>", "start something in ledger, cmx on vm-a" |
+| an assistant's window | "<name>: <title>. wants you" (the window's rule), with "answer <name>: <question>" |
+| the quiet runs window | "<name>'s runs: 3 since 08:00" |
+| the runs control in a run's title block | "runs of <name>, 1 of 3" |
+| the bar's pill | "agents" (it was "machines") |
+| an agent card's verbs | "reload <name>", "restart <name>", "forget <name>", "copy the approval command", "check again" |
+| the ghost | "add an agent" |
+
+### the agent surfaces on the web, as built (m9, before contract 2 is wired)
+
+the surfaces above exist on the web as standalone components with a story
+for every state, waiting for contract 2's store and sync worker:
+`app/src/ui/assistant/` (`voice/` the player, the recorder, the note rows
+and the peaks worker; `media/` the cards and the viewer; `rows/` quotes,
+reactions, the reply strip and the small rows; `home/` the deck's window,
+the agents screen's card and the start something row and picker;
+`thinking.tsx` the chip; `wire.ts` a hand mirror of `server/src/wire/*`
+that the generated types replace). the ladle groups are
+`assistant-voice`, `assistant-composer`, `assistant-thread` and
+`assistant-home`. the round mark is `RepoMark` with `shape="round"`; the
+five palettes are `ASSISTANT_COLOURS` in `app/src/ui/window/repo.ts`, and
+the plane and flood tests run over all fifteen (`ALL_COLOURS`).
+
+decided there, where the law is silent:
+
+- **an image's box.** a landscape image fits inside 300 x 190; a portrait
+  one may stand up to 360 tall, never narrower than 96; one without a
+  size is 300 x 190 with the picture fitted whole. the box is set as a
+  width and an aspect ratio, so a bubble narrower than 300 shrinks it
+  without a shift. in your bubble the picture takes the bubble's width up
+  to its own box.
+- **your voice note, gone.** your bubble has no label line, so "no longer
+  on vm-b" (or "on the server") leads its time slot: "no longer on vm-b ·
+  11:31".
+- **your voice note, not sent.** the retry is named "send your voice note
+  again, 11:31" and "back to draft" is named "back to draft: your voice
+  note, 11:31".
+- **the kind and the rate a note records in.** aac in mp4 first, then opus
+  in webm, then opus in ogg (agents.md), skipping a kind the agent's
+  `attachments.kinds` do not take; with none left the mic is not offered.
+  aac records at 64 kbps and opus at 32: chromium's aac encoder refuses
+  anything under 48 with an `EncodingError` (`docs/gotchas.md`).
+- **asking for the microphone** is read from the permissions api; where it
+  cannot say (safari, firefox), a device flag (`boxbox.mic.granted` in
+  local storage, set when the platform grants it) tells a first press,
+  which only asks, from one that records.
+- **an encoder error mid-recording** is an interruption: the recorder stops,
+  stays locked with what it has, and says the interruption's words.
+- **where the recorder says things.** the refusal and "hold to record..."
+  are the composer's line (the top row); the cap's and the interruption's
+  words are a status line under the recorder's top row, in the dial note's
+  style, since the top row is the timer and the waveform then.
+- **the lock** rises only for a hold: a mouse click, a key and a screen
+  reader's tap lock at once, so there is no capsule to show them.
+- **the live waveform** keeps a canvas of 240 bars and starts it over from
+  the 64-bar ring when it fills, so a bar is painted once except at that
+  turn; under reduced motion the visible bars are repainted right aligned.
+- **a reaction under a said row** sits 4 px under the words instead of
+  hanging over them, so a pill never covers a glyph of the agent's prose;
+  under a bubble it hangs 10 px over the edge as the table says. someone
+  else's pill is an image named for screen readers ("thumbs up from
+  <name>"); an emoji outside the six is named "reaction" and the glyph.
+- **a quote needs room**: a bubble holding a quote block is never narrower
+  than 240 px, so its one line reads, and the block's padding is 10 9 9
+  (the table's 5 9 6 leaves its author 5 px from its top edge, under the
+  craft check's 8).
+- **the viewer** is the dark pager in both appearances, as a photo wants.
+  ctrl or ⌘ with the wheel zooms about the pointer; previous and next are
+  buttons under a fine pointer only; the zoom buttons step aside under 520
+  px wide, where pinch and double tap do it; focus stays inside it while it
+  is open; share is not drawn where the browser cannot share files.
+- **peaks** for an agent's note are drawn in a worker that demuxes ogg,
+  webm, mp4 (fragmented too) and mp3 and decodes with webcodecs; any other
+  kind (wav, flac) stays the flat line. a fragmented aac without an edit
+  list keeps its encoder priming, so its waveform can sit one slice late.
+- **the thinking chip's meter** has a bar for every level but "off", and
+  "off" lights none.
+- **a file without a size** shows its type word where the size would be.
+- **an unknown part** says "a <kind> part this version of boxbox cannot
+  show. update the app to see it." (agents.md asks for the kind and the
+  update; these are the words).
+- **the agents screen and the picker** (`home/`): the footer's right side
+  follows home.md's examples ("working 0:40", "done 11:40", "stopped
+  11:31"); a refused card shows no figures in any refused state; forget is
+  offered only for a paired agent, confirmed in place as "boxbox deletes
+  its pairing with <name> on vm-b and stops reading its threads."; reload
+  and restart are held unless the agent is ready; a connecting agent is
+  "not answering" in the picker; the picker lists every agent by
+  `threads`, cmx included, and arrows walk the dim rows so they are heard,
+  though return does nothing on them; the runs window's footer says
+  "scheduled" on the left and the newest run's time on the right; while
+  stale, a window's "answer" pill is held.
+
 ### code, and copying (2026-10-02)
 
 code had no copy control, no highlighting and no language label. the law
@@ -1191,13 +1559,16 @@ three planes, and every element belongs to exactly one:
 | plane | what | material |
 |---|---|---|
 | ground | the page | flat, with a soft glow of the window in view |
-| windows | windows, the stage, asks, the composer and what it raises, the capsule, a machine, a swatch, a repo's mark | the repo's material for the appearance (the deep pair on dark, the light tone in white on light), a lit top edge, a highlight falling from the top left, a long soft shadow in the window's own colour; the composer's menus, its queued cards, the new-thread sheet and the pair sheet are deeper cards of the same plane (`--win-deep-1..2`), not glass |
+| windows | windows, the stage, asks, the composer in the sheet and on the full stage, what the composer raises, a machine, a swatch, a repo's mark | the repo's material for the appearance (the deep pair on dark, the light tone in white on light), a lit top edge, a highlight falling from the top left, a long soft shadow in the window's own colour; the composer's menus, its queue's list, the edges behind its strip, the new-thread sheet and the pair sheet are deeper cards of the same plane (`--win-deep-1..2`), not glass |
 | glass | the stage's menu, cards that float over the stage (the ruler's, the pinned ask), a fold's name card, the shell picker's menu, the terminal's keys row and its ended plate | backdrop blur 24 px, saturate 1.4, a hairline lit edge |
+| liquid glass | the controls over content that a finger touches (the native app's decision 22): home's bar and fold controls, the dock, the capsule, the composer, the jump to the latest | `.lg` in `styles.css`: regular (blur 14 px, saturate 1.8, a breath of fill) or `.clear` (blur 3 px, a thinner fill, for a pane that lays its own shade behind its words); a specular top, a lit foot and a hairline rim, a short drop; `--lg-tint` at `--lg-tint-mix` washes in a colour. `.lg-press` answers a press by swelling 6% with a light under the finger. reduced transparency, or no backdrop-filter, gives the solid `--lg-solid` in the same shape, and the press dims to 0.6 instead |
 
 options in an ask are pressed *into* the window (inset shadow); the
 primary option sits *on* it in the accent (the light tone on dark, the
-deep top colour on light). the composer is a window,
-not glass (`composer.md`, the direction).
+deep top colour on light). the composer under a thread and its queue's strip are
+clear liquid glass with a pool of shade behind their words; in the sheet and on
+the full stage, and under reduced transparency, the composer is a window
+(`composer.md`, the glass).
 
 - **the stage's bar is not glass.** frosted glass over a scrolling log
   smeared a white bubble into a grey blob under the title. the bar sits
@@ -1264,6 +1635,50 @@ motion pass.
   on the snap spring, so nothing paints per frame); a message you send settles
   into the queue from slightly small; the counts in home's summary line settle
   from the soft blur when they change in front of you.
+- **recording a voice note** (2026-10-15; `composer.md`, voice, files and
+  assistants). a press on the mic key turns the composer into the
+  recorder in one content swap (the fade curve): the words and the chips
+  give way to the red dot, the timer and the live waveform on the top row,
+  "slide to cancel" where the words were, and the key grows from 44 to 52
+  px by `scale` on the snap spring, filled with `--rec`, with a 7 px halo
+  of `--rec` at 20% that is drawn once and never breathes. the lock (a
+  glass capsule 36 x 76) rises 12 px into place above the key on the snap
+  spring. the finger is followed 1:1: sideways it drags the key and the
+  "slide to cancel" words, which fade as the drag nears the cancel line;
+  upward it fills the lock's track. past either line a release commits on
+  the snap spring with the finger's velocity; short of it the key settles
+  home. cancelling drops the dot and the timer with the leave curve; the
+  waveform folds to its centre line by `scale` on the y axis and is gone.
+  locking closes the lock's shackle (one 160 ms fade between two glyphs)
+  and the capsule sinks into the composer.
+- **the live waveform** is a strip of bars, one per 100 ms of input, each
+  bar's height the input's peak in that slice. new bars enter at the right
+  and the strip moves left by `transform`, one step per bar, with no
+  easing; the bars themselves are painted to a canvas once each, never per
+  frame. the timer ticks once a second, tabular, with no motion.
+- **playing a voice note.** play and pause cross in the fade curve. the
+  played part of the waveform is a second copy of the bars in the played
+  colour, revealed by `clip-path` from the left as the note plays (one
+  update per animation frame while it plays, nothing between notes). a
+  scrub follows the finger 1:1 and the sound follows the playhead on
+  release. when a note ends and the next row is a voice note, the next
+  disc turns to pause as the first turns to play: nothing scrolls unless
+  the reader is at the end, which is followed as any new row is.
+- **the media viewer** opens from the card's rect on the sheet spring
+  (the card's image grows into the viewer, as a window grows into the
+  stage) and closes back into it; a swipe down follows the finger and
+  closes past 28% or on a flick, as the stage's back does. swiping
+  between images follows the finger 1:1 and lands on the snap spring.
+  pinch and double tap zoom about the touch point, released into the snap
+  spring.
+- **a swipe to reply** pulls the row right 1:1 behind the finger, the
+  reply glyph fading in at its left; past 64 px a light haptic tick
+  (native) marks the line, and release settles the row home on the snap
+  spring while the reply strip rises above the composer on the same
+  spring.
+- **reduced motion** for all of these: the swaps are the 120 ms fade, the
+  key does not grow, the waveform's bars are replaced in place instead of
+  moving, and the viewer fades.
 
 - **gestures follow the finger 1:1** and release into the spring with the
   finger's velocity. a back swipe can be abandoned halfway and settles
@@ -1274,7 +1689,8 @@ motion pass.
   words enter with the blur settle; the reply renders as markdown as it
   streams, its caret at the end of its last text (raw markup on screen is
   worse than words without the blur, thread.md, live); the caret is the
-  only thing that blinks.
+  only thing that blinks: 530 ms on and 530 off, by opacity, steady under
+  reduced motion.
 
 **the earned moments**, each exactly once per real event:
 
@@ -1336,6 +1752,50 @@ iphone as installed pwas, over the tailnet.
 | reloads | none needed; `app.boot reason=reload` trends to 0 | common on mac and phone |
 | client memory after 8 hours open | under 150 mb heap | unmeasured |
 
+for voice and media (2026-10-15), each with its `perf.*` kind (new kinds,
+added to `telemetry/schema.ts` with the work, never renamed after):
+
+| budget | target | kind |
+|---|---|---|
+| mic key pressed to the recorder painted | 1 frame | `perf.record` (`what: paint`) |
+| mic key pressed to the first captured sample | p90 300 ms once permission is held | `perf.record` (`what: capture`) |
+| the live waveform's work on the main thread | under 2 ms a bar, no long task over 50 ms while recording | `perf.record` (`what: bar`), `perf.longtask` |
+| a voice note's play pressed to sound | p90 150 ms when its bytes are held, p90 600 ms when they are fetched | `perf.voice` |
+| a waveform drawn for a note | from its peaks within a frame; never a decode on the main thread | `perf.voice` (`what: peaks`) |
+| an image card painted | its box at the first frame (zero layout shift); the image within 300 ms of entering the view, decoded off the main thread | `perf.media` (`what: card`), `perf.shift` |
+| the viewer opened | within its spring, no dropped frames | `perf.media` (`what: viewer`), `perf.frames` |
+| an attachment sent | send to acknowledged as `perf.send`, with its bytes and its post time | `perf.send` |
+
+buffers, each with its cap and its owner (AGENTS.md, memory and latency):
+
+- **the recording** is held by the composer's recorder: encoded chunks
+  only (opus or aac, about 24 to 64 kbps), never raw samples, at most 15
+  minutes and 12 mb, or the agent's `attachments.maxBytes` when that is
+  less, whichever comes first. the live waveform keeps a ring of the last
+  64 bar heights (64 bytes); the whole note's peaks are reduced as it
+  records to 64 values (`Uint8Array`, 64 bytes) and sent with it.
+- **voice notes heard** are never decoded whole into memory: a note plays
+  through one media element (web) or one player (native) that streams it
+  by range. the bytes of notes played or prefetched live in the cache at
+  most 48 mb, least recently played going first, never the note playing
+  or the one after it. only the playing note and the next are prefetched.
+- **peaks.** your own notes carry their 64 peaks in `waveform`, sent
+  with the upload by the device that recorded them. an agent's audio
+  comes without them (`docs/agents.md`), so the client draws them: it
+  decodes the note in a worker where the platform can (webcodecs'
+  `AudioDecoder` on the web, `AVAudioFile` on a background queue
+  natively), once, when the card first comes within 2.5 screens of the
+  view; until then, and where the platform cannot, the waveform is a flat
+  line of the note's length and says nothing false. peaks are kept per
+  note in an lru of 512 (32 kb).
+- **images** are decoded at the size they are drawn (`decoding="async"`
+  and `createImageBitmap` with a resize, in a worker on the web), the
+  viewer holds the image in view and its two neighbours at full size and
+  no more, and the image cache is at most 64 mb, least recently seen
+  going first.
+- **attachments waiting to send** are held by the outbox under its byte
+  cap (composer.md), which counts files and voice notes with the photos.
+
 ## first run (decision 6)
 
 someone opens boxbox for the first time:
@@ -1362,6 +1822,10 @@ m5 replaces both with the deck, the strip and the rail. the machines list
 as it stands now is "the machines", below.
 
 ### the machines (redesigned 2026-10-03)
+
+renamed **the agents** on 2026-10-15: the same screen and the same cards,
+with an assistant's card among the machines' and "add an agent" as its
+ghost. what changed and every pairing state is in `home.md`, the agents.
 
 the first cut was a pile: every line the same weight, the
 connection a whisper in the corner, plumbing (the contract, events read) as
@@ -1474,6 +1938,16 @@ by what they are to the person: "wants you", "done", "stopped", "3
 next", "unsend", "run now", "steer". the same verb follows an action
 through its flow ("merge" makes "merged"). errors say what happened and
 what to do; they never apologise.
+
+the words agents brought (2026-10-15): "start something", "with <name>",
+"message <name>", "via whatsapp", "voice note", "<name>'s voice",
+"transcript", "what <name> said", "transcribing", "slide to cancel",
+"thinking", "listening", "replying to", "scheduled", "heartbeat", "runs",
+"no longer on vm-b", "no longer on the server", "not confirmed", "send
+it again", "answer by", "stale", "syncing", "agents", "add an agent",
+"waiting for approval", "untested", "paired". the approved screens' gendered words ("her voice",
+"what she said") are written with the name: boxbox does not know an
+assistant's pronouns.
 
 ## directions explored
 

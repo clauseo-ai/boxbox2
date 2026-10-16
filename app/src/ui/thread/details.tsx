@@ -27,7 +27,7 @@ export type DetailsData = {
   spend: Spend;
   now: number;
   /** a subagent's id: opens its thread */
-  openAgent: (id: string) => void;
+  openAgent: (id: string, name?: string) => void;
 };
 
 export type TurnsData = {
@@ -253,7 +253,7 @@ function Details(props: { data: DetailsData }) {
               return (
                 <li>
                   <Show when={a.child.state !== "gone"} fallback={<div class="dt-row gone">{inner()}</div>}>
-                    <button class="dt-row door" aria-label={`open ${a.label}'s thread, ${agentState(a)}`} onClick={() => props.data.openAgent(a.id)}>{inner()}</button>
+                    <button class="dt-row door" aria-label={`open ${a.label}'s thread, ${agentState(a)}`} onClick={() => props.data.openAgent(a.id, a.label)}>{inner()}</button>
                   </Show>
                 </li>
               );

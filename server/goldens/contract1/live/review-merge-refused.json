@@ -1,0 +1,18 @@
+{
+  "golden": "review-merge-refused",
+  "proves": "a merge the daemon refuses (uncommitted work) is 409 with the flat CheckoutRefusal",
+  "request": {
+    "method": "POST",
+    "path": "/api/hosts/bench/sessions/<ses 1>/review/merge",
+    "accept-encoding": "gzip"
+  },
+  "status": 409,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": "refused",
+    "message": "the checkout has uncommitted changes; commit them (or discard the checkout) before merging",
+    "reason": "dirty"
+  }
+}

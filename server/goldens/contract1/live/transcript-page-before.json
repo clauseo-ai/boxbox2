@@ -1,0 +1,89 @@
+{
+  "golden": "transcript-page-before",
+  "proves": "the page before, read with the cursor the last page gave",
+  "request": {
+    "method": "GET",
+    "path": "/api/hosts/bench/sessions/<ses 1>/messages?limit=1&before=12",
+    "accept-encoding": "gzip"
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json;charset=utf-8",
+    "content-encoding": "gzip",
+    "vary": "accept-encoding",
+    "x-cmx2-seq": "<epoch>:<seq>",
+    "x-next-cursor": "<cursor>"
+  },
+  "body": [
+    {
+      "info": {
+        "id": "<msg 1>",
+        "sessionID": "<ses 1>",
+        "role": "assistant",
+        "time": {
+          "created": "<time>",
+          "completed": "<time>"
+        },
+        "parentID": "<msg 2>",
+        "modelID": "claude-opus-5-5",
+        "providerID": "anthropic",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "<world>/repos/ledger",
+          "root": "<world>/repos/ledger"
+        },
+        "cost": 0.0007360000000000001,
+        "tokens": {
+          "input": 64,
+          "output": 24,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls",
+        "variant": "medium"
+      },
+      "parts": [
+        {
+          "id": "<prt 1>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 1>",
+          "type": "text",
+          "text": "checking the file.",
+          "time": {
+            "start": "<time>",
+            "end": "<time>"
+          }
+        },
+        {
+          "id": "<prt 2>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 1>",
+          "type": "tool",
+          "callID": "toolu_bench_4_1",
+          "tool": "shell",
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "wc -l notes.md"
+            },
+            "output": "       3 notes.md\n\n(exit 0, 0s)",
+            "title": "wc -l notes.md",
+            "metadata": {
+              "exit_code": 0,
+              "timed_out": false,
+              "truncated": false
+            },
+            "time": {
+              "start": null,
+              "end": "<time>"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -69,17 +69,29 @@ export type PlayOptions = {
 };
 
 /** plays keyframes on the law's curve, or lands the end state at once when motion is not wanted. returns the
-    animation, or null when nothing moved */
+    animation, or null when nothing moved (or when it starts a moment later, below) */
 export function play(el: Element, frames: Frame[], curve: Spring | Curve, options: PlayOptions = {}): Animation | null {
   const { live = true, delay = 0, fill = "none", pseudoElement } = options;
   const kind = kindOf(curve);
   if (!live) return null;
-  if (reduced()) {
-    // a content swap keeps a short fade; springs land at once; decoration (the sweep, the blur) is off
-    if (kind !== "fade") return null;
-    return el.animate(onlyOpacity(frames), { duration: REDUCED_FADE.duration, easing: REDUCED_FADE.easing, fill });
+  if (reduced() && kind !== "fade") return null;
+  const start = (): Animation =>
+    reduced()
+      ? // a content swap keeps a short fade; springs land at once; decoration (the sweep, the blur) is off
+        el.animate(onlyOpacity(frames), { duration: REDUCED_FADE.duration, easing: REDUCED_FADE.easing, fill })
+      : el.animate(frames as Keyframe[], { duration: curve.duration, easing: curve.easing, delay, fill, ...(pseudoElement ? { pseudoElement } : {}) });
+  /* an element solid has just made (a `ref`) is not in the page yet: it belongs to the inert document of the template it
+     was cloned from, and an animation started on it never runs. chromium takes that document's timeline, which never
+     ticks; webkit leaves it pending even when handed the page's. both held the first frame for good: a queued card sat at
+     opacity 0 until a reload (docs/gotchas.md). solid puts the element in the page before its update returns, so the
+     animation starts a microtask later, before the frame; one still not in the page by then simply shows */
+  if (!el.isConnected) {
+    queueMicrotask(() => {
+      if (el.isConnected) start();
+    });
+    return null;
   }
-  return el.animate(frames as Keyframe[], { duration: curve.duration, easing: curve.easing, delay, fill, ...(pseudoElement ? { pseudoElement } : {}) });
+  return start();
 }
 
 const onlyOpacity = (frames: Frame[]): Keyframe[] => frames.map((f) => (f.opacity === undefined ? {} : { opacity: f.opacity }));

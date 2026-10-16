@@ -21,7 +21,10 @@
 
 .composer {
   position: relative;
-  padding: 8px 12px calc(12px + max(env(safe-area-inset-bottom), 0px));
+  /* its side inset, which its menus share so they stand exactly over its window: 12 px, 22 px from 700 px wide; a mount
+     that sets its own (the stage's dock takes the words' gutters, stage.css) moves the window and the menus together */
+  --cz-inset: 12px;
+  padding: 8px var(--cz-inset) calc(12px + max(env(safe-area-inset-bottom), 0px));
   /* it fills the slot it is mounted in, block or flex; auto margins alone would shrink it to its draft in a flex column */
   width: 100%;
   max-width: 724px;
@@ -31,7 +34,7 @@
      strong, where black reads as mud */
   --cast-ink: color-mix(in srgb, var(--c2) calc(var(--L) * 100%), #000);
 }
-.cz-window, .cz-card, .cz-menu, .cz-sheet { color: var(--cz-text); }
+.cz-window, .cz-card, .cz-strip, .cz-menu, .cz-sheet { color: var(--cz-text); }
 
 /* the composer's own recipes, declared on the plane's surfaces beside styles.css's --win-* tokens (a token is resolved
    where it is declared, and these read --p1, the surface's deep top colour). each is written once, light side first,
@@ -40,7 +43,7 @@
    is a crisp white lip and the same colour at a whisper, a shadow is cast in it. the words come in three inks: on a pale
    card only the full ink, a touch under it and the plane's second ink hold 4.5:1, so every quieter dark tone lands on the
    second */
-.cz-window, .cz-card, .cz-menu, .cz-sheet {
+.cz-window, .cz-card, .cz-strip, .cz-edge, .cz-menu, .cz-sheet {
   /* the ink: the base ink with the surface's deep bottom colour in it on light (a hue-black, as the stage's), so words on
      the lit card take the repo's hue and never read grey. dark, the base ink as it was. three steps: the full ink, a touch
      under it, and the second ink, which holds 4.5:1 on the lit card and on every fill below */
@@ -75,7 +78,7 @@
   --cz-edge-float: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.14)), inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--p1) 22%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.05));
 }
 @media (min-width: 700px) {
-  .composer { padding: 8px 22px 22px; }
+  .composer { --cz-inset: 22px; padding: 8px var(--cz-inset) 22px; }
 }
 .composer[data-mount="sheet"] { padding: 12px 0 0; max-width: none; }
 
@@ -95,7 +98,18 @@
 /* a shell line is the machine's, not the repo's: charcoal on dark, a cool paper on light, so it is never taken for a message */
 .cz-window[data-shell] { background: linear-gradient(172deg, color-mix(in srgb, #f7f8fa calc(var(--L) * 100%), #15171c), color-mix(in srgb, #eceef2 calc(var(--L) * 100%), #08090b)); }
 .cz-window[data-bad] { box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.18)), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 70%, transparent); }
-/* the dock: a button made of the window's material (dock.tsx) */
+/* a drag the composer can take is over it, or over the stage it stands on: its edge lights in the accent */
+.cz-window[data-drop] { box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.18)), inset 0 0 0 2px var(--accent); }
+/* the dock: a button of regular glass in the window's 28 px shape (dock.tsx; the native app's decision 22). it floats at
+   home's foot as a system bottom bar does, so it is glass, tinted with its window material (50% dark, 60% light) so it
+   still says which repo the thread starts in; its plus disc keeps the accent. the window's own light and long shadow are
+   not drawn on it (they are a window's, and the glass has its rim and drop). under reduced transparency the tint lies on
+   the solid fill */
+.cz-window.cz-dock { background: color-mix(in srgb, var(--win-1) calc(50% + var(--L) * 10%), var(--lg-fill)); -webkit-backdrop-filter: var(--lg-filter); backdrop-filter: var(--lg-filter); box-shadow: var(--lg-rim), var(--lg-drop); transition: transform var(--press-t), opacity var(--fade-t); }
+.cz-window.cz-dock::before { background: radial-gradient(closest-side, var(--lg-press-light), transparent); opacity: 0; transition: opacity var(--press-t); }
+.cz-window.cz-dock::after { display: none; }
+.cz-window.cz-dock:active { transform: scale(calc(1 + (var(--lg-press-scale) - 1) / 3)); opacity: var(--lg-press-dim, 1); }
+.cz-window.cz-dock:active::before { opacity: 1; }
 .cz-dock { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 8px 8px 8px 20px; text-align: left; color: var(--cz-text); cursor: pointer; font: inherit; }
 .cz-dock:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .cz-dock-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
@@ -109,6 +123,11 @@
    and nothing in it appears on focus, so the window never grows when the words are tapped */
 .cz-top { position: relative; display: flex; align-items: center; gap: 6px; height: 56px; margin: 0 8px 0 18px; }
 .cz-top::after { content: ""; position: absolute; left: 0; right: 10px; bottom: 0; height: 1px; background: linear-gradient(90deg, color-mix(in srgb, color-mix(in srgb, var(--p1) 18%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.1)), color-mix(in srgb, color-mix(in srgb, var(--p1) 8%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.04)) 70%, transparent); }
+/* in the sheet the row is the chips alone, leading, a step lower: the sheet's place line above says where the thread starts */
+.composer[data-mount="sheet"] .cz-top { height: 48px; margin-left: 8px; }
+@media (pointer: coarse) {
+  .composer[data-mount="sheet"] .cz-top { height: 54px; }
+}
 .cz-top[data-lit]::after { background: linear-gradient(90deg, var(--accent), transparent 80%); opacity: 0.7; }
 .cz-line { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 100%; padding: 0 6px 0 0; font-variant-numeric: tabular-nums; }
 .cz-k { flex: none; font-family: var(--mono); font-stretch: 90%; font-size: 11px; font-weight: 500; color: var(--accent); }
@@ -119,6 +138,10 @@
    a whole line at a time from the top, so the line always begins at a word. what send will do keeps the ellipsis at its end */
 .cz-t[data-prose][data-live] { display: flex; flex-direction: column-reverse; max-height: 2.6em; -webkit-line-clamp: unset; }
 .cz-top[data-lit] .cz-t { color: var(--cz-text); }
+/* the agent's markdown, inline: strong in the full ink, emphasis slanted, code in the mono face a touch smaller */
+.cz-t b { font-weight: 640; color: color-mix(in srgb, var(--cz-ink-1) calc(var(--L) * 100%), rgb(244 244 246 / 0.9)); }
+.cz-t em { font-style: italic; }
+.cz-t code { font-family: var(--mono); font-stretch: 90%; font-size: 0.92em; }
 
 .cz-tray { display: flex; gap: 8px; padding: 12px 14px 0; }
 .cz-photo { position: relative; width: 60px; height: 60px; border-radius: 14px; overflow: hidden; flex: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--cz-text) 14%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.14)), 0 6px 14px -6px color-mix(in srgb, color-mix(in srgb, var(--p2) 45%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.7)); }
@@ -135,32 +158,49 @@
 /* the mark is 22 px; the finger gets the photo's whole corner */
 .cz-photo button::after { content: ""; position: absolute; inset: -10px; }
 
-.cz-body { position: relative; display: flex; align-items: flex-end; gap: 8px; padding: 8px 6px 8px 8px; }
-.cz-body textarea {
-  flex: 1;
+/* the words and their keys (docs/composer.md, the layout). the words always take the body's full width; on one line the plus and
+   send sit over its ends and the words are inset clear of them (52 px for the plus, send's own width beside it); from a
+   second line the keys go to a row of their own under the words, in the corners, and the inset goes. the ruler is the
+   words at the one-row inset, unseen, which says when a second line has begun */
+.cz-body { --cz-plus-room: 52px; --cz-send-room: 52px; position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: end; column-gap: 8px; padding: 8px 6px 8px 8px; }
+.cz-body[data-worded] { --cz-send-room: 104px; }
+/* the sheet's words stand two lines tall over the keys, so its first two lines need no inset */
+.composer[data-mount="sheet"] .cz-body { --cz-plus-room: 10px; --cz-send-room: 10px; }
+.cz-body textarea, .cz-ruler {
+  grid-row: 1;
+  grid-column: 1 / -1;
   min-width: 0;
   min-height: 44px;
-  max-height: calc(6 * 1.42em + 22px);
-  field-sizing: content;
-  resize: none;
   border: 0;
-  background: none;
-  padding: 11px 0;
+  padding: 11px var(--cz-send-room) 11px var(--cz-plus-room);
   font: inherit;
   /* 16 px or larger on touch, or ios zooms (decision 19) */
   font-size: 17px;
   line-height: 1.42;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.cz-body textarea {
+  max-height: calc(var(--cz-lines, 6) * 1.42em + 22px);
+  field-sizing: content;
+  resize: none;
+  background: none;
   color: var(--cz-text);
   caret-color: var(--accent);
   outline: none;
   overflow-y: auto;
   scrollbar-width: none;
 }
+.cz-ruler { position: absolute; left: 8px; right: 6px; top: 8px; visibility: hidden; pointer-events: none; }
+.cz-body[data-stacked] textarea { padding: 11px 10px 4px; }
+.cz-body > .cz-key.plus { grid-row: 1; grid-column: 1; z-index: 1; }
+.cz-body > .cz-send { grid-row: 1; grid-column: 3; z-index: 1; }
+.cz-body[data-stacked] > :is(.cz-key.plus, .cz-send) { grid-row: 2; }
 .cz-body textarea::placeholder { color: var(--cz-faint); }
 @media (hover: hover) and (pointer: fine) {
-  .cz-body textarea { font-size: 16px; }
+  .cz-body :is(textarea, .cz-ruler) { font-size: 16px; }
 }
-.cz-window[data-shell] textarea { font-family: var(--mono); font-stretch: 90%; font-size: 16px; }
+.cz-window[data-shell] :is(textarea, .cz-ruler) { font-family: var(--mono); font-stretch: 90%; font-size: 16px; }
 .composer[data-mount="sheet"] textarea { min-height: 96px; max-height: 32vh; }
 
 /* send sits on the window in the accent and says its word */
@@ -343,17 +383,86 @@
 .cz-pill { height: 34px; padding: 0 13px; border-radius: 17px; font-size: 13px; font-weight: 620; white-space: nowrap; color: var(--cz-text); background: var(--cz-fill-key); box-shadow: var(--cz-edge-key); }
 .cz-pill.on { background: var(--accent); color: var(--on-accent); box-shadow: var(--cz-raise-chip); }
 .cz-pill.x { width: 34px; padding: 0; display: grid; place-items: center; font-size: 17px; font-weight: 400; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.7)); }
+.cz-pill.x .cz-i { width: 14px; height: 14px; stroke-width: 2.2; }
+.cz-pill:disabled { opacity: 0.5; cursor: default; }
 @media (pointer: coarse) {
   .cz-pill { height: 44px; }
   .cz-pill.x { width: 44px; }
+}
+.cz-card[data-unsending] { opacity: 0.5; }
+
+/* ---------- the strip: the queue folded into one 52 px window above the composer's (queue.tsx) ---------- */
+/* the room for the edges of two messages behind is kept whatever waits, so a second message moves nothing */
+.cz-queue-strip { position: relative; isolation: isolate; margin: 8px 0 8px; }
+.cz-strip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 4px 0 16px;
+  border-radius: 22px;
+  background: linear-gradient(172deg, var(--win-deep-1), var(--win-deep-2));
+  box-shadow: var(--cz-edge-card), 0 14px 28px -16px color-mix(in srgb, var(--cast-ink) calc(80% - var(--L) * 34%), transparent);
+  color: var(--cz-text);
+  /* the finger's sideways move is the strip's (a swipe unsends); up and down still scroll the page */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.cz-strip[data-unsending] { opacity: 0.5; }
+.cz-strip[data-state="failed"] { box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.12)), inset 0 0 0 1px color-mix(in srgb, var(--red) 45%, transparent), 0 14px 28px -16px color-mix(in srgb, var(--cast-ink) calc(80% - var(--L) * 34%), transparent); }
+/* the edges of the messages behind, peeking over the strip's top: one for one behind, two for more. drawn in the window's
+   colour a step quieter each, never as a second strip */
+.cz-edge { display: none; position: absolute; z-index: -1; top: calc(var(--n) * -4px); left: calc(var(--n) * 12px); right: calc(var(--n) * 12px); height: 52px; border-radius: 22px; background: var(--win-deep-1); box-shadow: var(--cz-edge-card); pointer-events: none; }
+.cz-edge[data-n="1"] { --n: 1; opacity: 0.7; }
+.cz-edge[data-n="2"] { --n: 2; z-index: -2; opacity: 0.45; }
+.cz-queue-strip[data-behind] .cz-edge[data-n="1"],
+.cz-queue-strip[data-behind="2"] .cz-edge[data-n="2"] { display: block; }
+/* the face: a tap opens the list. the label and when it goes on the first line, the words on the second, and the count */
+.cz-strip-face { flex: 1; min-width: 0; align-self: stretch; display: flex; align-items: center; gap: 10px; padding: 8px 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.composer .cz-strip-face:focus-visible { outline-offset: 4px; border-radius: 16px; }
+.cz-strip-words { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.cz-strip-head { display: flex; gap: 5px; min-width: 0; font-size: 12px; font-weight: 640; font-stretch: 104%; line-height: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cz-strip-head b { flex: none; font-weight: inherit; color: var(--accent); }
+.cz-strip-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--cz-ink-1) calc(var(--L) * 100%), rgb(244 244 246 / 0.86)); }
+.cz-strip[data-state="failed"] .cz-strip-head b { color: color-mix(in srgb, var(--red) calc(var(--L) * 100%), rgb(255 163 163 / 0.95)); }
+.cz-strip-text { min-width: 0; font-size: 13.5px; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: color-mix(in srgb, var(--cz-ink-1) calc(var(--L) * 100%), rgb(244 244 246 / 0.9)); }
+.cz-strip:is([data-state="sending"], [data-state="waiting"]) .cz-strip-text { color: var(--cz-dim); }
+.cz-count { flex: none; min-height: 24px; padding: 0 8px; display: grid; place-items: center; border-radius: 12px; font-family: var(--mono); font-stretch: 90%; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--cz-dim); background: var(--cz-fill-key); }
+.cz-strip-keys { flex: none; display: flex; align-items: center; gap: 4px; }
+/* what a swipe left says before it is let go: quiet short of the line, full ink past it */
+.cz-strip-unsend { position: absolute; z-index: -1; right: 20px; top: 0; height: 52px; display: grid; place-items: center; font-size: 13px; font-weight: 620; color: var(--cz-dim); }
+.cz-strip-unsend[data-past] { color: var(--cz-text); }
+
+/* the list and the verbs float over the thread above the strip, as the plus menu does: opening them moves nothing */
+.cz-queue-strip .cz-menu { left: 0; right: 0; bottom: calc(100% + 8px); }
+.cz-queue-list { max-height: min(520px, 60svh); }
+/* the list takes focus only so a keyboard lands in it; the ring belongs on its controls */
+.cz-queue-list:focus { outline: none; }
+.cz-queue-list .cz-queue { margin: 0; }
+.cz-queue-head { display: flex; align-items: center; gap: 8px; padding: 4px 2px 4px 10px; }
+.cz-queue-head b { font-size: 15px; font-weight: 640; font-stretch: 104%; }
+.cz-queue-head span { font-family: var(--mono); font-stretch: 90%; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--cz-dim); }
+.cz-queue-head .cz-key.close { margin-left: auto; }
+.cz-queue-strip .cz-verbs { right: auto; width: 220px; left: 8px; }
+.cz-option.cz-verb { grid-template-columns: minmax(0, 1fr); }
+.cz-option.cz-verb b { font-family: var(--sans); font-stretch: 104%; font-size: 15px; font-weight: 600; }
+.cz-option.cz-verb[data-danger] b { color: color-mix(in srgb, var(--red) calc(var(--L) * 100%), rgb(255 163 163 / 0.95)); }
+@media (hover: hover) and (pointer: fine) {
+  .cz-option.cz-verb:hover { background: var(--cz-hover-item); }
+}
+@media (min-width: 700px) {
+  .cz-queue-strip .cz-queue-list { right: auto; width: min(440px, 100%); }
 }
 
 /* ---------- menus: a deeper window above the composer ---------- */
 .cz-menu {
   position: absolute;
   z-index: 5;
-  left: 12px;
-  right: 12px;
+  left: var(--cz-inset, 12px);
+  right: var(--cz-inset, 12px);
   bottom: 100%;
   display: grid;
   gap: 6px;
@@ -368,9 +477,6 @@
   isolation: isolate;
   background: linear-gradient(172deg, color-mix(in srgb, var(--win-deep-1) calc(var(--L) * 100%), color-mix(in srgb, var(--p1) 70%, #0b0c0f)), color-mix(in srgb, var(--win-deep-2) calc(var(--L) * 100%), color-mix(in srgb, var(--p2) 60%, #0b0c0f)));
   box-shadow: var(--cz-edge-float), 0 30px 60px -20px color-mix(in srgb, var(--cast-ink) calc(90% - var(--L) * 48%), transparent);
-}
-@media (min-width: 700px) {
-  .cz-menu { left: 22px; right: 22px; }
 }
 /* in the sheet a menu is part of the sheet, which scrolls: it never reaches out over the repos or past the screen */
 .composer[data-mount="sheet"] .cz-menu { position: static; margin-bottom: 8px; max-height: min(320px, 38svh); }
@@ -460,13 +566,75 @@
 .cz-ring-tick { stroke: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.78)); stroke-width: 1.5; stroke-linecap: round; fill: none; }
 .cz-ring[data-high] .cz-ring-fill { stroke-width: 3; }
 
+/* ---------- clear glass: the bar's window and its strip (decision 16 of the ios app; styles.css, liquid glass) ----------
+   under a thread the composer floats over the log as the stage bar's rounds do, so it is the clear lens: the transcript
+   moves under it, brightened and barely blurred, lit along the rim. the words stay legible the way the system does it on
+   clear glass: a soft pool of shade inside the pane behind them (the window's lit top colour on light, its deep colour
+   most of the way to black on dark, 70% at its heart, feathered out before the rim). the keys are drops of glass over a
+   breath of ink (glass inside glass would draw white on light), and on is the glass tinted with the accent. the sheet and
+   the full stage keep the repo material (they sit on grounds of their own), as do the menus, the list and the edges
+   behind the strip. under reduced transparency, or without backdrop-filter, none of this applies and the recipes above
+   stand: the repo material and the pressed fills */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) {
+      /* the pool of shade behind the words (from the surface's own palette), and what lies under an off key */
+      --cz-scrim: color-mix(in srgb, var(--win-1) calc(var(--L) * 100%), color-mix(in srgb, var(--win-2) 45%, #050608));
+      --cz-wash: color-mix(in srgb, rgb(0 0 0 / 0.08) calc(var(--L) * 100%), rgb(255 255 255 / 0.1));
+      isolation: isolate;
+      background: var(--lg-clear-fill);
+      -webkit-backdrop-filter: var(--lg-clear-filter);
+      backdrop-filter: var(--lg-clear-filter);
+      box-shadow: var(--lg-rim), var(--lg-drop);
+    }
+    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip)::before {
+      content: "";
+      position: absolute;
+      inset: 8px;
+      z-index: -1;
+      border-radius: 20px;
+      pointer-events: none;
+      background: var(--cz-scrim);
+      /* the native pool is 70% at its heart and rasterised; a css blur feathers into the fill as well as out of it, so its
+         heart is held by a stronger fill */
+      opacity: 0.8;
+      filter: blur(10px);
+    }
+    .composer[data-mount="bar"]:not([data-full]) .cz-strip::before { border-radius: 14px; }
+    /* the lens casts its own short drop; the window's long shadow belongs to the material */
+    .composer[data-mount="bar"]:not([data-full]) .cz-window::after { display: none; }
+    /* a shell line tints the glass with its dark bed (a cool paper on light), so it is never taken for a message */
+    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-shell] { background: color-mix(in srgb, color-mix(in srgb, #eceef2 calc(var(--L) * 100%), #08090b) 70%, transparent); }
+    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-bad],
+    .composer[data-mount="bar"]:not([data-full]) .cz-strip[data-state="failed"] { box-shadow: var(--lg-rim), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 70%, transparent), var(--lg-drop); }
+    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-drop] { box-shadow: var(--lg-rim), inset 0 0 0 2px var(--accent), var(--lg-drop); }
+    /* what send will do and the placeholder take the brighter ink clear glass needs */
+    .composer[data-mount="bar"]:not([data-full]) .cz-t,
+    .composer[data-mount="bar"]:not([data-full]) .cz-t[data-prose] { color: color-mix(in srgb, var(--cz-text) 90%, transparent); }
+    .composer[data-mount="bar"]:not([data-full]) .cz-body textarea::placeholder { color: color-mix(in srgb, var(--cz-text) 62%, transparent); }
+    /* the keys: drops of glass over the wash, a rim and no pressed-in edge; on, the accent's glass */
+    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key, .cz-pill, .cz-count, .cz-problem button) { background: var(--cz-wash); box-shadow: var(--lg-rim); }
+    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key[aria-expanded="true"], .cz-pill.on) { background: color-mix(in srgb, var(--accent) 82%, transparent); box-shadow: var(--lg-rim), var(--lg-drop); }
+    .composer[data-mount="bar"]:not([data-full]) .cz-send:not(:disabled) .cz-face { background: color-mix(in srgb, var(--accent) 86%, transparent); box-shadow: var(--lg-rim), var(--lg-drop); }
+    .composer[data-mount="bar"]:not([data-full]) .cz-send:disabled .cz-face { background: var(--cz-wash); box-shadow: var(--lg-rim); }
+    .composer[data-mount="bar"]:not([data-full]) .cz-send[data-steering] .cz-face { background: color-mix(in srgb, var(--cz-text) calc(var(--L) * 100%), #fff); }
+    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-shell] .cz-send:not(:disabled) .cz-face { background: var(--cz-text); }
+    @media (hover: hover) and (pointer: fine) {
+      .composer[data-mount="bar"]:not([data-full]) .cz-window .cz-key:not([aria-expanded="true"]):hover { background: color-mix(in srgb, var(--cz-wash), var(--cz-text) 6%); }
+    }
+    /* the glass's own press: the lens swells, never a second dim */
+    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key, .cz-pill):not(:disabled):active,
+    .composer[data-mount="bar"]:not([data-full]) .cz-send:not(:disabled):active .cz-face { transform: scale(var(--lg-press-scale)); }
+  }
+}
+
 /* ---------- the full stage: the window becomes the page ---------- */
-.composer[data-full] { position: fixed; z-index: 30; inset: 0; display: flex; flex-direction: column; max-width: none; padding: 10px 12px calc(12px + max(env(safe-area-inset-bottom), 0px)); background: var(--ground); }
-.composer[data-full] .cz-queue { display: none; }
+.composer[data-full] { position: fixed; z-index: 30; inset: 0; display: flex; flex-direction: column; max-width: none; padding: 10px var(--cz-inset) calc(12px + max(env(safe-area-inset-bottom), 0px)); background: var(--ground); }
+.composer[data-full] :is(.cz-queue, .cz-queue-strip) { display: none; }
 .composer[data-full] .cz-window { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; max-width: 724px; align-self: center; }
-.composer[data-full] .cz-body { flex: 1; min-height: 0; align-items: stretch; }
-/* the send key stays with the words' last line, beside the plus, as on the bar */
-.composer[data-full] .cz-send { align-self: flex-end; }
+.composer[data-full] .cz-body { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr) auto; }
+.composer[data-full] .cz-body textarea { align-self: stretch; }
+/* the words are always more than a line here: the plus and send keep their row under them, in the corners */
 .composer[data-full] textarea { max-height: none; font-size: 18px; line-height: 1.5; field-sizing: fixed; }
 .cz-full-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px 2px; }
 .cz-full-head b { flex: 1; min-width: 0; font-size: 15px; font-weight: 640; font-stretch: 108%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -496,41 +664,73 @@
 @media (min-width: 700px) {
   .cz-sheet { left: 50%; right: auto; width: 600px; margin-left: -300px; bottom: auto; top: 12vh; }
 }
-.cz-sheet-head { display: flex; align-items: flex-start; gap: 12px; }
-.cz-sheet-head > div { flex: 1; min-width: 0; }
-.cz-sheet-close { flex: none; width: 36px; height: 36px; margin: -8px 0 0; border-radius: 50%; display: grid; place-items: center; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.72)); background: var(--cz-fill-key); box-shadow: var(--cz-edge-key); }
+.cz-sheet-head { display: flex; align-items: center; gap: 12px; margin-top: -6px; }
+/* the close is the stage bar's round of liquid glass (styles.css): a control over the sheet, not a key pressed into it */
+.cz-sheet .cz-sheet-close { position: relative; flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--cz-text); background: var(--lg-fill); -webkit-backdrop-filter: var(--lg-filter); backdrop-filter: var(--lg-filter); box-shadow: var(--lg-rim), var(--lg-drop); transition: transform var(--press-t), opacity var(--fade-t); }
+.cz-sheet .cz-sheet-close:active { transform: scale(var(--lg-press-scale)); opacity: var(--lg-press-dim, 1); }
 .cz-sheet-close .cz-i { width: 16px; height: 16px; }
 @media (hover: hover) and (pointer: fine) {
-  .cz-sheet-close:hover { color: var(--cz-text); background: var(--cz-hover-close); }
+  .cz-sheet .cz-sheet-close:hover { background: color-mix(in srgb, var(--lg-press-light) 40%, var(--lg-fill)); }
 }
 @media (pointer: coarse) {
-  .cz-sheet-close { width: 44px; height: 44px; margin-top: -12px; }
+  .cz-sheet .cz-sheet-close { width: 44px; height: 44px; }
 }
-.cz-sheet h2 { padding: 0 10px; font-size: 22px; font-weight: 680; font-stretch: 116%; letter-spacing: -0.035em; }
-.cz-sheet .cz-sub { padding: 0 10px; margin-top: 3px; font-size: 14px; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.6)); }
-.cz-sheet .cz-sub b { color: var(--accent); font-weight: 620; }
+.cz-sheet h2 { flex: 1; min-width: 0; padding: 0 10px; font-size: 22px; font-weight: 680; font-stretch: 116%; letter-spacing: -0.035em; }
+/* the place: one line as tall as a field, the repo's mark in it, that opens in place into the pickers. its card is pressed
+   into the sheet on dark and a sheet of light over it on light, the line's corner the card's so it opens without changing
+   shape (the native app's NewThreadPlace) */
+.cz-place-card { margin-top: 16px; border-radius: 28px; overflow: hidden; background: color-mix(in srgb, rgb(255 255 255 / 0.62) calc(var(--L) * 100%), var(--cz-fill-key)); box-shadow: var(--cz-edge-card); }
+.cz-sheet .cz-place { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 0 18px 0 11px; text-align: left; }
+.cz-place-text { flex: 1; min-width: 0; display: grid; line-height: 1.3; }
+.cz-place-text b { font-size: 16px; font-weight: 640; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cz-place-text small { font-size: 13px; color: var(--cz-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cz-place-none { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--cz-fill-field); color: var(--cz-dim); }
+.cz-place-none .cz-i { width: 18px; height: 18px; }
+.cz-place > .cz-i { flex: none; width: 18px; height: 18px; color: var(--cz-dim); transition: transform var(--snap-t); }
+.cz-place-card[data-open] .cz-place > .cz-i { transform: rotate(180deg); }
+.cz-pickers { display: grid; gap: 14px; padding: 0 0 12px; }
+.cz-pickers::before { content: ""; height: 1px; margin: 0 16px; background: var(--cz-rule, color-mix(in srgb, var(--cz-text) 10%, transparent)); }
+/* the recent repos as their marks, newest first, the chosen one ringed in its own colour with a hair of the card between */
+.cz-recents { display: flex; gap: 4px; padding: 2px 8px; overflow-x: auto; scrollbar-width: none; }
+.cz-recents::-webkit-scrollbar { display: none; }
+.cz-sheet .cz-recent { flex: none; width: 68px; display: grid; justify-items: center; gap: 6px; padding: 2px 0; }
+.cz-recent-mark { width: 62px; height: 62px; display: grid; place-items: center; border-radius: 20px; }
+.cz-recent[aria-checked="true"] .cz-recent-mark { box-shadow: inset 0 0 0 2px var(--accent); }
+.cz-recent-name { width: 68px; font-size: var(--chip); text-align: center; color: var(--cz-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cz-recent[aria-checked="true"] .cz-recent-name { color: var(--cz-text); font-weight: 600; }
+.cz-recent[data-waiting]:not([aria-checked="true"]) .cz-recent-mark { position: relative; }
+.cz-recent[data-waiting]:not([aria-checked="true"]) .cz-recent-mark::after { content: ""; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--cz-fill-key); }
+.cz-recents-none { padding: 0 18px; }
 .cz-repos { display: flex; gap: 6px; margin-top: 16px; padding: 4px 28px 4px 10px; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); }
 .cz-repos button { height: 38px; padding: 0 15px 0 8px; border-radius: 19px; display: inline-flex; gap: 8px; align-items: center; font-size: 14px; font-weight: 620; white-space: nowrap; flex: none; color: color-mix(in srgb, var(--cz-ink-1) calc(var(--L) * 100%), rgb(244 244 246 / 0.86)); background: var(--cz-fill-key); box-shadow: var(--cz-edge-key); }
 /* a repo's own button and row carry that repo's palette, so they read their accent from it and not the sheet's */
-.cz-repos button, .cz-row-main { --accent: color-mix(in srgb, var(--c1) calc(var(--L) * 100%), var(--hi)); --on-accent: color-mix(in srgb, #f7f7f5 calc(var(--L) * 100%), var(--c2)); }
+.cz-repos button, .cz-row-main, .cz-recent { --accent: color-mix(in srgb, var(--c1) calc(var(--L) * 100%), var(--hi)); --on-accent: color-mix(in srgb, #f7f7f5 calc(var(--L) * 100%), var(--c2)); }
 .cz-repos button[aria-checked="true"] { background: var(--accent); color: var(--on-accent); box-shadow: var(--cz-raise-chip); }
 @media (pointer: coarse) {
   .cz-repos button { height: 44px; }
 }
-.cz-thumbed.cz-where { margin: 12px 10px 0; overflow: visible; }
-.cz-where-note { padding: 9px 14px 2px; }
+/* where it runs: one quiet switch under the words, its meaning on one line under its words */
+.cz-where { margin-top: 14px; }
+.cz-sheet .cz-wt { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 0 4px 0 18px; text-align: left; }
+.cz-wt > .cz-i { flex: none; width: 22px; height: 18px; color: var(--cz-dim); }
+.cz-wt[aria-checked="true"] > .cz-i { color: var(--accent); }
+.cz-wt b { flex: 1; min-width: 0; font-size: 16px; font-weight: 620; }
+.cz-sheet .cz-wt:disabled { opacity: 0.5; }
+.cz-wt .cz-switch { flex: none; position: relative; width: 51px; height: 31px; border-radius: 16px; background: var(--cz-fill-well); box-shadow: var(--cz-edge-track); }
+.cz-wt .cz-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgb(0 0 0 / 0.25); transition: transform var(--snap-t); }
+.cz-wt[aria-checked="true"] .cz-switch { background: var(--accent); box-shadow: none; }
+.cz-wt[aria-checked="true"] .cz-switch::after { transform: translateX(20px); }
+.cz-where-note { padding: 2px 8px 2px 52px; }
 
 /* the machine row sits close above the repos: one choice in two rows */
 .cz-repos [data-waiting]:not([aria-checked="true"])::after { content: ""; width: 6px; height: 6px; margin-left: 7px; border-radius: 50%; background: var(--accent); flex: none; }
-.cz-machines { margin-top: 12px; }
-.cz-machines + .cz-repos { margin-top: 0; }
+.cz-pickers .cz-machines { margin-top: 0; }
 .cz-machines button { padding: 0 15px 0 12px; }
 .cz-machines button .cz-i { width: 16px; height: 16px; opacity: 0.78; }
 .cz-machines button[aria-checked="true"] { background: var(--accent); color: var(--on-accent); box-shadow: var(--cz-raise-chip); }
-.cz-repos .cz-note { align-self: center; padding: 0 4px; white-space: nowrap; }
 
 /* the finder: one field that filters the repos or reads a typed folder, and the rows it finds */
-.cz-finder { margin: 6px 10px 2px; display: grid; gap: 6px; }
+.cz-finder { margin: 0 12px; display: grid; gap: 6px; }
 .cz-find { width: 100%; min-height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: var(--cz-fill-field); box-shadow: var(--cz-edge-find); color: var(--cz-text); font: inherit; font-size: 17px; caret-color: var(--accent); outline: none; }
 @media (hover: hover) and (pointer: fine) {
   .cz-find { font-size: 15px; }
@@ -579,4 +779,6 @@
 .cz-making { margin: 10px 10px 0; padding: 12px 14px; border-radius: 18px; background: var(--cz-fill-key); font-size: 14px; line-height: 1.4; color: color-mix(in srgb, var(--cz-ink-1) calc(var(--L) * 100%), rgb(244 244 246 / 0.82)); }
 .cz-making[data-bad] { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--red) 60%, transparent); color: color-mix(in srgb, var(--red) calc(var(--L) * 100%), rgb(255 190 190 / 0.97)); }
 .cz-making-acts { display: flex; gap: 6px; margin-top: 10px; }
-.cz-sheet[data-sent] :is(.cz-repos, .cz-finder, .cz-where) { opacity: 0.5; pointer-events: none; }
+.cz-sheet[data-sent] :is(.cz-place-card, .cz-where) { opacity: 0.5; pointer-events: none; }
+/* the sheet let go of the screen while its thread is being made (sheet.tsx, away): kept, with its send, and not drawn */
+.cz-sheet[data-away], .cz-scrim[data-away] { visibility: hidden; }

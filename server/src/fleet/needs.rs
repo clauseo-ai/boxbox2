@@ -27,7 +27,7 @@ pub const BODY_CHARS: usize = 240;
 
 /// what a need is about. the names are the telemetry `need` values and
 /// never change.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum NeedKind {
     /// the agent wants to run something and waits for a yes.
@@ -92,7 +92,7 @@ impl NeedKind {
 }
 
 /// how a need was served. the names are telemetry values.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum How {
     /// an ask was answered (or rejected by a person).
@@ -144,7 +144,7 @@ impl How {
 /// who served a need: a person on one of their devices, a person somewhere
 /// boxbox cannot name (another client of the daemon), or nobody (the agent
 /// moved on, the daemon dropped it).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize, ToSchema)]
 #[serde(tag = "by", rename_all = "lowercase")]
 pub enum By {
     /// a boxbox device, by its id, with the class it named itself by
@@ -180,7 +180,7 @@ impl By {
 }
 
 /// one need, open or served.
-#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Need {
     /// stable per event: `ask:<host>:<ask id>`, `done:<key>:<message id>`,
@@ -328,12 +328,14 @@ impl Needs {
         at: i64,
         moved: &mut Vec<Moved>,
     ) -> usize {
-        let ids: Vec<String> = self
+        let mut ids: Vec<String> = self
             .open
             .values()
             .filter(|n| n.key == key && matches(n))
             .map(|n| n.id.clone())
             .collect();
+        // in id order, not the map's: the served list and its effects come out the same every run
+        ids.sort_unstable();
         for id in &ids {
             self.serve(id, by.clone(), how, at, moved);
         }
@@ -426,7 +428,7 @@ impl Needs {
             .open
             .values()
             .filter(|n| !n.kind.is_ask())
-            .min_by_key(|n| n.raised_at)
+            .min_by(|a, b| a.raised_at.cmp(&b.raised_at).then_with(|| a.id.cmp(&b.id)))
             .map(|n| n.id.clone());
         if let Some(id) = oldest {
             self.serve(&id, By::Agent, How::Expired, at, moved);

@@ -128,3 +128,38 @@ describe("a prompt that has no text yet", () => {
     expect(shownMessages(messages)).toBe(messages);
   });
 });
+
+describe("a compaction turn (docs/thread.md, what started the turn)", () => {
+  const compaction = (id: string): WireMessage => user(id, [{ id: `${id}_c`, type: "compaction", auto: true } as unknown as WirePart]);
+  const summaryOf = (id: string, body: string): WireMessage => ({ info: { id, role: "assistant", summary: true, time: { created: T0 + 50, completed: T0 + 60 } } as unknown as WireMessage["info"], parts: [text(`${id}_t`, body)] });
+
+  test("the message marked summary is the card's, and what follows it reads as any turn: its steps and its answer", () => {
+    const [turn] = turnsOf([compaction("u"), summaryOf("s", "## the summary\nwhere things stand"), assistant("a", [reasoning("r", "next i will run the tests"), text("t", "the tests pass.")], true)], "/");
+    expect(turn?.by).toBe("compaction");
+    expect(turn?.summary).toBe("## the summary\nwhere things stand");
+    expect(turn?.items.map((x) => x.k)).toEqual(["think"]);
+    expect(turn?.answer?.text).toBe("the tests pass.");
+  });
+
+  test("a compaction with no message marked summary keeps the old reading: no summary, its last words are the summary", () => {
+    const [turn] = turnsOf([compaction("u"), assistant("a", [text("t", "the old summary")], true)], "/");
+    expect(turn?.summary).toBeUndefined();
+    expect(turn?.answer?.text).toBe("the old summary");
+  });
+});
+
+describe("photos a person sent (docs/thread.md, every state: file)", () => {
+  const png = "data:image/png;base64,iVBORw0KGgo=";
+  test("an image file part on your message is a photo on its turn; a document or an undrawable image is not", () => {
+    const parts = [{ id: "f1", type: "file", mime: "image/png", filename: "shot.png", url: png }, { id: "f2", type: "file", mime: "application/pdf", filename: "a.pdf", url: "data:application/pdf;base64,AA" }, { id: "f3", type: "file", mime: "image/heic", filename: "b.heic", url: "data:image/heic;base64,AA" }, { id: "t", type: "text", text: "look" }] as unknown as WirePart[];
+    const [turn] = turnsOf([user("u", parts)], "/");
+    expect(turn?.photos).toEqual([{ mime: "image/png", filename: "shot.png", url: png }]);
+    expect(turn?.prompt).toBe("look");
+  });
+
+  test("a photo sent alone is a turn with no words", () => {
+    const [turn] = turnsOf([user("u", [{ id: "f1", type: "file", mime: "image/jpeg", filename: "", url: "data:image/jpeg;base64,AA" } as unknown as WirePart])], "/");
+    expect(turn?.photos).toHaveLength(1);
+    expect(turn?.prompt).toBe("");
+  });
+});

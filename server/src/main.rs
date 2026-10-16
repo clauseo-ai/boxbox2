@@ -14,12 +14,21 @@ mod fleet;
 mod http;
 mod icons;
 mod journal;
+mod media;
+#[allow(
+    dead_code,
+    unused_imports,
+    reason = "parts of the openclaw client api wait for their consumers, the sync engine and the verbs (docs/open.md)"
+)]
+mod openclaw;
 mod prefs;
 mod pty;
 mod push;
+mod source;
 mod store;
 mod telemetry;
 mod upstream;
+mod wire;
 
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -106,6 +115,10 @@ enum StartupError {
     Telemetry(std::io::Error),
     #[error(transparent)]
     Store(#[from] store::StoreError),
+    #[error(
+        "{name} in boxbox.toml is already the key of an agent on {owner}; rename the connection, or pin that agent's key"
+    )]
+    NameIsAgentKey { name: String, owner: String },
     #[error(transparent)]
     Push(#[from] push::StartError),
     #[error("the http client did not build: {0}")]
@@ -117,10 +130,16 @@ enum StartupError {
         addr: std::net::SocketAddr,
         source: std::io::Error,
     },
+    #[error(transparent)]
+    Media(#[from] media::OpenError),
     #[error("the http server failed: {0}")]
     Serve(std::io::Error),
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "the server's startup, one owner after another in the order they start"
+)]
 async fn run(config: Config) -> Result<(), StartupError> {
     create_private_dir(&config.data_dir).map_err(|source| StartupError::DataDir {
         path: config.data_dir.display().to_string(),
@@ -146,18 +165,24 @@ async fn run(config: Config) -> Result<(), StartupError> {
         telemetry::spawn(config.data_dir.join("telemetry")).map_err(StartupError::Telemetry)?;
     let (store, store_thread) = store::Store::open(&config.data_dir.join("boxbox.db"))?;
     let paired = upstream::paired::load(&store).await?;
+    refuse_agent_keys(&config, &store).await?;
     // the fleet asks for window tails; the upstream side reads them
     let (tails, tail_requests) = tokio::sync::mpsc::channel(fleet::TAIL_REQUESTS);
     let (push, pusher, fleet, fleet_task) = start_fleet(
         &config, &store, &client, &telemetry, build, tails, &shutdown,
     )
     .await?;
+    let (media, media_task) = open_media(&config, &store, &telemetry, &shutdown).await?;
+    let fleet_upstream = fleet.upstream();
     let (upstreams, supervisor) = upstream::spawn(
         config.hosts.clone(),
+        &config.connections(),
         paired,
+        upstream::source::Shared::new(media.clone()),
         client.clone(),
         fleet.upstream(),
         tail_requests,
+        &store,
         shutdown.clone(),
     );
     let config_watch = tokio::spawn(config::watch(
@@ -184,7 +209,9 @@ async fn run(config: Config) -> Result<(), StartupError> {
         terminals: pty::Terminals::new()?,
         assets,
         icons,
+        media,
         births: http::compose::Births::default(),
+        sends: source::sends::Sends::new(fleet_upstream),
         shutdown: shutdown.clone(),
     });
 
@@ -205,6 +232,7 @@ async fn run(config: Config) -> Result<(), StartupError> {
         let _ = supervisor.await;
         let _ = fleet_task.await;
         let _ = icons_task.await;
+        let _ = media_task.await;
         let _ = config_watch.await;
         let _ = pusher.await;
         let _ = writer.await;
@@ -220,6 +248,41 @@ async fn run(config: Config) -> Result<(), StartupError> {
         );
     }
     Ok(())
+}
+
+/// a configured connection never takes a key an agent of another
+/// connection already holds (`docs/agents.md`, section 3, collisions):
+/// that key's read marks, needs and clears belong to the agent.
+async fn refuse_agent_keys(config: &Config, store: &store::Store) -> Result<(), StartupError> {
+    for connection in config.connections() {
+        let name = connection.name();
+        if let Some((owner, _)) = store.agent_key_owner(name).await?
+            && owner != name
+        {
+            return Err(StartupError::NameIsAgentKey {
+                name: name.to_owned(),
+                owner,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// the media store under the data dir, with its cap from the config.
+async fn open_media(
+    config: &Config,
+    store: &store::Store,
+    telemetry: &telemetry::Sender,
+    shutdown: &CancellationToken,
+) -> Result<(media::Media, JoinHandle<()>), StartupError> {
+    Ok(media::Media::open(
+        &config.data_dir,
+        store.clone(),
+        config.media.max_bytes,
+        telemetry.clone(),
+        shutdown.clone(),
+    )
+    .await?)
 }
 
 /// push first, since the fleet hands it notices and hears from it who is
@@ -340,6 +403,10 @@ fn create_private_dir(path: &std::path::Path) -> std::io::Result<()> {
 /// wall-clock milliseconds since the epoch, the unit every stamp uses.
 #[must_use]
 pub fn now_ms() -> i64 {
+    #[cfg(test)]
+    if let Some(now) = test_clock::now() {
+        return now;
+    }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |since| {
@@ -372,4 +439,26 @@ fn print_out(text: &str) -> ExitCode {
 #[allow(clippy::print_stderr, reason = "usage errors before logging exists")]
 fn print_err(text: &str) {
     eprintln!("{text}");
+}
+
+/// the one clock seam, for tests only: a test that replays recorded inputs
+/// (`fleet/replay.rs`) sets the time each input was taken at, on its own
+/// thread, so `now_ms` answers the recorded clock there and the real one
+/// everywhere else.
+#[cfg(test)]
+pub mod test_clock {
+    use std::cell::Cell;
+
+    thread_local! {
+        static NOW: Cell<Option<i64>> = const { Cell::new(None) };
+    }
+
+    pub fn now() -> Option<i64> {
+        NOW.with(Cell::get)
+    }
+
+    /// `Some` pins this thread's clock; `None` hands it back to the wall.
+    pub fn set(now: Option<i64>) {
+        NOW.with(|cell| cell.set(now));
+    }
 }

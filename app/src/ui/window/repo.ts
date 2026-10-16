@@ -33,6 +33,25 @@ export const REPO_COLOURS: readonly RepoColour[] = [
   { name: "slate", top: "#2b3441", bottom: "#12161c", light: "#b9c6d8" },
 ];
 
+/** the five assistant palettes (docs/design.md, agents: who a window belongs to): the same recipe as the ten, chosen for
+    the gaps the ten leave on the wheel, so an assistant beside a repo of a near hue still reads as another thing. an
+    agent's `palette` names one of them by its name; coral is the first assistant's */
+export const ASSISTANT_COLOURS: readonly RepoColour[] = [
+  { name: "coral", top: "#5c2129", bottom: "#290b11", light: "#ffa39a" },
+  { name: "lime", top: "#2f4a17", bottom: "#132008", light: "#c3ec86" },
+  { name: "jade", top: "#14483a", bottom: "#07211a", light: "#88e8c6" },
+  { name: "lagoon", top: "#0f4458", bottom: "#061e28", light: "#8ad9f5" },
+  { name: "orchid", top: "#521f58", bottom: "#240c27", light: "#f5a6f0" },
+];
+
+/** every palette a surface can wear: the ten repo hues, then the five assistant slots (the plane and flood tests run over all fifteen) */
+export const ALL_COLOURS: readonly RepoColour[] = [...REPO_COLOURS, ...ASSISTANT_COLOURS];
+
+/** an agent's palette by its slot name; coral for a name this build does not know (a newer server's slot), so the window is never colourless */
+export function assistantColour(slot: string | null | undefined): RepoColour {
+  return ASSISTANT_COLOURS.find((c) => c.name === slot) ?? (ASSISTANT_COLOURS[0] as RepoColour); // the list is a non-empty literal
+}
+
 /** a repo is `host` plus the daemon's project root: repos never merge across hosts */
 export type Repo = { host: string; root: string };
 

@@ -652,6 +652,9 @@ async function askFromWindow(key: string, id: string): Promise<boolean> {
   const pill = answerPill(await tree(), repo, ask.request.questions?.[0]?.question ?? "");
   const tapped = pill !== "" && (await press("button", pill, 20_000));
   check(tapped, `${width} tapped ${quoted(pill || `answer ${repo}: ...`)} by its name in its window`);
+  // the window's tray opens the answer sheet over home (asks/sheet.tsx); its "open the thread" goes to the ask on the stage
+  const opened = tapped && (await press("button", "open the thread", 20_000));
+  check(opened, `${width} tapped "open the thread" in the answer sheet the tray opened`);
   const swapped = await until(async () => (route(await url()) === `thread ${key}` && (await stageRows()) > 0 ? true : undefined), 12_000);
   check(Boolean(swapped), `${width} the stage swapped to the asking thread`, await url());
   // the pour settles on the sheet spring (508 ms), and the stage's scroll to the ask after it

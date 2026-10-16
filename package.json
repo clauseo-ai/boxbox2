@@ -1,6 +1,6 @@
 {
   "name": "boxbox-workspace",
-  "description": "boxbox, a remote control for cmx2 coding agents: workspace for the web app and the board daemon",
+  "description": "boxbox, one place to control every agent: workspace for the web app and the board daemon",
   "license": "MIT",
   "repository": {
     "type": "git",

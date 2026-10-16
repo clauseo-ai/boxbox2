@@ -1,6 +1,7 @@
 //! the http surface: the gate, the api, the app, and one log line per
 //! request.
 
+pub mod agents;
 pub mod asks;
 pub mod assets;
 pub mod compose;
@@ -10,6 +11,7 @@ pub mod fleet;
 pub mod history;
 pub mod hosts;
 pub mod login;
+pub mod media;
 pub mod needs;
 pub mod openapi;
 pub mod prefs;
@@ -40,6 +42,7 @@ use tracing::{debug, info};
 use crate::auth::Auth;
 use crate::fleet::Fleet;
 use crate::upstream::Upstreams;
+use crate::wire::Capability;
 use assets::Assets;
 use error::ApiError;
 
@@ -61,8 +64,12 @@ pub struct AppState {
     pub assets: Assets,
     /// repo favicons, found on their hosts once and remembered (`icons/`).
     pub icons: crate::icons::Icons,
+    /// the media store (`media/`): uploads, agents' copies, the files served by id.
+    pub media: crate::media::Media,
     /// new threads by client id, so a retried birth makes no second thread.
     pub births: compose::Births,
+    /// contract 2's sends by agent and client id, so none runs twice.
+    pub sends: crate::source::sends::Sends,
     /// fired at shutdown; streams end on it.
     pub shutdown: CancellationToken,
 }
@@ -84,7 +91,7 @@ const MIB: usize = 1024 * 1024;
 /// the memory, in MiB, the routes may use for photos at once: two messages at the body limit, each counted twice
 /// (`photo_weight`). it is a limit on what the process can reach and not on what it is told, so the peak above an
 /// idle server is this and no more however many phones send together (`architecture.md`, memory).
-const PHOTO_BUDGET_MIB: usize = 2 * 2 * (PROMPT_BODY / MIB);
+pub(crate) const PHOTO_BUDGET_MIB: usize = 2 * 2 * (PROMPT_BODY / MIB);
 /// how long a message with photos waits for room before it is turned away. nothing of it has been read while it
 /// waits, so waiting holds no memory, and a message behind two others that are being converted goes when they
 /// are done. the device's post is given this on top of everything else it waits for (`postBudgetMs`).
@@ -220,6 +227,7 @@ fn router_waiting(state: Arc<AppState>, photo_wait: Duration) -> Router {
             "/api/telemetry",
             post(telemetry::ingest).layer(DefaultBodyLimit::max(TELEMETRY_BODY)),
         )
+        .merge(contract_two(&state))
         .route_layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             require_session,
@@ -230,6 +238,24 @@ fn router_waiting(state: Arc<AppState>, photo_wait: Duration) -> Router {
     // it gives, the sign-in refusal and the errors included
     let repo_icon = Router::new()
         .route("/api/hosts/{host}/repo-icon", get(repo_icon::repo_icon))
+        .merge(
+            Router::new()
+                .route("/api/agents/{agent}/repo-icon", get(repo_icon::repo_icon))
+                .route_layer(middleware::from_fn_with_state(
+                    (Arc::clone(&state), Capability::Places),
+                    agents::guard,
+                )),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            Arc::clone(&state),
+            require_session,
+        ))
+        .layer(middleware::map_response(repo_icon::isolated));
+    // the media routes take their own bodies (streamed, 64 MiB, `media/`) and wear the icon route's headers on every
+    // answer, since a stored svg is a document; json errors only, so nothing to compress
+    let media = Router::new()
+        .route("/api/media", post(media::upload))
+        .route("/api/media/{id}", get(media::serve))
         .route_layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             require_session,
@@ -240,6 +266,7 @@ fn router_waiting(state: Arc<AppState>, photo_wait: Duration) -> Router {
         .route("/api/logout", post(login::logout))
         .merge(gated)
         .merge(repo_icon)
+        .merge(media)
         .route("/api/{*rest}", any(no_such_route))
         .fallback(assets::serve)
         .layer(DefaultBodyLimit::max(SMALL_BODY))
@@ -305,6 +332,100 @@ async fn photo_budget(
     Ok(next.run(request).await)
 }
 
+/// contract 2's routes, `/api/agents/{agent}/...`: one per verb through the
+/// trait (`agents/routes.rs`), and the cmx2-only capabilities through
+/// contract 1's handlers behind the same check (`agents::guard`).
+#[allow(
+    clippy::too_many_lines,
+    reason = "the route table is one list, read top to bottom"
+)]
+fn contract_two(state: &Arc<AppState>) -> Router<Arc<AppState>> {
+    use agents::routes as v2;
+    const T: &str = "/api/agents/{agent}/threads/{thread}";
+    let at = |tail: &str| format!("{T}{tail}");
+    let guarded = |state: &Arc<AppState>, capability: Capability| {
+        middleware::from_fn_with_state((Arc::clone(state), capability), agents::guard)
+    };
+    let trait_routes = Router::new()
+        .route("/api/agents", get(v2::list))
+        .route(
+            "/api/agents/{agent}/threads",
+            post(v2::start).layer(DefaultBodyLimit::max(session::SEND_BODY)),
+        )
+        .route(
+            &at("/prompt"),
+            post(v2::prompt).layer(DefaultBodyLimit::max(session::SEND_BODY)),
+        )
+        .route(
+            &at("/steer"),
+            post(v2::steer).layer(DefaultBodyLimit::max(session::SEND_BODY)),
+        )
+        .route(
+            &at("/queue"),
+            post(v2::queue).layer(DefaultBodyLimit::max(session::SEND_BODY)),
+        )
+        .route(&at("/abort"), post(v2::abort))
+        .route(&at("/compact"), post(v2::compact))
+        .route(&at("/run-now"), post(v2::run_now))
+        .route(
+            &at("/messages/{message}"),
+            axum::routing::delete(v2::unsend),
+        )
+        .route(
+            &at("/messages/{message}/reactions"),
+            axum::routing::put(v2::react),
+        )
+        .route(&at("/archive"), post(v2::archive))
+        .route(&at("/adopt"), post(v2::adopt))
+        .route("/api/agents/{agent}/asks/{id}", post(v2::answer))
+        .route("/api/agents/{agent}/models", get(v2::models))
+        .route("/api/connections/pair", post(v2::pair))
+        .route(
+            "/api/connections/{name}",
+            axum::routing::delete(hosts::forget),
+        );
+    let commands = Router::new()
+        .route("/api/agents/{agent}/commands", get(compose::commands))
+        .route(&at("/command"), post(compose::command))
+        .route_layer(guarded(state, Capability::Commands));
+    let shell = Router::new()
+        .route(&at("/shell"), post(compose::shell))
+        .route_layer(guarded(state, Capability::Shell));
+    let places = Router::new()
+        .route("/api/agents/{agent}/projects", get(compose::projects))
+        .route("/api/agents/{agent}/folders", get(compose::folders))
+        .route_layer(guarded(state, Capability::Places));
+    let files = Router::new()
+        .route("/api/agents/{agent}/find/file", get(session::find_file))
+        .route_layer(guarded(state, Capability::Files));
+    let review = Router::new()
+        .route(&at("/review"), get(review::show))
+        .route(&at("/review/merge"), post(review::merge))
+        .route(&at("/review/discard"), post(review::discard))
+        .route_layer(guarded(state, Capability::Review));
+    let admin = Router::new()
+        .route("/api/agents/{agent}/reload", post(hosts::reload))
+        .route("/api/agents/{agent}/restart", post(hosts::restart))
+        .route_layer(guarded(state, Capability::Admin));
+    let terminal = Router::new()
+        .route("/api/agents/{agent}/pty", get(pty::list).post(pty::create))
+        .route("/api/agents/{agent}/pty/shells", get(pty::shells))
+        .route(
+            "/api/agents/{agent}/pty/{id}",
+            get(pty::one).put(pty::update).delete(pty::kill),
+        )
+        .route("/api/agents/{agent}/pty/{id}/connect", get(pty::connect))
+        .route_layer(guarded(state, Capability::Terminal));
+    trait_routes
+        .merge(commands)
+        .merge(shell)
+        .merge(places)
+        .merge(files)
+        .merge(review)
+        .merge(admin)
+        .merge(terminal)
+}
+
 /// threads leaving and returning: history, clearing off home, archive, and
 /// opening one the fleet does not hold.
 fn lifecycle() -> Router<Arc<AppState>> {
@@ -361,17 +482,17 @@ async fn log_request(mut request: Request, next: Next) -> Response {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::net::SocketAddr;
 
-    use tokio::sync::{mpsc, watch};
+    use tokio::sync::mpsc;
 
     use super::*;
     use crate::config::{CookieConfig, Secret};
     use crate::fleet::Fleet;
-    use crate::upstream::{Hosts, Upstreams};
+    use crate::upstream::Upstreams;
 
-    const PASSWORD: &str = "a long enough password";
+    pub(crate) const PASSWORD: &str = "a long enough password";
 
     /// the real router on a local port, with nothing behind it: no hosts, no
     /// fleet, no store. what these tests judge is how the router wraps a route.
@@ -381,11 +502,38 @@ mod tests {
 
     /// the same, with a message that is waiting for room in the photo budget given `photo_wait` for it
     async fn serve_waiting(photo_wait: Duration) -> SocketAddr {
+        serve_hosts(photo_wait, Vec::new()).await
+    }
+
+    /// the same, watching `views`.
+    async fn serve_hosts(
+        photo_wait: Duration,
+        views: Vec<crate::upstream::HostView>,
+    ) -> SocketAddr {
+        serve_state(
+            photo_wait,
+            Upstreams::fixed(views, Vec::new(), Vec::new()),
+            crate::source::sends::Sends::new(mpsc::channel(1).0),
+            crate::media::Media::detached(),
+            crate::store::Store::detached(),
+            Fleet::detached(),
+        )
+        .await
+    }
+
+    /// the real router on a local port over `upstreams`, with `sends` as
+    /// its send ledger and `media` as its store.
+    pub(crate) async fn serve_state(
+        photo_wait: Duration,
+        upstreams: Upstreams,
+        sends: crate::source::sends::Sends,
+        media: crate::media::Media,
+        store: crate::store::Store,
+        fleet: Fleet,
+    ) -> SocketAddr {
         let client = reqwest::Client::new();
-        let fleet = Fleet::detached();
         let shutdown = CancellationToken::new();
         let (icons, _task) = crate::icons::spawn(client.clone(), fleet.clone(), shutdown.clone());
-        let (_published, hosts) = watch::channel::<Hosts>(Arc::from(Vec::new()));
         let state = Arc::new(AppState {
             auth: Auth::new(
                 [7; 32],
@@ -395,19 +543,18 @@ mod tests {
                     secure: false,
                 },
             ),
-            upstreams: Upstreams {
-                hosts,
-                reload: mpsc::channel(1).0,
-            },
+            upstreams,
             fleet,
             client,
             telemetry: crate::telemetry::Sender::detached(),
             push: crate::push::Push::detached(),
-            store: crate::store::Store::detached(),
+            store,
             terminals: crate::pty::Terminals::new().unwrap(),
             assets: Assets::Embedded,
             icons,
+            media,
             births: compose::Births::default(),
+            sends,
             shutdown,
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -419,7 +566,7 @@ mod tests {
     }
 
     /// signs in through the real login route and returns the cookie to send back.
-    async fn sign_in(addr: SocketAddr) -> String {
+    pub(crate) async fn sign_in(addr: SocketAddr) -> String {
         let answer = reqwest::Client::new()
             .post(format!("http://{addr}/api/login"))
             .header("content-type", "application/json")
@@ -600,6 +747,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_media_routes_refuse_a_stranger_with_nosniff_and_the_policy() {
+        let addr = serve().await;
+        let fetch = reqwest::get(format!("http://{addr}/api/media/{}", "a".repeat(64)))
+            .await
+            .unwrap();
+        assert_eq!(fetch.status(), 401);
+        assert!(isolated(&fetch), "{:?}", fetch.headers());
+        let upload = reqwest::Client::new()
+            .post(format!("http://{addr}/api/media"))
+            .header("content-type", "image/png")
+            .body(vec![0u8; 16])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(upload.status(), 401);
+        assert!(isolated(&upload), "{:?}", upload.headers());
+    }
+
+    #[tokio::test]
+    async fn a_signed_in_media_refusal_wears_them_too() {
+        let addr = serve().await;
+        let cookie = sign_in(addr).await;
+        let answer = reqwest::Client::new()
+            .get(format!("http://{addr}/api/media/not-an-id"))
+            .header("cookie", cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(answer.status(), 400);
+        assert!(isolated(&answer), "{:?}", answer.headers());
+    }
+
+    #[tokio::test]
     async fn no_other_route_wears_the_icon_policy() {
         let addr = serve().await;
         let answer = reqwest::get(format!("http://{addr}/api/hosts"))
@@ -610,5 +790,110 @@ mod tests {
             answer.headers().get("content-security-policy").is_none(),
             "the layer belongs to the icon route alone"
         );
+    }
+
+    /// a cmx2 host whose agent can do nothing, at an address that answers
+    /// nothing: whatever reaches the daemon fails as unreachable, so a 422
+    /// proves the check ran first.
+    fn incapable() -> crate::upstream::HostView {
+        crate::upstream::HostView::detached(
+            crate::config::HostConfig {
+                name: "desk".into(),
+                url: reqwest::Url::parse("http://127.0.0.1:9/").unwrap(),
+                credential: None,
+                origin: crate::config::Origin::Config,
+            },
+            crate::wire::Capabilities::default(),
+        )
+    }
+
+    #[tokio::test]
+    async fn every_gated_route_answers_422_unsupported_and_reaches_no_daemon() {
+        let addr = serve_hosts(PHOTO_WAIT, vec![incapable()]).await;
+        let cookie = sign_in(addr).await;
+        let client = reqwest::Client::new();
+        let send = serde_json::json!({"clientID": "0f1e2d3c-4b5a-6978", "text": "hi"});
+        let routes: [(&str, &str, Option<serde_json::Value>, &str); 16] = [
+            ("GET", "/api/hosts/desk/providers", None, "model"),
+            ("GET", "/api/hosts/desk/models", None, "model"),
+            ("GET", "/api/hosts/desk/find/file?query=a", None, "files"),
+            (
+                "GET",
+                "/api/hosts/desk/commands?directory=/w",
+                None,
+                "commands",
+            ),
+            ("GET", "/api/hosts/desk/projects", None, "places"),
+            ("GET", "/api/hosts/desk/folders?path=/w", None, "places"),
+            ("GET", "/api/hosts/desk/pty", None, "terminal"),
+            ("GET", "/api/hosts/desk/pty/shells", None, "terminal"),
+            (
+                "GET",
+                "/api/hosts/desk/sessions/ses_1/review",
+                None,
+                "review",
+            ),
+            ("POST", "/api/hosts/desk/sessions/ses_1/loop", None, "queue"),
+            (
+                "POST",
+                "/api/hosts/desk/sessions/ses_1/queue",
+                Some(send.clone()),
+                "queue",
+            ),
+            (
+                "DELETE",
+                "/api/hosts/desk/sessions/ses_1/messages/msg_1",
+                None,
+                "queue",
+            ),
+            (
+                "POST",
+                "/api/hosts/desk/sessions/ses_1/archive",
+                None,
+                "archive",
+            ),
+            (
+                "POST",
+                "/api/hosts/desk/sessions/ses_1/adopt",
+                None,
+                "history",
+            ),
+            ("POST", "/api/hosts/desk/reload", None, "admin"),
+            ("POST", "/api/hosts/desk/restart", None, "admin"),
+        ];
+        for (method, path, body, capability) in routes {
+            let mut request = client
+                .request(method.parse().unwrap(), format!("http://{addr}{path}"))
+                .header("cookie", &cookie)
+                .header("origin", format!("http://{addr}"));
+            if let Some(body) = body {
+                request = request
+                    .header("content-type", "application/json")
+                    .body(body.to_string());
+            }
+            let answer = request.send().await.unwrap();
+            assert_eq!(answer.status(), 422, "{method} {path}");
+            let body: serde_json::Value =
+                serde_json::from_slice(&answer.bytes().await.unwrap()).unwrap();
+            assert_eq!(body["error"], "unsupported", "{method} {path}: {body}");
+            assert_eq!(body["capability"], capability, "{method} {path}: {body}");
+            assert!(
+                body["message"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("cmx · desk has no "),
+                "{body}"
+            );
+        }
+        // an ungated read goes on to the daemon, which is not there
+        let answer = client
+            .get(format!(
+                "http://{addr}/api/hosts/desk/sessions/ses_1/messages"
+            ))
+            .header("cookie", &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(answer.status(), 502);
     }
 }

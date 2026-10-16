@@ -3,7 +3,7 @@
    document order (copy-run.ts, renameAll): code blocks are told apart that way, and so is anything else that shares a name, which a row's and a turn's names make rare. pure; no dom. */
 
 /** the closed set of what a copy control copies: telemetry would carry one of these and never the text, if boxbox ever counted copies (it does not: schema.ts has no kind for a client's own action of this sort) */
-export type CopyKind = "code" | "reply" | "report" | "command" | "output";
+export type CopyKind = "code" | "reply" | "report" | "command" | "output" | "file" | "brief" | "message";
 
 /** "copy the typescript code"; "copy the elixir code" for a word hljs does not know (as the author wrote it); "copy the code" for a fence with no word */
 export const nameOf = (label: string | undefined): string => (label ? `copy the ${label} code` : "copy the code");

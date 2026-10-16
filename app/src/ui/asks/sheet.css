@@ -1,0 +1,119 @@
+/* home's answer sheet (sheet.tsx): the repo's deep window material (the plane's --win-deep-1..2, styles.css), from the foot
+   on the deck and hung from the asking window on the strip and the rail */
+
+.asks-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 62;
+}
+
+/* the deck dims the page into the dark as the new-thread sheet does; a popover leaves the page as it is, and a press
+   outside it still closes it */
+.asks-scrim[data-deck] {
+  background: color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 20%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.45));
+}
+
+.asks-sheet {
+  position: fixed;
+  z-index: 63;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px 20px 10px;
+  background: linear-gradient(172deg, var(--win-deep-1), var(--win-deep-2) 70%);
+  box-shadow: var(--win-lit), var(--win-rim), 0 40px 80px -20px color-mix(in srgb, color-mix(in srgb, var(--p2) 42%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.85));
+  color: var(--text);
+  outline: none;
+}
+
+.asks-sheet[data-arrangement="deck"] {
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + max(env(safe-area-inset-bottom), 0px));
+  max-height: min(85dvh, calc(100dvh - 24px));
+  border-radius: 34px;
+}
+
+.asks-sheet:not([data-arrangement="deck"]) {
+  border-radius: 26px;
+  transform-origin: top left;
+}
+
+/* the repo's mark, its name in its accent, the thread's title in the second ink */
+.asks-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.asks-head b {
+  flex: none;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.asks-head span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* several asks: the line that names them all, each following under its own hairline */
+.asks-line {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.28;
+}
+
+.asks-one {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.asks-one + .asks-one {
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.asks-h {
+  margin: 0 0 -8px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 620;
+}
+
+.asks-q {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+}
+
+.asks-sheet .asks-open {
+  min-height: 44px;
+  padding: 0;
+  border-radius: 14px;
+  background: none;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+@media (hover: hover) {
+  .asks-sheet .asks-open:hover {
+    background: var(--hover);
+  }
+}

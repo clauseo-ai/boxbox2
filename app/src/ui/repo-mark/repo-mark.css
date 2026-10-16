@@ -64,6 +64,12 @@
   transform: translateY(-0.03em);
 }
 
+/* an assistant's mark (docs/design.md, the round mark): the same material, ring and accent in a circle, since square is
+   a place an agent works in and round is an agent you talk to. the letter is set at the one-letter size always */
+.rm[data-shape="round"] {
+  --rm-shape: radial-gradient(circle closest-side, #000 calc(100% - 0.5px), transparent 100%);
+}
+
 /* a surface that is already the repo's colour and already spells its initials draws no tile until there is a favicon */
 .rm[data-bare] .rm-face {
   background: none;

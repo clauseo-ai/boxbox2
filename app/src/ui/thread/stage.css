@@ -32,8 +32,11 @@
    nothing is ever legible behind it and nothing smears. its title arrives once the big title has gone by */
 .stage-bar { position: absolute; z-index: 6; left: 0; right: 0; top: 0; height: 60px; display: flex; align-items: center; gap: var(--s3); padding: 0 var(--s4); padding-top: env(safe-area-inset-top); }
 .thread-stage.wide .stage-bar { padding-left: 22px; padding-right: 22px; height: 64px; }
+/* one column for the words, the composer and the bar's title (the native app's ipadmac and ipadfit): on a wide stage the
+   title starts where the words do, unless a control leads the bar (back, the windows' toggle), which keeps the edge */
+.thread-stage.wide .stage-bar:not(:has(> .back, > .windows-toggle)) { padding-left: max(22px, calc((100% - var(--measure, 680px)) / 2)); }
 .stage-bar.still .stage-bar-title { transition: none; }
-.stage-bar :focus-visible, .menu :focus-visible, .new-below:focus-visible, .pinned:focus-visible { outline-color: var(--accent); }
+.stage-bar :focus-visible, .menu :focus-visible, .jump:focus-visible, .pinned:focus-visible { outline-color: var(--accent); }
 .thread-stage .round { width: 36px; height: 36px; min-height: 0; padding: 0; border-radius: 50%; background: var(--knob); box-shadow: var(--knob-edge); display: grid; place-items: center; flex: none; }
 /* the back button is home's (`.home .back`); on the deck the bar is the handle for pulling the thread down */
 .stage-bar[data-deck] { touch-action: none; }
@@ -56,19 +59,32 @@
 .tb-status { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s2); font-size: 13px; color: var(--text-2); min-height: 26px; font-variant-numeric: tabular-nums; }
 .tb-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
 .tb-status .stop { height: 26px; min-height: 0; padding: 0 11px; border-radius: 999px; background: var(--knob); box-shadow: var(--knob-edge); font-size: 12.5px; font-weight: 600; color: var(--text); }
+.tb-status .stop.away { visibility: hidden; }
+/* the bar's stop, while the status line's is under the bar: a round control with the filled square, arriving as the bar's title does */
+.thread-stage .bar-stop { animation: bar-stop-in var(--fade-t, 200ms) both; }
+.thread-stage .bar-stop i { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
+.thread-stage .bar-stop:disabled { opacity: 0.5; }
+@keyframes bar-stop-in { from { opacity: 0; transform: scale(0.9); } }
 /* the line about the agents is the door to them: the same words, underlined in the accent, no box */
 .tb-status .tb-agents { min-height: 0; padding: 0; font: inherit; color: var(--text); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent); text-underline-offset: 3px; }
 @media (hover: hover) { .tb-status .tb-agents:hover { text-decoration-color: var(--accent); } }
 .stage-empty { margin: var(--s4) 0; color: var(--text-2); }
+/* a stage that has read for a while with nothing to show says why, what happens next, and offers retry (reading.ts) */
+.stage-trouble { margin: var(--s4) 0; display: grid; justify-items: start; gap: var(--s3); font-size: 14px; line-height: 1.45; }
+.stage-trouble p { margin: 0; color: var(--text); }
+.stage-trouble p span { display: block; margin-top: 4px; color: var(--text-2); }
+.stage-retry { height: 32px; min-height: 0; padding: 0 14px; border-radius: 999px; background: var(--knob); box-shadow: var(--knob-edge); font-size: 13px; font-weight: 600; color: var(--text); }
+.stage-retry:focus-visible { outline-color: var(--accent); }
+/* the freshness line under the newest turn: absent until it first speaks, then it keeps its room (stage.tsx) */
+.stage-fresh:not(.on) { display: none; }
+.stage-fresh p { margin: 0; padding: var(--s2) 0; font-size: 13px; line-height: 1.4; color: var(--text-2); }
 
 /* the scroller: the one place the transcript scrolls. its width reaches the stylesheet as attributes (measure.ts), not as a
    container: a containing ancestor of the transcript makes webkit's scroll range disagree with the layout (docs/gotchas.md).
    a rule of its own, since every part of it is about the same box */
 .stage-scroll {
   --bar: 60px;
-  /* its end padding is the foot: the 14 px fade below and 26 px of air, where the last row rests when the reader is at the end
-     and where a running turn's tape holds. a plain length, since the tape reads it (thread.tsx) and a custom property keeps a
-     calc() as written */
+  /* its end padding is the foot: the 14 px fade below and 26 px of air, where the last row rests when the reader is at the end */
   --foot: 40px;
   /* the log dissolves into the flood under the bar the way an ios scroll edge does: clear just above the bar's bottom,
      whole 40 px lower, on an ease-in ramp (3, 12, 33 and 66% at each fifth of the band), so the edge of a bubble or a bed
@@ -99,22 +115,23 @@
      anchor it picked, and it scrolled by the growth, moving the tapped row up the screen */
   overflow-anchor: none;
   scrollbar-width: none;
-  padding: 0 var(--gutter) calc(var(--foot) + var(--hold, 0px) + var(--ask-pad, 0px));
+  padding: 0 var(--gutter) calc(var(--foot) + var(--ask-pad, 0px));
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 .stage-scroll::-webkit-scrollbar { display: none; }
+/* the room kept under the transcript's end (stage.tsx, `--hold`; foot.ts) */
+.stage-room { height: var(--hold, 0px); }
 .thread-stage.wide .stage-scroll { --bar: 64px; }
-/* while a running turn's tape is stuck (stage.tsx) the log ends where its card does, hard, at the line the card's foot is held
-   at: the card is part of what the mask covers, so it must stay whole to its edge, and what scrolls past it leaves no
-   reading in the band between the card and the composer. at the thread's end that band is only padding. the narrow stage's
-   card is drawn to the same line (thread.css), so one line serves both */
-.thread-stage[data-tape-stuck] .stage-scroll { --dissolve-foot: #000 calc(100% - var(--foot)), transparent calc(100% - var(--foot)); }
 .stage-scroll > .thread { display: flex; flex-direction: column; gap: var(--s4); }
 /* the end marker takes back the gap above it, so the foot alone says where the last row rests */
 .thread-end { margin-top: calc(-1 * var(--s4)); }
 /* the prose measure is the arrangement's (design.md: 640 at the strip, 680 at the rail), set by home on its layer */
 .thread-stage.wide .stage-scroll > .thread { max-width: var(--measure, 680px); margin: 0 auto; }
+/* the composer takes the same column as the words at every width: their gutters, and on a wide stage their measure, so the
+   two share x and width from a phone to a monitor (the composer's own inset was 12 px, and 700 px wide at most) */
+.stage-dock > .composer { --cz-inset: var(--gutter); }
+.thread-stage.wide .stage-dock > .composer { max-width: calc(var(--measure, 680px) + 2 * var(--gutter)); }
 .stage-scroll .row { scroll-margin-top: 96px; }
 .stage-scroll .report { scroll-margin-top: 80px; }
 
@@ -134,15 +151,23 @@
 .rcard span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13.5px; line-height: 1.35; margin-top: 3px; }
 .rcard em { display: block; font-style: normal; font-size: 11.5px; color: var(--text-3); margin-top: 4px; font-variant-numeric: tabular-nums; }
 
-/* the new-below pill and the pinned ask are the dock's children and ride its top edge, so they float above the composer
-   and its queue at any height, never on them, and above the live tape while it sticks there (--live-tape, set by the
-   stage from the tape's height, 0 otherwise) */
-.new-below { position: absolute; z-index: 5; left: 50%; bottom: calc(100% + 10px + var(--live-tape, 0px)); transform: translateX(-50%); height: 32px; min-height: 0; padding: 0 14px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 13px; font-weight: 650; box-shadow: var(--drop); white-space: nowrap; }
+/* the jump to the latest and the pinned ask are the dock's children and ride its top edge, so they float above the composer
+   and its queue at any height, never on them. the jump is the bar's round glass at the touch target's size (44 px), tinted
+   with the flood's foot as the ios control is, since it rests over the log's words; it shows while the reader is a screen
+   or more above the end or something came below, by opacity and scale, centred without a transform so the press can swell it */
+.jump { position: absolute; z-index: 5; left: 0; right: 0; margin: 0 auto; bottom: calc(100% + 10px); width: 44px; height: 44px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; color: var(--text); --lg-tint: var(--flood-3); --lg-tint-mix: 70%; opacity: 0; transform: scale(0.6); pointer-events: none; transition: transform var(--snap-t), opacity var(--fade-t); }
+.jump.on { opacity: 1; transform: none; pointer-events: auto; }
+.jump.on:active:not(:disabled) { transform: scale(var(--lg-press-scale)); }
+/* the chevron, drawn: two strokes meeting under the middle */
+.jump-g { width: 10px; height: 10px; margin-top: -5px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; border-radius: 1px; transform: rotate(45deg); }
+/* what came below: an 18 px capsule in the accent, its digits 5 px from its ends, hung 6 px past the circle's corner */
+.jump-n { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; animation: jump-n-in var(--snap-t) both; }
+@keyframes jump-n-in { from { opacity: 0; transform: scale(0.4); } }
 .stage-dock { position: relative; z-index: 4; flex: none; }
-/* with the pinned ask on screen too, the pill rides above it: the ask is 44 px tall and sits 10 px over the dock */
-.new-below:has(~ .pinned) { bottom: calc(100% + 64px + var(--live-tape, 0px)); }
+/* with the pinned ask on screen too, the jump rides above it: the ask is 44 px tall and sits 10 px over the dock */
+.jump:has(~ .pinned) { bottom: calc(100% + 64px); }
 /* the ask the thread is waiting on, carried above the dock while its row is out of view */
-.thread-stage .pinned { position: absolute; z-index: 5; left: var(--gutter); right: var(--gutter); bottom: calc(100% + 10px + var(--live-tape, 0px)); min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 18px; background: var(--glass-deep); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); box-shadow: var(--glass-edge), var(--drop); font-size: 14px; line-height: 1.35; text-align: left; }
+.thread-stage .pinned { position: absolute; z-index: 5; left: var(--gutter); right: var(--gutter); bottom: calc(100% + 10px); min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 18px; background: var(--glass-deep); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); box-shadow: var(--glass-edge), var(--drop); font-size: 14px; line-height: 1.35; text-align: left; }
 .thread-stage.wide .pinned { left: 50%; right: auto; width: min(680px, 100%); transform: translateX(-50%); }
 .thread-stage .pinned i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
 .thread-stage .pinned span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -162,6 +187,12 @@
 .thread-stage .menu .menu-ask-do .menu-ask-go { background: var(--text); color: var(--ground); }
 .thread-stage .menu .menu-ask-do button:disabled { opacity: 0.5; }
 .thread-stage .menu button em { font-style: normal; color: var(--text-2); font-size: 13px; }
+.thread-stage .menu > button:disabled { opacity: 0.45; }
+@media (hover: hover) { .thread-stage .menu > button:disabled:hover { background: none; } }
+/* the menu's three groups: where the panel goes and what it shows; what is done to the thread; archive */
+.thread-stage .menu-sep { height: 1px; margin: 5px var(--s3); background: color-mix(in srgb, var(--text) 12%, transparent); }
+/* a copied link's receipt, under the bar where the eye was on the menu (design.md, honesty: said, then gone) */
+.stage-receipt { position: absolute; z-index: 8; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); margin: 0; padding: 7px 14px; border-radius: 999px; background: var(--glass-deep); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); box-shadow: var(--glass-edge), var(--drop); font-size: 13px; font-weight: 600; white-space: nowrap; max-width: calc(100% - 2 * var(--gutter)); overflow: hidden; text-overflow: ellipsis; }
 .thread-stage .menu button[aria-checked="true"] em { color: var(--accent); }
 
-@media (prefers-reduced-motion: reduce) { .ruler, .stage-bar-title, .menu, .scrim { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .ruler, .stage-bar-title, .menu, .scrim { transition: none; } .thread-stage .bar-stop { animation: none; } .jump { transform: none; transition: opacity var(--fade-t); } .jump-n { animation: none; } }

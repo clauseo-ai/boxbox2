@@ -25,7 +25,7 @@ const KEEP_LOOKING = 5;
 /** typing waits this long before the server is asked */
 const TYPING_MS = 250;
 /** rows the list holds. past it the next page replaces the list instead of growing it, so a long read costs what 300
-    rows cost, not what 3000 do (AGENTS.md rule 7) */
+    rows cost, not what 3000 do (AGENTS.md, memory and latency) */
 const MAX_ROWS = 300;
 /** how often "3 min ago" is worked out again */
 const CLOCK_MS = 30_000;

@@ -5,6 +5,14 @@ pieces are, where they live and how one request travels through them. the
 other docs go deep on one part each, and the index at the bottom points to
 them.
 
+boxbox is one place to control every agent. the server watches agents of any
+kind, each through its own source, and the clients (the web app, the board
+and a native ios app kept in its own repository) show their work and send
+your verbs back. cmx2 coding agents are supported; openclaw assistants arrive
+in m9, hermes in m10, and claude code and codex are planned. each new kind is
+a source behind the seam in [agents.md](agents.md), so most of this page holds
+for every kind; where it says daemon or host, it describes a cmx2 connection.
+
 ## the words
 
 | word | meaning |
@@ -17,9 +25,10 @@ them.
 | needs | the list of asks and faults waiting for you, computed once on the server |
 | window | home's card for a live thread, showing its latest work |
 | seq, cursor | a counter on every event. a client that remembers its last seq can resume without gaps or repeats |
-| journal | boxbox's own ring of recent events, each already encoded for every client |
+| journal | boxbox's own ring of recent events, each already encoded for every client (from m9, one ring per contract, each with its own epoch) |
 | the pin | the one cmx2 commit boxbox builds against, written in `cmx2.pin` |
 | the board | an optional 17-key usb keyboard with a small daemon that talks to boxbox |
+| agent, connection | from m9: someone you talk to (a cmx2 daemon, an openclaw assistant, a hermes agent), reached through a connection, one `boxbox.toml` entry ([agents.md](agents.md)) |
 | pwa | a web app installed to the home screen, so it opens full screen like a native app |
 
 ## the pieces
@@ -39,18 +48,20 @@ installs and maintains it. each task owns its state and talks by message.
 
 | directory | what it does |
 |---|---|
-| `src/upstream/` | one watcher per cmx2 host. holds the event stream open, resumes by cursor, backs off, reconciles after a reset |
+| `src/source/` | the agent source seam: the `AgentSource` trait and `SourceEvent` union every kind of agent plugs into, the cmx2 source, thread ids, agent keys and identity, the send ledger |
+| `src/upstream/` | the supervisor, one source per connection: a watcher per cmx2 host (holds the event stream open, resumes by cursor, backs off, reconciles after a reset), and an openclaw source per `[[openclaw]]` entry |
+| `src/openclaw/` | the openclaw source ([openclaw.md](openclaw.md)): the gateway's protocol types, the device identity and pairing, the method allowlist every request passes, and one websocket per gateway with its request scheduler, event stream and reconnects. it connects and pairs today; its agents and threads come with its sync engine |
 | `src/fleet/` | the fleet actor. folds daemon events into one model: sessions, window tails, asks, needs, read state |
 | `src/journal.rs` | the ring of changes. each entry is encoded once and shared by every client stream |
 | `src/http/` | the gate, the json api, the event stream, and the embedded web app |
 | `src/auth.rs` | the password gate and its signed session cookie |
 | `src/push/` | decides who gets a notification and delivers it with web push |
 | `src/pty/` | relays a terminal websocket between the browser and a daemon |
-| `src/store/` | the one writer of `boxbox.db`, a sqlite file for push keys and subscriptions, hosts paired from the app and their credentials, prefs, read marks, needs, cleared threads and adopted threads |
+| `src/store/` | the one writer of `boxbox.db`, a sqlite file for push keys and subscriptions, hosts paired from the app and their credentials, prefs, read marks, needs, cleared threads and adopted threads, foreign agents' keys and thread ids, and the sources' secrets (an openclaw gateway's device key and token) |
 | `src/telemetry/` | validates and stores the app's usage events as one .jsonl file per day |
 | `src/icons/` | finds a repo's favicon on its host and caches it |
 | `src/cli/` | `init`, `doctor`, `service`, `upgrade` and the usage text |
-| `build/` | build-time code generation. cmx2's types come from `vendor/cmx2/openapi.json`, so nothing is decoded by hand |
+| `build/` | build-time code generation. cmx2's types come from `vendor/cmx2/openapi.json` and openclaw's from `vendor/openclaw/protocol.schema.json`, so nothing is decoded by hand except openclaw's open transcript bodies, held to recorded fixtures |
 
 ### `app/`, the web app
 
@@ -66,6 +77,7 @@ and posts small patches to the ui thread once a frame.
 | `src/ui/home/`, `src/ui/window/` | home and its live windows |
 | `src/ui/thread/` | the thread view: turns, rows, the stage |
 | `src/ui/composer/` | writing a prompt, queueing, steering, starting a thread, model and effort pickers |
+| `src/ui/assistant/` | the agent surfaces contract 2 brings, standalone with their stories until it is wired: voice notes (record, play, peaks), pictures and files with the viewer, quotes, reactions, the reply strip, an assistant's window, card and picker (design.md, the agent surfaces on the web) |
 | `src/ui/inbox/`, `asks/` | questions and permissions |
 | `src/ui/machines/`, `settings/`, `term/`, `review/`, `history/` | machines and pairing, settings, the terminal pane, code review, past threads |
 | `src/motion/` | the animation helpers. everything that moves goes through them |
@@ -124,6 +136,8 @@ server sends a snapshot and the worker replaces its cache in one step.
 | notifications | [push.md](push.md) |
 | installing on a server, https, upgrades | [deploy.md](deploy.md) |
 | what boxbox asks of cmx2 | [cmx2-asks.md](cmx2-asks.md) |
+| agents beyond cmx2: contract 2 beside an isolated contract 1, the agent source seam, what a source journals, the transcript cache, capabilities, the routes, media, sends that end uncertain, the runs window, identity | [agents.md](agents.md) |
+| the openclaw connection: pairing, sync, the method allowlist, the test gateway, its mapping | [openclaw.md](openclaw.md) |
 | how changes are verified | [verification.md](verification.md), [board-verification.md](board-verification.md) |
 | known bugs | [open.md](open.md) |
 | traps and the lessons behind them | [gotchas.md](gotchas.md), [scars.md](scars.md) |

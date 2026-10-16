@@ -9,10 +9,11 @@
 import { unwrap } from "solid-js/store";
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
 import { deviceClass, deviceId } from "../push/device";
-import { applyPatches, bootSync, setCacheBlocked, setComposerNotice, setDraft, setDraftsKept, setBorn, setOpenThread, setOutbox, setStream, state, syncNeedsReload, syncSignedOut } from "../store";
+import { applyPatches, bootSync, setCacheBlocked, setComposerNotice, setDraft, setDraftsKept, setBorn, setOpenThread, setOutbox, setReply, setStream, state, syncNeedsReload, syncSignedOut } from "../store";
 import type { Emit, FromWorker, Outgoing, Query, StreamStatus, SyncCounters, ToWorker } from "./messages";
 import { type Draft, type DraftMessage, type Photo, photosNotFitted, takeBackDraft } from "./outbox";
 import { coalesce, type Patch } from "./reducer";
+import type { AskReply } from "./replies";
 import { mintId } from "./telemetry";
 
 const THREAD_PARAM = "thread";
@@ -209,6 +210,12 @@ export function releaseThread(key: string): void {
   send({ type: "release", key });
 }
 
+/** a stage's retry, when it has had nothing to show for a while: the thread is read again now, without the wait the last
+    failed read was sitting out, or opened again if the worker let go of it. a thread that is read already is left alone */
+export function rereadThread(key: string): void {
+  send({ type: "reread", key });
+}
+
 /** the place the url names inside the open thread */
 export function placeInUrl(): ThreadPlace {
   const params = new URLSearchParams(location.search);
@@ -273,6 +280,13 @@ export function saveDraft(key: string, draft: Draft | null, abandoned = false, p
   const plain = draft ? unwrap(draft) : null;
   const carried: DraftMessage | null = plain ? structuredClone({ ...plain, photos: photos === "kept" ? ("kept" as const) : plain.photos }) : null;
   send({ type: "draft", key, draft: carried, abandoned });
+}
+
+/** keeps the record of a reply this device made to an ask, once the daemon settled it: the store has it at once, so the row says
+    who and when as it settles, and the worker writes it to indexeddb, so it still does after a reload (sync/replies.ts) */
+export function keepReply(record: AskReply): void {
+  setReply(record);
+  send({ type: "replied", record: structuredClone(record) });
 }
 
 /** hands a send to the worker's outbox; it is honest from here: faded until the daemon echoes its client id */

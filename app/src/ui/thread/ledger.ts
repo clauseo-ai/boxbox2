@@ -11,8 +11,10 @@ import { type Say, type Step, type Turn, liveItemsOf, spawnsOf } from "./model";
 import { type DiffLine, type Row, type RowCtx, type RowModel, clock, dur, endRows, isRunning, minuteOf, modelOf, reportFor, rowsOf } from "./rows";
 
 /** one place in the ledger: a said row or a modelled row, with its clock where the minute changes and a quiet stretch before it.
-    in a running turn the newest place is `cur`, and carries `live` when its row is writing something the reader can watch */
-export type Entry = { key: string; time: string; gap?: string; say?: Say; model?: RowModel; cur?: boolean; live?: Live };
+    in a running turn the newest place is `cur`, and carries `live` when its row is writing something the reader can watch. `row` is
+    the row it was made from, which the step groups count and draw (groups.ts); the turn's last rows (its files, how it ended) have
+    none. a kept entry keeps the row it was made with, which holds the same items as this pass's when its model is the same */
+export type Entry = { key: string; time: string; gap?: string; say?: Say; model?: RowModel; cur?: boolean; live?: Live; row?: Row };
 
 /** what the newest row shows while it works: the thought being written, a command's output, an edit's diff */
 export type Live = { text?: string; /** the thought is still being written: its caret shows, its words settle in */ streaming?: boolean; out?: string[]; diff?: DiffLine[] };
@@ -35,7 +37,7 @@ function inputsOf(r: Modelled, ctx: RowCtx): unknown[] {
   const spawn = s.family === "spawn";
   const child = spawn && s.agent?.child ? ctx.children.get(s.agent.child) : undefined;
   // an agent row's clock runs while its child works, after the turn itself ended too (ctx.tick)
-  return [s, ctx.asks?.get(s.callID), isRunning(s) || spawn ? ctx.now : undefined, spawn ? ctx.tick : undefined, child, spawn ? reportFor(ctx, s) : undefined];
+  return [s, ctx.asks?.get(s.callID), ctx.replies?.get(s.callID), isRunning(s) || spawn ? ctx.now : undefined, spawn ? ctx.tick : undefined, child, spawn ? reportFor(ctx, s) : undefined];
 }
 
 const same = (a: readonly unknown[], b: readonly unknown[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -114,11 +116,11 @@ export function ledgerOf(): Ledgerer {
       lastMin = minute;
       const cur = running && i === rows.length - 1;
       let fresh: Entry;
-      if (r.k === "say") fresh = { key: `say:${r.say.id}`, time, ...(gap ? { gap } : {}), ...(cur ? { cur } : {}), say: r.say };
+      if (r.k === "say") fresh = { key: `say:${r.say.id}`, time, ...(gap ? { gap } : {}), ...(cur ? { cur } : {}), say: r.say, row: r };
       else {
         const m = model(r, ctx);
         const live = cur ? liveOf(r, m) : undefined;
-        fresh = { key: m.key, time, ...(gap ? { gap } : {}), ...(cur ? { cur } : {}), model: m, ...(live ? { live } : {}) };
+        fresh = { key: m.key, time, ...(gap ? { gap } : {}), ...(cur ? { cur } : {}), model: m, ...(live ? { live } : {}), row: r };
       }
       out.push(keep(entries, next, fresh, sameEntry));
       prevEnd = Math.max(prevEnd, r.end);
@@ -135,7 +137,7 @@ export function ledgerOf(): Ledgerer {
 }
 
 /** whether a turn would paint the same under `b` as under `a`: the turn reads the clock, the thinking setting, the asks on
-    its own steps, and for each of its agents the child and its report, and nothing else of the context. the stage hands every
+    its own steps and this device's replies to them, and for each of its agents the child and its report, and nothing else of the context. the stage hands every
     turn one context memo with this as its equality, so a delta, an ask or a child changing elsewhere wakes only the turns
     that read it (docs/thread.md, the stage as built) */
 export function sameCtxFor(turn: Turn, a: RowCtx, b: RowCtx): boolean {
@@ -146,6 +148,11 @@ export function sameCtxFor(turn: Turn, a: RowCtx, b: RowCtx): boolean {
     const calls = callsOf(turn);
     for (const [call, ask] of a.asks ?? []) if (calls.has(call) && b.asks?.get(call) !== ask) return false;
     for (const [call, ask] of b.asks ?? []) if (calls.has(call) && a.asks?.get(call) !== ask) return false;
+  }
+  if (a.replies !== b.replies) {
+    const calls = callsOf(turn);
+    for (const [call, r] of a.replies ?? []) if (calls.has(call) && b.replies?.get(call) !== r) return false;
+    for (const [call, r] of b.replies ?? []) if (calls.has(call) && a.replies?.get(call) !== r) return false;
   }
   const kids = a.children !== b.children, reports = a.turns !== b.turns;
   if (kids || reports) {

@@ -764,6 +764,40 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** stores one file: the raw bytes of an image, audio, video or document. */
+        post: operations["upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/media/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** a stored file, whole or one range of it. */
+        get: operations["serve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/needs": {
         parameters: {
             query?: never;
@@ -1247,7 +1281,10 @@ export type components = {
              *     `credential-revoked`, `host-unreachable`, `host-refused`,
              *     `no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,
              *     `gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,
-             *     `checkout-refused` (whose body is a `CheckoutRefusal`, not this one).
+             *     `checkout-refused` (whose body is a `CheckoutRefusal`, not this one),
+             *     and contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`
+             *     (with `retry-after`), `generation-changed`, `not-confirmed`,
+             *     `not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`.
              */
             code: string;
             /** @description for people, in the interface's voice. */
@@ -1427,6 +1464,23 @@ export type components = {
             name: string;
             /** @description `connecting`, `connected`, `failed`, `disabled` or `needs_auth`. */
             status: string;
+        };
+        /** @description one stored file, as the upload answers it and parts carry it. */
+        MediaObject: {
+            /** Format: int64 */
+            durationMs?: number | null;
+            filename?: string | null;
+            /** Format: int32 */
+            height?: number | null;
+            /** @description the sha256 of the bytes, 64 lowercase hex. */
+            id: string;
+            mime: string;
+            /** Format: int64 */
+            size: number;
+            /** @description at most 64 values from 0 to 255, the loudness of equal slices. */
+            waveform?: number[] | null;
+            /** Format: int32 */
+            width?: number | null;
         };
         /** @description the squash commit's message. */
         MergeBody: {
@@ -4502,6 +4556,167 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Session"];
                 };
+            };
+        };
+    };
+    upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description the file's raw bytes, at most 64 MiB. `content-type` is its type (`application/octet-stream` when absent); `x-boxbox-filename` its name, percent-encoded; for a voice note, `x-boxbox-duration-ms` and `x-boxbox-waveform` (base64 of at most 64 bytes) */
+        requestBody: {
+            content: {
+                "*/*": number[];
+            };
+        };
+        responses: {
+            /** @description stored, or already held (the same answer for the same bytes) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaObject"];
+                };
+            };
+            /** @description a header boxbox cannot read, an empty body, or a body that stopped arriving */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description past 64 MiB, refused as the announced length or the bytes pass it */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description a declared image, audio or video type the bytes contradict, in words */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `media-busy`: four uploads are running (with `retry-after`); or the store is not answering */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `media-full`: nothing old enough to evict makes room; raise `[media] max_bytes` */
+            507: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    serve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the media id: the sha256 of the bytes, 64 lowercase hex */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description the whole file (also for several ranges), with `accept-ranges: bytes`, `cache-control: private, max-age=31536000, immutable`, `etag: "<id>"`, the stored `content-type` for image, audio, video and pdf (`application/octet-stream` for every other kind) and a `content-disposition` (inline for image, audio, video and pdf; attachment otherwise) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": number[];
+                };
+            };
+            /** @description one `range: bytes=a-b`, with `content-range` */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": number[];
+                };
+            };
+            /** @description the `if-none-match` etag is current */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description id is not 64 lowercase hex */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `no-such-media`: boxbox never held it */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `media-evicted`: the store made room for newer files */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the range starts past the end, with `content-range: bytes *\/<size>` */
+            416: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

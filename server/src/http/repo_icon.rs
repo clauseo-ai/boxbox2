@@ -19,11 +19,11 @@ use serde::Deserialize;
 use utoipa::IntoParams;
 
 use super::error::{ApiError, ErrorBody};
-use super::session::find_host;
-use super::{AppState, RequestId};
+use super::{AppState, RequestId, agents};
 use crate::icons::{
     Answer, BARREN_TTL, Class, HIT_TTL, Icon, REFUSED_MAX_AGE, UNPROVEN_MAX_AGE, UNSUPPORTED_TTL,
 };
+use crate::wire::Capability;
 
 #[derive(Debug, Deserialize, IntoParams)]
 // query parameters, not path ones: without this the document puts them in the path and the typed client cannot call it
@@ -57,7 +57,7 @@ pub async fn repo_icon(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let root = project_root(&query.root)?;
-    let host = find_host(&state, &host)?;
+    let host = Arc::clone(agents::cmx2(&state, &host, Some(Capability::Places))?.host());
     let request = request.map(|Extension(RequestId(id))| id);
     let answer = state.icons.lookup(host, root, request).await;
     Ok(respond(&answer, headers.get(header::IF_NONE_MATCH)))

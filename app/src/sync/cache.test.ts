@@ -22,6 +22,7 @@ const thread = (key: string, count: number, over: Partial<Thread> = {}): Thread 
   heldAt: 0,
   leased: false,
   bytes: 1234,
+  trouble: null,
   ...over,
 });
 

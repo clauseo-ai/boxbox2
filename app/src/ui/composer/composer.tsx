@@ -12,12 +12,14 @@
 
    drafts and sends go through the worker (sync/client.ts): drafts are kept
    in indexeddb per target on every keystroke; a send is honest, shown as
-   sending until the daemon echoes its client id. the composer never reads
-   viewport geometry: its mount stands it on the keyboard. */
+   sending until the daemon echoes its client id. its mount stands it on the
+   keyboard; it reads the visual viewport only to fit what floats above it (a
+   menu) and how many lines its words may grow to, on the viewport's own
+   resize events, never in a frame loop. */
 
 import { For, Show, createComputed, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
 import { flyInto } from "../../motion/fly";
-import { play } from "../../motion/animate";
+import { flip, play } from "../../motion/animate";
 import { ROLL_IN, SNAP } from "../../motion/springs";
 import { state, setCompaction, setComposerNotice } from "../../store";
 import { discardSend, retrySend, saveDraft, sendMessage, unsendQueued } from "../../sync/client";
@@ -41,7 +43,10 @@ import { providerKey } from "./marks";
 import { ModelMenu } from "./model-menu";
 import { type CommandChoice, commands, ensureModels, files } from "./reads";
 import { modelName } from "../model-name";
-import { type Agent, type Card, cardVerbs, cardWords, compactionWords, compactMeta, contextFill, DRAFTS_FULL, effortChoices, fateLine, type ListState, liveLine, menuOf, menuQuery, type Mount, placeholder, sendWord, tailPrint, typedAnswers, withFile } from "./words";
+import { fileDrop, withMention, withWords } from "./drop";
+import { inlineRuns } from "./inline";
+import { QueueStrip, type QueueVerb } from "./queue";
+import { type Agent, type Card, compactionWords, compactMeta, contextFill, DRAFTS_FULL, DROP_LINE, effortChoices, fateLine, type ListState, liveLine, menuOf, menuQuery, type Mount, placeholder, sendWord, tailPrint, typedAnswers, withFile } from "./words";
 import "./composer.css";
 
 /** a draft past this many lines offers the full stage */
@@ -79,6 +84,8 @@ export type ComposerProps = {
   agents?: { count: number; open: () => void };
   /** the colour the thread is painted in, so the composer on a stage is the stage's own; without it, the repo's */
   colour?: RepoColour;
+  /** a wider drop target than the composer itself (the thread's stage): a photo or a file dropped anywhere on it lands here */
+  dropZone?: () => HTMLElement | null | undefined;
 };
 
 const EMPTY: Draft = { text: "", photos: [], model: null, effort: null, at: 0 };
@@ -130,6 +137,11 @@ export function Composer(props: ComposerProps) {
     setComposerNotice(notice.key, null);
   });
   const [onScreen, setOnScreen] = createSignal(false);
+  /* a drag the composer can take is over it (drops, below). the composer and the stage count their drags apart: a drag moving
+     from the stage onto the composer leaves one as it enters the other */
+  const [overSelf, setOverSelf] = createSignal(false);
+  const [overZone, setOverZone] = createSignal(false);
+  const dropping = () => overSelf() || overZone();
 
   const shell = () => draft().text.startsWith("!");
   const has = () => draft().text.trim().length > 0 || draft().photos.length > 0;
@@ -170,6 +182,9 @@ export function Composer(props: ComposerProps) {
     return shown;
   });
   const waitingCount = () => cards().filter((c) => c.card.state === "queued").length;
+  /* the list above is built again whenever the thread's messages change, and a working turn changes them at every step: the
+     strip and its list (queue.tsx) never key an element by that list's objects, and a verb finds its message here by id */
+  const cardOf = createMemo(() => new Map(cards().map((c) => [c.id, c])));
 
   /* —— the live line: what the agent is doing, when that is not already on screen —— */
   /* a turn that has just begun: the session's busy status can land a few milliseconds before the update that puts the new
@@ -189,8 +204,9 @@ export function Composer(props: ComposerProps) {
   }, { defer: true }));
   createEffect(() => { const from = begun(); if (from !== null && tailNow() !== from) setBegun(null); });
   const line = createMemo<{ kind: string; text: string; prose: boolean; key?: string } | null>(() => {
-    // the sheet's own header already says where the thread starts; the line there says what the chips beside it are
-    if (props.mount !== "bar") return { kind: "", text: fateLine(props.mount, agent(), false, false, 0, host(), repo()), prose: true };
+    if (dropping()) return { kind: "", text: DROP_LINE, prose: true };
+    // the sheet's place line already says where the new thread starts: its row is the chips alone, and never repeats it
+    if (props.mount !== "bar") return null;
     if (focused() || has() || steering()) return { kind: "", text: fateLine(props.mount, agent(), steering(), shell(), waitingCount(), host(), repo(), questionCount()), prose: true };
     if (agent() === "offline") return { kind: "", text: `offline, last update ${clockOf(state.stream.lastEventAt)}`, prose: true };
     if (agent() !== "working" || onScreen()) return null;
@@ -236,6 +252,65 @@ export function Composer(props: ComposerProps) {
     saveDraft(key(), merged.text || merged.photos.length || merged.model || merged.effort ? merged : null, abandoned, "photos" in next ? "changed" : "kept");
   };
   let editor: HTMLTextAreaElement | undefined;
+  /* —— the words' shape (docs/composer.md, the layout): one line sits between the plus and send; a second line (a wrap at the
+     room between the keys, or a return) puts the words the window's full width with the keys on a row of their own under
+     them, so no line is ever under a key. the wrap is measured by a ruler at the one-row width, so the shape never flips
+     back and forth at the width in between —— */
+  let bodyEl: HTMLDivElement | undefined;
+  let ruler: HTMLDivElement | undefined;
+  const [stacked, setStacked] = createSignal(false);
+  const reshape = () => {
+    if (!ruler || !editor) return;
+    ruler.textContent = `${draft().text}\u200b`;
+    const style = getComputedStyle(ruler);
+    const line = parseFloat(style.lineHeight) || 24;
+    // the sheet's words are two lines tall before they type a word, the keys in the corners under them: a third line is the one
+    // that would run under a key
+    const room = props.mount === "sheet" ? 2 : 1;
+    const next = full() || ruler.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) > line * (room + 0.5);
+    if (next === stacked()) return;
+    // the keys move to their row and back on the snap spring, and the words glide sideways from where they were; the
+    // window's own height changes at once (only transform animates)
+    const glide = parseFloat(getComputedStyle(editor).paddingLeft);
+    const keys = [plusKey, bodyEl?.querySelector(".cz-send")].filter((el): el is HTMLElement => Boolean(el));
+    const live = state.stream.state === "live" && document.visibilityState === "visible";
+    flip(keys, () => setStacked(next), SNAP, live);
+    const dx = glide - parseFloat(getComputedStyle(editor).paddingLeft);
+    if (Math.abs(dx) > 0.5) play(editor, [{ transform: `translateX(${dx}px)` }, { transform: "none" }], SNAP, { live });
+  };
+  createEffect(on(() => [draft().text, worded(), full()], () => reshape()));
+  onMount(() => {
+    if (!bodyEl) return;
+    // a new width (a rotation, the rail opening) moves where the words wrap
+    let width = bodyEl.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (!bodyEl || bodyEl.clientWidth === width) return;
+      width = bodyEl.clientWidth;
+      reshape();
+    });
+    observer.observe(bodyEl);
+    onCleanup(() => observer.disconnect());
+  });
+  /* the words grow to six lines, or fewer when the screen above the keyboard cannot hold the whole composer with six: the
+     largest type, a short landscape screen. whole lines, so the last line in sight is whole and the keys stay above the keyboard */
+  const [lines, setLines] = createSignal(TALL_LINES);
+  const fitLines = () => {
+    if (!rootEl || !editor || full()) return;
+    const top = window.visualViewport?.offsetTop ?? 0;
+    const box = rootEl.getBoundingClientRect();
+    const words = editor.getBoundingClientRect().height;
+    const style = getComputedStyle(editor);
+    const line = parseFloat(style.lineHeight) || 24;
+    const pads = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    const room = box.bottom - top - MENU_MARGIN - (box.height - words) - pads;
+    setLines(Math.min(TALL_LINES, Math.max(1, Math.floor(room / line))));
+  };
+  createEffect(() => {
+    if (!focused() || !window.visualViewport) return;
+    fitLines();
+    window.visualViewport.addEventListener("resize", fitLines);
+    onCleanup(() => window.visualViewport?.removeEventListener("resize", fitLines));
+  });
   const tall = () => draft().text.split("\n").length > TALL_LINES || (editor?.scrollHeight ?? 0) > editor!.clientHeight + 4; // editor is bound by ref before any draft paints
 
   const onInput = (event: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
@@ -475,7 +550,7 @@ export function Composer(props: ComposerProps) {
 
   /* —— photos —— */
   let picker: HTMLInputElement | undefined;
-  const addPhotos = async (list: FileList | null) => {
+  const addPhotos = async (list: FileList | readonly File[] | null) => {
     if (!list) return;
     // the draft the photos were picked for: clamping awaits, and the person may have moved to another thread meanwhile
     const at = key();
@@ -485,7 +560,7 @@ export function Composer(props: ComposerProps) {
     const picked = [...list].slice(0, Math.max(0, room));
     if (list.length > room) say(`${MAX_PHOTOS} photos is the most one message carries`);
     const added: Photo[] = [];
-    // what the device holds that has not gone: every draft's photos and every unsent message's (one cap, rule 7)
+    // what the device holds that has not gone: every draft's photos and every unsent message's (one cap; AGENTS.md, memory and latency)
     const onDevice = () => Object.values(state.composer.drafts).reduce((sum, d) => sum + photoBytes(d.photos), 0) + state.composer.outbox.reduce((sum, e) => sum + e.photoBytes, 0);
     for (const file of picked) {
       const clamped = await clampPhoto(file);
@@ -501,6 +576,22 @@ export function Composer(props: ComposerProps) {
     // to the draft they were picked for, as it stands now (words typed while the photos were read are kept)
     if (added.length) saveDraft(at, { ...held(), photos: [...held().photos, ...added], at: Date.now() }, false, "changed");
   };
+
+  /* —— drops (docs/composer.md, attachments): a photo joins the photos, any other file is mentioned by its name, words join the
+     draft; on the composer, and on the stage around it when its mount offers one —— */
+  const takeDrop = (dropped: { photos: File[]; mentions: string[]; words: string }) => {
+    if (dropped.photos.length) void addPhotos(dropped.photos);
+    if (!dropped.mentions.length && !dropped.words) return;
+    const text = dropped.mentions.reduce(withMention, withWords(draft().text, dropped.words));
+    setText(text);
+  };
+  onMount(() => {
+    if (rootEl) fileDrop(rootEl, setOverSelf, takeDrop);
+  });
+  createEffect(() => {
+    const zone = props.dropZone?.();
+    if (zone) fileDrop(zone, setOverZone, takeDrop);
+  });
 
   /* —— sending —— */
   let windowEl: HTMLDivElement | undefined;
@@ -610,9 +701,13 @@ export function Composer(props: ComposerProps) {
   };
 
   /* —— the queue's verbs —— */
+  /* the messages being taken back: the strip and the list fade them and turn their cross off until the daemon answers */
+  const [unsending, setUnsending] = createSignal<ReadonlySet<string>>(new Set());
   const unsend = async (card: Shown) => {
-    if (!card.messageID) return;
+    if (!card.messageID || unsending().has(card.id)) return;
+    setUnsending((was) => new Set([...was, card.id]));
     const result = await unsendQueued(key(), card.messageID, card.entry?.clientID ?? null, true);
+    setUnsending((was) => new Set([...was].filter((id) => id !== card.id)));
     if (!result.ok) return setProblem(result.message ?? "it could not be taken back");
     // a message of this device's own comes back from the worker with its photos and, into a draft that held nothing, its
     // words, in one step (so the photos coming back cannot make the draft look written): the caret goes where it ends. one
@@ -627,11 +722,9 @@ export function Composer(props: ComposerProps) {
     sendMessage({ clientID: crypto.randomUUID(), verb: "steer", target: props.target, text: card.text, photos: [], model: null, effort: null, at: Date.now() });
   };
 
-  /* —— a queued card settles in from slightly small when you send it; one restored with the thread, or arriving
-     before the composer has been up for a moment (a replay), just shows —— */
+  /* —— the strip settles in from slightly small when you send; one restored with the thread, or arriving before the composer
+     has been up for a moment (a replay), just shows —— */
   const mountedAt = performance.now();
-  const arrives = (el: HTMLElement) =>
-    play(el, [{ opacity: 0, transform: "translateY(10px) scale(.96)" }, { opacity: 1, transform: "none" }], SNAP, { live: performance.now() - mountedAt > 600 && state.stream.state === "live", fill: "backwards" });
 
   /* —— a queued card rises into the thread when it lands (design.md, the earned moments) —— */
   const cardEls = new Map<string, HTMLElement>();
@@ -704,6 +797,29 @@ export function Composer(props: ComposerProps) {
   };
 
   const retry = (card: Shown) => card.entry && retrySend(card.entry.clientID);
+  /* edit a waiting message: taken back, its words come into the empty draft with the caret in them (offered only while the
+     draft is empty, so nothing written is mixed into it) */
+  const editWaiting = async (card: Shown) => {
+    if (has()) return;
+    await unsend(card);
+    if (draft().text) caretToEnd();
+  };
+  const onQueueVerb = (verb: QueueVerb, id: string) => {
+    const card = cardOf().get(id);
+    if (!card) return;
+    if (verb === "retry") retry(card);
+    else if (verb === "edit") backToDraft(card);
+    else if (verb === "editWaiting") void editWaiting(card);
+    else if (verb === "steerNow") void steerNow(card);
+    else if (verb === "runNow") void (card.card.state === "steer" ? runSteerNow(card) : runNow());
+    else void unsend(card);
+  };
+  const registerCard = (id: string, el: HTMLElement) => {
+    cardEls.set(id, el);
+    return () => {
+      if (cardEls.get(id) === el) cardEls.delete(id);
+    };
+  };
   const backToDraft = (card: Shown) => {
     if (!card.entry) return;
     // the photos it held come back with its words, to the draft this composer is writing
@@ -746,41 +862,7 @@ export function Composer(props: ComposerProps) {
       </Show>
 
       <Show when={props.mount === "bar" && cards().length > 0}>
-        <div class="cz-queue" role="list" aria-label="messages on their way">
-          <For each={cards()}>
-            {(card) => {
-              const words = () => cardWords(card.card, agent());
-              const verbs = () => cardVerbs(card.card, agent());
-              return (
-                <div class="cz-card" role="listitem" data-state={card.card.state} data-verbs={verbs().apart ? "" : undefined} ref={(el) => { cardEls.set(card.id, el); onCleanup(() => cardEls.delete(card.id)); arrives(el); }}>
-                  <div class="cz-card-text">
-                    <small>{words().label}</small>
-                    <p>{card.text}{card.photos ? `, ${card.photos} ${card.photos === 1 ? "photo" : "photos"}` : ""}</p>
-                    <span class="cz-why">{words().why}</span>
-                  </div>
-                  <div class="cz-card-acts">
-                    <Show when={verbs().retry}>
-                      <button class="cz-pill on" type="button" aria-label={`retry: ${card.text}`} onClick={() => retry(card)}>retry</button>
-                    </Show>
-                    <Show when={verbs().edit}>
-                      <button class="cz-pill" type="button" aria-label={`back to the draft: ${card.text}`} onClick={() => backToDraft(card)}>edit</button>
-                    </Show>
-                    <Show when={verbs().steerNow}>
-                      <button class="cz-pill" type="button" aria-label={`steer now: ${card.text}`} onClick={() => void steerNow(card)}>steer now</button>
-                    </Show>
-                    <Show when={verbs().runNow}>
-                      {/* the first waiting message runs the queue; a steer runs itself: it is the one that can sit for good behind a long command */}
-                      <button class="cz-pill" type="button" aria-label={card.card.state === "steer" ? `stop the turn and run now: ${card.text}` : "stop the turn and run the queue now"} onClick={() => void (card.card.state === "steer" ? runSteerNow(card) : runNow())}>run now</button>
-                    </Show>
-                    <Show when={verbs().unsend}>
-                      <button class="cz-pill x" type="button" aria-label={`unsend: ${card.text}`} onClick={() => void unsend(card)}>×</button>
-                    </Show>
-                  </div>
-                </div>
-              );
-            }}
-          </For>
-        </div>
+        <QueueStrip items={cards()} agent={agent()} draftEmpty={!has()} unsending={unsending()} onVerb={onQueueVerb} register={registerCard} live={() => performance.now() - mountedAt > 600 && state.stream.state === "live"} />
       </Show>
 
       <Show when={menu()}>
@@ -898,7 +980,7 @@ export function Composer(props: ComposerProps) {
         </div>
       </Show>
 
-      <div class="cz-window" ref={windowEl} data-focus={focused() || menu() ? "" : undefined} data-shell={shell() ? "" : undefined} data-bad={problem() ? "" : undefined}>
+      <div class="cz-window" ref={windowEl} data-focus={focused() || menu() ? "" : undefined} data-shell={shell() ? "" : undefined} data-bad={problem() ? "" : undefined} data-drop={dropping() ? "" : undefined}>
         <Show when={full()}>
           <div class="cz-full-head">
             <button class="cz-back" type="button" aria-label="back to the thread" onClick={() => setFull(false)} />
@@ -914,16 +996,25 @@ export function Composer(props: ComposerProps) {
             when={dial()}
             fallback={
               <>
+                <Show when={props.mount === "bar" || line()}>
                 <div class="cz-line" ref={lineEl} aria-live="polite">
                   <Show when={line()}>
                     {(l) => (
                       <>
                         <Show when={l().kind}><span class="cz-k">{l().kind}</span></Show>
-                        <span class="cz-t" data-prose={l().prose ? "" : undefined} data-live={l().key ? "" : undefined}>{l().text}</span>
+                        <span class="cz-t" data-prose={l().prose ? "" : undefined} data-live={l().key ? "" : undefined}>
+                          {/* the agent's own words are markdown: drawn inline, the marks gone (one element, so the end-anchored line stays one block) */}
+                          <Show when={l().prose && l().key} fallback={l().text}>
+                            <span>
+                              <For each={inlineRuns(l().text)}>{(run) => (run.code ? <code>{run.text}</code> : run.strong ? <b>{run.em ? <em>{run.text}</em> : run.text}</b> : run.em ? <em>{run.text}</em> : run.text)}</For>
+                            </span>
+                          </Show>
+                        </span>
                       </>
                     )}
                   </Show>
                 </div>
+                </Show>
                 <button class="cz-key me cz-chip" type="button" aria-label={`model${ofThread()}: ${modelLabel()}${listWhy()}${waits() && draft().model ? ", waits for your next message" : ""}`} aria-expanded={menu() === "model" ? "true" : "false"} data-pending={waits() && draft().model ? "" : undefined} data-quiet={list() === "ready" ? undefined : ""} onPointerDown={(e) => e.preventDefault()} onClick={() => toggleMenu("model")}>
                   <MarkGlyph provider={chosenProvider()} class="cz-chip-mark" />
                   <span class="cz-chip-label">{modelLabel()}</span>
@@ -973,7 +1064,8 @@ export function Composer(props: ComposerProps) {
             </For>
           </div>
         </Show>
-        <div class="cz-body">
+        <div class="cz-body" ref={bodyEl} data-stacked={stacked() ? "" : undefined} data-worded={worded() ? "" : undefined} style={{ "--cz-lines": String(lines()) }}>
+          <div class="cz-ruler" ref={ruler} aria-hidden="true" />
           {/* one key for everything that is not words, always in the same place: a photo, a command, a file, the shell */}
           <button
             class="cz-key plus"

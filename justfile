@@ -14,6 +14,14 @@ setup:
 cmx2 *flags:
     bun scripts/cmx2.ts {{ flags }}
 
+# the openclaw dev gateway from the commit in openclaw.pin on 4740, scripted model on 4741, speech stub on 4742
+openclaw *flags:
+    bun scripts/openclaw.ts {{ flags }}
+
+# one pass over the verbs boxbox uses, against the running dev gateway, each step printed
+openclaw-smoke:
+    bun bench/openclaw-smoke.ts
+
 # the contract probes for cmx2's asks: starts the pinned daemon on <port> (bench model on the next), prints the per-ask table
 probes port *asks:
     bun probes/run.ts {{ port }} {{ asks }}
@@ -26,9 +34,9 @@ dev:
 push-harness *flags:
     bun scripts/push-harness.ts {{ flags }}
 
-# re-copy openapi.json and manifest.ts from the commit in cmx2.pin
-vendor:
-    bun scripts/vendor.ts
+# re-copy openapi.json and manifest.ts from the commit in cmx2.pin, and the openclaw protocol schema from its npm tarball
+vendor *flags:
+    bun scripts/vendor.ts {{ flags }}
 
 # regenerate the app's api types from the server and the vendored contract
 api:

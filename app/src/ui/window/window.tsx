@@ -3,22 +3,27 @@
    and the footer. it renders a `WindowView` and nothing else; home decides
    the order, which windows are live and what opening one does.
 
-   the window never holds an ask's card and never grows for one: the ask is
-   answered in its thread, so the window says what is waiting and offers
-   "answer", which opens the thread with the ask in front.
+   the window never holds an ask's card and never grows for one. a window
+   that wants you wears a tray of its accent (the native app's decision 24):
+   what the thread needs in one line, from every pending ask (need.ts), and
+   the whole tray is the key that opens the answer sheet over home
+   (asks/sheet.tsx), where every pending ask is answered in place. its edge
+   is lit while it waits, and when it starts waiting in front of you one ring
+   leaves its edge, once.
 
    the window is an article with one stretched button (the title) that
-   opens it, so the "answer" pill can be a real button of its own; a button
-   inside a button is neither valid nor reachable. */
+   opens it, so the tray can be a real button of its own; a button inside a
+   button is neither valid nor reachable. */
 
 import { shortWords } from "../asks/words";
-import { createEffect, createMemo, createSignal, For, Match, on, onMount, Show, Switch } from "solid-js";
-import { play, sweep } from "../../motion/animate";
+import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
+import { play, prefersReducedMotion, sweep } from "../../motion/animate";
 import { PING, PING_SCALE, SNAP, TICK_DRAW } from "../../motion/springs";
 import { clearNotice, clearSuffix, clearThreads, dismissClearNotice, openSuffix } from "./clear";
 import { clearable, clearName } from "./clearing";
 import { LiveText } from "./live-text";
 import { RepoMark } from "../repo-mark/repo-mark";
+import { StripLane } from "../thread/strip";
 import { colourStyle } from "./repo";
 import type { TailLine } from "./tail";
 import { footClock, parkedOn, type WindowView, windowName } from "./view";
@@ -38,13 +43,16 @@ export type WindowProps = {
   /** the clock, ticking once a second while anything counts */
   now: number;
   onOpen: (el: HTMLElement, event: Event) => void;
-  /** the "answer" pill, and a tap on the window while it asks: opens the thread with the ask in front */
+  /** the tray of a window that wants you: opens the answer sheet with every pending ask (home.tsx) */
   onOpenAsk: (el: HTMLElement, event: Event) => void;
   ref?: (el: HTMLElement) => void;
 };
 
 /** a command that runs tests: its green finish is an earned moment */
 const TEST_COMMAND = /\b(test|tests|spec|vitest|jest|pytest)\b/;
+
+/** the attention ring leaves the window's edge to 6% past it (the native app's WindowNeedsYouPing) */
+const NEED_PING_SCALE = 1.06;
 
 const TICK = (
   <svg class="tick" viewBox="0 0 22 22" aria-hidden="true">
@@ -114,13 +122,33 @@ export function Window(props: WindowProps) {
       { defer: true },
     ),
   );
-  // an ask rises out of the tail (design.md: the ask rises); the window itself keeps its size
+  // an ask rises out of the tail (design.md: the ask rises); the window itself keeps its size. as it starts waiting in front
+  // of you, one ring of its accent leaves its edge and fades: the window clips what it holds, so the ring is drawn on the
+  // page at the window's box, measured once, and goes when it has faded. nothing loops; the lit tray is the standing signal,
+  // and under reduced motion there is no ring at all
+  let ring: HTMLElement | undefined;
+  onCleanup(() => ring?.remove());
+  const ping = () => {
+    if (prefersReducedMotion() || !root.isConnected) return;
+    ring?.remove();
+    const box = root.getBoundingClientRect();
+    const el = document.createElement("i");
+    el.className = "win-ping plane-window";
+    el.setAttribute("aria-hidden", "true");
+    for (const [name, value] of Object.entries({ ...colourStyle(props.view.colour), left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px`, "border-radius": getComputedStyle(root).borderRadius })) el.style.setProperty(name, value);
+    document.body.append(el);
+    ring = el;
+    const out = play(el, [{ transform: "scale(1)", opacity: 0.7 }, { transform: `scale(${NEED_PING_SCALE})`, opacity: 0 }], PING, { fill: "forwards" });
+    if (!out) el.remove();
+    else void out.finished.then(() => el.remove(), () => el.remove());
+  };
   createEffect(
     on(
       () => props.view.ask?.key,
       (key) => {
         if (!key || !askBox || !live()) return;
         play(askBox, [{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "none" }], SNAP, { delay: 40, fill: "backwards" });
+        ping();
       },
       { defer: true },
     ),
@@ -184,18 +212,30 @@ export function Window(props: WindowProps) {
       <ol class="tail" aria-label={`${props.view.repo}, latest work`}>
         <For each={props.view.tail}>{(line) => <Line line={line} live={live()} />}</For>
       </ol>
-      <Show when={props.view.ask}>
-        {(ask) => (
-          <section class="wask" ref={askBox} aria-label={`${props.view.repo} ${ask().kind === "question" ? "asks a question" : "asks permission"}`}>
-            <Show when={ask().header}>{(header) => <p class="wask-label">{header()}</p>}</Show>
-            <p class="wask-text">{ask().text}</p>
-            <div class="wask-foot">
-              <span class="wask-waiting">{ask().waiting}</span>
-              <button class="wask-go" type="button" aria-label={`answer ${props.view.repo}: ${shortWords(ask().text, 60)}`} onClick={(event) => props.onOpenAsk(root, event)}>
+      {/* the run's strip under its lines while it works (the step group's, drawn in order: the tail has no clock) */}
+      <Show when={props.view.strip}>{(strip) => <div class="wstrip"><StripLane strip={strip()} /></div>}</Show>
+      <Show when={props.view.need}>
+        {(need) => (
+          <button
+            class="wask"
+            type="button"
+            ref={(el) => (askBox = el)}
+            aria-label={`answer ${props.view.repo}: ${shortWords(need().line, 60)}`}
+            aria-description={need().detail}
+            aria-haspopup="dialog"
+            onClick={(event) => props.onOpenAsk(root, event)}
+          >
+            <Show when={need().eyebrow}>{(eyebrow) => <span class="wask-label">{eyebrow()}</span>}</Show>
+            <span class="wask-text">{need().line}</span>
+            <span class="wask-foot">
+              <span class="wask-waiting">{need().detail}</span>
+              {/* the key inside the key: the accent turned over, so the tray reads as one thing to press */}
+              <span class="wask-go" aria-hidden="true">
                 answer
-              </button>
-            </div>
-          </section>
+                <svg viewBox="0 0 12 12"><path d="M3 7.5 6 4.5l3 3" /></svg>
+              </span>
+            </span>
+          </button>
         )}
       </Show>
       <footer class="wf">

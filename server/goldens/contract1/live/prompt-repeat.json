@@ -1,0 +1,26 @@
+{
+  "golden": "prompt-repeat",
+  "proves": "the same client id again is 202 with the first answer and repeat true; nothing new runs",
+  "request": {
+    "method": "POST",
+    "path": "/api/hosts/bench/sessions/<ses 1>/prompt",
+    "accept-encoding": "gzip",
+    "body": {
+      "device": "golden-phone",
+      "deviceClass": "iphone",
+      "clientID": "golden-prompt-1",
+      "text": "[bench:words 4 1] say four words"
+    }
+  },
+  "status": 202,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "repeat": true,
+    "answer": {
+      "messageID": "<msg 1>",
+      "queued": false
+    }
+  }
+}

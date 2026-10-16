@@ -110,6 +110,8 @@ export function mountShell(el: HTMLElement, story: ShellStory): () => void {
       const first = threads[wants]?.messages.find((m) => m.info.role === "user")?.info.id;
       const was = location.href;
       const url = new URL(was);
+      // the stage takes a place from the url only when the url names its thread too (stage.tsx, placeHere)
+      url.searchParams.set("thread", wants);
       if (first) url.searchParams.set("at", first);
       history.replaceState(null, "", url);
       restore = () => history.replaceState(null, "", was);
@@ -244,6 +246,10 @@ async function settled(el: HTMLElement, story: ShellStory, hooks: { review: () =
       // the stage lands at the end of the thread when it opens; the reader scrolls up from there
       const landed = () => !!scroller && scroller.scrollHeight > scroller.clientHeight && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 48;
       if (!scroller || !(await until(landed))) return fail("the stage never landed at the end of a thread longer than its view");
+      // as a reader does: a while after it opened, with a hand on the wheel. a jump to the very top straight after the stage's first
+      // writes is where the view was left from, and the pin puts the end back for it (pin.ts, a restore)
+      await pause(1600);
+      scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -100 }));
       scroller.scrollTop = 0;
       await pause(300);
       hooks.review();
@@ -332,7 +338,8 @@ async function askLanded(el: HTMLElement, story: ShellStory, fail: (why: string)
   if (!was.isConnected || was.querySelector("input.ask-input") !== input || input.value !== "in my own words" || document.activeElement !== input) return fail("the card was built again while it asked: its typed words or focus were lost");
   settleAsk();
   if (!(await until(() => !layer().querySelector(".row.ask.running")))) return fail("the ask never settled");
-  const after = was.querySelector(".ask-ans");
+  // a settled question keeps its record in the card: what was answered, and when (ui/asks/card.tsx)
+  const after = was.querySelector(".ask-rec-lead");
   if (!was.isConnected || !after || !/you answered/.test(after.textContent ?? "") || was.querySelector("button.ask-opt")) return fail("the card that asked did not go on to say it was answered");
   return true;
 }
@@ -362,8 +369,14 @@ async function askUnderAgent(el: HTMLElement, raiseAsk: () => void, fail: (why: 
   const layers = () => [...el.querySelectorAll<HTMLElement>(".stage .layer")];
   const click = (button: Element | null | undefined) => (button as HTMLElement | null | undefined)?.click();
   const row = () => topLayer(el)?.querySelector(".row.agent > button.row-h");
-  if (!(await until(() => row() != null, 8000))) return fail("the parent's thread shows no row for the agent it started");
-  click(row());
+  // a settled run folds whole: the step that started the agent is under its group's head, opened as a person would
+  const group = () => [...(topLayer(el)?.querySelectorAll<HTMLElement>(".row.group:not(.open) > button.row-h") ?? [])].find((h) => h.getAttribute("aria-label")?.includes("started"));
+  if (!(await until(() => row() != null || group() !== undefined, 8000))) return fail("the parent's thread shows no row for the agent it started");
+  if (row() == null) click(group());
+  if (!(await until(() => row() != null, 4000))) return fail("the parent's thread shows no row for the agent it started");
+  // an opened group opens its newest row with it: the agent's row is pressed only when it is still shut
+  await pause(300);
+  if (row()?.getAttribute("aria-expanded") !== "true") click(row());
   if (!(await until(() => !!topLayer(el)?.querySelector(".agent-door"), 6000))) return fail("the agent's row has no door to its thread");
   click(topLayer(el)?.querySelector(".agent-door"));
   if (!(await until(() => layers().length > 1 && topLayer(el)?.getAttribute("aria-label") === `thread: ${AGENT_TITLE}`, 6000))) return fail("the agent's thread never opened over its parent's");
@@ -371,9 +384,15 @@ async function askUnderAgent(el: HTMLElement, raiseAsk: () => void, fail: (why: 
   await pause(900);
   raiseAsk();
   const deck = el.querySelector(".home[data-arrangement=deck]") !== null;
-  const way = () => el.querySelector<HTMLElement>(deck ? ".capsule" : ".win .wask-go");
-  if (!(await until(() => way() !== null, 6000))) return fail(deck ? "no capsule came for the parent's ask" : "the parent's window has no answer pill");
+  // on the deck the capsule is the way back; elsewhere the parent's window's tray opens the answer sheet, whose foot opens the thread
+  const way = () => el.querySelector<HTMLElement>(deck ? ".capsule" : ".win .wask");
+  if (!(await until(() => way() !== null, 6000))) return fail(deck ? "no capsule came for the parent's ask" : "the parent's window has no tray for its ask");
   click(way());
+  if (!deck) {
+    const foot = () => el.querySelector<HTMLElement>(".asks-open");
+    if (!(await until(() => foot() !== null, 6000))) return fail("the parent's tray opened no answer sheet with a way to its thread");
+    click(foot());
+  }
   if (!(await until(() => topLayer(el)?.getAttribute("aria-label") === "thread: set the greeting in the notes", 6000))) return fail("the parent's thread never came back on top");
   return askLanded(el, "thread-ask-under-agent", fail);
 }

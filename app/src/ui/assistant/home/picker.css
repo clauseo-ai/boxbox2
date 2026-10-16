@@ -1,0 +1,207 @@
+/* start something with an agent (docs/composer.md): the agent row, the picker and the line under the composer. every
+   colour is the plane's (styles.css, the window plane), read on the sheet they sit in. */
+
+/* —— a machine's square mark: its initials in the page's quiet material (design.md, a machine's square mark) —— */
+.ah-machine-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: var(--mark);
+  height: var(--mark);
+  border-radius: calc(var(--mark) * 0.3);
+  background: color-mix(in srgb, rgb(16 17 20 / 0.06) calc(var(--L) * 100%), rgb(255 255 255 / 0.08));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-2) 30%, transparent);
+  color: var(--text);
+  font-size: calc(var(--mark) * 0.4);
+  font-weight: 650;
+  font-stretch: 110%;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+/* —— the agent row: 54 px, pressed into the sheet —— */
+.ah-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 54px;
+  padding: 0 14px 0 11px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--win-press) calc(var(--L) * 100%), rgb(0 0 0 / 0.26));
+  box-shadow: var(--win-press-edge);
+  color: var(--text);
+  text-align: left;
+  transition: none;
+}
+
+.ah-agent-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ah-agent-row:hover {
+    background: color-mix(in srgb, var(--win-press) calc(var(--L) * 100%), rgb(0 0 0 / 0.34));
+  }
+}
+
+.ah-agent-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 1px;
+}
+
+.ah-agent-text b,
+.ah-agent-text span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ah-agent-text b {
+  font-size: 16.5px;
+  font-weight: 600;
+  font-stretch: 104%;
+  line-height: 1.2;
+}
+
+.ah-agent-text span {
+  font-size: 13.5px;
+  line-height: 1.25;
+  color: var(--text-2);
+}
+
+.ah-chev {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--text-2);
+}
+
+.ah-agent-row[aria-expanded="true"] .ah-chev {
+  transform: rotate(180deg);
+}
+
+/* —— the picker: a deeper card of the window plane, rows 48 px —— */
+.ah-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  margin-top: 8px;
+  padding: 6px;
+  border-radius: 22px;
+  background: linear-gradient(172deg, var(--win-deep-1), var(--win-deep-2));
+  box-shadow: var(--win-edge), 0 24px 48px -22px color-mix(in srgb, color-mix(in srgb, var(--p2) 32%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.7));
+  color: var(--text);
+}
+
+/* the list holds focus and the row the arrows are on is lit (its active descendant), as the composer's menus show it, so
+   the list draws no ring of its own */
+.ah-picker:focus,
+.ah-picker:focus-visible {
+  outline: none;
+}
+
+.ah-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 12px 0 9px;
+  border-radius: 16px;
+  cursor: pointer;
+}
+
+.ah-option[data-active] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ah-option:not([data-active]):not([data-dim]):hover {
+    background: var(--win-fill);
+  }
+}
+
+.ah-option[data-dim] {
+  cursor: default;
+}
+
+.ah-option[data-dim] > :not(.ah-option-text),
+.ah-option[data-dim] .ah-option-text b {
+  opacity: 0.5;
+}
+
+.ah-option-text {
+  display: flex;
+  flex: 1;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ah-option-text b {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+  font-stretch: 104%;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ah-option-text span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ah-check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.ah-check .cz-i {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ah-rule {
+  height: 1px;
+  margin: 4px 12px;
+  border: 0;
+  background: color-mix(in srgb, color-mix(in srgb, var(--p1) 14%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.09));
+}
+
+/* —— the line under the composer with an assistant chosen —— */
+.ah-start-line {
+  margin: 8px 0 0;
+  padding: 0 14px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "type": "event",
+    "event": "question.requested",
+    "payload": {
+      "id": "ask_03260a14fab40fd6a114d3175c2151a9",
+      "questions": [
+        {
+          "questionId": "greeting",
+          "header": "greeting",
+          "question": "which greeting should the notes use?",
+          "options": [
+            {
+              "label": "hello",
+              "description": "the plain one"
+            },
+            {
+              "label": "hi",
+              "description": "the short one"
+            }
+          ],
+          "isOther": true
+        }
+      ],
+      "agentId": "main",
+      "sessionKey": "agent:main:dashboard:22fdc842-a127-455a-9301-414275764906",
+      "runId": "c3f4744c-ab10-4c43-a390-25072d452a32",
+      "createdAtMs": 1792054869188,
+      "expiresAtMs": 1792055469188,
+      "status": "pending"
+    },
+    "seq": 252
+  },
+  {
+    "type": "event",
+    "event": "question.resolved",
+    "payload": {
+      "id": "ask_03260a14fab40fd6a114d3175c2151a9",
+      "status": "answered",
+      "answers": {
+        "answers": {
+          "greeting": [
+            "hello"
+          ]
+        }
+      }
+    },
+    "seq": 255
+  }
+]

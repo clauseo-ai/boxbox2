@@ -3367,6 +3367,201 @@
         }
       }
     },
+    "/api/media": {
+      "post": {
+        "tags": [
+          "super::media"
+        ],
+        "summary": "stores one file: the raw bytes of an image, audio, video or document.",
+        "operationId": "upload",
+        "requestBody": {
+          "description": "the file's raw bytes, at most 64 MiB. `content-type` is its type (`application/octet-stream` when absent); `x-boxbox-filename` its name, percent-encoded; for a voice note, `x-boxbox-duration-ms` and `x-boxbox-waveform` (base64 of at most 64 bytes)",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "stored, or already held (the same answer for the same bytes)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaObject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "a header boxbox cannot read, an empty body, or a body that stopped arriving",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "past 64 MiB, refused as the announced length or the bytes pass it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "a declared image, audio or video type the bytes contradict, in words",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "`media-busy`: four uploads are running (with `retry-after`); or the store is not answering",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "`media-full`: nothing old enough to evict makes room; raise `[media] max_bytes`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/media/{id}": {
+      "get": {
+        "tags": [
+          "super::media"
+        ],
+        "summary": "a stored file, whole or one range of it.",
+        "operationId": "serve",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "the media id: the sha256 of the bytes, 64 lowercase hex",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the whole file (also for several ranges), with `accept-ranges: bytes`, `cache-control: private, max-age=31536000, immutable`, `etag: \"<id>\"`, the stored `content-type` for image, audio, video and pdf (`application/octet-stream` for every other kind) and a `content-disposition` (inline for image, audio, video and pdf; attachment otherwise)",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "one `range: bytes=a-b`, with `content-range`",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "the `if-none-match` etag is current"
+          },
+          "400": {
+            "description": "id is not 64 lowercase hex",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`no-such-media`: boxbox never held it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "`media-evicted`: the store made room for newer files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "the range starts past the end, with `content-range: bytes */<size>`"
+          }
+        }
+      }
+    },
     "/api/needs": {
       "get": {
         "tags": [
@@ -4818,7 +5013,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one)."
+            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`."
           },
           "message": {
             "type": "string",
@@ -5259,6 +5454,71 @@
           "status": {
             "type": "string",
             "description": "`connecting`, `connected`, `failed`, `disabled` or `needs_auth`."
+          }
+        }
+      },
+      "MediaObject": {
+        "type": "object",
+        "description": "one stored file, as the upload answers it and parts carry it.",
+        "required": [
+          "id",
+          "mime",
+          "size"
+        ],
+        "properties": {
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "description": "the sha256 of the bytes, 64 lowercase hex."
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "waveform": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "at most 64 values from 0 to 255, the loudness of equal slices."
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

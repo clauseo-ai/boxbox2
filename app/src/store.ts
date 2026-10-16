@@ -10,6 +10,7 @@ import type { Link, PtyInfo, Shell, TerminalRef } from "./ui/term/types";
 import type { StreamStatus, UiSync } from "./sync/messages";
 import type { Draft, OutboxView } from "./sync/outbox";
 import { EMPTY_FLEET, type Fleet, type Patch, type ThreadView } from "./sync/reducer";
+import { type AskReply, keepReply, replyKey, restoreReplies } from "./sync/replies";
 import { createThreadCaches } from "./ui/thread/memo-cache";
 
 /** what a thread's finished parts cost to make, kept between stages (ui/thread/memo-cache.ts). it lives here with the rest of the app's
@@ -89,6 +90,10 @@ export type State = {
   repoIcons: Record<string, RepoIcon>;
   /** how many marks on screen hold each repo's icon verdict, by `iconKey`: a held one is never forgotten */
   repoIconHolds: Record<string, number>;
+  /** what this device replied to the asks it settled, by `replyKey` (the thread and the tool call), oldest first, at most
+      `REPLY_CAP`: what lets a settled row say "you allowed it once, on this iphone at 17:18" (sync/replies.ts). the worker keeps
+      them in indexeddb */
+  replies: Record<string, AskReply>;
   composer: {
     /** each target's draft, by target key, kept in indexeddb by the worker */
     drafts: Record<string, Draft>;
@@ -144,6 +149,7 @@ const [state, setState] = createStore<State>({
   pushDevices: [],
   repoIcons: {},
   repoIconHolds: {},
+  replies: {},
   composer: { drafts: {}, outbox: [], born: {}, compacting: {}, draftsFull: false, notice: null },
 });
 
@@ -194,6 +200,7 @@ export async function signOut(): Promise<void> {
     setState({ gate: "signed-out", hosts: [], hostsAt: null, problem: null, fleet: EMPTY_FLEET, threads: {}, openThread: null });
     setState("terminals", { byHost: {}, shells: {}, open: null });
     setState({ prefs: null, models: {}, modelsRead: {}, behind: null });
+    setState("replies", reconcile({}));
   }
 }
 
@@ -204,7 +211,27 @@ export function clearProblem(): void {
 /* —— the sync worker's side (sync/client.ts calls these) —— */
 
 export function bootSync(sync: UiSync): void {
+  /* a record kept on this page before the worker booted (an answer in the first moments) outlives what the cache read back */
+  let replies = restoreReplies(sync.replies ?? []).book;
+  for (const record of Object.values(state.replies)) replies = keepReply(replies, record).book;
+  // set whole, in the book's order: a plain object here would be merged into the one the store holds
+  setState("replies", produce((book) => {
+    for (const key of Object.keys(book)) delete book[key];
+    Object.assign(book, replies);
+  }));
   setState({ fleet: sync.fleet, threads: sync.threads, stream: sync.stream, composer: { drafts: sync.drafts, outbox: sync.outbox, born: state.composer.born, compacting: state.composer.compacting, draftsFull: state.composer.draftsFull, notice: state.composer.notice } });
+}
+
+/** keeps the record of a reply this device made to an ask (sync/client.ts, keepReply, which hands it to the worker too) */
+export function setReply(record: AskReply): void {
+  const { dropped } = keepReply(state.replies, record);
+  const key = replyKey(record.thread, record.callID);
+  setState("replies", produce((book) => {
+    // deleted first, so a record kept again moves to the end of the book's order, as keepReply has it
+    delete book[key];
+    book[key] = record;
+    for (const old of dropped) delete book[old];
+  }));
 }
 
 /** the outbox as the worker holds it */

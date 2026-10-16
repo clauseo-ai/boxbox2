@@ -15,7 +15,7 @@ export const MAX_HEIC_FILE = 9 * 1024 * 1024;
     every three bytes. both kinds' heads are 23 characters */
 export const MAX_HEIC_URL = 12 * 1024 * 1024 + 23;
 /** the photos this device holds that have not gone: every draft's and every unsent message's. three messages
-    at the limit; past it the person is asked to send or remove some first (rule 7) */
+    at the limit; past it the person is asked to send or remove some first (AGENTS.md, memory and latency) */
 export const MAX_HELD_URL = 3 * MAX_MESSAGE_URL;
 export { MAX_MESSAGE_URL, MAX_PHOTOS };
 

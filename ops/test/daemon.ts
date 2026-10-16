@@ -1,7 +1,7 @@
 /* the cmx2 daemon the ops tests run against: the pinned commit
    (scripts/pinned.ts), on 127.0.0.1:4900 with the bench model on 4901, its
    state under /tmp/boxbox-ops-bench/: a daemon working inside a git
-   checkout makes the checkout its project (AGENTS.md, rule 19). the ops
+   checkout makes the checkout its project (AGENTS.md, scratch in /tmp). the ops
    lane's ports (4900 to 4909) keep it clear of `just cmx2` on 4840 to
    4849. the bench password is written to /tmp/boxbox-ops-bench/password
    for the container to read.

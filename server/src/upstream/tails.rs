@@ -23,8 +23,10 @@ use tracing::{info, warn};
 use super::{Hosts, get, plain};
 use crate::config::HostConfig;
 use crate::fleet::Upstream;
-use crate::fleet::model::{ReadMessage, TAIL_ITEMS, TailRead, TailRequest};
+use crate::fleet::model::{TAIL_ITEMS, TailRequest};
 use crate::journal::Cursor;
+use crate::source::cmx2::translate;
+use crate::source::{SourceEvent, Stamp, TailRead};
 
 /// reads open on one host at once.
 pub const TAIL_READS_PER_HOST: usize = 3;
@@ -99,13 +101,14 @@ pub async fn run(
                 reads.spawn(async move {
                     // the gate is never closed, so a permit always comes
                     let Ok(permit) = gate.acquire_owned().await else { return };
-                    let message = match read(&client, &config, &request).await {
-                        Ok(read) => Upstream::TailRead(Box::new(read)),
+                    let event = match read(&client, &config, &request).await {
+                        Ok(read) => SourceEvent::TailRead(Box::new(read)),
                         Err(error) => {
                             warn!(host = %request.host, session = %request.session, %error, "tail read failed");
-                            Upstream::TailUnread { key: request.key, reason: error.to_string() }
+                            SourceEvent::TailUnread { thread: request.session.clone(), reason: error.to_string() }
                         }
                     };
+                    let message = unsequenced(&request.host, event);
                     // the host's next read need not wait on a busy fleet
                     drop(permit);
                     // a stopped fleet means the server is stopping
@@ -138,11 +141,27 @@ async fn answer_unread(fleet: &mpsc::Sender<Upstream>, request: &TailRequest, er
     warn!(host = %request.host, session = %request.session, %error, "tail read not taken");
     // a stopped fleet means the server is stopping
     let _ = fleet
-        .send(Upstream::TailUnread {
-            key: request.key.clone(),
-            reason: error.to_string(),
-        })
+        .send(unsequenced(
+            &request.host,
+            SourceEvent::TailUnread {
+                thread: request.session.clone(),
+                reason: error.to_string(),
+            },
+        ))
         .await;
+}
+
+/// a tail event for the cmx2 agent of `host`: its connection, carrying no
+/// event seq of its own.
+fn unsequenced(host: &str, event: SourceEvent) -> Upstream {
+    let name: Arc<str> = Arc::from(host);
+    Upstream::Source {
+        connection: Arc::clone(&name),
+        agent: name,
+        seq: None,
+        event,
+        raw: None,
+    }
 }
 
 /// the session's newest messages, the fewer limit when the first is too large.
@@ -198,10 +217,17 @@ async fn page(
             }
             body.extend_from_slice(&chunk);
         }
-        let messages = ReadMessage::decode(&body).map_err(TailError::Decode)?;
-        Ok((cursor, messages))
+        #[cfg(feature = "record")]
+        crate::fleet::record::tail_body(&request.key, &cursor, &body);
+        let stamp = Stamp {
+            epoch: cursor.epoch.clone(),
+            seq: cursor.seq,
+        };
+        let read =
+            translate::tail(request.session.clone(), stamp, &body).map_err(TailError::Decode)?;
+        Ok((cursor, read))
     };
-    let (cursor, messages) = timeout(READ_TIMEOUT, answer)
+    let (cursor, read) = timeout(READ_TIMEOUT, answer)
         .await
         .map_err(|_| TailError::Timeout)??;
     info!(
@@ -212,14 +238,10 @@ async fn page(
         status = 200,
         latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         seq = %cursor,
-        messages = messages.len(),
+        messages = read.messages.len(),
         "tail read"
     );
-    Ok(TailRead {
-        key: request.key.clone(),
-        cursor,
-        messages,
-    })
+    Ok(read)
 }
 
 /// a daemon id as one path segment; anything that could step out of it is

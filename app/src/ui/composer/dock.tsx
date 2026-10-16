@@ -13,6 +13,9 @@ export type DockProps = {
   directory: string | null;
   /** more than one machine: the dock says which one */
   showHost: boolean;
+  /** a thread sent from the sheet is being made: the dock says so under its words until it opens, and a tap brings the
+      sheet back (home.tsx) */
+  making?: string | null | undefined;
   onOpen: () => void;
 };
 
@@ -22,13 +25,20 @@ export function NewThreadDock(props: DockProps) {
   const name = () => (props.directory ? `new thread in ${repoName(props.directory)} on ${props.host}` : `new thread on ${props.host}`);
   return (
     <div class="composer" data-mount="dock" style={colourStyle(colour())}>
-      <button class="cz-window cz-dock" type="button" aria-label={name()} aria-keyshortcuts="Meta+N" onClick={() => props.onOpen()}>
+      <button class="cz-window cz-dock" type="button" aria-label={name()} aria-description={props.making ?? undefined} aria-keyshortcuts="Meta+N" onClick={() => props.onOpen()}>
         <span class="cz-dock-text">
           <b>start something</b>
-          <small>
-            {where()}
-            <Show when={props.showHost && props.directory}>, on {props.host}</Show>
-          </small>
+          <Show
+            when={props.making}
+            fallback={
+              <small>
+                {where()}
+                <Show when={props.showHost && props.directory}>, on {props.host}</Show>
+              </small>
+            }
+          >
+            {(words) => <small data-making="">{words()}</small>}
+          </Show>
         </span>
         <span class="cz-disc" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>

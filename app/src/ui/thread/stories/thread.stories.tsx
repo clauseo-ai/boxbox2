@@ -4,15 +4,19 @@
    because the project's jsx is solid's. */
 
 import { type ReactElement, createElement, useEffect, useRef, useState } from "react";
-import { type JSX as SolidJSX, createComponent, createSignal } from "solid-js";
+import { type JSX as SolidJSX, createComponent, createSignal, onMount } from "solid-js";
 import { render } from "solid-js/web";
 import type { Item, Say, Step, Turn } from "../model";
 import { type Child, type FoldRow, type Row, type RowCtx, type RowModel, clock, endRows, foldModel, kindOf, modelOf, rowsOf, stepModel } from "../rows";
 import { watchMeasure } from "../measure";
 import { isChain } from "../shell";
-import { Answer, Ledger, MarkLine, ReportCard, RowView, SayRow, Tape, ThreadLog, TurnView, YouBubble } from "../thread";
+import { Answer, Ledger, MarkLine, ReportCard, RowView, SayRow, ThreadLog, TurnView, YouBubble } from "../thread";
+import { orderedStrip } from "../groups";
+import { StripLane } from "../strip";
+import { AskCard } from "../../asks/card";
+import type { AskReply } from "../../../sync/replies";
 import { type Loaded, type Tone, loadImported, loadNative, stepsOf } from "./fixtures";
-import { ANSWER_WITH_CODE, FENCES_OF_ALL_SHAPES, HOSTILE_MARKUP, REPLY_IN_A_FENCE, REPLY_IN_A_LIST, REPORT_WITH_CODE } from "./code-sample";
+import { ANSWER_WITH_CODE, FENCES_OF_ALL_SHAPES, GITHUB_READING, HOSTILE_MARKUP, REPLY_IN_A_FENCE, REPLY_IN_A_LIST, REPORT_WITH_CODE } from "./code-sample";
 import { type Question as Asked, LONG_ASK, TWO_QUESTIONS } from "./asks";
 import { Host, TurnFrame } from "./host";
 import { picture } from "./pictures";
@@ -93,11 +97,15 @@ const notes = (label?: string) => loadNative(label);
 export const WholeThreadNorthstar = story("a thread: the tvos session's excerpt", async () => { const l = await northstar(); return { tone: l.tone, node: (wide) => createComponent(ThreadLog, { turns: l.turns, ctx: l.ctx, get wide() { return wide(); } }) }; });
 export const WholeThreadCmx = story("a thread: the cmx deploy's excerpt", async () => { const l = await cmx(); return { tone: l.tone, node: (wide) => createComponent(ThreadLog, { turns: l.turns, ctx: l.ctx, get wide() { return wide(); } }) }; });
 export const WholeThreadNotes = story("a thread: the native session, settled", async () => { const l = await notes(); return { tone: l.tone, node: (wide) => createComponent(ThreadLog, { turns: l.turns, ctx: l.ctx, get wide() { return wide(); } }) }; });
-export const TurnHeavyWithAgent = story("turn: heavy, 89 steps, one agent (the tape and the ledger)", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 1)); });
+export const TurnHeavyWithAgent = story("turn: heavy, 89 steps, one agent (its runs folded into groups between its words)", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 1)); });
 export const TurnLongPrompt = story("turn: a long prompt, clamped with show all", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 0)); });
 export const TurnReportWithTests = story("turn: an agent's report, then tests", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 2)); });
 export const TurnPush = story("turn: a push", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 3)); });
-export const TurnCompaction = story("turn: compacted here", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 4)); });
+export const TurnCompaction = story("turn: compacted here, recorded before the summary was marked (its last words are the summary)", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 4)); });
+/** a turn cmx2 compacted mid-turn: the summary marked, then the turn's own work and answer */
+const compacted = (l: Loaded): Turn => ({ ...turnAt(l, 2), by: "compaction", compacted: true, prompt: "", summary: turnAt(l, 2).prompt });
+export const TurnCompactionContinues = story("turn: compacted mid-turn, the turn reads as any turn under its mark", async () => { const l = await northstar(); return oneTurn(l, compacted(l)); });
+export const TurnCompactionSummaryOpen = story("turn: compacted mid-turn, the mark opened to its summary in a well under it", async () => { const l = await northstar(); const built = oneTurn(l, compacted(l)); return { ...built, node: (wide) => createComponent(Pressed, { press: ".turn-mark button", get children() { return built.node(wide); } }) }; });
 export const TurnStopped = story("turn: you stopped it", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 5)); });
 export const TurnFailedEditWithAnswer = story("turn: a failed edit, then the answer", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 6)); });
 export const TurnDeployWithAsks = story("turn: a deploy with a commit, pushes, two asks, stopped", async () => { const l = await cmx(); return oneTurn(l, turnAt(l, 1)); });
@@ -106,8 +114,8 @@ export const TurnTestsMany = story("turn: 109 steps, twelve test runs, one faile
 /* ---------- text ---------- */
 
 export const YouTyped = story("text, user, typed: your message", async () => { const l = await cmx(); return inHost(l, () => createComponent(YouBubble, { turn: turnAt(l, 1) })); });
-export const YouQueued = story("text, user, queued: your message that waited", async () => { const l = await notes(); const t = l.turns.find((x) => x.by === "queued") ?? { ...turnAt(l, 1), by: "queued" as const }; return inHost(l, () => createComponent(YouBubble, { turn: t })); });
-export const YouSteer = story("text, user, steer: a steer into the running turn", async () => { const l = await notes(); const t = { ...turnAt(l, 0), by: "steer" as const }; return { ...inHost(l, () => createComponent(YouBubble, { turn: t })), note: "the origin is set on the turn; the fixture's steer is recorded in session.steered, which the model reads from the event log" }; });
+export const YouPhotos = story("text and file, user: photos sent above your words, each opening full size", async () => { const l = await cmx(); const t: Turn = { ...turnAt(l, 1), prompt: "the strip looks off on the ipad, see these", photos: [picture("ipad-strip.png", 210), picture("ipad-strip-dark.png", 250, 400, 640), picture("phone.jpg", 30, 640, 400, "image/jpeg")] }; return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(YouBubble, { turn: t }); } })); });
+export const YouPhotoAlone = story("file, user: a photo sent alone, its bubble keeps its time", async () => { const l = await cmx(); const t: Turn = { ...turnAt(l, 1), prompt: "", photos: [picture("whiteboard.png", 120, 640, 480)] }; return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(YouBubble, { turn: t }); } })); });
 export const ReportFromAgent = story("text, user, mail: an agent's report", async () => { const l = await northstar(); return inHost(l, () => createComponent(ReportCard, { turn: turnAt(l, 2) })); });
 export const NoticeFromRuntime = story("text, user, notice: a runtime notice", async () => { const l = await notes(); const t = l.turns.find((x) => x.by === "notice"); if (!t) throw new Error("no notice in the fixture"); return inHost(l, () => createComponent(MarkLine, { turn: t })); });
 export const SaidSettled = story("text, assistant, settled: what it said", async () => { const l = await northstar(); const r = pickRow(l, (x) => x.k === "say", "said row"); if (r.k !== "say") throw new Error(); return inHost(l, () => createComponent(SayRow, { say: r.say, time: clock(r.at) }), true); });
@@ -118,11 +126,25 @@ export const AnswerMarkdown = story("text, assistant, the answer: markdown at re
 
 const said = (l: Loaded, text: string, streaming = false): Say => ({ k: "say", id: "prt_code", text, at: turnAt(l, 0).at, streaming });
 export const AnswerWithCode = story("the answer with code: a block for every language, highlighted, each with its copy control, and the reply's under it", async () => { const l = await cmx(); return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(Answer, { say: said(l, ANSWER_WITH_CODE) }); } })); });
-export const ReportWithCode = story("text, user, mail: a report with code, its copy control in the card's header", async () => { const l = await northstar(); return inHost(l, () => createComponent(ReportCard, { turn: { ...turnAt(l, 2), prompt: REPORT_WITH_CODE } })); });
+export const ReportOutcomes = story("text, user, mail: report chips, one line each: ready, blocked, failed, a note, and a first word that says no outcome", async () => {
+  const l = await northstar();
+  const t = turnAt(l, 2);
+  const chips: Turn[] = [
+    { ...t, id: "r1", from: "stepgroups", prompt: "ready to merge cd16978: the groups replace the tape, tests green" },
+    { ...t, id: "r2", from: "zoomshots", prompt: "blocked: the zoom shots wait on the simulator image, which the build machine has not pushed yet" },
+    { ...t, id: "r3", from: "deploy_web", prompt: "## failed\n\nthe health check never passed" },
+    { ...t, id: "r4", from: "worker_a", note: true, prompt: "the fixture has a second steer at 17:21 you may want for the story" },
+    { ...t, id: "r5", from: "transport_impl", prompt: "**Summary**: rewrote the transport so frames are paced by the display link" },
+  ];
+  return inHost(l, () => createComponent(TurnFrame, { get children() { return chips.map((turn) => createComponent(ReportCard, { turn })); } }));
+});
+export const ReportSheetOpen = story("text, user, mail: a press on the chip raises the whole report in its sheet, at half the screen", async () => { const l = await northstar(); return inHost(l, () => createComponent(Pressed, { press: "button.report", get children() { return createComponent(ReportCard, { turn: { ...turnAt(l, 2), prompt: `ready to merge: ${REPORT_WITH_CODE}` } }); } })); });
+export const ReportSheetWhole = story("text, user, mail: the report's sheet taken whole, a report with code", async () => { const l = await northstar(); return inHost(l, () => createComponent(Pressed, { press: ".rep-grab", get children() { return createComponent(Pressed, { press: "button.report", get children() { return createComponent(ReportCard, { turn: { ...turnAt(l, 2), prompt: REPORT_WITH_CODE } }); } }); } })); });
 export const SaidStreamingInAListFence = story("text, assistant, streaming: part-way through a fence inside a list item, the open block holds back its control", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, REPLY_IN_A_LIST, true), time: clock(turnAt(l, 0).at) }), true); });
 export const SaidFencesOfAllShapes = story("text, assistant, settled: a fence in a quote, an unlabelled block of several lines, an unlabelled line", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, FENCES_OF_ALL_SHAPES), time: clock(turnAt(l, 0).at) }), true); });
 export const SaidHostileMarkup = story("text, assistant: html written to look like our controls loses its classes and its button", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, HOSTILE_MARKUP), time: clock(turnAt(l, 0).at) }), true); });
 export const SaidStreamingThroughFences = story("text, assistant, streaming: a reply written through prose and fences, its settled blocks keeping their nodes (data-replaced stays 0)", async () => { const l = await cmx(); return { ...inHost(l, () => createComponent(CodeReplay, { text: ANSWER_WITH_CODE, at: turnAt(l, 0).at }), true) }; });
+export const AnswerGithubReading = story("the answer read as github reads it: a single tilde as written, footnotes, details, keys, an image as its words, a link that runs nothing", async () => { const l = await cmx(); return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(Answer, { say: said(l, GITHUB_READING) }); } })); });
 export const SaidWithCode = story("text, assistant, settled: a said row with a code block (no reply control mid-turn)", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, ANSWER_WITH_CODE.split("run the suite")[0] ?? ""), time: clock(turnAt(l, 0).at) }), true); });
 export const SaidStreamingInAFence = story("text, assistant, streaming: part-way through a fence, the open block holds back its control", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, REPLY_IN_A_FENCE, true), time: clock(turnAt(l, 0).at) }), true); });
 
@@ -174,10 +196,43 @@ export const EditFailed = story("tool edit, error: open, with the reason", async
 export const EditNativeNoDiff = story("tool edit, completed, native: no diff yet (ask a16)", async () => { const l = await notes(); return stepRow(l, pickStep(l, (s) => s.tool === "edit" && s.status === "completed", "native edit"), { open: true }); });
 export const EditPermissionPending = story("tool edit, pending: wants your permission", async () => { const l = await notes("permission pending: edit notes.md"); return stepRow(l, pickStep(l, (s) => s.permission !== undefined, "pending permission")); });
 export const EditPermissionDenied = story("tool edit, error: you denied it", async () => { const l = await notes(); return stepRow(l, pickStep(l, (s) => s.tool === "edit" && s.status === "error", "denied edit")); });
+/* a settled ask with this device's record of its reply (sync/replies.ts): the line above the tool's body, then where and when */
+const replied = (s: Step, r: Pick<AskReply, "kind" | "reply" | "who">): ReadonlyMap<string, AskReply> => new Map([[s.callID, { thread: "desk:ses", callID: s.callID, askID: "per_story", at: s.at + s.ms, ...r }]]);
+const repliedRow = async (pred: (s: Step) => boolean, what: string, r: Pick<AskReply, "kind" | "reply" | "who">, opts: RowOpts = {}): Promise<Built> => { const l = await notes(); const s = pickStep(l, pred, what); return oneRow(l, stepModel(s, { ...l.ctx, replies: replied(s, r) }), opts); };
+const deniedEdit = (s: Step) => s.tool === "edit" && s.status === "error";
+const doneEdit = (s: Step) => s.tool === "edit" && s.status === "completed";
+export const EditPermitDeniedWhy = story("tool edit, error: you denied it, with the reason, on this device", () => repliedRow(deniedEdit, "denied edit", { kind: "permission", reply: { k: "permit", reply: "reject", message: "not that file, use the copy in notes/" }, who: { here: true } }));
+export const EditPermitDenied = story("tool edit, error: you denied it, no reason", () => repliedRow(deniedEdit, "denied edit", { kind: "permission", reply: { k: "permit", reply: "reject" }, who: { here: true } }));
+export const EditPermitOnce = story("tool edit, completed: you allowed it once", () => repliedRow(doneEdit, "edit", { kind: "permission", reply: { k: "permit", reply: "once" }, who: { here: true } }));
+export const EditPermitAlways = story("tool edit, completed: you always allowed it", () => repliedRow(doneEdit, "edit", { kind: "permission", reply: { k: "permit", reply: "always" }, who: { here: true } }));
+export const EditPermitElsewhere = story("tool edit, completed: answered on another device", () => repliedRow(doneEdit, "edit", { kind: "permission", reply: { k: "permit", reply: "once" }, who: { by: "ipad" } }));
 export const WriteNew = story("tool write, completed: a new file", async () => { const l = await cmx(); return stepRow(l, pickStep(l, (s) => s.tool === "write" && /^new/.test(s.result), "new file"), { open: true }); });
 export const WriteOver = story("tool write, completed: a file written whole", async () => { const l = await northstar(); return stepRow(l, pickStep(l, (s) => s.tool === "write" && s.status === "completed", "write")); });
 export const ReadOne = story("tool read, completed: one file", async () => { const l = await northstar(); const r = pickRow(l, (x) => x.k === "fold" && x.family === "read" && x.steps.length === 1, "single read"); return oneRow(l, modelOf(r as Exclude<Row, { k: "say" }>, l.ctx)); });
 export const ReadPartial = story("tool read, completed: part of a file, with the file line", async () => { const l = await cmx(); const r = pickRow(l, (x) => x.k === "fold" && x.family === "read" && x.steps.length === 1 && x.steps[0]?.span?.total !== undefined && (x.steps[0].span.end - x.steps[0].span.start + 1) < x.steps[0].span.total, "partial read"); return oneRow(l, modelOf(r as Exclude<Row, { k: "say" }>, l.ctx), { open: true }); });
+export const ReadInTheReader = story("tool read, open, in the reader: the file full screen with its numbers, wrap and copy", async () => { const l = await cmx(); const r = pickRow(l, (x) => x.k === "fold" && x.family === "read" && x.steps.length === 1 && x.steps[0]?.output !== undefined, "read with lines"); const built = oneRow(l, modelOf(r as Exclude<Row, { k: "say" }>, l.ctx), { open: true }); return { ...built, node: (wide) => createComponent(Pressed, { press: ".file-open", get children() { return built.node(wide); } }) }; });
+/* beds that open to their whole length (code.tsx ShowAll, thread.tsx OutputBed and DiffBed): a long one shows its opening lines under a
+   fade and "show all N lines" opens it in place; the reader holds every line the read returned, or says the thread keeps only part */
+const pressing = (built: Built, press: string): Built => ({ ...built, node: (wide) => createComponent(Pressed, { press, get children() { return built.node(wide); } }) });
+const longRead = (s: Step) => s.family === "read" && s.readRaw !== undefined && s.readRaw.split("\n").length > 60 && s.readRaw.startsWith("<path>") && s.readRaw.includes("<type>file</type>");
+const readRow = async (): Promise<Built> => { const l = await northstar(); const s = pickStep(l, longRead, "long read"); return stepRow(l, s, { open: true }); };
+export const ReadLong = story("tool read, open: a long file shows its first 14 lines under a fade, then show all", readRow);
+export const ReadLongWhole = story("tool read, open: show all pressed, the bed holds every line the read returned", async () => pressing(await readRow(), ".bed-all"));
+export const ReadLongInTheReader = story("tool read, in the reader: the whole read, not the preview, and where it stopped", async () => pressing(await readRow(), ".file-open"));
+export const ReadKeptPreview = story("tool read, in the reader: the thread keeps only the preview, and says so", async () => {
+  const l = await cmx();
+  const s = pickStep(l, (x) => x.family === "read" && x.span !== undefined && x.span.end - x.span.start + 1 > 10 && x.output !== undefined, "read with a span");
+  const kept: Step = { ...s };
+  delete kept.readRaw;
+  return { ...pressing(stepRow(l, kept, { open: true }), ".file-open"), note: "the read's output removed from a real step: what a row shows when the output is not numbered lines it can read" };
+});
+const longEdit = async (): Promise<Built> => { const l = await cmx(); return stepRow(l, pickStep(l, (s) => s.tool === "edit" && s.diff !== undefined && s.diff.split("\n").length > 60, "long edit"), { open: true }); };
+export const EditLong = story("tool edit, open: a long diff shows its first 24 lines under a fade, then show the whole diff", longEdit);
+export const EditLongWhole = story("tool edit, open: show the whole diff pressed", async () => pressing(await longEdit(), ".bed-all"));
+export const WriteLongWhole = story("tool write, open: the whole file written, past the 80 lines its diff keeps", async () => { const l = await northstar(); return pressing(stepRow(l, pickStep(l, (s) => s.tool === "write" && (s.wrote?.split("\n").length ?? 0) > 300, "long write"), { open: true }), ".bed-all"); });
+const longRun = async (): Promise<Built> => { const l = await northstar(); return stepRow(l, pickStep(l, (s) => s.family === "shell" && s.status === "completed" && (s.output?.cut ?? 0) > 40, "long output"), { open: true }); };
+export const RunOutputLong = story("tool run, open: a long output's head and tail, then show all", longRun);
+export const RunOutputWhole = story("tool run, open: show all pressed, every line of the output", async () => pressing(await longRun(), ".bed-all"));
 export const ReadFolded = story("tool read, completed: a run of reads, named", async () => { const l = await northstar(); const r = pickRow(l, (x) => x.k === "fold" && x.family === "read" && x.steps.length > 1 && x.steps.length <= 6, "folded reads"); return oneRow(l, modelOf(r as Exclude<Row, { k: "say" }>, l.ctx)); });
 export const ReadFoldedOpen = story("tool read, completed, open: every file with its span", async () => { const l = await northstar(); const r = pickRow(l, (x) => x.k === "fold" && x.family === "read" && x.steps.length > 1, "folded reads"); return oneRow(l, modelOf(r as Exclude<Row, { k: "say" }>, l.ctx), { open: true }); });
 /** a read step of a picture: the first read of the fixture with its lines taken off and the images put on */
@@ -210,6 +265,8 @@ export const GrepFolded = story("tool grep, completed: searches folded", async (
 /* ---------- tools: agents, asks, plans ---------- */
 
 export const AgentReported = story("tool agent, completed: reported", async () => { const l = await northstar(); return stepRow(l, pickStep(l, (s) => s.family === "spawn" && s.agent?.child !== undefined, "agent with a session"), { open: true }); });
+export const AgentBriefLong = story("tool agent, open: a long brief in its slip, faded, with read all and copy", async () => { const l = await northstar(); const s = pickStep(l, (x) => x.family === "spawn" && x.agent?.child !== undefined, "agent"); const brief = Array.from({ length: 18 }, (_, i) => `${i + 1}. ${s.agent?.brief.split(/(?<=\.)\s/)[0] ?? "do the work"}`).join("\n"); return stepRow(l, { ...s, agent: { ...(s.agent ?? { name: "agent" }), brief: `Start here. ${brief}` } as NonNullable<Step["agent"]> }, { open: true }); });
+export const MessageToAgent = story("tool note, open: a message to another agent in its slip, with copy", async () => { const l = await northstar(); const s = pickStep(l, (x) => x.family === "spawn", "a step to recast"); const note: Step = { ...s, family: "message", tool: "message", object: "transport_impl", words: "the render path is done on my side. keep to the transport files and report when the pacing test passes; do not commit." }; delete (note as { agent?: unknown }).agent; return stepRow(l, note, { open: true }); });
 export const AgentDidNotStart = story("tool agent, completed: never started", async () => { const l = await northstar(); return stepRow(l, pickStep(l, (s) => s.family === "spawn" && s.agent?.child === undefined, "agent without a session"), { open: true }); });
 export const AgentWorking = story("tool agent, live: working alongside, with a clock", async () => { const l = await northstar(); const s = pickStep(l, (x) => x.family === "spawn" && x.agent?.child !== undefined, "agent"); return stepRow(l, s, { now: s.at + 190_000 }); });
 /** the agent row after its turn ended, read from the child's own state (docs/thread.md, agents): the fixture's child is
@@ -236,7 +293,25 @@ const asked = async (questions: readonly Asked[]): Promise<Built> => {
 export const QuestionLongPending = story("tool ask, pending: a header, a four line question, three options of three to five lines each", () => asked(LONG_ASK));
 export const QuestionTwoPending = story("tool ask, pending: two questions in one ask, answered together", () => asked(TWO_QUESTIONS));
 export const QuestionAnswered = story("tool ask, completed: answered", async () => { const l = await notes(); return stepRow(l, pickStep(l, (s) => s.family === "ask" && s.status === "completed", "answered question"), { open: true }); });
-export const QuestionDismissed = story("tool ask, error: dismissed", async () => { const l = await notes(); return stepRow(l, pickStep(l, (s) => s.family === "ask" && s.status === "error", "dismissed question"), { open: true }); });
+export const QuestionAnsweredHere = story("tool ask, completed: answered on this device, the record says where and when after any repaint", () => repliedRow((s) => s.family === "ask" && s.status === "completed", "answered question", { kind: "question", reply: { k: "answers", answers: [["hi"]] }, who: { here: true } }, { open: true }));
+export const QuestionDismissed = story("tool ask, error: dismissed, its record", async () => { const l = await notes(); return stepRow(l, pickStep(l, (s) => s.family === "ask" && s.status === "error", "dismissed question"), { open: true }); });
+export const QuestionAnsweredOptions = story("tool ask, completed: the record open to the options as they were offered, the chosen one marked", async () => { const l = await notes(); const s = pickStep(l, (x) => x.family === "ask" && x.status === "completed", "answered question"); const built = stepRow(l, s, { open: true }); return { ...built, node: (wide) => createComponent(Pressed, { press: ".ask-rec-more", get children() { return built.node(wide); } }) }; });
+export const QuestionEnded = story("tool ask, error: not answered, its turn ended under it", async () => { const l = await cmx(); return stepRow(l, pickStep(l, (s) => s.family === "ask" && s.status === "error", "aborted question"), { open: true }); });
+export const QuestionTwoAnswered = story("tool ask, completed: two questions answered together, one typed, the record open", async () => {
+  const l = await notes();
+  const s = pickStep(l, (x) => x.family === "ask" && x.status === "completed", "answered question");
+  const two: Step = { ...s, questions: TWO_QUESTIONS.map((q, i) => ({ header: q.header, question: q.question, options: q.options, custom: q.custom, multiple: q.multiple === true, answer: i === 0 ? [q.options[1]?.label ?? ""] : ["after the release, not before"] })) };
+  const built = stepRow(l, two, { open: true });
+  return { ...built, node: (wide) => createComponent(Pressed, { press: ".ask-rec-more", get children() { return built.node(wide); } }) };
+});
+export const AskCardOnItsOwn = story("ask card on its own: the card outside the thread, as home's answer sheet draws it", async () => {
+  const l = await notes("question pending: greeting");
+  const s = pickStep(l, (x) => x.family === "ask" && x.status !== "completed" && x.status !== "error", "pending question");
+  const m = stepModel({ ...s, questions: TWO_QUESTIONS.map((q) => ({ header: q.header, question: q.question, options: q.options, custom: q.custom, multiple: q.multiple === true, answer: undefined })) }, l.ctx);
+  if (m.body?.k !== "ask") throw new Error("the step has no ask");
+  const body = m.body;
+  return { tone: l.tone, node: () => createComponent(AskCard, { b: body }) };
+});
 export const AskInProse = story("tool ask, completed: a long question the agent wrote", async () => { const l = await cmx(); return stepRow(l, pickStep(l, (s) => s.family === "ask" && s.object.length > 80, "long question")); });
 export const Skill = story("tool skill", async () => { const l = await northstar(); return stepRow(l, pickStep(l, (s) => s.family === "skill", "skill")); });
 export const Find = story("tool find, completed: a glob and its files", async () => { const all = [await northstar(), await cmx()]; const l = all.find((x) => stepsOf(x.turns).some((s) => s.tool === "glob")) ?? all[0]; if (!l) throw new Error(); return stepRow(l, pickStep(l, (s) => s.tool === "glob", "glob"), { open: true }); });
@@ -251,11 +326,20 @@ export const StoppedRow = story("stopped: you stopped it", async () => { const l
 export const FailedRow = story("failed: the turn failed", async () => { const l = await northstar(); const t: Turn = { ...turnAt(l, 6), status: "failed", error: "the provider returned 529: overloaded" }; const m = endRows(t).find((x) => x.kind === "failed"); if (!m) throw new Error("no failed row"); return { ...oneRow(l, m), note: "no failed turn in the fixtures; this is the failed shape on a real turn" }; });
 export const GapBetweenRows = story("a gap: minutes later", async () => { const l = await northstar(); const t = l.turns.find((x) => { const rows = rowsOf(x.items); let prev = x.at; return rows.some((r) => { const g = r.at - prev > 90_000; prev = Math.max(prev, r.end); return g; }); }); if (!t) throw new Error("no gap in the fixture"); return inHost(l, () => createComponent(Ledger, { turn: t, ctx: l.ctx })); });
 
-/* ---------- the tape ---------- */
+/* ---------- the step group ---------- */
 
-export const TapeHeavy = story("tape: a 32 minute turn with an agent", async () => { const l = await northstar(); return inHost(l, () => createComponent(Tape, { turn: turnAt(l, 1), ctx: l.ctx })); });
-export const TapeStopped = story("tape: a turn you stopped", async () => { const l = await northstar(); return inHost(l, () => createComponent(Tape, { turn: turnAt(l, 5), ctx: l.ctx })); });
-export const TapeLive = story("tape, live: the scale runs ahead, the head travels", async () => { const l = await northstar(); const t = turnAt(l, 1); const now = t.at + 4 * 60_000 + 20_000; const live: Turn = { ...t, items: t.items.filter((x) => x.at <= now), status: "working" }; return inHost(l, () => createComponent(Tape, { turn: live, ctx: l.ctx, now, live: true })); });
+/** what a story shows once a finger has pressed a control in it: the first control the selector finds, pressed as it mounts */
+function Pressed(props: { press: string; children: SolidJSX.Element }) {
+  onMount(() => document.querySelector<HTMLButtonElement>(props.press)?.click());
+  return props.children;
+}
+/** a ledger whose first group the reader has opened (a press on its line) */
+const OpenedLedger = (props: { turn: Turn; ctx: RowCtx }) => createComponent(Pressed, { press: ".row.group > button.row-h", get children() { return createComponent(Ledger, { turn: props.turn, ctx: props.ctx }); } });
+export const GroupSettled = story("step group, settled: each run between the agent's words is one line and its strip", async () => { const l = await northstar(); return inHost(l, () => createComponent(Ledger, { turn: turnAt(l, 1), ctx: l.ctx })); });
+export const GroupOpen = story("step group, open: its strip and every step, the latest one open", async () => { const l = await northstar(); return inHost(l, () => createComponent(OpenedLedger, { turn: turnAt(l, 1), ctx: l.ctx })); });
+export const GroupFailed = story("step group, settled: a run with a failure says how many failed, in red", async () => { const l = await cmx(); return inHost(l, () => createComponent(Ledger, { turn: turnAt(l, 0), ctx: l.ctx })); });
+export const GroupStopped = story("step group, settled: a turn you stopped", async () => { const l = await northstar(); return inHost(l, () => createComponent(Ledger, { turn: turnAt(l, 5), ctx: l.ctx })); });
+export const StripOrdered = story("strip, in order: a home window's steps known only by their order, the running one lit", async () => { const l = await cmx(); const strip = orderedStrip([{ kind: "read", running: false, bad: false }, { kind: "search", running: false, bad: false }, { kind: "edit", running: false, bad: false }, { kind: "run", running: false, bad: true }, { kind: "edit", running: false, bad: false }, { kind: "spawn", running: false, bad: false }, { kind: "run", running: true, bad: false }], true); return inHost(l, () => createComponent(StripLane, { strip })); });
 
 /* ---------- live ---------- */
 
@@ -282,6 +366,7 @@ const REPLY = "the deploy is done and the three services came up in order.\n\n- 
 export const ReplyStreaming = story("text, assistant, streaming, live: the reply streams as the newest row at full height, with its caret", async () => { const l = await cmx(); return arriving(l, turnAt(l, 2), 6, { say: REPLY }); });
 export const ReplyAnnounced = story("text, assistant, announced: the row is there at the start of the reply, empty, with its caret", async () => { const l = await cmx(); return arriving(l, turnAt(l, 2), 6, { say: "" }); });
 export const ThinkingStreaming = story("reasoning, streaming, live: thinking, a running clock, its words in the box", async () => { const l = await cmx(); return arriving(l, turnAt(l, 2), 6, { think: "the health check failed once and then passed, which points at a service that was slow to start rather than one that is broken. before saying it is fine i want to read the second service's log, since a pass after a fail can also mean the check was only retried and the cause is still there, waiting for the next deploy to show itself." }); });
+export const ThinkingWhole = story("reasoning, streaming, live: a tap on the box shows the whole thought, growing as it is written", async () => { const l = await cmx(); const built = arriving(l, turnAt(l, 2), 6, { think: "the health check failed once and then passed, which points at a service that was slow to start rather than one that is broken. before saying it is fine i want to read the second service's log, since a pass after a fail can also mean the check was only retried and the cause is still there, waiting for the next deploy to show itself. the log will say whether the first check timed out or was refused, and a refusal means the port was not open yet, which is the slow start, while a timeout means it was open and did not answer, which is worse." }); return { ...built, node: (wide) => createComponent(Pressed, { press: ".live-door", get children() { return built.node(wide); } }) }; });
 export const ThinkingAnnounced = story("reasoning, announced: the thinking row opens with its clock before the first word", async () => { const l = await cmx(); return arriving(l, turnAt(l, 2), 6, { think: "" }); });
 export const CommandRunningLive = story("live: a command running at the end of the ledger, the rows above it closed and openable", async () => {
   const l = await northstar();
@@ -301,7 +386,7 @@ export const AskPendingLive = story("live: a question waits in a running turn, i
   if (!t) throw new Error("no turn in the snapshot");
   return live(l, running(t, t.items), (t.items.at(-1)?.at ?? t.at) + 9_000);
 });
-export const HeavyLiveStuck = story("live: twelve minutes into a heavy turn, the tape stuck at the foot of the view while the rows run on above it", async () => {
+export const HeavyLive = story("live: twelve minutes into a heavy turn, the running step open under its run's group, the strip's head at now", async () => {
   const l = await northstar();
   const t = turnAt(l, 1);
   const now = t.at + 12 * 60_000;

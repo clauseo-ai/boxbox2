@@ -1,0 +1,17 @@
+/* the frame an assistant story stands in: the thread's flood in the assistant's palette with the ledger's column, or the
+   page's ground for home's and the agents screen's pieces */
+
+.as-story { position: fixed; inset: 0; overflow: auto; background: var(--ground); font-family: var(--sans); color: var(--text); }
+.as-stage { background: linear-gradient(180deg, var(--flood-1) 0%, var(--flood-2) 40%, var(--flood-3) 100%); }
+.as-stage > .thread { max-width: 724px; margin: 0 auto; padding: 32px 20px 48px; display: flex; flex-direction: column; gap: 16px; }
+.as-composer-story { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.as-head { display: grid; gap: 2px; padding: 20px 24px 0; max-width: 724px; width: 100%; margin: 0 auto; }
+.as-head b { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; }
+.as-head .as-live { font-size: 13.5px; color: var(--text-2); }
+.as-composer-story > .as-log { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; justify-content: flex-end; gap: 16px; padding: 24px 20px; max-width: 724px; width: 100%; margin: 0 auto; }
+.as-composer-story > .composer { width: 100%; max-width: 724px; margin: 0 auto; }
+.as-composer-story > .composer[data-mount="sheet"] { padding: 12px 16px 16px; }
+.as-strip-demo { display: grid; }
+.as-strip-demo .reply-strip { position: relative; z-index: 1; }
+.as-strip-demo .as-strip-composer { height: 60px; display: flex; align-items: center; padding: 0 20px; border-radius: 28px; font-size: 16px; color: var(--text-3); background: linear-gradient(172deg, var(--flood-1), var(--flood-2)); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.05); }
+.as-ground > .as-ground-col { max-width: 760px; margin: 0 auto; padding: 32px 20px 48px; display: flex; flex-direction: column; gap: 24px; }

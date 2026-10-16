@@ -1,5 +1,5 @@
 /* the telemetry row for one read of a repo's favicon (telemetry/schema.ts, repo.icon). no host or repo name travels
-   (rule 10): the outcome and how long it took. a clean "no icon" is no failure, so it carries no ok; a read that came to
+   (AGENTS.md, telemetry): the outcome and how long it took. a clean "no icon" is no failure, so it carries no ok; a read that came to
    nothing does. kept out of probe.ts so the probe holds no worker import and its states can be tested */
 
 import { emit } from "../../sync/client";

@@ -47,19 +47,20 @@
 @media (hover: hover) { .details .cx:hover { color: var(--text); } }
 @media (pointer: coarse) { .details .cx::after { content: ""; position: absolute; inset: -6px; } }
 
-/* docked beside the log from strip width, a well pressed into the stage's flood (light: a lit card of the stage's colour, as an open row is); on the phone a sheet of glass that
-   rises from the bottom over a scrim */
+/* docked beside the log where the column beside it keeps 704 px (inspector.ts, docksBeside), a well pressed into the stage's flood (light: a lit card of the stage's
+   colour, as an open row is); elsewhere a sheet of glass that rises from the bottom over a scrim, no wider than 560 px on a wide stage */
 .turns { flex: none; width: 0; overflow: hidden; display: flex; flex-direction: column; }
-.thread-stage.wide .turns.on { width: 324px; }
-.details.docked { width: 312px; margin: 12px 12px 12px 0; flex: 1; min-height: 0; display: flex; flex-direction: column; border-radius: 22px; background: color-mix(in srgb, rgb(255 255 255 / 0.5) calc(var(--L) * 100%), rgb(0 0 0 / 0.26)); box-shadow: inset 0 0 0 1px var(--hairline), inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.9) calc(var(--L) * 100%), transparent), 0 10px 20px -14px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), transparent); }
+.thread-stage.docks .turns.on { width: 342px; }
+.details.docked { width: 330px; margin: 12px 12px 12px 0; flex: 1; min-height: 0; display: flex; flex-direction: column; border-radius: 22px; background: color-mix(in srgb, rgb(255 255 255 / 0.5) calc(var(--L) * 100%), rgb(0 0 0 / 0.26)); box-shadow: inset 0 0 0 1px var(--hairline), inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.9) calc(var(--L) * 100%), transparent), 0 10px 20px -14px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), transparent); }
 .details.sheet { display: flex; flex-direction: column; flex: 1; min-height: 0; width: auto; border-radius: 30px; background: var(--glass-deep); -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5); box-shadow: var(--glass-edge), var(--lift); }
 .details:is(.docked, .sheet) .dt-hd { padding: 16px 12px 8px 20px; }
 .details:is(.docked, .sheet) .dt-hd h2 { font-size: 16px; font-weight: 650; font-stretch: 108%; letter-spacing: -0.015em; }
 .details:is(.docked, .sheet) .dt-hd h2 small { font-size: 12px; margin-top: 1px; }
 .details:is(.docked, .sheet) .dt-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 20px 28px; scrollbar-width: none; -webkit-mask-image: linear-gradient(transparent, #000 14px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(transparent, #000 14px, #000 calc(100% - 28px), transparent); }
 .details:is(.docked, .sheet) .dt-body::-webkit-scrollbar { display: none; }
-.thread-stage:not(.wide) .turns { position: absolute; z-index: 8; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); width: auto; height: 74%; overflow: visible; transform: translateY(calc(100% + 30px)); transition: transform var(--sheet-t); visibility: hidden; }
-.thread-stage:not(.wide) .turns.on { transform: none; visibility: visible; }
+.thread-stage:not(.docks) .turns { position: absolute; z-index: 8; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); width: auto; height: 74%; overflow: visible; transform: translateY(calc(100% + 30px)); transition: transform var(--sheet-t); visibility: hidden; }
+.thread-stage.wide:not(.docks) .turns { left: max(12px, calc(50% - 280px)); right: max(12px, calc(50% - 280px)); }
+.thread-stage:not(.docks) .turns.on { transform: none; visibility: visible; }
 /* the sheet's title is the thread's, as large as the prototype's details sheet sets it, with where it runs under it */
 .details.sheet .dt-hd { position: relative; margin-top: 16px; align-items: flex-start; }
 .details.sheet .dt-hd::before { content: ""; position: absolute; left: 50%; top: -9px; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--text-3); }

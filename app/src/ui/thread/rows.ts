@@ -2,6 +2,7 @@
    what each row shows (docs/thread.md, the row, folding, display rules).
    pure; no dom. the components paint these. */
 
+import type { AskReply } from "../../sync/replies";
 import type { Evidence } from "./evidence";
 import { type Item, type Picture, type Question, type Say, type Step, type Think, type Turn, homeAsTilde } from "./model";
 import { type Token, base, commandTokens, dirOf, firstLine } from "./shell";
@@ -182,9 +183,11 @@ export type RowModel = {
   agent?: string;
   /** an agent row's child session, which the stage holds once the row is on screen */
   child?: string;
+  /** a settled permission's record, when this device replied to it: the line above the tool's own body ("you allowed it once") */
+  permit?: AskReply;
 };
 
-export type Bed = { lines: string[]; cut?: { at: number; n: number }; /** a line shown was cut at the cap: the bed is not all of what the output holds, whatever it says it cut */ clipped?: boolean };
+export type Bed = { lines: string[]; cut?: { at: number; n: number }; /** lines past what a bed opens to, said under the last */ rest?: number; /** a line shown was cut at the cap: the bed is not all of what the output holds, whatever it says it cut */ clipped?: boolean };
 export type DiffLine = { kind: "add" | "del" | "ctx" | "hunk" | "tail"; text: string };
 /** how many thumbnails one open row draws: a row of eight is a screen of them on a phone, and every one is an image the browser decodes */
 export const MAX_PICTURES = 8;
@@ -218,12 +221,13 @@ export type FileLine = { path: string; note: string; /** what the read returned 
 
 export type Body =
   | { k: "shell"; facts: Fact[]; /** the command in its bed, as it is shown (home as ~): every open shell row has one, so its copy control is always on the command */ command?: string[]; /** the command as the agent sent it, which its copy control copies */ commandRaw?: string | undefined; output?: Bed; /** how many lines the output has, which its bed's header says */ outputLines?: number | undefined; /** the output as the store holds it, for its copy control to clean and copy at the press */ outputRaw?: string | undefined; /** what the command returned as images, and how many more there were */ images?: Picture[]; more?: number; error?: string }
-  | { k: "diff"; bar?: FileLine["bar"]; lines?: DiffLine[]; none?: string; error?: string }
-  | { k: "read"; files: FileLine[]; preview?: Bed; /** images the row does not draw: past its cap, or dropped by the daemon */ more?: number; error?: string }
+  | { k: "diff"; bar?: FileLine["bar"]; lines?: DiffLine[]; /** a write's whole content, which "show the whole diff" opens when its lines stop at 80 */ wrote?: string; none?: string; error?: string }
+  | { k: "read"; files: FileLine[]; preview?: Bed; /** the preview as the file's own lines, numbered from where the read began, for its bed and the reader */ file?: { path: string; lines: string[]; from: number; total?: number | undefined; /** the read's whole output, which its bed and the reader take every line from (evidence.ts, readLines) */ raw?: string | undefined; /** how many lines the read returned, when it said */ read?: number | undefined }; /** images the row does not draw: past its cap, or dropped by the daemon */ more?: number; error?: string }
   | { k: "images"; images: Picture[]; more?: number }
   | { k: "hits"; files: Array<{ path: string; hits: Array<{ line: string; text: string }> }>; list: string[]; spread: Array<{ name: string; n: number }>; error?: string }
+  | { k: "message"; to: string; text: string }
   | { k: "agent"; facts: Fact[]; brief: string; name: string; /** its session, when it started: the door to its thread */ child?: string }
-  | { k: "ask"; askID?: string; questions: AskQuestion[]; dismissed: boolean; pending: boolean }
+  | { k: "ask"; askID?: string; questions: AskQuestion[]; dismissed: boolean; pending: boolean; /** what came of it once it is not pending: answered, dismissed (the daemon's words for a dismissal), or ended (any other error: its turn stopped under it), and when the daemon settled it */ settled?: { how: "answered" | "dismissed" | "ended"; at?: number }; /** this device's record of its reply, once settled: who answered and when, which the transcript does not keep (sync/replies.ts) */ record?: Pick<AskReply, "who" | "at"> }
   | { k: "permission"; askID?: string; what: string; permission: string; patterns: string[]; diff?: DiffLine[] }
   | { k: "plan"; todos: Array<{ content: string; status: "done" | "now" | "later" }> }
   | { k: "thoughts"; thoughts: Array<{ at: number; ms: number; text: string; streaming: boolean }> }
@@ -288,6 +292,8 @@ export type RowCtx = {
   children: ReadonlyMap<string, Child>;
   /** the asks still pending, by the call id of the step that raised them */
   asks?: ReadonlyMap<string, PendingAsk>;
+  /** this device's records of the asks it replied to in this thread, by the call id of the step that raised them */
+  replies?: ReadonlyMap<string, AskReply>;
   /** the moment, while the turn runs */
   now?: number;
   /** the moment, while any of the turn's agents still works after the turn itself ended: the agent rows' clock */
@@ -343,6 +349,9 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
   let content: Inline[] = [], body: Body | undefined, face: RowModel["face"] = "mono", text = "", header = "";
   const error = bad && s.error ? { error: s.error } : {};
   const ask = askOn(s, ctx);
+  /* this device's reply to the ask the step raised, once it settled */
+  const replied = running ? undefined : ctx.replies?.get(s.callID);
+  const permit = replied?.kind === "permission" ? replied : undefined;
   /* the images the tool returned, as many as a row draws, and the count of the rest */
   const capped = capPictures([s.images ?? []], s.imagesDropped);
   const shown = capped.groups[0] ?? [];
@@ -378,7 +387,7 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
       if (ask.permission) {
         body = { k: "permission", askID: ask.permission.id, what: `${ask.permission.permission} ${ask.permission.patterns[0] ?? base(s.object)}`, permission: ask.permission.permission, patterns: ask.permission.patterns, ...(s.diff !== undefined ? { diff: diffLines(s.diff) } : {}) };
         result = { text: "wants you", tone: "lit" };
-      } else body = { k: "diff", ...(bar ? { bar } : {}), ...(s.diff !== undefined ? { lines: diffLines(s.diff) } : { none: s.tool === "write" ? `wrote ${plural(s.add, "line")}` : "no diff was recorded for this edit" }), ...error };
+      } else body = { k: "diff", ...(bar ? { bar } : {}), ...(s.diff !== undefined ? { lines: diffLines(s.diff), ...(s.wrote !== undefined ? { wrote: s.wrote } : {}) } : { none: s.tool === "write" ? `wrote ${plural(s.add, "line")}` : "no diff was recorded for this edit" }), ...error };
       break;
     }
     case "read": {
@@ -386,7 +395,7 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
       const partial = s.span?.total !== undefined && s.span.end - s.span.start + 1 < s.span.total;
       // a failed read has no file line: the row already names the file and the result, and the error bed says why
       const files = s.status === "error" ? [] : [{ path: s.object, note: result.text || (s.images?.length ? plural(s.images.length, "image") : ""), ...(shown.length ? { images: shown } : {}), ...(partial && s.span ? { bar: { total: s.span.total as number, reads: [s.span], hunks: [] } } : {}) }];
-      body = { k: "read", files, ...(s.output ? { preview: bedOf(s.output) as Bed } : {}), ...(capped.more ? { more: capped.more } : {}), ...error };
+      body = { k: "read", files, ...(s.output ? { preview: bedOf(s.output) as Bed, file: { path: s.object, lines: s.output.lines, from: s.span?.start ?? 1, total: s.span?.total, raw: s.readRaw, read: s.span ? s.span.end - s.span.start + 1 : undefined } } : {}), ...(capped.more ? { more: capped.more } : {}), ...error };
       // a read of a picture has no lines to count: the row says how many images instead, so a closed row says it opens
       if (!result.text && s.status === "completed" && (s.images?.length || s.imagesDropped)) result = quiet(imagesSaid(s.images?.length ?? 0, s.imagesDropped ?? 0));
       if (ask.permission) { body = { k: "permission", askID: ask.permission.id, what: `read ${ask.permission.patterns[0] ?? base(s.object)}`, permission: ask.permission.permission, patterns: ask.permission.patterns }; result = { text: "wants you", tone: "lit" }; }
@@ -441,7 +450,8 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
       const head = questions.length > 1 ? `${questions.length} questions` : (questions[0]?.question ?? "a question");
       content = [{ t: "prose", s: head }]; face = "sans"; text = head;
       if (questions.length === 1) header = questions[0]?.header.trim() ?? "";
-      body = { k: "ask", ...(ask.question ? { askID: ask.question.id } : {}), questions, dismissed: bad || (s.status === "error" && !!s.interrupted), pending: running };
+      const how = s.status !== "error" ? "answered" : /dismiss/i.test(s.error ?? "") ? "dismissed" : "ended";
+      body = { k: "ask", ...(ask.question ? { askID: ask.question.id } : {}), questions, dismissed: bad || (s.status === "error" && !!s.interrupted), pending: running, ...(running ? {} : { settled: { how, ...(s.ms > 0 ? { at: s.at + s.ms } : {}) } }), ...(replied?.kind === "question" ? { record: { who: replied.who, at: replied.at } } : {}) };
       result = running ? (ask.question ? { text: "wants you", tone: "lit" } : { text: "waiting", tone: "faint" }) : s.status === "error" ? quiet("dismissed") : questions.some((q) => q.answer) ? quiet("answered") : none;
       break;
     }
@@ -453,7 +463,7 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
       break;
     }
     case "skill": content = [{ t: "text", s: s.object }]; text = s.object; break;
-    case "message": content = [{ t: "lead", s: "to " }, { t: "text", s: s.object || "parent" }]; text = `to ${s.object || "parent"}`; break;
+    case "message": content = [{ t: "lead", s: "to " }, { t: "text", s: s.object || "parent" }]; text = `to ${s.object || "parent"}`; if (s.words) body = { k: "message", to: s.object || "parent", text: s.words }; break;
     case "wait": {
       /* what it waits on while it runs, who it heard from once it has (docs/thread.md, the rows) */
       let working = 0;
@@ -470,10 +480,11 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
   /* a running question the daemon has not raised yet waits closed; a raised ask is open */
   const pendingAsk = running && (ask.permission !== undefined || ask.question !== undefined);
   return {
-    key: s.id, kind, face, content, ...(header ? { header } : {}), result, body, open: bad || pendingAsk, bad, stopped: !!s.interrupted, running,
+    key: s.id, kind, face, content, ...(header ? { header } : {}), result, body, open: bad || pendingAsk || (permit !== undefined && body !== undefined), bad, stopped: !!s.interrupted, running,
     label: `${kind} ${text}${result.text ? `, ${result.text}` : ""}`, at: s.at, end: s.at + s.ms,
     clamps: !(s.family === "read" || s.family === "edit" || s.family === "ask"),
     partIDs: [s.id],
+    ...(permit ? { permit } : {}),
     ...(s.family === "spawn" && s.agent ? { agent: s.agent.name } : {}),
     ...(s.family === "spawn" && s.agent?.child ? { child: s.agent.child } : {}),
     ...(s.family === "spawn" && s.agent?.child && reportFor(ctx, s) ? { link: { report: s.agent.name, turn: (reportFor(ctx, s) as Turn).id } } : {}),
@@ -510,7 +521,7 @@ export function foldModel(f: FoldRow, ctx: RowCtx): RowModel {
     const base0 = one ? readout(steps[0] as Step) : none;
     // pictures have no lines to count: the row says how many images there are instead, so a closed row says it opens
     const result = !base0.text && (pictures || dropped) ? quiet(imagesSaid(pictures, dropped)) : base0;
-    return { key: `fold:${f.at}`, kind, face: "mono", content, result, body: { k: "read", files: lines, ...(one?.preview ? { preview: one.preview } : {}), ...(capped.more ? { more: capped.more } : {}) }, open: false, bad: false, stopped: false, running: false, label: `read ${one ? one.path : plural(files.length, "file")}${result.text ? `, ${result.text}` : ""}`, at: f.at, end: f.end, clamps: !one, partIDs: steps.map((s) => s.id) };
+    return { key: `fold:${f.at}`, kind, face: "mono", content, result, body: { k: "read", files: lines, ...(one?.preview ? { preview: one.preview, file: { path: one.path, lines: one.preview.lines, from: one.spans[0]?.start ?? 1, total: one.total, ...(steps.length === 1 ? { raw: steps[0]?.readRaw, read: one.spans[0] ? one.spans[0].end - one.spans[0].start + 1 : undefined } : {}) } } : {}), ...(capped.more ? { more: capped.more } : {}) }, open: false, bad: false, stopped: false, running: false, label: `read ${one ? one.path : plural(files.length, "file")}${result.text ? `, ${result.text}` : ""}`, at: f.at, end: f.end, clamps: !one, partIDs: steps.map((s) => s.id) };
   }
   const objs = [...new Set(steps.map((s) => s.object))];
   const hits = steps.reduce((a, s) => a + (Number(/^(\d+)/.exec(s.result)?.[1]) || 0), 0);
@@ -578,10 +589,4 @@ export function endRows(t: Turn): RowModel[] {
   if (t.status === "aborted") out.push({ key: `stopped:${t.id}`, kind: "stopped", face: "mono", content: [{ t: "lead", s: `you stopped it after ${dur(t.end - t.at)}` }], result: none, body: undefined, open: false, bad: false, stopped: true, running: false, label: "", at: t.end, end: t.end, clamps: false, partIDs: [] });
   if (t.status === "failed") out.push({ key: `failed:${t.id}`, kind: "failed", face: "mono", content: [{ t: "text", s: t.error ?? "the turn failed" }], result: none, body: undefined, open: false, bad: true, stopped: false, running: false, label: "", at: t.end, end: t.end, clamps: false, partIDs: [] });
   return out;
-}
-
-/** a heavy turn carries the tape: more than six steps, longer than three minutes, or any agent */
-export function heavy(t: Turn, now?: number): boolean {
-  const steps = t.items.filter((x): x is Step => x.k === "step");
-  return steps.length > 6 || (now ?? t.end) - t.at > 180_000 || steps.some((s) => s.family === "spawn");
 }

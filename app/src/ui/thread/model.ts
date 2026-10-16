@@ -38,6 +38,12 @@ export interface Step {
   interrupted?: boolean;
   /** a command's output, head and tail; a read's opening lines. `raw` is the command's whole output as the store holds it (the same string, not a copy), which its copy control cleans and copies at the press: the lines above are cut (a head, a tail, each line at 220 characters) */
   output?: { lines: string[]; cut: number; cutAt: number; /** a line shown was cut at the cap (evidence.ts, LINE_MAX) */ clipped?: boolean; raw?: string };
+  /** a completed read's whole output as the store holds it (the same string, not a copy): its bed and the reader take every line
+      from it when the row opens (evidence.ts, readLines) */
+  readRaw?: string;
+  /** a write's whole content as the agent sent it (the same string): its diff keeps 80 lines, and "show the whole diff" opens
+      the rest from this */
+  wrote?: string;
   /** the command as the agent sent it, whole (`object` has the leading `cd` taken off), what its copy control copies */
   command?: string;
   outputLines?: number;
@@ -65,6 +71,8 @@ export interface Step {
   /** an edit's hunk, a write's content as additions */
   diff?: string;
   agent?: Agent;
+  /** what a message to another agent said */
+  words?: string;
   /** a wait for one reply (cmx2's `correlation_id`), not for whatever comes */
   reply?: boolean;
   todos?: Todo[];
@@ -103,10 +111,17 @@ export interface Turn {
   /** files the turn edited, with their counts */
   files: Map<string, { add: number; del: number }>;
   compacted: boolean;
+  /** a compaction's summary: the text of the assistant message cmx2 marks `summary: true` after the compaction part. it is the card the
+      mark opens, never a row or the answer; what follows it is the turn's own work. a compaction recorded with no such message has none,
+      and its last words are its summary (the old reading) */
+  summary?: string;
   model?: string;
   effort?: string;
   /** parts the contract does not name, dropped (ask a15); counted so the gap is visible */
   unknownParts: number;
+  /** the photos the person sent with the message (its `file` parts a browser draws), drawn above its words; the same data url strings
+      the store holds */
+  photos?: Picture[];
 }
 
 const HOME = /^\/Users\/[^/]+|^\/home\/[^/]+/;
@@ -190,6 +205,16 @@ export function picturesOf(state: unknown): { images: Picture[]; dropped: number
   return { images, dropped: Math.max(0, Math.floor(number(s?.["attachmentsDropped"]) ?? 0)) };
 }
 
+/** the photos a person sent with a message: its `file` parts whose mime and data url are an image a browser draws, in order */
+export function photosOf(parts: readonly WirePart[]): Picture[] {
+  return parts.flatMap((p) => {
+    if (p.type !== "file") return [];
+    const r = p as Record<string, unknown>;
+    const mime = string(r["mime"]), url = string(r["url"]);
+    return mime !== undefined && url !== undefined && DRAWABLE.test(mime) && DRAWABLE_URL.test(url) ? [{ mime, filename: string(r["filename"]) ?? "", url }] : [];
+  });
+}
+
 /** when a step started: its own start, else its end, else the message it rides in. cmx2 leaves `time.start` null on native tool parts (gotchas.md) */
 function stepOf(part: ToolPart, root: string, messageAt: number): Base {
   const state = part.state;
@@ -215,6 +240,7 @@ function stepOf(part: ToolPart, root: string, messageAt: number): Base {
       if (span) step.span = span;
       const preview = (string(meta["preview"]) ?? out).replace(/^<path>[\s\S]*?<content>\n/, "").split("\n").slice(0, 10).join("\n").slice(0, 900);
       if (preview.trim()) step.output = { lines: preview.split("\n"), cut: 0, cutAt: -1 };
+      if (state.status === "completed" && out) step.readRaw = out;
       break;
     }
     case "search": {
@@ -243,6 +269,7 @@ function stepOf(part: ToolPart, root: string, messageAt: number): Base {
       if (tool === "write") {
         const content = string(input["content"]) ?? "";
         step.add = lineCount(content);
+        if (content) step.wrote = content;
         const body = content.split("\n");
         step.diff = body.slice(0, 80).map((l) => `+${l}`).join("\n") + (body.length > 80 ? `\n+\u0002${body.length - 80}` : "");
         step.result = meta["exists"] === false || boolean(meta["created"]) ? `new, ${step.add} lines` : `${step.add} lines`;
@@ -316,9 +343,12 @@ function stepOf(part: ToolPart, root: string, messageAt: number): Base {
       step.object = name;
       break;
     }
-    case "message":
+    case "message": {
       step.object = (string(input["target"]) ?? string(input["to"]) ?? string(meta["target"]) ?? "").replace(/^\/root\/?/, "");
+      const words = string(input["message"]) ?? string(input["body"]) ?? string(input["text"]);
+      if (words) step.words = words;
       break;
+    }
     case "wait":
       step.result = boolean(meta["timed_out"]) ? "timed out" : "";
       step.object = arrivalsOf(list(meta["items"]));
@@ -479,11 +509,17 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
     if (info.role === "user") {
       const o = originOf(info, parts);
       const compacted = parts.some((p) => p.type === "compaction");
-      cur = { id: info.id, by: compacted ? "compaction" : steered.has(info.id) ? "steer" : o.by, prompt: o.text, ...(o.from ? { from: o.from } : {}), ...(o.fromID ? { fromID: o.fromID } : {}), ...(o.note ? { note: true } : {}), at: info.time.created, end: info.time.created, items: [], status: "done", cost: 0, files: new Map(), compacted, unknownParts: 0 };
+      const photos = photosOf(parts);
+      cur = { id: info.id, by: compacted ? "compaction" : steered.has(info.id) ? "steer" : o.by, prompt: o.text, ...(o.from ? { from: o.from } : {}), ...(o.fromID ? { fromID: o.fromID } : {}), ...(o.note ? { note: true } : {}), at: info.time.created, end: info.time.created, items: [], status: "done", cost: 0, files: new Map(), compacted, unknownParts: 0, ...(photos.length ? { photos } : {}) };
       turns.push(cur);
       continue;
     }
     if (!cur) continue;
+    if (cur.compacted && boolean(extra["summary"])) {
+      const said = parts.filter((p) => p.type === "text" && !boolean((p as Record<string, unknown>)["synthetic"])).map(textOf).join("\n\n");
+      cur.summary = cur.summary === undefined ? said : `${cur.summary}\n\n${said}`;
+      continue;
+    }
     cur.cost += number(extra["cost"]) ?? 0;
     cur.end = info.time.completed ?? cur.end;
     const model = string(extra["modelID"]), effort = string(extra["variant"]);

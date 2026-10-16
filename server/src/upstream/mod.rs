@@ -12,7 +12,8 @@
 pub mod backoff;
 mod memory;
 pub mod paired;
-mod reconcile;
+pub mod reconcile;
+pub mod source;
 pub mod sse;
 mod tails;
 mod watcher;
@@ -21,7 +22,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use reqwest::Url;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -31,10 +32,11 @@ use utoipa::ToSchema;
 use crate::config::{Credential, HostConfig, Origin};
 use crate::fleet::Upstream;
 use crate::fleet::model::TailRequest;
+use crate::source::{AgentSource, ConnectionConfig, Exit, SourceSender};
 pub use memory::Memory;
 
 /// what `GET /api/hosts` says about one host.
-#[derive(Clone, Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HostStatus {
     /// the host's name, from `boxbox.toml` or given when it was paired.
@@ -62,7 +64,7 @@ pub struct HostStatus {
     pub cursor: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Connection {
     /// dialling, or waiting out the backoff before the next dial.
@@ -73,7 +75,7 @@ pub enum Connection {
     Down,
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Health {
     pub healthy: bool,
@@ -88,7 +90,7 @@ pub struct Health {
 }
 
 /// frames read from the host since the server started.
-#[derive(Clone, Copy, Debug, Default, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct FrameCounts {
     pub decoded: u64,
@@ -112,6 +114,8 @@ struct Counters {
 pub struct HostView {
     /// the host as configured, credential included; it never leaves the server.
     pub config: Arc<HostConfig>,
+    /// the connection's source: contract 1's routes call the daemon through it.
+    pub source: Arc<source::Cmx2Source>,
     status: watch::Receiver<HostStatus>,
     memory: watch::Receiver<Option<Memory>>,
     counters: Arc<Counters>,
@@ -131,15 +135,154 @@ impl HostView {
     }
 }
 
+#[cfg(test)]
+impl HostView {
+    /// a host with no watcher behind it, whose agent publishes `capabilities`:
+    /// for the routes' tests, which judge what happens before the daemon.
+    #[must_use]
+    pub fn detached(config: HostConfig, capabilities: crate::wire::Capabilities) -> Self {
+        let config = Arc::new(config);
+        let (sender, status) = watch::channel(HostStatus {
+            name: config.name.clone(),
+            url: config.url.to_string(),
+            origin: config.origin,
+            connection: Connection::Connecting,
+            since: 0,
+            health: None,
+            last_error: None,
+            connects: 0,
+            frames: FrameCounts::default(),
+            memory: None,
+            cursor: None,
+        });
+        let counters = Arc::new(Counters::default());
+        let source = Arc::new(source::Cmx2Source::new(
+            Arc::clone(&config),
+            reqwest::Client::new(),
+            Arc::new(sender),
+            Arc::clone(&counters),
+            &source::Shared::new(crate::media::Media::detached()),
+        ));
+        let mut agent = crate::source::cmx2::translate::agent(&config.name);
+        agent.capabilities = capabilities;
+        source.publish(agent);
+        Self {
+            config,
+            source,
+            status,
+            memory: watch::channel(None).1,
+            counters,
+        }
+    }
+}
+
 /// the hosts being watched now, in config order.
 pub type Hosts = Arc<[HostView]>;
 
-/// what the rest of the server holds: the current hosts, and a way to
-/// hand the supervisor a change to them.
+/// the running sources that are not cmx2 (openclaw, hermes), in config
+/// order.
+pub type Sources = Arc<[Arc<dyn AgentSource>]>;
+
+/// a name a paired host may not take: a configured openclaw or hermes
+/// connection's, or an agent key one of them pins (`agents.md`, section 3,
+/// collisions: configured names always win).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reserved {
+    pub name: String,
+    /// what holds it, as a person reads it: `[[openclaw]] "vm-b"`.
+    pub holder: String,
+}
+
+/// the names the configured openclaw and hermes connections hold.
+#[must_use]
+pub fn reserved(connections: &[ConnectionConfig]) -> Vec<Reserved> {
+    let mut names = Vec::new();
+    for connection in connections {
+        let table = match connection {
+            ConnectionConfig::Cmx2(_) => continue,
+            ConnectionConfig::Openclaw(_) => "openclaw",
+            ConnectionConfig::Hermes(_) => "hermes",
+        };
+        names.push(Reserved {
+            name: connection.name().to_owned(),
+            holder: format!("[[{table}]] \"{}\"", connection.name()),
+        });
+        if let ConnectionConfig::Openclaw(openclaw) = connection {
+            for (foreign, agent) in &openclaw.agents {
+                if let Some(key) = &agent.key {
+                    names.push(Reserved {
+                        name: key.clone(),
+                        holder: format!(
+                            "the key of agent \"{foreign}\" on [[openclaw]] \"{}\"",
+                            openclaw.name
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    names
+}
+
+/// what the rest of the server holds: the current hosts and other sources,
+/// the names they reserve, and a way to hand the supervisor a change.
 #[derive(Debug, Clone)]
 pub struct Upstreams {
     pub hosts: watch::Receiver<Hosts>,
+    /// the sources that are not cmx2; the supervisor publishes them as their
+    /// sources are built in (the openclaw lane, m9).
+    pub others: watch::Receiver<Sources>,
+    /// the names configured openclaw and hermes connections hold.
+    pub reserved: watch::Receiver<Arc<[Reserved]>>,
     pub reload: mpsc::Sender<HostChange>,
+}
+
+impl Upstreams {
+    /// every running source, one per connection: the cmx2 ones in config
+    /// order, then the others.
+    #[must_use]
+    pub fn sources(&self) -> Vec<Arc<dyn AgentSource>> {
+        let mut sources: Vec<Arc<dyn AgentSource>> = self
+            .hosts
+            .borrow()
+            .iter()
+            .map(|h| Arc::clone(&h.source) as Arc<dyn AgentSource>)
+            .collect();
+        sources.extend(self.others.borrow().iter().cloned());
+        sources
+    }
+
+    /// the reservation that holds `name`, if one does.
+    #[must_use]
+    pub fn reservation(&self, name: &str) -> Option<Reserved> {
+        self.reserved
+            .borrow()
+            .iter()
+            .find(|r| r.name == name)
+            .cloned()
+    }
+
+    /// a fixed set of hosts and sources with no supervisor behind them, for
+    /// the routes' tests.
+    #[cfg(test)]
+    #[must_use]
+    pub fn fixed(
+        hosts: Vec<HostView>,
+        others: Vec<Arc<dyn AgentSource>>,
+        reserved: Vec<Reserved>,
+    ) -> Self {
+        let (published, hosts) = watch::channel::<Hosts>(Arc::from(hosts));
+        let (offered, others) = watch::channel::<Sources>(Arc::from(others));
+        let (held, reserved) = watch::channel::<Arc<[Reserved]>>(Arc::from(reserved));
+        // the routes read these for as long as the test runs
+        std::mem::forget((published, offered, held));
+        Self {
+            hosts,
+            others,
+            reserved,
+            reload: mpsc::channel(1).0,
+        }
+    }
 }
 
 /// a change to the hosts, from either source. the config file sends its
@@ -147,7 +290,12 @@ pub struct Upstreams {
 /// pairings in flight can never overwrite each other.
 #[derive(Debug)]
 pub enum HostChange {
-    Configured(Vec<HostConfig>),
+    /// the file's cmx2 hosts, and its other connections (whose names a
+    /// paired host may not take).
+    Configured {
+        hosts: Vec<HostConfig>,
+        others: Vec<ConnectionConfig>,
+    },
     Paired(HostConfig),
     Forgotten(String),
 }
@@ -156,15 +304,61 @@ pub enum HostChange {
 /// tails the fleet asks for. everything stops when `shutdown` fires; the
 /// handle finishes once every watcher and the reader have.
 #[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "everything the supervisor owns arrives once, at startup"
+)]
 pub fn spawn(
     hosts: Vec<HostConfig>,
+    connections: &[ConnectionConfig],
     paired: Vec<HostConfig>,
+    shared: source::Shared,
     client: reqwest::Client,
     fleet: mpsc::Sender<Upstream>,
     tails: mpsc::Receiver<TailRequest>,
+    store: &crate::store::Store,
     shutdown: CancellationToken,
 ) -> (Upstreams, JoinHandle<()>) {
+    // cmx2 connections run from \`hosts\` (and the paired ones); the others
+    // each get their own source under the same supervision, published for
+    // the routes through `Upstreams.others`
+    let mut sources: Vec<Arc<dyn AgentSource>> = Vec::new();
+    let mut tasks = Vec::new();
+    for other in connections
+        .iter()
+        .filter(|c| !matches!(c, ConnectionConfig::Cmx2(_)))
+    {
+        // the hermes source is m10's
+        let ConnectionConfig::Openclaw(config) = other else {
+            warn!(
+                connection = other.name(),
+                source = other.source().as_str(),
+                url = %other.url(),
+                "no source of this kind is built into this server yet; the connection is not run"
+            );
+            continue;
+        };
+        match crate::openclaw::source::OpenclawSource::new(config.clone(), store.clone()) {
+            Ok(source) => {
+                info!(connection = %config.name, url = %config.url, "running an openclaw connection");
+                let events = SourceSender::new(Arc::from(config.name.as_str()), fleet.clone());
+                let source = Arc::new(source) as Arc<dyn AgentSource>;
+                sources.push(Arc::clone(&source));
+                tasks.push(tokio::spawn(supervise(
+                    source,
+                    events,
+                    shutdown.child_token(),
+                )));
+            }
+            Err(error) => {
+                warn!(connection = %config.name, %error, "the openclaw connection cannot start");
+            }
+        }
+    }
     let (published, current) = watch::channel::<Hosts>(Arc::from(Vec::new()));
+    let (offered, others) = watch::channel::<Sources>(Arc::from(sources));
+    let (held, reserved_names) =
+        watch::channel::<Arc<[Reserved]>>(Arc::from(reserved(connections)));
     // a config change is rare; a second one while the first applies waits
     let (reload, changes) = mpsc::channel(4);
     let reader = tokio::spawn(tails::run(
@@ -182,15 +376,23 @@ pub fn spawn(
         paired,
         running: Vec::new(),
         published,
+        offered,
+        held,
+        shared,
     };
     supervisor.apply();
     let task = tokio::spawn(async move {
         supervisor.run(changes).await;
+        for task in tasks {
+            let _ = task.await;
+        }
         let _ = reader.await;
     });
     (
         Upstreams {
             hosts: current,
+            others,
+            reserved: reserved_names,
             reload,
         },
         task,
@@ -215,6 +417,15 @@ struct Supervisor {
     paired: Vec<HostConfig>,
     running: Vec<Running>,
     published: watch::Sender<Hosts>,
+    /// the other sources, published for the routes (the openclaw lane fills it).
+    #[allow(
+        dead_code,
+        reason = "the openclaw source publishes through it (m9, the openclaw lane)"
+    )]
+    offered: watch::Sender<Sources>,
+    /// the names the file's other connections hold.
+    held: watch::Sender<Arc<[Reserved]>>,
+    shared: source::Shared,
 }
 
 impl Supervisor {
@@ -225,7 +436,10 @@ impl Supervisor {
                 () = self.shutdown.cancelled() => break,
                 Some(change) = changes.recv() => {
                     match change {
-                        HostChange::Configured(hosts) => self.configured = hosts,
+                        HostChange::Configured { hosts, others } => {
+                            self.configured = hosts;
+                            self.held.send_replace(Arc::from(reserved(&others)));
+                        }
                         HostChange::Paired(host) => {
                             self.paired.retain(|h| h.name != host.name);
                             self.paired.push(host);
@@ -243,13 +457,18 @@ impl Supervisor {
     }
 
     /// the configured hosts, then the paired ones. pairing refuses a name
-    /// already taken, so a clash means `boxbox.toml` gained the name later:
-    /// the file wins and the paired host waits, said once per change.
+    /// already taken, so a clash means `boxbox.toml` gained the name later
+    /// (a `[[cmx2]]`, or an `[[openclaw]]` or `[[hermes]]` connection or a
+    /// key one pins): the file wins and the paired host waits, said once per
+    /// change.
     fn merged(&self) -> Vec<HostConfig> {
         let mut hosts = self.configured.clone();
+        let reserved = self.held.borrow().clone();
         for host in &self.paired {
             if hosts.iter().any(|h| h.name == host.name) {
                 warn!(host = %host.name, "a paired host shares its name with one in boxbox.toml; the file wins until one is renamed");
+            } else if let Some(taken) = reserved.iter().find(|r| r.name == host.name) {
+                warn!(host = %host.name, holder = %taken.holder, "a paired host's name is held by a connection in boxbox.toml; the file wins and the paired host is not watched until one is renamed");
             } else {
                 hosts.push(host.clone());
             }
@@ -319,23 +538,65 @@ impl Supervisor {
             memory_sender,
             stop.clone(),
         ));
-        let watcher = watcher::Watcher::new(
+        let source = Arc::new(source::Cmx2Source::new(
             Arc::clone(&config),
             self.client.clone(),
-            sender,
+            Arc::new(sender),
             Arc::clone(&counters),
-            self.fleet.clone(),
+            &self.shared,
+        ));
+        let events = SourceSender::new(Arc::from(config.name.as_str()), self.fleet.clone());
+        let task = tokio::spawn(supervise(
+            Arc::clone(&source) as Arc<dyn AgentSource>,
+            events,
             stop.clone(),
-        );
+        ));
         Running {
             view: HostView {
                 config,
+                source,
                 status,
                 memory,
                 counters,
             },
             stop,
-            task: tokio::spawn(watcher.run()),
+            task,
+        }
+    }
+}
+
+/// runs one connection's source until its token fires. a source that asks
+/// to retry, or panics, runs again after the jittered backoff; one that
+/// refuses waits for the config to change (its token). a source never
+/// takes another down.
+async fn supervise(source: Arc<dyn AgentSource>, events: SourceSender, stop: CancellationToken) {
+    let name = source.connection().name().to_owned();
+    let mut backoff = backoff::Backoff::new(watcher::BACKOFF_FLOOR, watcher::BACKOFF_CAP);
+    loop {
+        let run = tokio::spawn(Arc::clone(&source).run(events.clone(), stop.clone()));
+        let exit = match run.await {
+            Ok(exit) => exit,
+            Err(error) if error.is_panic() => Exit::Retry {
+                why: "the source panicked".to_owned(),
+            },
+            Err(_) => Exit::Stopped,
+        };
+        match exit {
+            Exit::Stopped => break,
+            Exit::Retry { why } => {
+                let delay = backoff.next_delay();
+                warn!(connection = %name, why, retry_in_ms = u64::try_from(delay.as_millis()).unwrap_or(u64::MAX), "a source stopped; it runs again after the backoff");
+                tokio::select! {
+                    biased;
+                    () = stop.cancelled() => break,
+                    () = tokio::time::sleep(delay) => {}
+                }
+            }
+            Exit::Refused { why } => {
+                warn!(connection = %name, why, "a source refused its connection; it waits for the config to change");
+                stop.cancelled().await;
+                break;
+            }
         }
     }
 }

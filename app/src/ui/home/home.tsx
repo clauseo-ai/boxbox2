@@ -13,11 +13,11 @@
    - opening a window grows it into the thread and floods the ground with
      its colour; back shrinks it into its window. at strip and rail sizes a
      new thread pours out of its window onto the stage.
-   - at the rail both side columns fold (design.md, one layout law): the
-     rail of windows to a column of swatches, and the inspector beside the
-     stage away. the stage card's edge glides over what leaves and
-     uncovers what arrives (edge.ts); the person's choice is kept on this
-     device (remembered.ts). */
+   - the side columns fold (design.md, one layout law): the rail of
+     windows to a column of swatches, the strip's row to a bar of them, and
+     the inspector beside the stage away. the stage card's edge glides over
+     what leaves and uncovers what arrives (edge.ts); the person's choice is
+     kept on this device (remembered.ts). */
 
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
@@ -28,7 +28,7 @@ import { openFocus, releaseFocus, setWindowsInView, state } from "../../store";
 import { type ThreadPlace, closeThread, openThread, placeInUrl } from "../../sync/client";
 import type { Ask } from "../../sync/protocol";
 import { extraOf } from "../inbox/extra";
-import type { InspectorLink, InspectorView } from "../thread/inspector";
+import type { DetailsRoom, InspectorLink, InspectorView } from "../thread/inspector";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { colourStyle } from "../window/repo";
 import { clockOf, type WindowView, windowView } from "../window/view";
@@ -40,10 +40,13 @@ import { openVerdict } from "./stage-open";
 import { createCaughtUp } from "../caught-up";
 import { repoRootOf } from "../composer/place";
 import { moveEdge } from "./edge";
-import { FoldedRail, FoldToggle, RAIL_WINDOWS } from "./fold";
+import { Folded, FoldToggle, WINDOWS_ID } from "./fold";
+import { strayView } from "./layers";
+import { AskSheet } from "../asks/sheet";
 import { arrive, leave, unveil, veil } from "./parts";
 import { doing, launchPainted, startPerf, tapped, watchTransition } from "./perf";
-import { type InspectorState, type RailState, readInspector, readRail, rememberInspector, rememberRail } from "./remembered";
+import { type Beside, detailsPlace } from "./windows";
+import { type FocusState, type InspectorState, type RailState, readFocus, readInspector, readStrip, rememberFocus, rememberInspector, rememberStrip } from "./remembered";
 import { Layer } from "./stage";
 import { NewThreadDock } from "../composer/dock";
 import { NewThreadSheet } from "../composer/sheet";
@@ -243,7 +246,27 @@ export function Home(props: HomeProps) {
     null,
     { equals: (a, b) => a?.host === b?.host && a?.directory === b?.directory },
   );
-  const openSheet = () => setSheet(untrack(startPlace));
+  /* the sheet lets go of the screen once its first message goes (the native app's decision 21): it stays mounted, holding
+     the send, while home is usable under it; the dock says the thread is being made, and a refusal or a tap on the dock
+     (or the new thread pill, or ⌘n) brings the same sheet back. `making` is the words the dock shows meanwhile */
+  const [away, setAway] = createSignal(false);
+  const [making, setMaking] = createSignal<string | null>(null);
+  /* the answer sheet over home: every pending ask of one thread, from its window's tray (asks/sheet.tsx) */
+  const [askSheet, setAskSheet] = createSignal<{ key: string; from: HTMLElement } | null>(null);
+  /** a sheet is on the screen (the new-thread one, mounted and not let go, or the answer sheet): home under it is inert */
+  const sheetUp = (): boolean => (sheet() !== null && !away()) || askSheet() !== null;
+  const openSheet = () => {
+    if (untrack(sheet) && untrack(away)) {
+      setAway(false);
+      return;
+    }
+    setSheet(untrack(startPlace));
+  };
+  const closeSheet = () => {
+    setSheet(null);
+    setAway(false);
+    setMaking(null);
+  };
   const [layers, setLayers] = createSignal<StageLayer[]>([]);
   let layerSerial = 0;
   let stageEl: HTMLElement | undefined;
@@ -411,7 +434,7 @@ export function Home(props: HomeProps) {
 
   /** what was tapped, for perf.paint: the capsule, the window's "answer" pill, or the window */
   const controlOf = (event: Event, from: HTMLElement) =>
-    from.classList.contains("capsule") ? "capsule" : event.target instanceof Element && event.target.closest(".wask-go") ? "answer" : "window";
+    from.classList.contains("capsule") ? "capsule" : event.target instanceof Element && event.target.closest(".wask, .asks-open") ? "answer" : "window";
 
   const activate = (key: string, from: HTMLElement, event: Event | null) => {
     setCapsule(null);
@@ -422,7 +445,9 @@ export function Home(props: HomeProps) {
 
   /** a thread just started from the sheet: the stage opens on it, growing from the sheet's window like a tap on a window */
   const openBorn = (key: string, from: HTMLElement) => {
-    activate(key, from, null);
+    // a sheet that let go is off the screen: the thread grows from the dock that said it was being made, where there is one
+    const dock = untrack(away) ? document.querySelector<HTMLElement>(".home-dock .cz-dock") : null;
+    activate(key, dock ?? from, null);
     // a transition still running refuses the grow: the thread opens in place rather than not at all
     if (open() !== key) openThread(key);
   };
@@ -457,34 +482,43 @@ export function Home(props: HomeProps) {
     setTimeout(() => setLayers((list) => list.filter((l) => !leaving.includes(l))), prefersReducedMotion() ? 0 : SHEET.duration * 0.7);
   };
 
-  /* —— the side columns at the rail: the rail folds to its swatches, the inspector folds away (design.md, one layout law).
-     what the person chose is kept on this device. the layout trails it while the stage card's edge glides over what leaves
-     and uncovers what arrives (edge.ts), and a move is never started on another —— */
-  const [railChoice, setRailChoice] = createSignal<RailState>(readRail(props.memory));
+  /* —— the side columns (design.md, one layout law): the strip's row folds to its bar of swatches, the rail folds to its
+     column of them while the details need the room, either is put away for focus, the inspector folds away. what the person
+     chose is kept on this device. the layout trails it while the stage card's edge glides over what leaves and uncovers
+     what arrives (edge.ts), and a move is never started on another —— */
+  const [stripChoice, setStripChoice] = createSignal<RailState>(readStrip(props.memory));
+  const [focusChoice, setFocusChoice] = createSignal<FocusState>(readFocus(props.memory));
+  /** the committed layout: the windows are put away and the card has the screen */
+  const [windowsHidden, setWindowsHidden] = createSignal(untrack(focusChoice) === "hidden");
+  /** the committed layout of the strip: its row is a bar of swatches */
+  const [stripFolded, setStripFolded] = createSignal(untrack(stripChoice) === "folded");
   const [inspectorChoice, setInspectorChoice] = createSignal<InspectorState>(readInspector(props.memory));
-  /** the committed layout: the rail is a column of swatches, and the inspector's column is laid out beside the stage */
-  const [railFolded, setRailFolded] = createSignal(untrack(railChoice) === "folded");
+  /** the committed layout: the rail is a column of swatches (only ever for the details' room), and the inspector's column is
+      laid out beside the stage */
+  const [railFolded, setRailFolded] = createSignal(false);
   const [inspectorShown, setInspectorShown] = createSignal(untrack(inspectorChoice) !== "folded");
   const inspectorViewOf = (choice: InspectorState): InspectorView | null => (choice === "folded" ? null : choice);
   /** what the inspector holds: it keeps its view until the card has covered it, and has its view before the card uncovers it */
   const [inspectorView, setInspectorView] = createSignal<InspectorView | null>(inspectorViewOf(untrack(inspectorChoice)));
-  const [moving, setMoving] = createSignal<"rail" | "inspector" | null>(null);
+  const [moving, setMoving] = createSignal<"rail" | "strip" | "windows" | "inspector" | null>(null);
   const [inspectorEl, setInspectorEl] = createSignal<HTMLElement>();
   let edgeMove: { stop: () => void } | null = null;
   let liftEl: HTMLElement | undefined;
   let rimEl: HTMLElement | undefined;
   let capEl: HTMLElement | undefined;
   let foldEl: HTMLElement | undefined;
-  /** the swatches of the folded rail, by window */
+  /** the swatches of the fold, by window */
   const swatchEls = new Map<string, HTMLElement>();
-  /** the rail is folded to its swatches, and is the one on screen */
-  const folded = () => arrangement() === "rail" && railFolded();
-  /** the open rail's bar and windows cannot be reached: it is folded, or on its way to or from being */
-  const railOff = () => arrangement() === "rail" && (railFolded() || moving() === "rail");
+  /** the windows of this arrangement are folded to their swatches */
+  const folded = () => (arrangement() === "rail" && railFolded()) || (arrangement() === "strip" && stripFolded());
+  /** the open bar and windows cannot be reached: they are folded, or on their way to or from being */
+  const railOff = () => arrangement() !== "deck" && (folded() || windowsHidden() || moving() === arrangement() || moving() === "windows");
+  /** the arrangement that keeps the windows beside the stage, for the toggle's glyph */
+  const beside = (): Beside => (arrangement() === "strip" ? "strip" : "rail");
   /** where a window is for the person: its swatch while the rail is folded */
   const originOf = (key: string) => (folded() ? swatchEls : elements).get(key);
 
-  const glide = (kind: "rail" | "inspector", grow: boolean, layout: (end: boolean) => void, columns: { leaving: HTMLElement[]; arriving: HTMLElement[] }, after: () => void) => {
+  const glide = (kind: "rail" | "strip" | "windows" | "inspector", grow: boolean, layout: (end: boolean) => void, columns: { leaving: HTMLElement[]; arriving: HTMLElement[] }, after: () => void) => {
     if (!stageEl || !liftEl || !rimEl || !capEl) {
       layout(true);
       after();
@@ -495,7 +529,7 @@ export function Home(props: HomeProps) {
       card: stageEl,
       lift: liftEl,
       rim: { ring: rimEl, cap: capEl },
-      side: kind === "rail" ? "left" : "right",
+      side: kind === "rail" || (kind === "windows" && arrangement() === "rail") ? "left" : kind === "inspector" ? "right" : "top",
       grow,
       layout,
       ...columns,
@@ -508,21 +542,81 @@ export function Home(props: HomeProps) {
     // a move that finished before it returned (reduced motion) has nothing left to stop
     if (moving() !== null) edgeMove = handle;
   };
-  const toggleRail = () => {
-    if (arrangement() !== "rail" || moving() !== null) return;
-    const folding = railChoice() === "open";
-    const choice: RailState = folding ? "folded" : "open";
-    setRailChoice(choice);
-    rememberRail(choice, props.memory);
+  /* —— the details below the inspector's width (windows.ts, detailsPlace): docked where the column keeps its least width, a
+     sheet where it does not. the open rail gives way first: details that fit only beside the folded rail fold it while they
+     are open, and give it back when they close; asking the windows back closes them —— */
+  const place = createMemo(() => detailsPlace(arrangement(), size().width, windowsHidden()));
+  const [detailsCloses, setDetailsCloses] = createSignal(0);
+  /** folds or opens the rail; `after` once the card's edge has settled */
+  const moveRail = (folding: boolean, after: () => void) => {
     const swatches = foldEl ? [foldEl] : [];
     const open = [barEl, winsEl].filter((el): el is HTMLElement => el !== undefined);
     const leaving = folding ? open : swatches;
-    // a keyboard's focus is on the toggle that is about to leave: it goes to the one that takes its place
     const focused = leaving.some((el) => el.contains(document.activeElement));
     glide("rail", folding, (end) => setRailFolded(folding ? end : !end), { leaving, arriving: folding ? swatches : open }, () => {
       if (focused) (folding ? foldEl : barEl)?.querySelector<HTMLElement>(".fold-toggle")?.focus({ preventScroll: true });
+      after();
     });
   };
+  const room: DetailsRoom = {
+    docks: () => place().docks,
+    make: (open, go) => {
+      if (open && place().foldsRail && arrangement() === "rail" && !railFolded() && moving() === null) {
+        moveRail(true, go);
+        return;
+      }
+      go();
+      if (!open && railFolded() && arrangement() === "rail" && moving() === null) moveRail(false, () => undefined);
+    },
+    closes: detailsCloses,
+  };
+  /** the rail's toggle: open, it puts the windows away (focus); folded for the details, it asks the windows back, which
+      closes the details and opens the rail (the native app's stripux) */
+  const toggleRail = () => {
+    if (arrangement() !== "rail" || moving() !== null) return;
+    if (!railFolded()) {
+      toggleFocus();
+      return;
+    }
+    setDetailsCloses((n) => n + 1);
+    moveRail(false, () => undefined);
+  };
+  /** the windows put away, or brought back (focus, ⇧⌘F, the stage bar's own toggle while they are away): the card's edge
+      on their side glides over all of them, open or folded, and the choice is kept on this device */
+  const toggleFocus = () => {
+    if (arrangement() === "deck" || moving() !== null) return;
+    const hiding = focusChoice() === "shown";
+    const choice: FocusState = hiding ? "hidden" : "shown";
+    setFocusChoice(choice);
+    rememberFocus(choice, props.memory);
+    const shown = (folded() ? [foldEl] : [barEl, winsEl]).filter((el): el is HTMLElement => el !== undefined);
+    // details that will not fit beside the windows coming back close, rather than turn into a sheet or crowd the column
+    const beside = detailsPlace(arrangement(), size().width, false);
+    if (!hiding && (!beside.docks || beside.foldsRail)) setDetailsCloses((n) => n + 1);
+    const focused = document.activeElement?.closest(".stage-bar .windows-toggle") !== null || shown.some((el) => el.contains(document.activeElement));
+    glide("windows", hiding, (end) => setWindowsHidden(hiding ? end : !end), { leaving: hiding ? shown : [], arriving: hiding ? [] : shown }, () => {
+      if (!focused) return;
+      const to = hiding ? stageEl?.querySelector<HTMLElement>(".stage-bar .windows-toggle") : (folded() ? foldEl : barEl)?.querySelector<HTMLElement>(".fold-toggle");
+      to?.focus({ preventScroll: true });
+    });
+  };
+  /** the strip's row folds to its bar of swatches and back: the card's top edge glides, and the bar takes the open bar's
+      place, its toggle where the open one was */
+  const toggleStrip = () => {
+    if (arrangement() !== "strip" || moving() !== null) return;
+    const folding = stripChoice() === "open";
+    const choice: RailState = folding ? "folded" : "open";
+    setStripChoice(choice);
+    rememberStrip(choice, props.memory);
+    const swatches = foldEl ? [foldEl] : [];
+    const open = [barEl, winsEl].filter((el): el is HTMLElement => el !== undefined);
+    const focused = (folding ? open : swatches).some((el) => el.contains(document.activeElement));
+    glide("strip", folding, (end) => setStripFolded(folding ? end : !end), { leaving: folding ? open : swatches, arriving: folding ? swatches : open }, () => {
+      if (focused) (folding ? foldEl : barEl)?.querySelector<HTMLElement>(".fold-toggle")?.focus({ preventScroll: true });
+    });
+  };
+  /** the windows' one control, whichever arrangement has it: put away, they come back */
+  const toggleWindows = () => (windowsHidden() ? toggleFocus() : arrangement() === "strip" ? toggleStrip() : toggleRail());
   /** shows a view, or folds the inspector away (null). a move to or from folded glides the card's right edge; a change of view
       only swaps what the inspector holds */
   const showInspector = (view: InspectorView | null) => {
@@ -550,7 +644,9 @@ export function Home(props: HomeProps) {
       [arrangement, wide],
       () => {
         edgeMove?.stop();
-        setRailFolded(railChoice() === "folded");
+        setRailFolded(false);
+        setWindowsHidden(focusChoice() === "hidden");
+        setStripFolded(stripChoice() === "folded");
         setInspectorShown(inspectorChoice() !== "folded");
         setInspectorView(inspectorViewOf(inspectorChoice()));
       },
@@ -563,11 +659,24 @@ export function Home(props: HomeProps) {
       from the right and the parent's recedes under it, still mounted, so back finds it exactly where it was */
   const parentOf = (key: string) => { const entry = state.fleet.sessions[key]; const parent = entry?.info.parentID; return parent ? `${entry.host}:${parent}` : null; };
   const stackedPlaces = new Map<string, ThreadPlace>();
-  const openAgent = (key: string) => {
+  /* agents opened from their parent whose session the fleet does not hold (a spawn-only agent: the fleet holds each host's
+     newest threads, and an agent can be older than them or never listed): their layer is drawn from the parent's view,
+     named by the row that opened it, as the native app's ThreadAgentStack.introduce does, and the stage reads the thread by
+     its key. the effect that lets go of a departed thread leaves them alone, since the fleet never held them */
+  const [strays, setStrays] = createSignal<ReadonlyMap<string, { name: string | null; parent: string }>>(new Map());
+  // a stray is kept while its layer is on the stage, and no longer
+  createEffect(() => {
+    const on = new Set(layers().map((l) => l.key));
+    const all = untrack(strays);
+    if ([...all.keys()].some((k) => !on.has(k))) setStrays(new Map([...all].filter(([k]) => on.has(k))));
+  });
+  const openAgent = (key: string, name?: string) => {
     const under = open();
-    // an agent whose session the fleet does not hold has nothing to draw: its layer would be empty, and the effect that
-    // lets go of a departed thread would then take its parent's stage with it
-    if (!under || under === key || !stageEl || !held(key)) return;
+    if (!under || under === key || !stageEl) return;
+    if (!held(key)) {
+      if (!held(under)) return;
+      setStrays((all) => new Map(all).set(key, { name: name?.trim() || null, parent: under }));
+    }
     stackedPlaces.set(under, placeInUrl());
     setOpen(key);
     const id = ++layerSerial;
@@ -657,7 +766,7 @@ export function Home(props: HomeProps) {
      stage lets go and the windows come back, rather than staying inert under nothing */
   createEffect(() => {
     const key = open();
-    if (!key || !caughtUp() || state.fleet.sessions[key] !== undefined) return;
+    if (!key || !caughtUp() || state.fleet.sessions[key] !== undefined || strays().has(key)) return;
     untrack(() => {
       // an agent's thread that left (archived under you) goes back to its parent, which is still on the stage under it,
       // not home: the parent is what you were reading
@@ -851,25 +960,31 @@ export function Home(props: HomeProps) {
     }
     // ⌘n starts a thread from anywhere, typing included (a browser tab keeps it, the installed app does not). only the
     // command key: control-n is the emacs next-line in every text field on a mac, and a browser keeps it for a new window
-    if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "n" && startPlace() && !sheet()) {
+    if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "n" && startPlace() && !sheetUp()) {
       event.preventDefault();
       openSheet();
       return;
     }
     if (typing) return;
-    if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "n" && startPlace() && !sheet()) {
+    if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "n" && startPlace() && !sheetUp()) {
       event.preventDefault();
       openSheet();
       return;
     }
-    // `[` folds and unfolds the rail, `]` the inspector, at the rail only; a held key is one press
-    if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.repeat && arrangement() === "rail" && !sheet()) {
+    // ⇧⌘F puts the windows away and brings them back at the strip and the rail, typing or not (the native app's windows menu)
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && !event.repeat && event.key.toLowerCase() === "f" && arrangement() !== "deck" && !sheetUp()) {
+      event.preventDefault();
+      toggleFocus();
+      return;
+    }
+    // `[` is the windows' toggle at the strip and the rail, `]` the inspector at the rail; a held key is one press
+    if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.repeat && arrangement() !== "deck" && !sheetUp()) {
       if (event.key === "[") {
         event.preventDefault();
-        toggleRail();
+        toggleWindows();
         return;
       }
-      if (event.key === "]" && wide()) {
+      if (event.key === "]" && arrangement() === "rail" && wide()) {
         event.preventDefault();
         showInspector(inspectorChoice() === "folded" ? "details" : null);
         return;
@@ -966,6 +1081,16 @@ export function Home(props: HomeProps) {
     const entry = state.fleet.sessions[key];
     return entry ? windowView(entry, asksBy()[key] ?? [], extraOf(entry)) : null;
   }
+  /** what a stage layer draws: its window's view, or for an agent the fleet does not hold, its parent's view under the
+      agent's key and the name of the row that opened it (its session id when the row had none) */
+  function layerView(key: string): WindowView | null {
+    const own = viewOf(key);
+    if (own) return own;
+    const stray = strays().get(key);
+    const parent = stray ? viewOf(stray.parent) : null;
+    if (!stray || !parent) return null;
+    return strayView(parent, key, stray.name);
+  }
   /** the repo's colours for what draws one on the ground itself (home.css, `--ink`); none for a window the fleet has let go */
   const colourOfKey = (key: string): Record<string, string> => {
     const view = viewOf(key);
@@ -973,13 +1098,18 @@ export function Home(props: HomeProps) {
   };
   const ambientColour = () => colourOfKey(order()[pagerOn()] ?? "");
   /** the card's own colour for its shadow and rim (home.css): the thread on top of the stage */
-  const stageColour = () => colourOfKey(layers().at(-1)?.key ?? "");
+  const stageColour = (): Record<string, string> => {
+    const view = layerView(layers().at(-1)?.key ?? "");
+    return view ? colourStyle(view.colour) : {};
+  };
 
   return (
     <div
       class="home"
       data-arrangement={arrangement()}
       data-rail={railFolded() ? "folded" : "open"}
+      data-strip={stripFolded() ? "folded" : "open"}
+      data-windows={windowsHidden() ? "hidden" : "shown"}
       data-inspector={wide() && inspectorShown() ? "shown" : "hidden"}
       data-moving={moving() ?? undefined}
       data-open={open() && arrangement() === "deck" ? "" : undefined}
@@ -987,7 +1117,7 @@ export function Home(props: HomeProps) {
       <Show when={arrangement() === "deck"}>
         <div class="ambient" aria-hidden="true" style={ambientColour()} />
       </Show>
-      <header class="bar" ref={barEl} inert={(arrangement() === "deck" && staged()) || sheet() !== null || railOff()}>
+      <header class="bar" ref={barEl} inert={(arrangement() === "deck" && staged()) || sheetUp() || railOff()}>
         <span class="mark">boxbox</span>
         <span class="grow" />
         <p class="sum" aria-live="polite">
@@ -1042,10 +1172,11 @@ export function Home(props: HomeProps) {
             <span class="update">update ready. it applies the next time boxbox opens.</span>
           </Show>
         </p>
-        {/* what you do, then where you go: the bar is three rows on the deck and the rail by rule (home.css), so a pill never
-            wraps by chance at some count */}
+        {/* what you do, then where you go: the bar is three rows on the rail by rule (home.css), so a pill never wraps by
+            chance at some count. the phone's deck has no row for what you do: new thread is a round plus beside history and
+            machines, and clear N sits at the end of the line's row */}
         <div class="pills acts">
-          <Show when={startPlace()}>
+          <Show when={arrangement() !== "deck" && startPlace()}>
             <button class="pill new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onClick={openSheet}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               <span class="new-word" aria-hidden="true">new thread</span>
@@ -1056,9 +1187,23 @@ export function Home(props: HomeProps) {
         <div class="pills nav">
           <Show when={props.onHistory}>
             {(history) => (
-              <button class="pill" type="button" data-opens={folded() ? undefined : "history"} onClick={() => history()()}>
-                history
-              </button>
+              <Show
+                when={arrangement() === "deck"}
+                fallback={
+                  <button class="pill" type="button" data-opens={folded() ? undefined : "history"} onClick={() => history()()}>
+                    history
+                  </button>
+                }
+              >
+                {/* the deck's row has no room for the word beside three marks: history is the clock, as on the folded rail */}
+                <button class="pill icon" type="button" aria-label="history" data-opens={folded() ? undefined : "history"} onClick={() => history()()}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 8.8" />
+                    <path d="M4.5 4.5v4.3h4.3" />
+                    <path d="M12 8v4.3l2.7 1.7" />
+                  </svg>
+                </button>
+              </Show>
             )}
           </Show>
           {/* data-opens: coming back from the machines, a keyboard's focus lands here again (app/src/shell) */}
@@ -1069,17 +1214,22 @@ export function Home(props: HomeProps) {
               <path d="M8 7.75h.01M8 16.25h.01" />
             </svg>
           </button>
-          <Show when={arrangement() === "rail"}>
-            <FoldToggle folded={false} onToggle={toggleRail} />
+          <Show when={arrangement() === "deck" && startPlace()}>
+            <button class="pill icon new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onClick={openSheet}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            </button>
+          </Show>
+          <Show when={arrangement() !== "deck"}>
+            <FoldToggle form={beside()} state="open" onToggle={toggleWindows} />
           </Show>
         </div>
       </header>
       <div
         class="wins"
-        id={arrangement() === "rail" ? RAIL_WINDOWS : undefined}
+        id={arrangement() !== "deck" ? WINDOWS_ID : undefined}
         ref={winsEl}
         aria-label="live threads"
-        inert={(arrangement() === "deck" && staged()) || sheet() !== null || railOff()}
+        inert={(arrangement() === "deck" && staged()) || sheetUp() || railOff()}
         onPointerDown={() => (touching = true)}
         onScroll={onScroll}
       >
@@ -1088,43 +1238,45 @@ export function Home(props: HomeProps) {
         </For>
       </div>
       <Show when={arrangement() === "deck" && order().length > 1}>
-        <div class="pager" ref={pagerEl} aria-hidden="true" inert={staged() || sheet() !== null}>
+        <div class="pager" ref={pagerEl} aria-hidden="true" inert={staged() || sheetUp()}>
           <For each={order()}>{(key, index) => <i data-on={index() === pagerOn() ? "" : undefined} style={colourOfKey(key)} />}</For>
         </div>
       </Show>
-      <Show when={arrangement() === "rail"}>
-        <FoldedRail
+      <Show when={arrangement() !== "deck"}>
+        <Folded
+          form={beside()}
           ref={(el) => (foldEl = el)}
           keys={order()}
           viewOf={viewOf}
           current={open()}
           onOpen={(key, el, event) => activate(key, el, event)}
-          onUnfold={toggleRail}
+          onUnfold={toggleWindows}
           onNew={startPlace() ? openSheet : undefined}
           onHistory={props.onHistory}
           onMachines={() => props.onMachines()}
           returns={folded()}
-          inert={!folded() || moving() === "rail" || sheet() !== null}
+          inert={!folded() || windowsHidden() || moving() === arrangement() || moving() === "windows" || sheetUp()}
           swatchRef={(key, el) => (el ? swatchEls.set(key, el) : swatchEls.delete(key))}
         />
       </Show>
       <Show when={arrangement() === "deck" && startPlace()}>
         {(place) => (
-          <div class="home-dock" inert={staged() || sheet() !== null}>
-            <NewThreadDock host={place().host} directory={place().directory} showHost={hosts() > 1} onOpen={openSheet} />
+          <div class="home-dock" inert={staged() || sheetUp()}>
+            <NewThreadDock host={place().host} directory={place().directory} showHost={hosts() > 1} making={making()} onOpen={openSheet} />
           </div>
         )}
       </Show>
       <Show when={arrangement() !== "deck"}>
         <div class="lift" ref={(el) => (liftEl = el)} aria-hidden="true" style={stageColour()} />
       </Show>
-      <main class="stage" ref={stageEl} data-open={open() ? "" : undefined} inert={sheet() !== null}>
+      <main class="stage" ref={stageEl} data-open={open() ? "" : undefined} inert={sheetUp()}>
         <For each={layers()}>
           {(entry) => (
-            <Show when={viewOf(entry.key)}>
+            <Show when={layerView(entry.key)}>
               {(view) => (
                 <Layer
                   view={view()}
+                  {...(entry.over ? { parent: entry.over } : {})}
                   deck={arrangement() === "deck"}
                   onBack={(event) => layerBack(entry, event)}
                   onOpenAgent={openAgent}
@@ -1135,6 +1287,8 @@ export function Home(props: HomeProps) {
                   }}
                   gestureRefs={wireGesture}
                   {...(arrangement() === "rail" && wide() && layers().at(-1) === entry ? { inspector } : {})}
+                  {...(arrangement() !== "deck" && !wide() && layers().at(-1) === entry ? { room } : {})}
+                  {...(arrangement() !== "deck" && windowsHidden() && layers().at(-1) === entry ? { barStart: <FoldToggle form={beside()} state="hidden" round onToggle={toggleFocus} /> } : {})}
                 />
               )}
             </Show>
@@ -1157,7 +1311,20 @@ export function Home(props: HomeProps) {
         />
       </Show>
       <Show when={sheet()}>
-        {(at) => <NewThreadSheet host={at().host} directory={at().directory} onOpened={openBorn} onClose={() => setSheet(null)} />}
+        {(at) => (
+          <NewThreadSheet host={at().host} directory={at().directory} away={away()} onAway={setAway} onMaking={setMaking} onOpened={openBorn} onClose={closeSheet} />
+        )}
+      </Show>
+      <Show when={askSheet()}>
+        {(at) => (
+          <AskSheet
+            windowKey={at().key}
+            from={at().from}
+            arrangement={arrangement()}
+            onClose={() => setAskSheet(null)}
+            onOpenThread={(key, from, event) => activate(key, from, event)}
+          />
+        )}
       </Show>
       <Show when={viewOf(cue() ?? "")}>{(view) => <div class="cue" aria-hidden="true" style={colourStyle(view().colour)} />}</Show>
       <Show when={capsule()}>
@@ -1220,7 +1387,7 @@ export function Home(props: HomeProps) {
         showHost={hosts() > 1}
         now={now()}
         onOpen={(el, event) => activate(slot.key, el, event)}
-        onOpenAsk={(el, event) => activate(slot.key, el, event)}
+        onOpenAsk={(el) => setAskSheet({ key: slot.key, from: el })}
         ref={(el) => {
           elements.set(slot.key, el);
           /* a thread opened from its url opens before its window is drawn, so the effect that hides the window under

@@ -2,11 +2,14 @@
    thread in a folder on a machine. the machine is chosen when there is more than one; the repos come in recency order,
    the ones you have threads in first, then the machine's other projects, and can be filtered; any other folder on the
    machine can be typed or walked to, because cmx2 starts a session in any directory that exists. the sheet takes the
-   colour of the place picked.
+   colour of the place picked. the place is one line above the words (the repo's mark, its name, the machine); a press
+   opens it in place into the pickers: the machines, the recent repos as their marks, and the finder (the native app's
+   newthread). a pick closes it onto the words.
 
-   sending does not close it on a guess: it shows the thread being made, says plainly when the daemon refused, and when
-   the new thread exists in the fleet the sheet's window becomes the thread (the stage grows from it), never before the
-   daemon made it. the composer is never keyed or remounted, so nothing typed is lost to a pick, a fleet beat or a
+   sending does not close it on a guess, and does not keep the screen either: the sheet lets go at once (`away`) while it
+   holds the send, home's dock says the thread is being made, and a tap on the dock brings the same sheet back. a refusal
+   brings it back by itself with the words, retry and edit; retry lets go again. when the new thread exists in the fleet
+   the stage opens on it, never before the daemon made it (the native app's decision 21). the composer is never keyed or remounted, so nothing typed is lost to a pick, a fleet beat or a
    failed send. */
 
 import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, onMount, untrack } from "solid-js";
@@ -20,7 +23,6 @@ import { RepoMark } from "../repo-mark/repo-mark";
 import { colourOf, colourStyle, repoName } from "../window/repo";
 import { Composer } from "./composer";
 import { Icon } from "./icons";
-import { Thumbed } from "./thumbed";
 import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentRepos, repoRootOf, restoredDraft, splitPath } from "./place";
 import { folders, projects } from "./reads";
 import { refusedStart } from "./words";
@@ -31,8 +33,8 @@ const SLOW_MS = 8000;
 const BROWSE_PAUSE_MS = 160;
 /** the repos shown as rows while filtering */
 const ROWS = 40;
-/** the recent repos shown as chips; the rest are a few typed letters away in the finder */
-const CHIPS = 6;
+/** the recent repos offered as marks; the rest are a few typed letters away in the finder */
+const RECENTS = 12;
 
 export type SheetProps = {
   host: string;
@@ -41,6 +43,11 @@ export type SheetProps = {
   onClose: () => void;
   /** the thread exists: open it on the stage, growing from the sheet's window */
   onOpened: (key: string, from: HTMLElement) => void;
+  /** let go of the screen while the first message's thread is being made (home holds the flag: its dock brings it back) */
+  away?: boolean;
+  onAway?: (away: boolean) => void;
+  /** what the dock says while the sheet is away: the thread being made, slow, or waiting on the connection; null when back */
+  onMaking?: (words: string | null) => void;
 };
 
 type Sent = { clientID: string; at: number; host: string; from: HTMLElement; key: string };
@@ -73,8 +80,18 @@ export function NewThreadSheet(props: SheetProps) {
   const chips = createMemo(() => {
     const listed = repos();
     const extra = [...(chosen() ? [chosen() as string] : []), ...waiting()].filter((dir, i, all) => !listed.includes(dir) && all.indexOf(dir) === i);
-    return [...extra, ...listed.slice(0, CHIPS)];
+    return [...extra, ...listed.slice(0, RECENTS)];
   });
+
+  /* the place line open into its pickers. it opens by itself while there is nowhere chosen, since there is nothing else to do */
+  const [picking, setPicking] = createSignal(props.directory === null);
+  /* why there are no recent marks: the read is out, it failed (its words), or the machine has none */
+  const recentsNote = () => {
+    if (listed.loading) return "looking.";
+    const read = listed();
+    if (read && !read.ok) return read.message;
+    return `nothing has run on ${host()} yet. find a folder to start in.`;
+  };
 
   /* folders known not to be a git repo, from reading their parent: a fresh worktree needs one */
   const [plain, setPlain] = createSignal<ReadonlySet<string>>(new Set());
@@ -180,16 +197,27 @@ export function NewThreadSheet(props: SheetProps) {
   let findEl: HTMLInputElement | undefined;
   const words = () => sheetEl?.querySelector<HTMLTextAreaElement>(".cz-body textarea");
   const focusFinder = () => queueMicrotask(() => findEl?.focus({ preventScroll: true }));
+  /* a repo or a folder picked: the pickers close onto the words, the caret in them */
   const pickFolder = (dir: string) => {
     pickRepo(dir);
     setQuery("");
     setTyped("");
+    setPicking(false);
     words()?.focus({ preventScroll: true });
   };
-  // with nowhere chosen yet the finder has the focus from the start
+  // with nowhere chosen yet the pickers are open and the finder has the focus from the start
   createEffect(() => {
-    if (chosen() === null && !listed.loading && repos().length === 0) focusFinder();
+    if (chosen() === null && !listed.loading && repos().length === 0) {
+      setPicking(true);
+      focusFinder();
+    }
   });
+  /* opening the pickers brings the chosen repo's mark into view, wherever it sits among the recent ones */
+  const togglePicking = () => {
+    const next = !picking();
+    setPicking(next);
+    if (next) queueMicrotask(() => sheetEl?.querySelector(".cz-recents [aria-checked='true']")?.scrollIntoView({ block: "nearest", inline: "center" }));
+  };
   /* the rows in the order they show, for the arrows and enter: the typed folder, then the repos, then the folders inside */
   const rows = createMemo(() => [...(typedDir() ? [typedDir() as string] : []), ...known(), ...children().map((folder) => folder.directory)]);
   const isActive = (dir: string) => rows()[active()] === dir;
@@ -245,6 +273,7 @@ export function NewThreadSheet(props: SheetProps) {
     clearTimeout(slowTimer);
     slowTimer = setTimeout(() => setSlow(true), SLOW_MS);
     setSent({ clientID, at: Date.now(), host: host(), from, key: keyFor(host(), chosen()) });
+    props.onAway?.(true);
   };
   const entry = () => {
     const s = sent();
@@ -272,8 +301,15 @@ export function NewThreadSheet(props: SheetProps) {
   const failed = () => (entry()?.state === "failed" ? entry() : undefined);
   const retry = () => {
     const s = sent();
-    if (s) retrySend(s.clientID);
+    if (!s) return;
+    retrySend(s.clientID);
+    // sent again: the sheet lets go of the screen as it did at the first send
+    props.onAway?.(true);
   };
+  // a refusal while away brings the sheet back with its words, retry and edit
+  createEffect(() => {
+    if (failed() && props.away) untrack(() => props.onAway?.(false));
+  });
   /* a first message that did not start goes back where it was written, and its outbox entry goes: left there it would be
      in indexeddb for good, counted against the outbox's cap, and shown nowhere */
   const handled = new Set<string>();
@@ -308,149 +344,220 @@ export function NewThreadSheet(props: SheetProps) {
     });
   });
   const waitingOnDevice = () => entry()?.state === "waiting";
+  const makingWords = () =>
+    waitingOnDevice()
+      ? "the connection is down. it goes on its own when it is back."
+      : slow()
+        ? `still making the thread in ${repoName(chosen() ?? "")}. the machine is slow to answer; it will open when it is there.`
+        : `making the thread in ${repoName(chosen() ?? "")} on ${host()}.`;
+  createEffect(() => props.onMaking?.(props.away && sent() && !failed() ? makingWords() : null));
+
+  /* away and back: the sheet slides off as a close does and is hidden (visibility, so it keeps its state and the send),
+     and comes back as it opened. the hiding is the attribute's, so reduced motion (no slide) hides it too */
+  const [hidden, setHidden] = createSignal(false);
+  let wasAway = false;
+  createEffect(() => {
+    const now = props.away === true;
+    if (now === wasAway) return;
+    wasAway = now;
+    const phone = !matchMedia("(min-width: 700px)").matches;
+    if (now) {
+      if (sheetEl?.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+      const out = sheetEl && play(sheetEl, phone ? [{ transform: "none" }, { transform: "translateY(110%)" }] : [{ opacity: 1 }, { opacity: 0, transform: "translateY(18px) scale(.96)" }], SHEET);
+      if (scrimEl) play(scrimEl, [{ opacity: 1 }, { opacity: 0 }], FADE);
+      if (out) void out.finished.then(() => wasAway && setHidden(true), () => undefined);
+      else setHidden(true);
+    } else {
+      setHidden(false);
+      if (sheetEl) play(sheetEl, phone ? [{ transform: "translateY(110%)" }, { transform: "none" }] : [{ transform: "translateY(18px) scale(.96)", opacity: 0 }, { transform: "none", opacity: 1 }], SHEET);
+      if (scrimEl) play(scrimEl, [{ opacity: 0 }, { opacity: 1 }], FADE);
+    }
+  });
 
   const blocked = () => (failed() ? "retry or edit the message below first." : chosen() ? undefined : `pick a folder on ${host()} to start in`);
 
   return (
     <>
-      <div class="cz-scrim" ref={scrimEl} style={colour()} onClick={() => void close()} />
-      <div class="cz-sheet" ref={sheetEl} role="dialog" aria-modal="true" aria-label="new thread" data-sent={sent() && !failed() ? "" : undefined} style={colour()} onKeyDown={(e) => e.key === "Escape" && void close()}>
+      <div class="cz-scrim" ref={scrimEl} style={colour()} data-away={hidden() ? "" : undefined} onClick={() => void close()} />
+      <div
+        class="cz-sheet"
+        ref={sheetEl}
+        role="dialog"
+        aria-modal="true"
+        aria-label="new thread"
+        data-sent={sent() && !failed() ? "" : undefined}
+        data-away={hidden() ? "" : undefined}
+        inert={props.away === true}
+        style={colour()}
+        onKeyDown={(e) => e.key === "Escape" && void close()}
+      >
         <div class="cz-sheet-head">
-          <div>
-            <h2>start something</h2>
-            <p class="cz-sub">
-              <Show when={chosen()} fallback={<>pick a folder on {host()}</>}>
-                {(dir) => (
-                  <>
-                    in <b>{repoName(dir())}</b>, on {host()}
-                  </>
-                )}
-              </Show>
-            </p>
-          </div>
+          <h2>start something</h2>
+          {/* the stage bar's own round of glass (styles.css, liquid glass) */}
           <button type="button" class="cz-sheet-close" aria-label="close new thread" onClick={() => void close()}>
             <Icon name="close" />
           </button>
         </div>
-        <Show when={machines().length > 1}>
-          <div class="cz-repos cz-machines" role="radiogroup" aria-label="machine" onPointerDown={(e) => e.preventDefault()}>
-            <For each={machines()}>
-              {(name) => (
-                <button type="button" role="radio" aria-checked={name === host() ? "true" : "false"} onClick={() => pickMachine(name)}>
-                  <Icon name="machine" />
-                  {name}
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-        <div class="cz-repos" role="radiogroup" aria-label="repo" onPointerDown={(e) => e.preventDefault()}>
-          <For each={chips()}>
-            {(dir) => (
-              <button type="button" role="radio" aria-checked={dir === chosen() ? "true" : "false"} aria-label={`${repoName(dir)}, ${dir}`} data-waiting={waiting().includes(dir) ? "" : undefined} style={colourStyle(colourOf({ host: host(), root: dir }))} onClick={() => pickRepo(dir)}>
-                <RepoMark host={host()} root={dir} size={22} />
-                {repoName(dir)}
-              </button>
-            )}
-          </For>
-          <Show when={repos().length === 0 && !chosen()}>
-            <p class="cz-note">{listed.loading ? "reading the repos." : `no repos on ${host()} yet.`}</p>
-          </Show>
-        </div>
-        <div class="cz-finder">
-          <label class="cz-search">
-            <Icon name="search" />
-            <input
-              ref={findEl}
-              class="cz-find"
-              type="text"
-              value={query()}
-              aria-label={`find a repo or a folder on ${host()}`}
-              placeholder={`search repos on ${host()}, or type a path like ~/code`}
-              autocapitalize="off"
-              autocomplete="off"
-              autocorrect="off"
-              spellcheck={false}
-              enterkeyhint="go"
-              onInput={(e) => onQuery(e.currentTarget.value)}
-              onKeyDown={onFinderKey}
-            />
-            <Show when={query()}>
-              <button type="button" class="cz-clear" aria-label="clear the search" onPointerDown={(e) => e.preventDefault()} onClick={() => { onQuery(""); findEl?.focus({ preventScroll: true }); }}>
-                <Icon name="close" />
-              </button>
+        <div class="cz-place-card" data-open={picking() ? "" : undefined}>
+          <button
+            type="button"
+            class="cz-place"
+            aria-label={chosen() ? `starts in ${repoName(chosen() as string)} on ${host()}` : `pick a folder on ${host()}`}
+            aria-description="change the machine or the repo"
+            aria-expanded={picking() ? "true" : "false"}
+            onClick={togglePicking}
+          >
+            <Show when={chosen()} fallback={<span class="cz-place-none" aria-hidden="true"><Icon name="folder" /></span>}>
+              {(dir) => <RepoMark host={host()} root={dir()} size={34} />}
             </Show>
-          </label>
-            <Show when={showRows()}>
-            <div class="cz-rows" role="list" aria-label="folders" onPointerDown={(e) => e.preventDefault()}>
-              <Show when={typedDir()}>
+            <span class="cz-place-text">
+              <Show when={chosen()} fallback={<b>pick a folder on {host()}</b>}>
                 {(dir) => (
-                  <div class="cz-row" role="listitem">
-                    <button type="button" class="cz-row-main" data-active={isActive(dir()) ? "" : undefined} aria-label={`start in ${dir()}`} onClick={() => pickFolder(dir())}>
-                      <b>
-                        <Icon name="check" />
-                        use {repoName(dir())}
-                      </b>
-                      <span>{dir()}</span>
-                    </button>
-                  </div>
+                  <>
+                    <b>{repoName(dir())}</b>
+                    <small>on {host()}</small>
+                  </>
                 )}
               </Show>
-              <Show when={upFrom()}>
-                {(up) => (
-                  <div class="cz-row" role="listitem">
-                    <button type="button" class="cz-row-main" aria-label={`look in ${up()}`} onClick={() => onQuery(`${up() === "/" ? "" : up()}/`)}>
-                      <b>
-                        <Icon name="chevronUp" />
-                        up
-                      </b>
-                      <span>{up()}</span>
-                    </button>
+            </span>
+            <Icon name="chevronDown" />
+          </button>
+          <Show when={picking()}>
+            <div class="cz-pickers">
+              <Show when={machines().length > 1}>
+                <div class="cz-repos cz-machines" role="radiogroup" aria-label="machine" onPointerDown={(e) => e.preventDefault()}>
+                  <For each={machines()}>
+                    {(name) => (
+                      <button type="button" role="radio" aria-checked={name === host() ? "true" : "false"} onClick={() => pickMachine(name)}>
+                        <Icon name="machine" />
+                        {name}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+              <Show when={!query()}>
+                <Show when={chips().length > 0} fallback={<p class="cz-note cz-recents-none">{recentsNote()}</p>}>
+                  <div class="cz-recents" role="radiogroup" aria-label="recent repos" onPointerDown={(e) => e.preventDefault()}>
+                    <For each={chips()}>
+                      {(dir) => (
+                        <button
+                          type="button"
+                          class="cz-recent"
+                          role="radio"
+                          aria-checked={dir === chosen() ? "true" : "false"}
+                          aria-label={`${repoName(dir)}, ${dir}`}
+                          data-waiting={waiting().includes(dir) ? "" : undefined}
+                          style={colourStyle(colourOf({ host: host(), root: dir }))}
+                          onClick={() => pickFolder(dir)}
+                        >
+                          <span class="cz-recent-mark">
+                            <RepoMark host={host()} root={dir} size={52} />
+                          </span>
+                          <span class="cz-recent-name">{repoName(dir)}</span>
+                        </button>
+                      )}
+                    </For>
                   </div>
-                )}
+                </Show>
               </Show>
-              <For each={known()}>
-                {(dir) => (
-                  <div class="cz-row" role="listitem">
-                    <button type="button" class="cz-row-main" data-lead="" data-active={isActive(dir) ? "" : undefined} aria-label={`${repoName(dir)}, ${dir}`} style={colourStyle(colourOf({ host: host(), root: dir }))} onClick={() => pickFolder(dir)}>
-                      <RepoMark host={host()} root={dir} size={32} />
-                      <b>{repoName(dir)}</b>
-                      <span>{dir}</span>
+              <div class="cz-finder">
+                <label class="cz-search">
+                  <Icon name="search" />
+                  <input
+                    ref={findEl}
+                    class="cz-find"
+                    type="text"
+                    value={query()}
+                    aria-label={`find a repo or a folder on ${host()}`}
+                    placeholder="find a repo, or type a path"
+                    autocapitalize="off"
+                    autocomplete="off"
+                    autocorrect="off"
+                    spellcheck={false}
+                    enterkeyhint="go"
+                    onInput={(e) => onQuery(e.currentTarget.value)}
+                    onKeyDown={onFinderKey}
+                  />
+                  <Show when={query()}>
+                    <button type="button" class="cz-clear" aria-label="clear the search" onPointerDown={(e) => e.preventDefault()} onClick={() => { onQuery(""); findEl?.focus({ preventScroll: true }); }}>
+                      <Icon name="close" />
                     </button>
+                  </Show>
+                </label>
+                <Show when={showRows()}>
+                  <div class="cz-rows" role="list" aria-label="folders" onPointerDown={(e) => e.preventDefault()}>
+                    <Show when={typedDir()}>
+                      {(dir) => (
+                        <div class="cz-row" role="listitem">
+                          <button type="button" class="cz-row-main" data-active={isActive(dir()) ? "" : undefined} aria-label={`start in ${dir()}`} onClick={() => pickFolder(dir())}>
+                            <b>
+                              <Icon name="check" />
+                              use {repoName(dir())}
+                            </b>
+                            <span>{dir()}</span>
+                          </button>
+                        </div>
+                      )}
+                    </Show>
+                    <Show when={upFrom()}>
+                      {(up) => (
+                        <div class="cz-row" role="listitem">
+                          <button type="button" class="cz-row-main" aria-label={`look in ${up()}`} onClick={() => onQuery(`${up() === "/" ? "" : up()}/`)}>
+                            <b>
+                              <Icon name="chevronUp" />
+                              up
+                            </b>
+                            <span>{up()}</span>
+                          </button>
+                        </div>
+                      )}
+                    </Show>
+                    <For each={known()}>
+                      {(dir) => (
+                        <div class="cz-row" role="listitem">
+                          <button type="button" class="cz-row-main" data-lead="" data-active={isActive(dir) ? "" : undefined} aria-label={`${repoName(dir)}, ${dir}`} style={colourStyle(colourOf({ host: host(), root: dir }))} onClick={() => pickFolder(dir)}>
+                            <RepoMark host={host()} root={dir} size={28} />
+                            <b>{repoName(dir)}</b>
+                            <span>{dir}</span>
+                          </button>
+                        </div>
+                      )}
+                    </For>
+                    <For each={children()}>
+                      {(folder) => (
+                        <div class="cz-row" role="listitem">
+                          <button type="button" class="cz-row-main" data-active={isActive(folder.directory) ? "" : undefined} aria-label={`start in ${folder.directory}`} onClick={() => pickFolder(folder.directory)}>
+                            <b>
+                              <Icon name={folder.repo ? "branch" : "folder"} />
+                              {folder.name}
+                              <Show when={folder.repo}>
+                                <em>repo</em>
+                              </Show>
+                            </b>
+                            <span>{folder.directory}</span>
+                          </button>
+                          <button type="button" class="cz-row-in" aria-label={`look inside ${folder.name}`} onClick={() => onQuery(`${folder.directory}/`)}>
+                            <Icon name="chevronRight" />
+                          </button>
+                        </div>
+                      )}
+                    </For>
+                    <Show when={pathMode() && truncated()}>
+                      <p class="cz-note">more folders match than are shown. type more of the name.</p>
+                    </Show>
+                    <Show when={lookProblem()}>{(said) => <p class="cz-note">{said()}</p>}</Show>
+                    <Show when={!pathMode() && known().length === 0}>
+                      <p class="cz-note">{`no repo on ${host()} matches. type a folder to look inside it, like ~/code or /srv/app.`}</p>
+                    </Show>
+                    <Show when={pathMode() && !lookProblem() && browsed.loading}>
+                      <p class="cz-note">looking.</p>
+                    </Show>
                   </div>
-                )}
-              </For>
-              <For each={children()}>
-                {(folder) => (
-                  <div class="cz-row" role="listitem">
-                    <button type="button" class="cz-row-main" data-active={isActive(folder.directory) ? "" : undefined} aria-label={`start in ${folder.directory}`} onClick={() => pickFolder(folder.directory)}>
-                      <b>
-                        <Icon name={folder.repo ? "branch" : "folder"} />
-                        {folder.name}
-                        <Show when={folder.repo}>
-                          <em>repo</em>
-                        </Show>
-                      </b>
-                      <span>{folder.directory}</span>
-                    </button>
-                    <button type="button" class="cz-row-in" aria-label={`look inside ${folder.name}`} onClick={() => onQuery(`${folder.directory}/`)}>
-                      <Icon name="chevronRight" />
-                    </button>
-                  </div>
-                )}
-              </For>
-              <Show when={pathMode() && truncated()}>
-                <p class="cz-note">more folders match than are shown. type more of the name.</p>
-              </Show>
-              <Show when={lookProblem()}>{(said) => <p class="cz-note">{said()}</p>}</Show>
-              <Show when={!pathMode() && known().length === 0}>
-                <p class="cz-note">{query().trim() ? `no repo on ${host()} matches. type a folder to look inside it, like ~/code or /srv/app.` : `type to filter the repos on ${host()}, or a folder like ~/code to look inside it.`}</p>
-              </Show>
-              <Show when={pathMode() && !lookProblem() && browsed.loading}>
-                <p class="cz-note">looking.</p>
-              </Show>
+                </Show>
+              </div>
             </div>
-            </Show>
+          </Show>
         </div>
         {/* never keyed: the composer follows the target in place, so picking a repo, a machine or a fleet beat never rebuilds
             the words being typed (a remount drops the phone's keyboard) */}
@@ -460,13 +567,7 @@ export function NewThreadSheet(props: SheetProps) {
             <Show
               when={failed()}
               fallback={
-                <p>
-                  {waitingOnDevice()
-                    ? "the connection is down. it goes on its own when it is back."
-                    : slow()
-                      ? `still making the thread in ${repoName(chosen() ?? "")}. the machine is slow to answer; it will open when it is there.`
-                      : `making the thread in ${repoName(chosen() ?? "")} on ${host()}.`}
-                </p>
+                <p>{makingWords()}</p>
               }
             >
               {(bad) => (
@@ -483,26 +584,31 @@ export function NewThreadSheet(props: SheetProps) {
             </Show>
           </div>
         </Show>
-        <Thumbed
-          class="cz-where"
-          name="where it runs"
-          flow="row"
-          tall={46}
-          current={where()}
-          labelOf={(value) => (value === "fresh" ? "a fresh worktree" : "the checkout")}
-          onPick={(value) => setPlace(value === "fresh" ? "fresh" : "checkout")}
-          segments={[
-            { value: "checkout", face: () => (<><Icon name="branch" /><span class="cz-seg-name">the checkout</span></>) },
-            { value: "fresh", off: isPlain(), face: () => (<><Icon name="worktree" /><span class="cz-seg-name">a fresh worktree</span></>) },
-          ]}
-        />
-        <p class="cz-note cz-where-note">
-          {isPlain()
-            ? "a fresh worktree needs a git repo, and this folder is not one."
-            : where() === "fresh"
-              ? "its own copy of the repo on a new branch, so your checkout stays as it is."
-              : "works in the folder as it stands, on the branch it is on."}
-        </p>
+        {/* where it runs: one quiet switch, off works in the checkout as it stands, on makes a fresh worktree; one line under
+            it says what the choice means, or why this folder cannot have one */}
+        <div class="cz-where">
+          <button
+            type="button"
+            class="cz-wt"
+            role="switch"
+            aria-checked={where() === "fresh" ? "true" : "false"}
+            aria-label="a fresh worktree"
+            aria-description="where it runs"
+            disabled={isPlain()}
+            onClick={() => setPlace(place() === "fresh" ? "checkout" : "fresh")}
+          >
+            <Icon name="worktree" />
+            <b>a fresh worktree</b>
+            <span class="cz-switch" aria-hidden="true" />
+          </button>
+          <p class="cz-note cz-where-note">
+            {isPlain()
+              ? "a fresh worktree needs a git repo, and this folder is not one."
+              : where() === "fresh"
+                ? "its own copy of the repo on a new branch, so your checkout stays as it is."
+                : "works in the folder as it stands, on the branch it is on."}
+          </p>
+        </div>
       </div>
     </>
   );

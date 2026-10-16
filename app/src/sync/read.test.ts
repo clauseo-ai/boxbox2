@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseMessages, type ReadPlan, readTranscript } from "./read";
+import { parseMessages, type ReadPlan, type ReadTrouble, readTranscript } from "./read";
 
 /* the transcript read's rules, with the answers of the wire put in by hand: wire fixtures, never a daemon */
 
@@ -20,9 +20,10 @@ function answer(body: string, init: ResponseInit = { headers: SEQ }) {
   return { response, reads };
 }
 
-function plan(answers: (Response | null)[], wanted: () => boolean = () => true): ReadPlan & { waits: number[]; asked: () => number } {
+function plan(answers: (Response | null)[], wanted: () => boolean = () => true): ReadPlan & { waits: number[]; asked: () => number; troubles: ReadTrouble[] } {
   let asked = 0;
   const waits: number[] = [];
+  const troubles: ReadTrouble[] = [];
   return {
     path: "/api/hosts/bench/sessions/ses_1/messages",
     get: () => Promise.resolve(answers[asked++] ?? null),
@@ -32,7 +33,9 @@ function plan(answers: (Response | null)[], wanted: () => boolean = () => true):
       return Promise.resolve();
     },
     nextDelay: () => 1000 * (waits.length + 1),
+    failed: (trouble) => troubles.push(trouble),
     waits,
+    troubles,
     asked: () => asked,
   };
 }
@@ -99,6 +102,33 @@ describe("reading a transcript", () => {
     const p = plan([answer(MESSAGES).response], () => false);
     expect(await readTranscript(p)).toBeNull();
     expect(p.asked()).toBe(0);
+  });
+
+  test("each failed try says why before its wait: no answer, the server's own words, its status, a 404 as gone, a body that is not a transcript", async () => {
+    const json = { "content-type": "application/json", ...SEQ };
+    const p = plan([
+      null,
+      answer(JSON.stringify({ error: { message: "vm-a is not answering" } }), { status: 502, headers: json }).response,
+      answer("<html>bad gateway</html>", { status: 502, headers: { "content-type": "text/html" } }).response,
+      answer("", { status: 404 }).response,
+      answer("<html>login</html>").response,
+      answer(MESSAGES).response,
+    ]);
+    expect(await readTranscript(p)).toMatchObject({ bytes: MESSAGES.length });
+    expect(p.troubles).toEqual([
+      { gone: false, problem: null },
+      { gone: false, problem: "vm-a is not answering" },
+      { gone: false, problem: "the server answered 502" },
+      { gone: true, problem: null },
+      { gone: false, problem: "the server sent something that is not this thread" },
+    ]);
+    expect(p.waits).toHaveLength(5);
+  });
+
+  test("a read that succeeds first time says no trouble", async () => {
+    const p = plan([answer(MESSAGES).response]);
+    await readTranscript(p);
+    expect(p.troubles).toEqual([]);
   });
 
   test("a 401 ends the read: the session is over", async () => {

@@ -145,3 +145,24 @@ export const HOSTILE_MARKUP = [
   "",
   "text after.",
 ].join("\n");
+
+/** what github paints that marked alone did not: a single tilde as written, two to strike, footnotes, and the html an agent may write
+    (a disclosure, keys, a table cell with a list), with the parts that may not run or load dropped (an image shows its words) */
+export const GITHUB_READING = [
+  "the skill lives in `~/.agents/skills` and took ~3 minutes; the old plan is ~~gone~~.",
+  "",
+  "the cache is cold on first launch[^cold], and warm after[^warm].",
+  "",
+  "<details><summary>what changed</summary>",
+  "",
+  "press <kbd>cmd</kbd> + <kbd>k</kbd> to open it; H<sub>2</sub>O and x<sup>2</sup> read as written.",
+  "",
+  "</details>",
+  "",
+  "> a quote keeps its bar",
+  "",
+  "<img src=\"https://example.com/track.png\" alt=\"the dashboard after the fix\"> <a href=\"javascript:alert(1)\">a link that runs nothing</a> and <a href=\"https://example.com\">one that goes</a>.",
+  "",
+  "[^cold]: measured on the installed unit, 1.4 s.",
+  "[^warm]: 120 ms, from the cache.",
+].join("\n");

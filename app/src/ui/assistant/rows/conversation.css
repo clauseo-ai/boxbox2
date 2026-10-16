@@ -1,0 +1,119 @@
+/* the conversation's rows (docs/design.md, the new rows: the origin line, a quote block in your bubble, a quote above an
+   agent's words, a reaction, the live "thinking" line, a scheduled run's start line; composer.md, the reply strip). under
+   .thread, whose tokens are the stage's in the assistant's palette */
+
+.thread .as-msg { position: relative; display: flex; flex-direction: column; align-items: flex-start; outline: none; border-radius: 22px; }
+.thread .as-msg[data-mine] { align-items: flex-end; }
+.thread .as-msg:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.thread .as-msg.lit > .as-bubble-line > :is(.as-you, .as-their), .thread .as-msg.lit .as-said-words { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow var(--fade-t, 120ms ease); }
+.thread .as-bubble-line { display: flex; align-items: center; gap: 8px; max-width: 100%; }
+.thread .as-msg[data-mine] .as-bubble-line { justify-content: flex-end; }
+
+/* your bubble: the stage's .you, with the origin in its time slot (12.5 px, tabular, the bubble's quiet ink) */
+.thread .as-bubble-col { min-width: 0; max-width: 86%; display: flex; flex-direction: column; align-items: flex-start; }
+.thread .as-msg[data-mine] .as-bubble-col { align-items: flex-end; }
+.thread .as-you { max-width: 100%; display: flex; flex-direction: column; }
+/* a quote needs room for its one line: the bubble holding one is never narrower than this */
+.thread :is(.as-you, .as-their):has(> .qb) { min-width: min(240px, 100%); }
+.thread :is(.as-you, .as-their):has(> .media-item) { padding-top: 10px; }
+.thread .as-you[data-state="sending"] { opacity: 0.6; }
+.thread .as-you > time.origin, .thread .as-their > time.origin { display: block; margin-top: 3px; text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--you-meta); white-space: nowrap; }
+.thread .as-words { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* someone else in a group conversation: a quiet well on the left, their name over it */
+.thread .as-their { max-width: 100%; padding: 12px 16px; border-radius: 20px 20px 20px 6px; background: var(--well); box-shadow: var(--well-edge); font-size: var(--thread-said); line-height: 1.42; display: flex; flex-direction: column; }
+.thread .as-their > time.origin { color: var(--text-2); }
+.thread .as-sender { font-size: 12.5px; color: var(--text-2); margin: 0 0 4px 4px; }
+.thread .as-you > .media-item, .thread .as-their > .media-item { margin: -2px -6px 8px; justify-items: stretch; }
+/* in a bubble the picture takes the bubble's width, up to its own box, at its own ratio */
+.thread :is(.as-you, .as-their) > .media-item .media-img { width: 100% !important; max-width: 300px; }
+
+/* ---------- a quote block in your bubble ---------- */
+.thread .qb {
+  display: flex; align-items: center; gap: 8px; min-width: 0; margin: -4px -6px 8px; padding: 10px 9px 9px; border-radius: 8px;
+  border-left: 3px solid var(--qb-ink); text-align: left; color: inherit;
+  background: color-mix(in srgb, var(--you-ink) 6%, transparent);
+  --qb-ink: color-mix(in srgb, var(--tone) calc(var(--L) * 100%), var(--window-top));
+}
+.thread .qb[data-you] { --qb-ink: var(--you-meta); }
+.thread button.qb { cursor: pointer; }
+.thread button.qb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) { .thread button.qb:hover { background: color-mix(in srgb, var(--you-ink) 10%, transparent); } }
+.thread .qb-text-col { flex: 1; min-width: 0; display: grid; }
+.thread .qb-who { font-size: 12.5px; line-height: 1.15; font-weight: 650; color: var(--qb-ink); }
+.thread .qb-text { font-size: 13px; line-height: 1.3; color: var(--you-meta); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thread .qb-thumb { flex: none; width: 32px; height: 32px; border-radius: 6px; object-fit: cover; }
+
+/* ---------- the quote line above the agent's words ---------- */
+.thread .qline { display: flex; align-items: center; gap: 0; max-width: 100%; margin: 0 0 6px; font-size: 13.5px; line-height: 1.4; color: var(--text-3); text-align: left; white-space: nowrap; }
+.thread .qline b { font-weight: 600; color: var(--text-2); flex: none; }
+.thread .qline-rule { flex: none; width: 2px; height: 16px; margin-right: 8px; border-radius: 1px; background: var(--text-3); }
+.thread .qline-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.thread button.qline:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (hover: hover) { .thread button.qline:hover b { color: var(--text); } }
+
+/* ---------- the agent's words ---------- */
+.thread .as-said { max-width: 100%; }
+.thread .as-said-line { display: flex; align-items: flex-start; gap: 8px; max-width: 100%; }
+.thread .as-said-words { min-width: 0; font-size: var(--thread-answer); line-height: 1.55; color: var(--prose); border-radius: 10px; }
+.thread .as-said-words > p { margin: 0; }
+
+/* ---------- the row's controls: reply and react, on hover and focus within (a fine pointer only) ---------- */
+.thread .row-acts { flex: none; display: none; gap: 4px; }
+@media (hover: hover) and (pointer: fine) {
+  .thread .row-acts { display: inline-flex; opacity: 0; transition: opacity var(--fade-t, 120ms ease); }
+  .thread .as-msg:is(:hover, :focus-within) .row-acts { opacity: 1; }
+}
+.thread .row-act { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); background: var(--knob); box-shadow: var(--knob-edge, none); }
+.thread .row-act svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.thread .row-act:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (hover: hover) { .thread .row-act:hover { color: var(--text); } }
+
+/* ---------- reactions: pills hanging 10 px over the bottom edge, into the gap below, so the row's height holds ---------- */
+.thread .rx-row { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: -10px 0 -14px; padding: 0 10px; }
+/* under a said row's start the pill sits just under the words, so it never covers a glyph of them */
+.thread .as-said > .rx-row { margin: 4px 0 -12px; padding: 0; }
+/* yours hangs from the bubble's left corner */
+.thread .as-msg[data-mine] .rx-row { align-self: flex-start; }
+.thread .rx { display: inline-flex; align-items: center; gap: 3px; height: 24px; padding: 0 7px; border-radius: 12px; font-size: 14px; line-height: 1; background: color-mix(in srgb, var(--flood-2) 70%, transparent); box-shadow: inset 0 0 0 1px var(--hairline), var(--well-edge); animation: rx-in var(--fade-t, 120ms ease) both; }
+.thread .rx.on { box-shadow: inset 0 0 0 1.5px var(--accent), var(--well-edge); cursor: pointer; }
+.thread .rx[data-state="sending"] { opacity: 0.55; }
+.thread .rx i { font-style: normal; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.thread .rx-status { font-size: 12.5px; color: var(--text-2); }
+@keyframes rx-in { from { opacity: 0; } }
+
+/* the reaction bar: a small glass bar over the row with the six, and the mirror's word under them */
+.thread .rx-bar { position: absolute; z-index: 5; bottom: calc(100% + 6px); left: 0; display: grid; justify-items: center; gap: 2px; padding: 6px; border-radius: 24px; background: var(--glass-deep); box-shadow: var(--glass-edge), var(--lift); -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4); }
+.thread .as-msg[data-mine] .rx-bar { left: auto; right: 0; }
+.thread .rx-bar-six { display: flex; gap: 2px; }
+.thread .rx-bar button { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; line-height: 1; }
+@media (hover: hover) { .thread .rx-bar button:hover { background: var(--hover); } }
+.thread .rx-bar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.thread .rx-bar-note { padding: 0 8px 2px; font-size: 12.5px; color: var(--text-2); }
+
+/* ---------- a send that is not confirmed ---------- */
+.thread .as-unconfirmed { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 4px 12px; margin: 6px 0 0; font-size: 13.5px; color: var(--text-2); text-align: right; }
+.thread .as-unconfirmed button { min-height: 32px; font-weight: 620; color: var(--accent); }
+
+/* ---------- small rows ---------- */
+.thread .as-unknown { display: grid; gap: 4px; font-size: 13.5px; line-height: 1.45; color: var(--text-3); }
+.thread .as-unknown p { margin: 0; }
+.thread .as-unknown-text { color: var(--text-2); white-space: pre-wrap; }
+.thread .sched { margin: 0; font-size: 13.5px; color: var(--text-2); }
+.thread .sched b { font-weight: 500; color: var(--text); }
+.thread .as-thinking { display: flex; align-items: center; gap: 8px; margin: 0; font-family: var(--mono); font-stretch: 90%; font-size: 13px; color: var(--accent); }
+.thread .as-thinking span { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 80%, transparent); }
+
+/* ---------- the reply strip: a glass tab joined to the composer's top ---------- */
+.reply-strip {
+  display: flex; align-items: center; gap: 10px; height: 52px; margin: 0 8px -1px; padding: 0 10px 0 14px; border-radius: 22px 22px 0 0;
+  background: var(--glass-deep); box-shadow: var(--glass-edge); -webkit-backdrop-filter: blur(20px) saturate(1.4); backdrop-filter: blur(20px) saturate(1.4);
+  color: var(--text); font-family: var(--sans);
+}
+.reply-glyph { flex: none; width: 18px; height: 18px; fill: none; stroke: var(--text-2); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.reply-rule { flex: none; width: 3px; height: 32px; border-radius: 2px; background: var(--accent); }
+.reply-text { flex: 1; min-width: 0; display: grid; gap: 0; }
+.reply-text b { font-size: 12.5px; line-height: 1.1; font-weight: 650; color: var(--accent); }
+.reply-text span { font-size: 13.5px; line-height: 1.2; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.reply-close { flex: none; min-height: 0; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); background: var(--knob); cursor: pointer; }
+.reply-close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.reply-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

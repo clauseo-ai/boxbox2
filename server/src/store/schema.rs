@@ -99,6 +99,78 @@ const MIGRATIONS: &[&str] = &[
      INSERT INTO prefs_next SELECT scope, subject, value, updated_at FROM prefs;
      DROP TABLE prefs;
      ALTER TABLE prefs_next RENAME TO prefs;",
+    // 7. the media store's index (`src/media`, `agents.md` section 6): one row
+    // per file by the sha256 of its bytes, kept as a tombstone once evicted
+    // (`evicted_at`); what holds each file; and a device's transcript of its
+    // own voice note, by media id and thread.
+    "CREATE TABLE media (
+         id TEXT PRIMARY KEY CHECK (length(id) = 64),
+         mime TEXT NOT NULL CHECK (length(mime) BETWEEN 3 AND 127),
+         size INTEGER NOT NULL CHECK (size >= 0),
+         filename TEXT CHECK (filename IS NULL OR length(filename) BETWEEN 1 AND 255),
+         duration_ms INTEGER,
+         width INTEGER,
+         height INTEGER,
+         waveform BLOB CHECK (waveform IS NULL OR length(waveform) <= 64),
+         origin TEXT NOT NULL CHECK (origin IN ('upload', 'agent')),
+         created INTEGER NOT NULL,
+         last_used INTEGER NOT NULL,
+         pinned_until INTEGER,
+         evicted_at INTEGER
+     ) STRICT;
+     CREATE INDEX media_live_by_use ON media (last_used) WHERE evicted_at IS NULL;
+     CREATE INDEX media_tombstones ON media (evicted_at) WHERE evicted_at IS NOT NULL;
+     CREATE TABLE media_refs (
+         media TEXT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
+         agent TEXT NOT NULL,
+         thread TEXT NOT NULL,
+         message TEXT NOT NULL,
+         PRIMARY KEY (media, agent, thread, message)
+     ) STRICT;
+     CREATE TABLE media_sidecars (
+         media TEXT NOT NULL REFERENCES media (id) ON DELETE CASCADE,
+         thread TEXT NOT NULL,
+         transcript TEXT NOT NULL,
+         lang TEXT,
+         device TEXT,
+         created INTEGER NOT NULL,
+         PRIMARY KEY (media, thread)
+     ) STRICT;",
+    // 8. foreign agents' keys and thread ids (`src/store/ids.rs`,
+    // `src/source/agent_keys.rs`, `src/source/thread_ids.rs`, `agents.md`
+    // section 3): the key each foreign agent got at first sight, never
+    // changed after; and each thread id with the foreign session key it
+    // hashes, unique both ways so verbs map back and a hash collision is
+    // refused instead of merging two threads. the session indexes serve the
+    // prune, which keeps any thread a read mark or open need still names.
+    "CREATE TABLE agents (
+         connection TEXT NOT NULL CHECK (length(connection) BETWEEN 1 AND 32),
+         foreign_id TEXT NOT NULL CHECK (length(foreign_id) BETWEEN 1 AND 1024),
+         key TEXT NOT NULL UNIQUE CHECK (length(key) BETWEEN 1 AND 32),
+         first_seen INTEGER NOT NULL,
+         PRIMARY KEY (connection, foreign_id)
+     ) STRICT;
+     CREATE TABLE thread_ids (
+         agent TEXT NOT NULL CHECK (length(agent) BETWEEN 1 AND 32),
+         id TEXT NOT NULL CHECK (length(id) BETWEEN 1 AND 128),
+         foreign_key TEXT NOT NULL CHECK (length(foreign_key) BETWEEN 1 AND 4096),
+         first_seen INTEGER NOT NULL,
+         PRIMARY KEY (agent, id),
+         UNIQUE (agent, foreign_key)
+     ) STRICT;
+     CREATE INDEX read_marks_by_session ON read_marks (session);
+     CREATE INDEX needs_open_by_session ON needs (session) WHERE served_at IS NULL;",
+    // 9. a source's secrets (`agents.md` section 4, `openclaw.md` 3.2 and
+    // 5.2): an openclaw connection's device key (pkcs#8 der), its device
+    // token and its instance id, one row per name. never logged, never in an
+    // api answer; the file is 0600.
+    "CREATE TABLE source_secrets (
+         connection TEXT NOT NULL CHECK (length(connection) BETWEEN 1 AND 64),
+         name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 64),
+         value BLOB NOT NULL CHECK (length(value) <= 65536),
+         updated INTEGER NOT NULL,
+         PRIMARY KEY (connection, name)
+     ) STRICT;",
 ];
 
 /// the schema version this build writes.
@@ -195,7 +267,8 @@ mod tests {
                 [],
             )
             .unwrap();
-        assert_eq!(migrate(&mut connection).unwrap(), 1);
+        // the widening, and every migration after it
+        assert_eq!(migrate(&mut connection).unwrap(), VERSION - 5);
         connection
             .execute(
                 "INSERT INTO prefs (scope, subject, value, updated_at) VALUES ('models', 'favorites', '{}', 8)",
@@ -215,6 +288,49 @@ mod tests {
                 .is_err(),
             "the scopes are still a closed list"
         );
+    }
+
+    #[test]
+    fn agent_keys_and_thread_ids_are_unique_both_ways() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate(&mut connection).unwrap();
+        let agent = |c: &Connection, connection: &str, foreign: &str, key: &str| {
+            c.execute(
+                "INSERT INTO agents (connection, foreign_id, key, first_seen) VALUES (?1, ?2, ?3, 1)",
+                [connection, foreign, key],
+            )
+        };
+        agent(&connection, "vm-a", "main", "vm-a-main").unwrap();
+        assert!(
+            agent(&connection, "vm-a", "main", "vm-a-other").is_err(),
+            "one key an agent"
+        );
+        assert!(
+            agent(&connection, "vm-b", "main", "vm-a-main").is_err(),
+            "one agent a key"
+        );
+        assert!(
+            agent(&connection, "vm-b", "x", "").is_err(),
+            "a key is not empty"
+        );
+        assert!(
+            agent(&connection, "vm-b", "x", &"k".repeat(33)).is_err(),
+            "a key fits 32"
+        );
+        agent(&connection, "vm-b", "main", "vm-b-main").unwrap();
+
+        let thread = |c: &Connection, agent: &str, id: &str, key: &str| {
+            c.execute(
+                "INSERT INTO thread_ids (agent, id, foreign_key, first_seen) VALUES (?1, ?2, ?3, 1)",
+                [agent, id, key],
+            )
+        };
+        thread(&connection, "vm-a-main", "oc_1", "agent:main:main").unwrap();
+        assert!(thread(&connection, "vm-a-main", "oc_1", "agent:main:other").is_err());
+        assert!(thread(&connection, "vm-a-main", "oc_2", "agent:main:main").is_err());
+        assert!(thread(&connection, "vm-a-main", &"i".repeat(129), "k").is_err());
+        // another agent may hold the same id and the same key
+        thread(&connection, "vm-b-main", "oc_1", "agent:main:main").unwrap();
     }
 
     #[test]

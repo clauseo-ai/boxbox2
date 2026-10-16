@@ -4,15 +4,26 @@
    they have. */
 
 import DOMPurify from "dompurify";
-import { marked } from "marked";
 import { keepsClass } from "./languages";
+import { ALLOWED_TAGS, ALLOWED_URI, toHtml } from "./markdown-gfm";
 
 /** the agent's markdown as html, sanitised: the answer, a report and what a row said are block markdown; a row's teaser and a thought's paragraphs use inlineNodes (thread.tsx), which builds nodes.
-    links open in a new tab and carry no referrer; scripts, handlers and styles never survive; no button, form or input does, no data attribute, and no class (but marked's `language-ts` on a fence's code), so nothing the agent writes can look like our controls or be taken for the thread. */
-export const sanitise = (md: string): string => {
-  const raw = String(marked.parse(md, { async: false, gfm: true }));
-  return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true }, FORBID_TAGS: ["style", "form", "input", "button", "iframe", "object", "embed"], FORBID_ATTR: ["style"], ALLOW_DATA_ATTR: false });
-};
+    links open in a new tab and carry no referrer; scripts, handlers (every on* attribute) and styles never survive; no button, form or input does, no data attribute, and no class (but marked's `language-ts` on a fence's code), so nothing the agent writes can look like our controls or be taken for the thread. */
+export const sanitise = (md: string): string =>
+  DOMPurify.sanitize(toHtml(md), {
+    ALLOWED_TAGS: [...ALLOWED_TAGS],
+    ALLOWED_ATTR: ["href", "title", "class", "open", "colspan", "rowspan", "align", "start", "reversed", "datetime", "abbr"],
+    ALLOWED_URI_REGEXP: ALLOWED_URI,
+    ADD_FORBID_CONTENTS: ["form", "object", "embed", "button", "select", "textarea", "input", "canvas"],
+    ALLOW_DATA_ATTR: false,
+  });
+/* an image is its words: its alt text where it was, never a request to wherever its src points */
+DOMPurify.addHook("uponSanitizeElement", (node, data) => {
+  if (data.tagName !== "img" || !(node instanceof Element)) return;
+  const alt = node.getAttribute("alt")?.trim();
+  // the words go in before it; the image itself is not on the list, so the sanitiser takes it out
+  if (alt) node.parentNode?.insertBefore(node.ownerDocument.createTextNode(alt), node);
+});
 DOMPurify.addHook("afterSanitizeAttributes", (node) => {
   if (node.tagName === "A") { node.setAttribute("target", "_blank"); node.setAttribute("rel", "noopener noreferrer"); }
 });

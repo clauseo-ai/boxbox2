@@ -1,0 +1,67 @@
+{
+  "golden": "history-search",
+  "proves": "a search matches a title, any case",
+  "request": {
+    "method": "GET",
+    "path": "/api/history?q=PROMPT",
+    "accept-encoding": "gzip"
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "content-encoding": "gzip",
+    "vary": "accept-encoding"
+  },
+  "body": {
+    "rows": [
+      {
+        "key": "bench:<ses 1>",
+        "host": "bench",
+        "info": {
+          "id": "<ses 1>",
+          "slug": "<slug 1>",
+          "projectID": "<world>/repos/ledger",
+          "directory": "<world>/repos/ledger",
+          "title": "the prompt route",
+          "version": "0.8.8-dev",
+          "time": {
+            "created": "<time>",
+            "updated": "<time>"
+          },
+          "model": {
+            "providerID": "anthropic",
+            "id": "claude-opus-5-5"
+          },
+          "summary": {
+            "files": 0,
+            "additions": 0,
+            "deletions": 0
+          },
+          "source": "cmx2",
+          "effort": "medium",
+          "vcs": {
+            "branch": "main",
+            "dirty": false
+          },
+          "cost": 0.000336,
+          "tokens": {
+            "input": 64,
+            "output": 4,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "context": {
+            "used": 68,
+            "limit": 1000000,
+            "compactAt": 300000
+          }
+        },
+        "cleared": false
+      }
+    ],
+    "next": null,
+    "unreached": []
+  }
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { colourOf, contrast, fnv1a, REPO_COLOURS, repoName } from "./repo";
+import { ASSISTANT_COLOURS, assistantColour, colourOf, contrast, fnv1a, REPO_COLOURS, repoName } from "./repo";
 
 /** the text colour of the dark ground (design.md), which windows use for body text */
 const TEXT = "#f4f4f6";
@@ -24,6 +24,31 @@ describe("the ten repo colours", () => {
 
   test("no light tone can be mistaken for the one red", () => {
     for (const colour of REPO_COLOURS) expect(colour.light.toLowerCase()).not.toBe(RED);
+  });
+});
+
+describe("the five assistant palettes", () => {
+  test("there are five, coral first, none sharing a name with a repo hue", () => {
+    expect(ASSISTANT_COLOURS.map((c) => c.name)).toEqual(["coral", "lime", "jade", "lagoon", "orchid"]);
+    const repo = new Set(REPO_COLOURS.map((c) => c.name));
+    for (const colour of ASSISTANT_COLOURS) expect(repo.has(colour.name)).toBe(false);
+  });
+
+  // the three proofs the ten hold (design.md, agents: who a window belongs to)
+  for (const colour of ASSISTANT_COLOURS) {
+    test(`${colour.name}: body text at both ends, the light tone on the top, the bottom on the light tone`, () => {
+      expect(contrast(TEXT, colour.top)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(TEXT, colour.bottom)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(colour.light, colour.top)).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(colour.bottom, colour.light)).toBeGreaterThanOrEqual(4.5);
+      expect(colour.light.toLowerCase()).not.toBe(RED);
+    });
+  }
+
+  test("a slot is found by its name, and a name this build does not know is coral", () => {
+    expect(assistantColour("jade").name).toBe("jade");
+    expect(assistantColour("ultraviolet").name).toBe("coral");
+    expect(assistantColour(null).name).toBe("coral");
   });
 });
 

@@ -1,0 +1,67 @@
+{
+  "golden": "history-next-page",
+  "proves": "the page after, read with the cursor as it came",
+  "request": {
+    "method": "GET",
+    "path": "/api/history?limit=2&before=<time>:bench:<ses 1>",
+    "accept-encoding": "gzip"
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "content-encoding": "gzip",
+    "vary": "accept-encoding"
+  },
+  "body": {
+    "rows": [
+      {
+        "key": "bench:<ses 2>",
+        "host": "bench",
+        "info": {
+          "id": "<ses 2>",
+          "slug": "<slug 1>",
+          "projectID": "<world>/repos/ledger",
+          "directory": "<world>/repos/ledger",
+          "title": "hydrate the transcript",
+          "version": "0.8.8-dev",
+          "time": {
+            "created": "<time>",
+            "updated": "<time>"
+          },
+          "model": {
+            "providerID": "anthropic",
+            "id": "claude-opus-5-5"
+          },
+          "summary": {
+            "files": 0,
+            "additions": 0,
+            "deletions": 0
+          },
+          "source": "cmx2",
+          "effort": "medium",
+          "vcs": {
+            "branch": "main",
+            "dirty": false
+          },
+          "cost": 0.004,
+          "tokens": {
+            "input": 320,
+            "output": 136,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "context": {
+            "used": 104,
+            "limit": 1000000,
+            "compactAt": 300000
+          }
+        },
+        "cleared": false
+      }
+    ],
+    "next": "<time>:bench:<ses 2>",
+    "unreached": []
+  }
+}

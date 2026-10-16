@@ -1,0 +1,431 @@
+//! contract 2's typed verbs on the cmx2 source: each turns boxbox's neutral
+//! send, answer or read into the daemon call contract 1's handler makes
+//! (the inherent methods beside this file), and the daemon's answer and
+//! refusals into boxbox's own (`docs/agents.md`, section 4).
+//!
+//! a send names its attachments by media id; the source reads them from
+//! the store and builds the `data:` urls cmx2 takes, under the photo memory
+//! budget that bounds contract 1's route (`http/mod.rs`), so the bytes are
+//! held once and only while the daemon takes them.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use axum::response::Response;
+use base64ct::{Base64, Encoding};
+use serde_json::{Value, json};
+use tokio::sync::Semaphore;
+
+use crate::http::compose::{Photo, accept_timeout, content, message_body, model_and_effort};
+use crate::http::error::ApiError;
+use crate::media::{Lookup, Media};
+use crate::source::cmx2::Cmx2Source;
+use crate::source::{
+    Answer, Archived, AskRef, Catalog, CatalogModel, Reply, ThreadFacts, ThreadRef, VerbError,
+};
+use crate::wire::{Accepted, AcceptedState, AskKind, Born, Send, Start};
+
+const MIB: u64 = 1024 * 1024;
+/// a daemon's refusal of a passed-through verb is read this far, at most.
+const REFUSAL_BYTES: usize = 64 * 1024;
+/// the efforts a new session takes by name (`http/compose.rs`).
+const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// a contract 1 refusal in the source's neutral words. the daemon's own
+/// refusals keep their words; a host that could not be reached keeps the
+/// reason a person can act on.
+pub fn verb_error(error: ApiError) -> VerbError {
+    match error {
+        ApiError::UnknownHost(_) => VerbError::Missing { what: "agent" },
+        ApiError::NoSuchSession(_) => VerbError::Missing { what: "thread" },
+        ApiError::Gone => VerbError::Gone,
+        ApiError::Settled { by, at } => VerbError::Settled { by, at },
+        ApiError::AlreadySent => VerbError::AlreadySent,
+        ApiError::HostSaid {
+            status, message, ..
+        } => VerbError::Refused {
+            status,
+            words: message,
+        },
+        ApiError::BadRequest(words) => VerbError::Bad(words),
+        ApiError::HostUnreachable { reason, .. } => VerbError::Unreachable { reason },
+        ApiError::HostFailed { detail, .. } => VerbError::Unreachable { reason: detail },
+        other => VerbError::Unreachable {
+            reason: other.to_string(),
+        },
+    }
+}
+
+/// what cmx2 calls a session: the thread id, checked as one path segment.
+fn session(thread: &ThreadRef) -> Result<&str, VerbError> {
+    crate::http::asks::segment(&thread.id).map_err(verb_error)
+}
+
+/// a send's attachments read from the store, each as the photo contract 1
+/// takes, with the room they hold in the photo budget until dropped.
+struct Read {
+    photos: Vec<Photo>,
+    _room: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+
+async fn read_attachments(
+    media: &Media,
+    budget: &Arc<Semaphore>,
+    send: &Send,
+) -> Result<Read, VerbError> {
+    if send.attachments.is_empty() {
+        return Ok(Read {
+            photos: Vec::new(),
+            _room: None,
+        });
+    }
+    let mut objects = Vec::with_capacity(send.attachments.len());
+    for attachment in &send.attachments {
+        match media.lookup(&attachment.media).await {
+            Ok(Lookup::Ready(object)) => objects.push(object),
+            Ok(Lookup::Evicted | Lookup::Unknown) => {
+                return Err(VerbError::Bad(
+                    "an attachment is no longer on the server; attach it again".into(),
+                ));
+            }
+            Err(error) => {
+                return Err(VerbError::Unreachable {
+                    reason: format!("the media store did not answer ({error})"),
+                });
+            }
+        }
+    }
+    // the file and its base64 are held together while the url is built: about
+    // 2.4 times the file, counted in whole MiB, never past what the budget holds
+    let weight: u64 = objects.iter().map(|o| (o.size * 7).div_ceil(3)).sum();
+    let mib = u32::try_from(weight.div_ceil(MIB).max(1))
+        .unwrap_or(u32::MAX)
+        .min(u32::try_from(crate::http::PHOTO_BUDGET_MIB).unwrap_or(u32::MAX));
+    let room = tokio::time::timeout(
+        Duration::from_secs(120),
+        Arc::clone(budget).acquire_many_owned(mib),
+    )
+    .await
+    .map_err(|_| VerbError::Busy)?
+    .map_err(|_| VerbError::Busy)?;
+    let mut photos = Vec::with_capacity(objects.len());
+    for object in objects {
+        let Some(path) = media.path_of(&object.id) else {
+            return Err(VerbError::Bad("that is not a media id".into()));
+        };
+        let bytes = tokio::fs::read(&path)
+            .await
+            .map_err(|error| VerbError::Unreachable {
+                reason: format!("an attachment could not be read from the media store ({error})"),
+            })?;
+        let mut url = format!("data:{};base64,", object.mime);
+        url.push_str(&Base64::encode_string(&bytes));
+        drop(bytes);
+        photos.push(Photo {
+            mime: object.mime,
+            filename: object.filename,
+            url,
+        });
+    }
+    Ok(Read {
+        photos,
+        _room: Some(room),
+    })
+}
+
+/// the daemon's body for a send, with how long it may take to take it.
+fn body(send: &Send, photos: Vec<Photo>) -> Result<(Value, Duration), VerbError> {
+    let limit = accept_timeout(&photos);
+    let parts = content(&send.text, photos).map_err(verb_error)?;
+    let mut payload = message_body(parts, &send.client_id);
+    model_and_effort(&mut payload, send.model.as_deref(), send.effort.as_deref())
+        .map_err(verb_error)?;
+    Ok((payload, limit))
+}
+
+fn accepted(answer: &Value) -> Accepted {
+    Accepted {
+        state: AcceptedState::Accepted,
+        message: answer["messageID"].as_str().map(str::to_owned),
+    }
+}
+
+/// a passed-through answer read as an outcome: a 2xx is done, with its json;
+/// anything else is the daemon's refusal in its words.
+async fn passed(response: Response, missing: VerbError) -> Result<Value, VerbError> {
+    let status = response.status().as_u16();
+    let bytes = axum::body::to_bytes(response.into_body(), REFUSAL_BYTES * 64)
+        .await
+        .map_err(|error| VerbError::Unreachable {
+            reason: format!("the daemon's answer did not arrive whole ({error})"),
+        })?;
+    if (200..300).contains(&status) {
+        return Ok(serde_json::from_slice(&bytes).unwrap_or(Value::Null));
+    }
+    if status == 404 {
+        return Err(missing);
+    }
+    let words = serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|v| {
+            v["data"]["message"]
+                .as_str()
+                .or_else(|| v["error"]["message"].as_str())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| String::from_utf8_lossy(&bytes[..bytes.len().min(200)]).into_owned());
+    Err(VerbError::Refused { status, words })
+}
+
+impl Cmx2Source {
+    pub(crate) async fn typed_prompt(
+        &self,
+        thread: &ThreadRef,
+        send: Send,
+    ) -> Result<Accepted, VerbError> {
+        let id = session(thread)?;
+        let read = read_attachments(&self.media, &self.photos, &send).await?;
+        let (payload, limit) = body(&send, read.photos)?;
+        let done = self.prompt(id, payload, limit).await.map_err(verb_error)?;
+        Ok(accepted(&done.answer))
+    }
+
+    pub(crate) async fn typed_steer(
+        &self,
+        thread: &ThreadRef,
+        send: Send,
+    ) -> Result<Accepted, VerbError> {
+        let id = session(thread)?;
+        let read = read_attachments(&self.media, &self.photos, &send).await?;
+        let (payload, limit) = body(&send, read.photos)?;
+        let done = self.steer(id, payload, limit).await.map_err(verb_error)?;
+        Ok(accepted(&done.answer))
+    }
+
+    pub(crate) async fn typed_queue(
+        &self,
+        thread: &ThreadRef,
+        send: Send,
+    ) -> Result<Accepted, VerbError> {
+        let id = session(thread)?;
+        let read = read_attachments(&self.media, &self.photos, &send).await?;
+        let (payload, _) = body(&send, read.photos)?;
+        let bytes = serde_json::to_vec(&payload).map_err(|e| VerbError::Bad(e.to_string()))?;
+        drop(payload);
+        let answer = self.queue_raw(id, bytes).await.map_err(verb_error)?;
+        let answer = passed(answer, VerbError::Missing { what: "thread" }).await?;
+        Ok(accepted(&answer))
+    }
+
+    pub(crate) async fn typed_abort(&self, thread: &ThreadRef) -> Result<(), VerbError> {
+        let id = session(thread)?;
+        self.abort(id).await.map(drop).map_err(verb_error)
+    }
+
+    pub(crate) async fn typed_compact(&self, thread: &ThreadRef) -> Result<(), VerbError> {
+        let id = session(thread)?;
+        self.compact(id).await.map(drop).map_err(verb_error)
+    }
+
+    pub(crate) async fn typed_run_now(&self, thread: &ThreadRef) -> Result<(), VerbError> {
+        let id = session(thread)?;
+        let answer = self.run_now_raw(id).await.map_err(verb_error)?;
+        passed(answer, VerbError::Missing { what: "thread" })
+            .await
+            .map(drop)
+    }
+
+    pub(crate) async fn typed_unsend(
+        &self,
+        thread: &ThreadRef,
+        message: &str,
+    ) -> Result<(), VerbError> {
+        let id = session(thread)?;
+        let message = crate::http::asks::segment(message).map_err(verb_error)?;
+        let answer = self.unsend_raw(id, message).await.map_err(verb_error)?;
+        match passed(answer, VerbError::Gone).await {
+            Err(VerbError::Refused { status: 409, .. }) => Err(VerbError::AlreadySent),
+            other => other.map(drop),
+        }
+    }
+
+    pub(crate) async fn typed_answer(
+        &self,
+        ask: &AskRef,
+        answer: crate::source::Answer,
+    ) -> Result<(), VerbError> {
+        let id = crate::http::asks::segment(&ask.id).map_err(verb_error)?;
+        let by = answer.device_class;
+        let client = answer.client_id;
+        let done = match (ask.kind, answer.reply) {
+            (AskKind::Permission, Reply::Option(reply)) => {
+                self.permission(id, &json!({ "reply": reply, "by": by, "clientID": client }))
+                    .await
+            }
+            (AskKind::Question, Reply::Answers(answers)) => {
+                self.question(
+                    id,
+                    &json!({ "answers": answers, "by": by, "clientID": client }),
+                )
+                .await
+            }
+            (AskKind::Question, Reply::Reject) => {
+                self.reject(id, &json!({ "by": by, "clientID": client }))
+                    .await
+            }
+            _ => {
+                return Err(VerbError::Bad(
+                    "answer a permission with an option, a question with answers or reject".into(),
+                ));
+            }
+        };
+        done.map(drop).map_err(verb_error)
+    }
+
+    pub(crate) async fn typed_archive(&self, thread: &ThreadRef) -> Result<Archived, VerbError> {
+        let id = session(thread)?;
+        #[allow(clippy::cast_precision_loss, reason = "ms stamps stay far below 2^52")]
+        let asked = crate::now_ms() as f64;
+        let info = self
+            .archive_session(id, asked)
+            .await
+            .map_err(|error| match error {
+                ApiError::Gone => VerbError::Missing { what: "thread" },
+                other => verb_error(other),
+            })?;
+        let at = serde_json::from_str::<Value>(info.get())
+            .ok()
+            .and_then(|v| v["time"]["archived"].as_f64());
+        Ok(Archived {
+            key: thread.key(),
+            at: Some(at.unwrap_or(asked)),
+        })
+    }
+
+    pub(crate) async fn typed_adopt(&self, thread: &ThreadRef) -> Result<ThreadFacts, VerbError> {
+        let id = session(thread)?;
+        let info = self.session_info(id).await.map_err(|error| match error {
+            ApiError::Gone => VerbError::Missing { what: "thread" },
+            other => verb_error(other),
+        })?;
+        let facts = crate::source::cmx2::translate::thread_from_json(info).map_err(|error| {
+            VerbError::Unreachable {
+                reason: format!("its answer was not a session ({error})"),
+            }
+        })?;
+        if facts.archived {
+            return Err(VerbError::Missing { what: "thread" });
+        }
+        Ok(facts)
+    }
+
+    pub(crate) async fn typed_catalog(&self) -> Result<Catalog, VerbError> {
+        let answer = self.provider_models().await.map_err(verb_error)?;
+        let read = crate::http::hosts::read_models(&answer);
+        Ok(Catalog {
+            models: read
+                .models
+                .into_iter()
+                .map(|m| CatalogModel {
+                    id: m.id,
+                    name: m.name,
+                    provider: Some(m.provider),
+                    levels: Some(m.efforts),
+                })
+                .collect(),
+            default: read.default,
+        })
+    }
+
+    pub(crate) async fn typed_start(&self, agent: &str, start: Start) -> Result<Born, VerbError> {
+        let Some(place) = start.place.clone() else {
+            return Err(VerbError::Bad(
+                "name the repo by its absolute directory on the machine".into(),
+            ));
+        };
+        if !place.starts_with('/') {
+            return Err(VerbError::Bad(
+                "name the repo by its absolute directory on the machine".into(),
+            ));
+        }
+        let read = read_attachments(&self.media, &self.photos, &start.send).await?;
+        let (prompt, limit) = body(&start.send, read.photos)?;
+        let directory = if start.worktree {
+            self.fresh_worktree(&place).await.map_err(verb_error)?
+        } else {
+            place
+        };
+        let mut session = json!({ "directory": directory });
+        if let Some(model) = &start.send.model {
+            session["model"] = Value::String(model.clone());
+        }
+        if let Some(effort) = start.send.effort.as_deref().filter(|e| EFFORTS.contains(e)) {
+            session["effort"] = Value::String(effort.to_owned());
+        }
+        let id = self
+            .new_session(&session, &directory)
+            .await
+            .map_err(verb_error)?;
+        let born = Born {
+            key: format!("{agent}:{id}"),
+            thread: id.clone(),
+        };
+        let id = crate::http::asks::segment(&id).map_err(verb_error)?;
+        self.prompt(id, prompt, limit).await.map_err(verb_error)?;
+        Ok(born)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_daemons_refusals_keep_their_meaning_and_words() {
+        assert!(matches!(
+            verb_error(ApiError::Settled {
+                by: "iphone".into(),
+                at: Some(4)
+            }),
+            VerbError::Settled { at: Some(4), .. }
+        ));
+        assert!(matches!(verb_error(ApiError::Gone), VerbError::Gone));
+        let VerbError::Refused { status, words } = verb_error(ApiError::HostSaid {
+            host: "vm-a".into(),
+            status: 400,
+            message: "directory /x does not exist".into(),
+        }) else {
+            panic!("a daemon's refusal stays a refusal");
+        };
+        assert_eq!(
+            (status, words.as_str()),
+            (400, "directory /x does not exist")
+        );
+        let VerbError::Unreachable { reason } = verb_error(ApiError::HostUnreachable {
+            host: "vm-a".into(),
+            reason: "cannot connect (refused)".into(),
+        }) else {
+            panic!("an unreachable host stays unreachable");
+        };
+        assert_eq!(reason, "cannot connect (refused)");
+    }
+
+    #[test]
+    fn a_send_becomes_the_body_contract_1_sends() {
+        let send = Send {
+            client_id: "c-1".into(),
+            text: "hello".into(),
+            attachments: Vec::new(),
+            quote: None,
+            model: Some("bench/fast".into()),
+            effort: Some("high".into()),
+            generation: None,
+        };
+        let (payload, limit) = body(&send, Vec::new()).unwrap();
+        assert_eq!(payload["clientID"], "c-1");
+        assert_eq!(payload["parts"][0]["text"], "hello");
+        assert_eq!(payload["model"]["providerID"], "bench");
+        assert_eq!(payload["effort"], "high");
+        assert_eq!(limit, accept_timeout(&[]));
+    }
+}

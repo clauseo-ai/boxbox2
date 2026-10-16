@@ -68,6 +68,8 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory};
         super::session::providers,
         super::session::find_file,
         super::repo_icon::repo_icon,
+        super::media::upload,
+        super::media::serve,
         super::push::state,
         super::push::subscribe,
         super::push::unsubscribe,
@@ -103,6 +105,7 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory};
     ),
     components(schemas(
         Accepted,
+        crate::media::MediaObject,
         Archived,
         CheckoutRefusal,
         MergeBody,

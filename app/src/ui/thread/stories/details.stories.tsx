@@ -42,7 +42,8 @@ const agents: AgentRow[] = [
   { id: "ses_aaaa1111", child: child("working", 12), name: "reviewer", type: "review", at: Date.now() - 134_000, reported: false, label: "reviewer" },
   { id: "ses_bbbb2222", child: child("wants", 4), name: "tester", type: "tests", at: T0 + 21 * MIN, reported: false, label: "tester" },
   { id: "ses_cccc3333", child: child("idle", 8), name: "scout", at: T0 + 7 * MIN, reported: true, label: "scout" },
-  { id: "ses_dddd4444", child: child("gone", 3), name: "scout", at: T0, reported: true, label: "scout dddd" },
+  // an agent the fleet does not hold (older than its host's newest 300): not held, its state unknown, and still a door, opened by its key
+  { id: "ses_dddd4444", child: { ...child("idle", 0), held: false }, name: "scout", at: T0, reported: false, label: "scout dddd" },
 ];
 
 const info = {

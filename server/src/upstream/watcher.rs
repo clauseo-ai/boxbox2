@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use reqwest::{StatusCode, header};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::watch;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -29,8 +29,9 @@ use super::sse::{Decoder, Item};
 use super::{Connection, Counters, Health, HostStatus, get, plain};
 use crate::cmx2::{self, Event, EventKind};
 use crate::config::HostConfig;
-use crate::fleet::Upstream;
 use crate::journal::Cursor;
+use crate::source::cmx2::translate;
+use crate::source::{SourceEvent, SourceSender};
 
 /// one frame may not pass this (architecture: memory caps). a completed tool
 /// part can carry up to 4 mb of image attachments (cmx2's budget) on top of
@@ -45,8 +46,8 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 const SMALL_BODY_CAP: usize = 64 * 1024;
 /// a connection that held this long resets the backoff.
 const STABLE: Duration = Duration::from_secs(30);
-const BACKOFF_FLOOR: Duration = Duration::from_millis(500);
-const BACKOFF_CAP: Duration = Duration::from_secs(30);
+pub(super) const BACKOFF_FLOOR: Duration = Duration::from_millis(500);
+pub(super) const BACKOFF_CAP: Duration = Duration::from_secs(30);
 
 const HEALTH: &str = "/global/health";
 const EVENTS: &str = "/global/event";
@@ -102,9 +103,9 @@ pub(super) struct Watcher {
     host: Arc<HostConfig>,
     name: Arc<str>,
     client: reqwest::Client,
-    status: watch::Sender<HostStatus>,
+    status: Arc<watch::Sender<HostStatus>>,
     counters: Arc<Counters>,
-    fleet: mpsc::Sender<Upstream>,
+    fleet: SourceSender,
     shutdown: CancellationToken,
     backoff: Backoff,
     /// the last daemon event passed to the fleet; `None` until the host
@@ -116,9 +117,9 @@ impl Watcher {
     pub(super) fn new(
         host: Arc<HostConfig>,
         client: reqwest::Client,
-        status: watch::Sender<HostStatus>,
+        status: Arc<watch::Sender<HostStatus>>,
         counters: Arc<Counters>,
-        fleet: mpsc::Sender<Upstream>,
+        fleet: SourceSender,
         shutdown: CancellationToken,
     ) -> Self {
         let backoff = Backoff::new(BACKOFF_FLOOR, BACKOFF_CAP);
@@ -192,8 +193,8 @@ impl Watcher {
                 epoch: read.epoch.clone(),
                 seq: read.resume_seq(),
             });
-            self.fleet
-                .send(Upstream::HostRead(Box::new(read)))
+            let snapshot = translate::snapshot(read);
+            self.emit(None, SourceEvent::Snapshot(Box::new(snapshot)), None)
                 .await
                 .map_err(|_| SessionError::FleetStopped)?;
         }
@@ -321,17 +322,27 @@ impl Watcher {
             directory = decoded.directory.as_deref().unwrap_or("-"),
             "event"
         );
-        self.fleet
-            .send(Upstream::Event {
-                host: Arc::clone(&self.name),
-                seq,
-                directory: decoded.directory,
-                event: Box::new(event),
-                payload: decoded.payload,
-            })
-            .await
-            .map_err(|_| SessionError::FleetStopped)?;
+        let decoded = crate::cmx2::Decoded {
+            directory: decoded.directory,
+            event,
+            payload: decoded.payload,
+        };
+        if let Some((translated, payload)) = crate::source::cmx2::from_frame(&self.name, decoded) {
+            self.emit(seq, translated, Some(payload))
+                .await
+                .map_err(|_| SessionError::FleetStopped)?;
+        }
         Ok(seq)
+    }
+
+    /// one event for this host's agent, which is the connection itself.
+    async fn emit(
+        &self,
+        seq: Option<u64>,
+        event: SourceEvent,
+        raw: Option<Box<serde_json::value::RawValue>>,
+    ) -> Result<(), crate::source::FleetGone> {
+        self.fleet.send(&self.name, seq, event, raw).await
     }
 
     async fn health(&self) -> Result<Health, SessionError> {
@@ -417,7 +428,13 @@ impl Watcher {
                 duplicates: self.counters.duplicates.load(Ordering::Relaxed),
             };
             // a stopped fleet means the server is stopping; the loop ends on the token
-            let _ = self.fleet.send(Upstream::Host(snapshot)).await;
+            let _ = self
+                .emit(
+                    None,
+                    SourceEvent::Connection(translate::connection(snapshot)),
+                    None,
+                )
+                .await;
         }
     }
 }

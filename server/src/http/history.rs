@@ -26,12 +26,11 @@
 //! import makes that happen.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use axum::Json;
 use axum::extract::{Query, State};
 use futures_util::future::join_all;
-use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -39,11 +38,11 @@ use tracing::{info, warn};
 use utoipa::{IntoParams, ToSchema};
 
 use super::AppState;
-use super::asks::read_capped;
+use super::agents;
 use super::error::{ApiError, ErrorBody};
-use crate::config::HostConfig;
 use crate::fleet::model::session_key;
-use crate::upstream::{plain, request};
+use crate::source::cmx2::Cmx2Source;
+use crate::wire::Capability;
 
 /// threads in a page unless the client asks for fewer.
 const DEFAULT_LIMIT: usize = 30;
@@ -57,9 +56,6 @@ const SCAN_PAGES: usize = 4;
 const MAX_DAEMON_PAGE: usize = 1000;
 /// the longest search the server will match.
 const MAX_QUERY: usize = 200;
-const READ_TIMEOUT: Duration = Duration::from_secs(15);
-/// 100 sessions of a few kb each fit with room; past it the answer is not read.
-const READ_CAP: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Deserialize, IntoParams)]
 // query parameters, not path ones: without this the document puts them in the path and the typed client cannot call it
@@ -296,29 +292,24 @@ pub async fn page(
         })?),
         None => None,
     };
-    let hosts: Vec<Arc<HostConfig>> = {
-        let all = state.upstreams.hosts.borrow();
-        let named = |h: &&crate::upstream::HostView| {
-            query
-                .host
-                .as_deref()
-                .is_none_or(|host| h.config.name == host)
-        };
-        all.iter()
-            .filter(named)
-            .map(|h| Arc::clone(&h.config))
-            .collect()
+    let hosts: Vec<Arc<Cmx2Source>> = match query.host.as_deref() {
+        Some(host) => vec![agents::cmx2(&state, host, Some(Capability::History))?],
+        None => state
+            .upstreams
+            .hosts
+            .borrow()
+            .iter()
+            .filter(|h| {
+                agents::check(h.source.as_ref(), &h.config.name, Capability::History).is_ok()
+            })
+            .map(|h| Arc::clone(&h.source))
+            .collect(),
     };
-    if hosts.is_empty()
-        && let Some(host) = &query.host
-    {
-        return Err(ApiError::UnknownHost(host.clone()));
-    }
 
     let scans = join_all(
         hosts
             .iter()
-            .map(|host| scan(&state, host, needle.as_deref(), cursor.as_ref(), limit)),
+            .map(|source| scan(source, needle.as_deref(), cursor.as_ref(), limit)),
     )
     .await;
     let asked = scans.len();
@@ -409,8 +400,7 @@ fn merge(scans: Vec<Scan>, limit: usize) -> (Vec<Found>, Option<String>, Vec<Unr
 
 /// reads one host's threads after the cursor, keeping what matches.
 async fn scan(
-    state: &AppState,
-    host: &HostConfig,
+    source: &Cmx2Source,
     needle: Option<&str>,
     cursor: Option<&Key>,
     limit: usize,
@@ -420,6 +410,7 @@ async fn scan(
     } else {
         (1, limit)
     };
+    let host = source.host();
     let mut out = Scan {
         host: host.name.clone(),
         found: Vec::new(),
@@ -429,11 +420,8 @@ async fn scan(
     let mut edge = cursor.map(|cursor| Edge::after(cursor, &host.name));
     let mut spent = 0;
     while spent < pages {
-        let route = match &edge {
-            Some(edge) => format!("/session?roots=true&limit={size}&before={}", edge.before()),
-            None => format!("/session?roots=true&limit={size}"),
-        };
-        let (list, more) = match read_page(state, host, &route).await {
+        let before = edge.as_ref().map(Edge::before);
+        let (list, more) = match source.history_page(size, before).await {
             Ok(page) => page,
             Err(reason) => {
                 warn!(host = %host.name, reason, "history could not read a host");
@@ -499,34 +487,6 @@ async fn scan(
         }
     }
     out
-}
-
-/// one page of a daemon's listing, and whether the daemon has more behind it.
-async fn read_page(
-    state: &AppState,
-    host: &HostConfig,
-    route: &str,
-) -> Result<(Vec<Box<RawValue>>, bool), String> {
-    let read = async {
-        let answer = request(&state.client, host, Method::GET, route)
-            .send()
-            .await
-            .map_err(|e| plain(&e))?;
-        let status = answer.status();
-        if !status.is_success() {
-            return Err(format!("it answered {status}"));
-        }
-        let more = answer.headers().contains_key("x-next-cursor");
-        let body = read_capped(answer, &host.name, READ_TIMEOUT, READ_CAP)
-            .await
-            .map_err(|e| e.to_string())?;
-        let list = serde_json::from_slice::<Vec<Box<RawValue>>>(&body)
-            .map_err(|e| format!("its answer was not a list of threads ({e})"))?;
-        Ok((list, more))
-    };
-    tokio::time::timeout(READ_TIMEOUT, read)
-        .await
-        .map_err(|_| format!("no answer within {}s", READ_TIMEOUT.as_secs()))?
 }
 
 /// the title or the repo contains what was typed; `needle` is lowercase already.

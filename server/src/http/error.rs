@@ -91,6 +91,33 @@ pub enum ApiError {
     /// flat `CheckoutRefusal`, not `ErrorBody`, so a card can switch on `error` and read the files.
     #[error("{}", .0.message)]
     CheckoutRefused(CheckoutRefusal),
+    /// the agent lacks the capability the verb needs: 422 with the flat
+    /// `{error: "unsupported", capability, message}`, never retried.
+    #[error("{}", .0.message)]
+    Unsupported(crate::wire::Unsupported),
+    #[error("no agent named \"{0}\"")]
+    NoSuchAgent(String),
+    #[error("{agent} did not answer ({reason}). try again in a moment")]
+    AgentUnreachable { agent: String, reason: String },
+    #[error("{0} is busy with other requests; try again in a few seconds")]
+    AgentBusy(String),
+    #[error("the conversation on {0} changed; review and send again")]
+    GenerationChanged(String),
+    #[error("not confirmed: {0} may not have this. send it again as a new message")]
+    NotConfirmed(String),
+    #[error("this server cannot do that yet: {0}")]
+    NotBuilt(&'static str),
+    #[error("{0}")]
+    AttachmentTooLarge(String),
+    #[error("{0}")]
+    AttachmentKind(String),
+    /// a paired host's name is a configured connection's, or an agent's key.
+    #[error("{name} is already {holder}; pick another name{}", if *.agent_key { " or pin that agent's key" } else { "" })]
+    NameReserved {
+        name: String,
+        holder: String,
+        agent_key: bool,
+    },
 }
 
 /// why the daemon would not merge or discard a checkout, as the review card reads it.
@@ -144,7 +171,10 @@ pub struct ErrorDetail {
     /// `credential-revoked`, `host-unreachable`, `host-refused`,
     /// `no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,
     /// `gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,
-    /// `checkout-refused` (whose body is a `CheckoutRefusal`, not this one).
+    /// `checkout-refused` (whose body is a `CheckoutRefusal`, not this one),
+    /// and contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`
+    /// (with `retry-after`), `generation-changed`, `not-confirmed`,
+    /// `not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`.
     pub code: &'static str,
     /// for people, in the interface's voice.
     pub message: String,
@@ -208,6 +238,16 @@ impl ApiError {
             Self::HostSaid { .. } => (StatusCode::BAD_GATEWAY, "host-said"),
             Self::NoSuchCheckout(_) => (StatusCode::NOT_FOUND, "no-such-checkout"),
             Self::CheckoutRefused(_) => (StatusCode::CONFLICT, "checkout-refused"),
+            Self::Unsupported(_) => (StatusCode::UNPROCESSABLE_ENTITY, "unsupported"),
+            Self::NoSuchAgent(_) => (StatusCode::NOT_FOUND, "no-such-agent"),
+            Self::AgentUnreachable { .. } => (StatusCode::BAD_GATEWAY, "agent-unreachable"),
+            Self::AgentBusy(_) => (StatusCode::SERVICE_UNAVAILABLE, "agent-busy"),
+            Self::GenerationChanged(_) => (StatusCode::CONFLICT, "generation-changed"),
+            Self::NotConfirmed(_) => (StatusCode::CONFLICT, "not-confirmed"),
+            Self::NotBuilt(_) => (StatusCode::NOT_IMPLEMENTED, "not-built"),
+            Self::AttachmentTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "attachment-too-large"),
+            Self::AttachmentKind(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "attachment-kind"),
+            Self::NameReserved { .. } => (StatusCode::CONFLICT, "name-reserved"),
         }
     }
 }
@@ -218,6 +258,10 @@ impl IntoResponse for ApiError {
         if let Self::CheckoutRefused(refusal) = self {
             return (status, Json(refusal)).into_response();
         }
+        if let Self::Unsupported(refusal) = self {
+            return (status, Json(refusal)).into_response();
+        }
+        let busy = matches!(self, Self::AgentBusy(_));
         let settled = match &self {
             Self::Settled { by, at } => Some(SettledBy {
                 by: by.clone(),
@@ -232,7 +276,14 @@ impl IntoResponse for ApiError {
                 settled,
             },
         };
-        (status, Json(body)).into_response()
+        let mut response = (status, Json(body)).into_response();
+        if busy {
+            response.headers_mut().insert(
+                axum::http::header::RETRY_AFTER,
+                axum::http::HeaderValue::from_static("5"),
+            );
+        }
+        response
     }
 }
 

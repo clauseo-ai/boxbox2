@@ -860,6 +860,8 @@ fn summary(path: &Path, answers: &Answers<Signed>) -> String {
             host.name, host.url
         );
     }
+    // init writes cmx2 daemons only; a gateway's token file is made by hand
+    text.push_str("  openclaw  none: add an [[openclaw]] for each gateway (boxbox.example.toml)\n");
     if answers.generated {
         let _ = write!(
             text,

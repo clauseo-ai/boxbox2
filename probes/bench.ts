@@ -5,7 +5,7 @@
    from an empty store; the logs stay there afterwards for reading.
 
    the probes never attach to a daemon they did not start: if either port
-   answers, they refuse (AGENTS.md rule 13). */
+   answers, they refuse (AGENTS.md, the live fleet). */
 
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { closeSync, mkdirSync, openSync, rmSync, writeFileSync } from "node:fs";

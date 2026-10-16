@@ -3,7 +3,9 @@
    model), `threads` (a head record per thread plus pages of 50 messages),
    `drafts` (the composer's words, one per target), `draftPhotos` (the same
    targets' photos, written only when the set changes; v3), `outbox` (sends
-   the daemon has not echoed yet, by client id; v2) and `prefs`.
+   the daemon has not echoed yet, by client id; v2; telemetry rows under
+   `row:` and this device's replies to asks under `ask:` share it) and
+   `prefs`.
 
    boot reads the meta, the fleet and the heads, never a page (`loadBoot`):
    a thread's pages come back when it is opened or held (`loadPages`), and
@@ -19,12 +21,15 @@
 import type { Cold, Counters, Fleet, SyncState } from "./reducer";
 import { type Draft, joinDraft, type OutboxEntry, type Photo } from "./outbox";
 import type { RawEvent } from "./telemetry";
+import type { AskReply } from "./replies";
 import type { Cursor, Message } from "./protocol";
 
 const NAME = "boxbox";
 const VERSION = 3;
 /** a telemetry row's key in the outbox store; a send's key is its client id, a uuid, which never starts with this */
 const ROW = "row:";
+/** a reply's record's key in the outbox store (replies.ts): `ask:` and its book key */
+const ASK = "ask:";
 const STORES = ["meta", "fleet", "threads", "drafts", "draftPhotos", "outbox", "prefs"] as const;
 export const PAGE = 50;
 
@@ -212,8 +217,9 @@ export class Cache {
     await committed(tx);
   }
 
-  /** the composer's drafts by target key, the sends not yet echoed, and the telemetry rows the server has not taken */
-  async loadComposer(): Promise<{ drafts: Record<string, Draft>; outbox: OutboxEntry[]; rows: RawEvent[] }> {
+  /** the composer's drafts by target key, the sends not yet echoed, the telemetry rows the server has not taken, and this device's
+      replies to asks as they were written (replies.ts reads them) */
+  async loadComposer(): Promise<{ drafts: Record<string, Draft>; outbox: OutboxEntry[]; rows: RawEvent[]; replies: unknown[] }> {
     const tx = this.db.transaction(["drafts", "draftPhotos", "outbox"], "readonly");
     const [keys, values, photoKeys, photoValues, outboxKeys, outboxValues] = await Promise.all([
       done(tx.objectStore("drafts").getAllKeys()) as Promise<IDBValidKey[]>,
@@ -232,16 +238,18 @@ export class Cache {
       const words = values[i];
       if (words) drafts[String(key)] = joinDraft(words, photoSets.get(String(key)));
     });
-    // one store, two kinds of entry: a send by its client id, a row by `row:<id>`
+    // one store, three kinds of entry: a send by its client id, a row by `row:<id>`, a reply's record by `ask:<key>`
     const outbox: OutboxEntry[] = [];
     const rows: RawEvent[] = [];
+    const replies: unknown[] = [];
     outboxKeys.forEach((key, i) => {
       const value = outboxValues[i];
       if (value === undefined) return;
       if (String(key).startsWith(ROW)) rows.push(value as RawEvent);
+      else if (String(key).startsWith(ASK)) replies.push(value);
       else outbox.push(value as OutboxEntry);
     });
-    return { drafts, outbox, rows };
+    return { drafts, outbox, rows, replies };
   }
 
   /** keeps telemetry rows in the outbox until the server takes them (telemetry.ts) */
@@ -265,6 +273,14 @@ export class Cache {
     else tx.objectStore("drafts").delete(key);
     if (!words || photos?.length === 0) tx.objectStore("draftPhotos").delete(key);
     else if (photos) tx.objectStore("draftPhotos").put(photos, key);
+    await committed(tx);
+  }
+
+  /** keeps a reply's record under its book key, and lets go of the records the book dropped past its cap */
+  async putReply(key: string | null, record: AskReply | null, dropped: readonly string[]): Promise<void> {
+    const tx = this.db.transaction("outbox", "readwrite");
+    if (key && record) tx.objectStore("outbox").put(record, ASK + key);
+    for (const old of dropped) tx.objectStore("outbox").delete(ASK + old);
     await committed(tx);
   }
 

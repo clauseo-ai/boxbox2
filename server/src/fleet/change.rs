@@ -197,7 +197,7 @@ pub enum TailKind {
 }
 
 /// cmx2's message roles, as the daemon names them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum TailRole {
     User,
@@ -261,7 +261,7 @@ pub enum Control {
 }
 
 /// why a stream began with `reset`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ResetReason {
     /// no cursor was given: a first connection.

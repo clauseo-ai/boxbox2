@@ -36,7 +36,7 @@ pub struct Mark {
 
 /// a session's read mark as every surface gets it: the furthest any
 /// device has seen.
-#[derive(Clone, Debug, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadMark {
     /// the daemon's `time.created` of the newest message seen, ms: a

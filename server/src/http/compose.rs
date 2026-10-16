@@ -15,19 +15,22 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tracing::info;
 use utoipa::{IntoParams, ToSchema};
 
 use super::AppState;
-use super::asks::{
-    Done, answer_review, client_id, device_of, post_body, segment, upstream, upstream_within,
-};
+use super::agents;
+use super::asks::{Done, answer_review, client_id, device_of, segment};
 use super::error::{ApiError, ErrorBody};
 use super::session::urlencode;
 use crate::fleet::model::session_key;
+#[cfg(test)]
+use crate::source::cmx2::verbs::compose::{
+    FOLDERS_MAX, folder_refusal, missing_directory, shape_folders,
+};
+use crate::wire::Capability;
 
 /// a prompt's text, at most.
 const MAX_TEXT: usize = 100_000;
@@ -71,12 +74,6 @@ const ACCEPT_PER_CONVERTED: Duration = Duration::from_secs(75);
 const ACCEPT_BYTES_PER_SECOND: usize = 256 * 1024;
 /// cmx2's own effort names; any other variant goes by its name.
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-/// how long a read for a menu may take; the menu says so when it does not come.
-const READ_TIMEOUT: Duration = Duration::from_secs(10);
-/// a `!` line runs to the end before the daemon answers; its own limit is 600 s.
-const SHELL_TIMEOUT: Duration = Duration::from_secs(610);
-/// making a fresh worktree copies the checkout before it answers.
-const BIRTH_TIMEOUT: Duration = Duration::from_secs(60);
 /// new threads remembered by client id, so a retried birth returns the first thread instead of making
 /// a second. the composer retries for at most a few minutes; 64 covers any burst a person can make.
 const BIRTHS_KEPT: usize = 64;
@@ -327,7 +324,7 @@ fn file_bytes(url: &str) -> usize {
 
 /// a message's json body, read straight into one buffer of the announced size and parsed from it. axum's `Json`
 /// collects the frames and then joins them into a second buffer, which for a message with photos is the whole
-/// body twice over before a byte is parsed (rule 7); a body past what the routes take is refused as it passes
+/// body twice over before a byte is parsed (`AGENTS.md`, memory and latency); a body past what the routes take is refused as it passes
 /// that size, not after it has all arrived.
 pub struct Message<T>(pub T);
 
@@ -377,7 +374,7 @@ where
 }
 
 /// a message's body as cmx2 takes it: the parts and the client id. the parts move in, so the photos'
-/// bytes are not copied again on the way (rule 7).
+/// bytes are not copied again on the way (`AGENTS.md`, memory and latency).
 pub fn message_body(parts: Vec<Value>, client_id: &str) -> Value {
     let mut body = serde_json::Map::new();
     body.insert("parts".into(), Value::Array(parts));
@@ -433,21 +430,17 @@ pub async fn steer(
     let client_id = client_id(&body.client_id)?.to_owned();
     let limit = accept_timeout(&body.photos);
     let parts = content(&body.text, std::mem::take(&mut body.photos))?;
-    let route = format!("/session/{}/steer", segment(&session)?);
+    let id = segment(&session)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Steer))?;
     let key = session_key(&host, &session);
     state
         .fleet
         .arm(key.clone(), client_id.clone(), device.clone())
         .await
         .map_err(|_| ApiError::Stopping)?;
-    let done = post_body(
-        &state,
-        &host,
-        &route,
-        message_body(parts, &client_id),
-        limit,
-    )
-    .await?;
+    let done = source
+        .steer(id, message_body(parts, &client_id), limit)
+        .await?;
     answer_review(&state, key, device).await;
     Ok((StatusCode::ACCEPTED, Json(done)).into_response())
 }
@@ -479,19 +472,10 @@ pub async fn shell(
             "write the command to run after the !".into(),
         ));
     }
-    let route = format!("/session/{}/shell", segment(&session)?);
+    let id = segment(&session)?;
     let sent = json!({ "command": command, "clientID": client_id });
-    upstream(
-        &state,
-        &host,
-        Method::POST,
-        &route,
-        Some(&sent),
-        None,
-        SHELL_TIMEOUT,
-    )
-    .await
-    .map(Json)
+    let source = agents::cmx2(&state, &host, Some(Capability::Shell))?;
+    source.shell(id, &sent).await.map(Json)
 }
 
 /// runs a `/` command as a prompt. the daemon holds its answer until the command's turn settles, so
@@ -526,18 +510,19 @@ pub async fn command(
             "\"{name}\" is not a command name"
         )));
     }
-    let route = format!("/session/{}/command", segment(&session)?);
+    let id = segment(&session)?;
     let mut sent = json!({ "command": name, "clientID": client_id });
     if let Some(arguments) = body.arguments.filter(|a| !a.trim().is_empty()) {
         sent["arguments"] = Value::String(arguments);
     }
+    let source = agents::cmx2(&state, &host, Some(Capability::Commands))?;
     let key = session_key(&host, &session);
     state
         .fleet
         .arm(key.clone(), client_id, device.clone())
         .await
         .map_err(|_| ApiError::Stopping)?;
-    let started = upstream_headers(&state, &host, &route, &sent).await?;
+    let started = source.command(id, &sent).await?;
     answer_review(&state, key, device).await;
     Ok((StatusCode::ACCEPTED, Json(started)).into_response())
 }
@@ -558,37 +543,8 @@ pub async fn commands(
     Path(host): Path<String>,
     Query(scope): Query<Scope>,
 ) -> Result<Json<Vec<CommandChoice>>, ApiError> {
-    let read = upstream(
-        &state,
-        &host,
-        Method::GET,
-        "/command",
-        None,
-        Some(&scope.directory),
-        READ_TIMEOUT,
-    )
-    .await?;
-    let mut choices: Vec<CommandChoice> = read
-        .answer
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|c| {
-            Some(CommandChoice {
-                name: c["name"].as_str()?.to_owned(),
-                description: c["description"].as_str().map(str::to_owned),
-                hints: c["hints"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|h| h.as_str().map(str::to_owned))
-                    .collect(),
-                source: c["source"].as_str().unwrap_or("command").to_owned(),
-            })
-        })
-        .collect();
-    choices.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(Json(choices))
+    let source = agents::cmx2(&state, &host, Some(Capability::Commands))?;
+    source.commands(&scope.directory).await.map(Json)
 }
 
 /// the repos a new thread can start in, newest activity first.
@@ -606,29 +562,8 @@ pub async fn projects(
     State(state): State<Arc<AppState>>,
     Path(host): Path<String>,
 ) -> Result<Json<Vec<ProjectChoice>>, ApiError> {
-    let read = upstream(
-        &state,
-        &host,
-        Method::GET,
-        "/project",
-        None,
-        None,
-        READ_TIMEOUT,
-    )
-    .await?;
-    Ok(Json(
-        read.answer
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|p| {
-                Some(ProjectChoice {
-                    directory: p["worktree"].as_str()?.to_owned(),
-                    updated: p["time"]["updated"].as_i64(),
-                })
-            })
-            .collect(),
-    ))
+    let source = agents::cmx2(&state, &host, Some(Capability::Places))?;
+    source.projects().await.map(Json)
 }
 
 /// a folder on the host, for the new-thread sheet's picker.
@@ -657,11 +592,6 @@ pub struct Folders {
     pub truncated: bool,
 }
 
-/// the most folders one answer carries.
-const FOLDERS_MAX: usize = 500;
-/// the most of a host's folder list one read takes in.
-const FOLDERS_BODY: usize = 4 * 1024 * 1024;
-
 /// which folder to read.
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -673,76 +603,6 @@ pub struct Browse {
     /// only the folders whose names start with this, case aside: the server narrows a big folder
     /// before it answers, so a typed word never pulls the whole list to a phone.
     pub prefix: Option<String>,
-}
-
-/// cmx2's `/global/fs` answer as boxbox serves it, narrowed to a name prefix and bounded; none when it is
-/// not that shape.
-fn shape_folders(answer: &Value, prefix: &str) -> Option<Folders> {
-    let prefix = prefix.to_lowercase();
-    let mut matched = answer["entries"]
-        .as_array()?
-        .iter()
-        .filter_map(|e| {
-            let name = e["name"].as_str()?;
-            if !name.to_lowercase().starts_with(&prefix) {
-                return None;
-            }
-            Some(Folder {
-                name: name.to_owned(),
-                directory: e["absolute"].as_str()?.to_owned(),
-                repo: e["git"].as_bool().unwrap_or(false),
-            })
-        })
-        .collect::<Vec<_>>();
-    let truncated = matched.len() > FOLDERS_MAX;
-    matched.truncate(FOLDERS_MAX);
-    Some(Folders {
-        path: answer["path"].as_str()?.to_owned(),
-        parent: answer["parent"].as_str().map(str::to_owned),
-        home: answer["home"].as_str()?.to_owned(),
-        children: matched,
-        truncated,
-    })
-}
-
-/// what the daemon's refusal to list a folder means to the person, in words: nothing there, a file, or no
-/// permission. anything else it said stays its own.
-fn folder_refusal(host: &str, error: ApiError) -> ApiError {
-    let ApiError::HostSaid {
-        status: 400,
-        message,
-        ..
-    } = &error
-    else {
-        return error;
-    };
-    let at = |prefix: &str| message.strip_prefix(prefix).map(str::to_owned);
-    if let Some(path) = at("no such directory: ") {
-        return ApiError::BadRequest(format!("there is no folder at {path} on {host}."));
-    }
-    if let Some(path) = at("not a directory: ") {
-        let name = path.rsplit('/').next().unwrap_or(&path);
-        return ApiError::BadRequest(format!("{name} is a file, not a folder."));
-    }
-    if let Some(path) = at("permission denied: ") {
-        return ApiError::BadRequest(format!("{path} on {host} cannot be read."));
-    }
-    error
-}
-
-/// a thread asked to start where the host has no folder: said as what happened and what to do, a refusal the
-/// client never retries (the daemon says "directory X does not exist" for a missing folder and for a file).
-fn missing_directory(host: &str, directory: &str, error: ApiError) -> ApiError {
-    match &error {
-        ApiError::HostSaid {
-            status: 400,
-            message,
-            ..
-        } if message.contains("does not exist") => ApiError::BadRequest(format!(
-            "nothing at {directory} on {host}, so the thread did not start. pick another folder, or make it and retry."
-        )),
-        _ => error,
-    }
 }
 
 /// the folders inside a folder on the host, so a thread can start in a place no thread has been in yet.
@@ -772,29 +632,11 @@ pub async fn folders(
     if browse.hidden == Some(true) {
         query.push("hidden=true".to_owned());
     }
-    let route = if query.is_empty() {
-        "/global/fs".to_owned()
-    } else {
-        format!("/global/fs?{}", query.join("&"))
-    };
-    let read = upstream_within(
-        &state,
-        &host,
-        Method::GET,
-        &route,
-        None,
-        None,
-        READ_TIMEOUT,
-        FOLDERS_BODY,
-    )
-    .await
-    .map_err(|error| folder_refusal(&host, error))?;
-    shape_folders(&read.answer, browse.prefix.as_deref().unwrap_or(""))
+    let source = agents::cmx2(&state, &host, Some(Capability::Places))?;
+    source
+        .folders(&query, browse.prefix.as_deref().unwrap_or(""))
+        .await
         .map(Json)
-        .ok_or_else(|| ApiError::HostFailed {
-            host,
-            detail: "its folder list came back in a shape this server does not read".into(),
-        })
 }
 
 /// starts a thread in a repo with its first message: a fresh worktree first when asked, then the
@@ -837,27 +679,14 @@ pub async fn start(
             "name the repo by its absolute directory on the host".into(),
         ));
     }
+    let source = agents::cmx2(&state, &host, Some(Capability::Threads))?;
+    agents::check(source.as_ref(), &host, Capability::Places)?;
+    if body.place == Place::Fresh {
+        agents::check(source.as_ref(), &host, Capability::Worktree)?;
+    }
     let directory = match body.place {
         Place::Checkout => body.directory.clone(),
-        Place::Fresh => {
-            let made = upstream(
-                &state,
-                &host,
-                Method::POST,
-                "/experimental/worktree",
-                Some(&json!({})),
-                Some(&body.directory),
-                BIRTH_TIMEOUT,
-            )
-            .await?;
-            made.answer["directory"]
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| ApiError::HostFailed {
-                    host: host.clone(),
-                    detail: "its new worktree named no directory".into(),
-                })?
-        }
+        Place::Fresh => source.fresh_worktree(&body.directory).await?,
     };
     let mut session = json!({ "directory": directory });
     if let Some(model) = &body.model {
@@ -866,24 +695,7 @@ pub async fn start(
     if let Some(effort) = body.effort.as_deref().filter(|e| EFFORTS.contains(e)) {
         session["effort"] = Value::String(effort.to_owned());
     }
-    let made = upstream(
-        &state,
-        &host,
-        Method::POST,
-        "/session",
-        Some(&session),
-        None,
-        READ_TIMEOUT,
-    )
-    .await
-    .map_err(|error| missing_directory(&host, &directory, error))?;
-    let id = made.answer["id"]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| ApiError::HostFailed {
-            host: host.clone(),
-            detail: "its new session had no id".into(),
-        })?;
+    let id = source.new_session(&session, &directory).await?;
     let born = Born {
         session: id.clone(),
         directory,
@@ -897,65 +709,9 @@ pub async fn start(
         .map_err(|_| ApiError::Stopping)?;
     let mut prompt = message_body(parts, &client_id);
     model_and_effort(&mut prompt, body.model.as_deref(), body.effort.as_deref())?;
-    post_body(
-        &state,
-        &host,
-        &format!("/session/{}/prompt_async", segment(&id)?),
-        prompt,
-        limit,
-    )
-    .await?;
+    source.prompt(segment(&id)?, prompt, limit).await?;
     info!(%host, session = %id, place = ?body.place, "a new thread was started");
     Ok((StatusCode::CREATED, Json(born)).into_response())
-}
-
-/// a call whose answer the daemon holds until a turn settles: answers once its headers say it was
-/// taken, and reads the rest in a task of its own (bounded by the turn) so the daemon is not cut off.
-async fn upstream_headers(
-    state: &AppState,
-    host: &str,
-    route: &str,
-    sent: &Value,
-) -> Result<Done, ApiError> {
-    let view = super::hosts::find(state, host)?;
-    let unreachable = |reason: String| ApiError::HostUnreachable {
-        host: host.to_owned(),
-        reason,
-    };
-    let response = tokio::time::timeout(
-        READ_TIMEOUT,
-        crate::upstream::request(&state.client, &view.config, Method::POST, route)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(sent.to_string())
-            .send(),
-    )
-    .await
-    .map_err(|_| unreachable(format!("no answer within {}s", READ_TIMEOUT.as_secs())))?
-    .map_err(|e| unreachable(crate::upstream::plain(&e)))?;
-    let status = response.status().as_u16();
-    info!(host, route, status, "command sent to the host");
-    if status == 404 {
-        return Err(ApiError::BadRequest(
-            "the thread's directory has no command by that name".into(),
-        ));
-    }
-    if !(200..300).contains(&status) {
-        let body = response.text().await.unwrap_or_default();
-        return Err(ApiError::HostSaid {
-            host: host.to_owned(),
-            status,
-            message: body.chars().take(200).collect(),
-        });
-    }
-    let repeat = response.headers().contains_key("x-cmx2-repeat");
-    tokio::spawn(async move {
-        // the command's own turn ends the body; an hour is past any turn worth waiting for
-        let _ = tokio::time::timeout(Duration::from_secs(3600), response.bytes()).await;
-    });
-    Ok(Done {
-        repeat,
-        answer: Value::Null,
-    })
 }
 
 #[cfg(test)]

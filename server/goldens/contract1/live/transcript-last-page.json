@@ -1,0 +1,64 @@
+{
+  "golden": "transcript-last-page",
+  "proves": "a page of one message, newest last, with x-next-cursor naming the page before it",
+  "request": {
+    "method": "GET",
+    "path": "/api/hosts/bench/sessions/<ses 1>/messages?limit=1",
+    "accept-encoding": "gzip"
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json;charset=utf-8",
+    "content-encoding": "gzip",
+    "vary": "accept-encoding",
+    "x-cmx2-seq": "<epoch>:<seq>",
+    "x-next-cursor": "<cursor>"
+  },
+  "body": [
+    {
+      "info": {
+        "id": "<msg 1>",
+        "sessionID": "<ses 1>",
+        "role": "assistant",
+        "time": {
+          "created": "<time>",
+          "completed": "<time>"
+        },
+        "parentID": "<msg 2>",
+        "modelID": "claude-opus-5-5",
+        "providerID": "anthropic",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "<world>/repos/ledger",
+          "root": "<world>/repos/ledger"
+        },
+        "cost": 0.001056,
+        "tokens": {
+          "input": 64,
+          "output": 40,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "stop",
+        "variant": "medium"
+      },
+      "parts": [
+        {
+          "id": "<prt 1>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 1>",
+          "type": "text",
+          "text": "the notes now greet in the voice you picked. the edit touched one line, the shell run counted the file, and nothing else changed. the change is small on purpose: one file, one greeting, easy to review and easy to",
+          "time": {
+            "start": "<time>",
+            "end": "<time>"
+          }
+        }
+      ]
+    }
+  ]
+}

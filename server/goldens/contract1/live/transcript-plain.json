@@ -1,0 +1,372 @@
+{
+  "golden": "transcript-plain",
+  "proves": "the same transcript without gzip when the client does not ask for it",
+  "request": {
+    "method": "GET",
+    "path": "/api/hosts/bench/sessions/<ses 1>/messages",
+    "accept-encoding": "identity"
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json;charset=utf-8",
+    "vary": "accept-encoding",
+    "x-cmx2-seq": "<epoch>:<seq>"
+  },
+  "body": [
+    {
+      "info": {
+        "id": "<msg 1>",
+        "sessionID": "<ses 1>",
+        "role": "user",
+        "time": {
+          "created": "<time>"
+        },
+        "clientID": "golden-world-1"
+      },
+      "parts": [
+        {
+          "id": "<prt 1>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 1>",
+          "type": "text",
+          "text": "[bench:work 40 1 notes.md] tidy the notes"
+        },
+        {
+          "id": "<prt 2>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 1>",
+          "type": "text",
+          "text": "turn context: cwd: <world>/repos/ledger, host: bench-host, date: 2026-10-15\nmodels for helpers. spawn names one; your own model is the user's choice and is not in this table.\n- haiku: claude-haiku-5-5, high by default. cheapest and fastest; bounded work; costs 5× once a request reaches 100k tokens.\n- sonnet: claude-sonnet-5-5, high by default. routine and terminal-heavy implementation, ui, docs.\n- opus: claude-opus-5-5, medium by default. hard implementation, debugging, review of risky changes.\n- fable: claude-fable-5-1, medium by default. second opinion on plans and designs; about 4× opus per task.\noff limits: claude-haiku-5-5 never runs at xhigh or max.\nwhere to start, and where to step up when the output falls short (defaults, not limits):\n- lookups: finding files and usages, reading logs and docs, summarising output: haiku medium (low only for one-shot text such as a commit message); then sonnet high.\n- exploration whose answer shapes a plan: sonnet high; then opus medium.\n- mechanical work: renames, codemods, formatting, commit messages, changelogs, pr text: haiku (low for text, medium for code); then sonnet high.\n- a small coding task with a test to pass, under about 100k tokens of context: haiku high; then sonnet high, then opus medium.\n- the same kind of task when it is larger: sonnet high; then opus medium.\n- routine implementation with lots of terminal work: build and test loops, scripts, ci: sonnet medium; then sonnet high, then opus high, then opus xhigh; sonnet max only after opus xhigh fails.\n- hard implementation and debugging: unclear cause, races, performance, migrations: opus medium; then opus high, then opus xhigh; fable medium as a second opinion.\n- ui and frontend: sonnet high; then opus medium.\n- docs and user-facing copy: sonnet high; then opus medium.\n- review of risky changes: security, concurrency, migrations, public api: opus medium, high for security and concurrency; then opus xhigh or fable medium.\n- a second opinion on a plan or design: opus high or fable medium, whichever is not running your session.\n- reading more than 100k tokens: sonnet high.\nhow to use it:\n- small work (under about 10 tool calls) stays with you; a helper starts with none of your context.\n- start with the cheapest option that can do the task, and judge the output, not the price.\n- when a helper's output falls short: retry once with a sharper brief, then spawn one step up with after, then do it yourself. no helper is retried more than twice.\n- difficulty or file count alone is no reason to start higher; a missing tool or permission gets fixed, not escalated.\n- tests and typecheck run before any review; only risky changes get a review.\n- a helper past about 250k tokens of context costs about twice as much per step; give the next task to a fresh helper.\n- disjoint work runs in parallel, one writer per area, each writer in its own worktree.\n- long watches (builds, test suites, dev servers) are background jobs with notify, not helpers.\n- when only helpers or jobs remain, end your turn; their reports wake you.",
+          "synthetic": true
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "<msg 2>",
+        "sessionID": "<ses 1>",
+        "role": "assistant",
+        "time": {
+          "created": "<time>",
+          "completed": "<time>"
+        },
+        "parentID": "<msg 1>",
+        "modelID": "claude-opus-5-5",
+        "providerID": "anthropic",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "<world>/repos/ledger",
+          "root": "<world>/repos/ledger"
+        },
+        "cost": 0.0007360000000000001,
+        "tokens": {
+          "input": 64,
+          "output": 24,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls",
+        "variant": "medium"
+      },
+      "parts": [
+        {
+          "id": "<prt 3>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 2>",
+          "type": "text",
+          "text": "reading first.",
+          "time": {
+            "start": "<time>",
+            "end": "<time>"
+          }
+        },
+        {
+          "id": "<prt 4>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 2>",
+          "type": "tool",
+          "callID": "toolu_bench_1_1",
+          "tool": "read",
+          "state": {
+            "status": "completed",
+            "input": {
+              "path": "README.md"
+            },
+            "output": "     1\t# ledger\n     2\t\n     3\ta scratch repo for boxbox's contract goldens.",
+            "title": "README.md",
+            "metadata": {
+              "path": "<world>/repos/ledger/README.md",
+              "startLine": 1,
+              "endLine": 3,
+              "totalLines": 3,
+              "truncated": false,
+              "cutLines": 0
+            },
+            "time": {
+              "start": null,
+              "end": "<time>"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "<msg 3>",
+        "sessionID": "<ses 1>",
+        "role": "assistant",
+        "time": {
+          "created": "<time>",
+          "completed": "<time>"
+        },
+        "parentID": "<msg 1>",
+        "modelID": "claude-opus-5-5",
+        "providerID": "anthropic",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "<world>/repos/ledger",
+          "root": "<world>/repos/ledger"
+        },
+        "cost": 0.0007360000000000001,
+        "tokens": {
+          "input": 64,
+          "output": 24,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls",
+        "variant": "medium"
+      },
+      "parts": [
+        {
+          "id": "<prt 5>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 3>",
+          "type": "text",
+          "text": "and the notes.",
+          "time": {
+            "start": "<time>",
+            "end": "<time>"
+          }
+        },
+        {
+          "id": "<prt 6>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 3>",
+          "type": "tool",
+          "callID": "toolu_bench_2_1",
+          "tool": "read",
+          "state": {
+            "status": "completed",
+            "input": {
+              "path": "notes.md"
+            },
+            "output": "     1\t# notes\n     2\t\n     3\tgreeting: hello",
+            "title": "notes.md",
+            "metadata": {
+              "path": "<world>/repos/ledger/notes.md",
+              "startLine": 1,
+              "endLine": 3,
+              "totalLines": 3,
+              "truncated": false,
+              "cutLines": 0
+            },
+            "time": {
+              "start": null,
+              "end": "<time>"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "<msg 4>",
+        "sessionID": "<ses 1>",
+        "role": "assistant",
+        "time": {
+          "created": "<time>",
+          "completed": "<time>"
+        },
+        "parentID": "<msg 1>",
+        "modelID": "claude-opus-5-5",
+        "providerID": "anthropic",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "<world>/repos/ledger",
+          "root": "<world>/repos/ledger"
+        },
+        "cost": 0.0007360000000000001,
+        "tokens": {
+          "input": 64,
+          "output": 24,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls",
+        "variant": "medium"
+      },
+      "parts": [
+        {
+          "id": "<prt 7>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 4>",
+          "type": "text",
+          "text": "changing the status line.",
+          "time": {
+            "start": "<time>",
+            "end": "<time>"
+          }
+        },
+        {
+          "id": "<prt 8>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 4>",
+          "type": "tool",
+          "callID": "toolu_bench_3_1",
+          "tool": "edit",
+          "state": {
+            "status": "error",
+            "input": {
+              "path": "notes.md",
+              "old_text": "status: draft",
+              "new_text": "status: done"
+            },
+            "error": "old_text was not found in notes.md; read the file again and copy the text exactly",
+            "time": {
+              "start": null,
+              "end": "<time>"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "<msg 5>",
+        "sessionID": "<ses 1>",
+        "role": "assistant",
+        "time": {
+          "created": "<time>",
+          "completed": "<time>"
+        },
+        "parentID": "<msg 1>",
+        "modelID": "claude-opus-5-5",
+        "providerID": "anthropic",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "<world>/repos/ledger",
+          "root": "<world>/repos/ledger"
+        },
+        "cost": 0.0007360000000000001,
+        "tokens": {
+          "input": 64,
+          "output": 24,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls",
+        "variant": "medium"
+      },
+      "parts": [
+        {
+          "id": "<prt 9>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 5>",
+          "type": "text",
+          "text": "checking the file.",
+          "time": {
+            "start": "<time>",
+            "end": "<time>"
+          }
+        },
+        {
+          "id": "<prt 10>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 5>",
+          "type": "tool",
+          "callID": "toolu_bench_4_1",
+          "tool": "shell",
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "wc -l notes.md"
+            },
+            "output": "       3 notes.md\n\n(exit 0, 0s)",
+            "title": "wc -l notes.md",
+            "metadata": {
+              "exit_code": 0,
+              "timed_out": false,
+              "truncated": false
+            },
+            "time": {
+              "start": null,
+              "end": "<time>"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "<msg 6>",
+        "sessionID": "<ses 1>",
+        "role": "assistant",
+        "time": {
+          "created": "<time>",
+          "completed": "<time>"
+        },
+        "parentID": "<msg 1>",
+        "modelID": "claude-opus-5-5",
+        "providerID": "anthropic",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "<world>/repos/ledger",
+          "root": "<world>/repos/ledger"
+        },
+        "cost": 0.001056,
+        "tokens": {
+          "input": 64,
+          "output": 40,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "finish": "stop",
+        "variant": "medium"
+      },
+      "parts": [
+        {
+          "id": "<prt 11>",
+          "sessionID": "<ses 1>",
+          "messageID": "<msg 6>",
+          "type": "text",
+          "text": "the notes now greet in the voice you picked. the edit touched one line, the shell run counted the file, and nothing else changed. the change is small on purpose: one file, one greeting, easy to review and easy to",
+          "time": {
+            "start": "<time>",
+            "end": "<time>"
+          }
+        }
+      ]
+    }
+  ]
+}

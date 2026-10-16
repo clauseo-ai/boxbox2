@@ -10,6 +10,7 @@
 import { createEffect, createMemo, createSignal, type JSX, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { holdRepoIcon, state } from "../../store";
 import { colourOf, colourStyle, type RepoColour, repoName } from "../window/repo";
+import { initialsOf } from "../home/swatch";
 import { askAgainIn, iconKey, iconUrl } from "./icons";
 import { letterScale, lettersFor } from "./letters";
 import { ensureRepoIcon } from "./probe";
@@ -31,6 +32,9 @@ export type RepoMarkProps = {
   /** for a surface that is already the repo's own colour and already spells its initials (a folded rail's swatch):
       the tile is not drawn until there is a favicon, so there is no tile in a tile */
   bare?: boolean;
+  /** the agent's `mark` (docs/design.md, the round mark): `round` is an assistant's circle, which always spells one
+      letter, the name's first, and never draws a favicon; `square` (the default) is a repo's squircle */
+  shape?: "square" | "round";
 };
 
 /** how the app reads an icon: pixels through a canvas, outcomes to telemetry */
@@ -38,9 +42,12 @@ const HOW = { sample: sampleImage, onRead: reportIconRead };
 
 export function RepoMark(props: RepoMarkProps): JSX.Element {
   const colour = createMemo(() => props.colour ?? colourOf({ host: props.host, root: props.root }));
-  const letters = createMemo(() => lettersFor(props.name ?? repoName(props.root), props.size));
+  const round = () => props.shape === "round";
+  // an assistant's name is a word: two letters would read as a code, so the circle carries its first letter alone
+  const letters = createMemo(() => (round() ? ([...initialsOf(props.name ?? props.root)][0] ?? "") : lettersFor(props.name ?? repoName(props.root), props.size)));
   const url = createMemo(() => iconUrl(props.host, props.root));
   const plate = () => {
+    if (round()) return null;
     const icon = state.repoIcons[iconKey(props.host, props.root)];
     return icon?.state === "ready" ? icon.plate : null;
   };
@@ -50,7 +57,8 @@ export function RepoMark(props: RepoMarkProps): JSX.Element {
      the mark being remounted. the timer is cleared whenever the verdict, the repo or the mark changes */
   createEffect(() => {
     const { host, root } = props;
-    if (!host || !root) return;
+    // a round mark is identity in boxbox's material alone: no favicon, no gateway avatar, so nothing is asked for
+    if (!host || !root || round()) return;
     const key = iconKey(host, root);
     onCleanup(holdRepoIcon(key));
     const icon = state.repoIcons[key];
@@ -88,6 +96,7 @@ export function RepoMark(props: RepoMarkProps): JSX.Element {
       class="rm plane-window"
       aria-hidden="true"
       data-bare={props.bare ? "" : undefined}
+      data-shape={round() ? "round" : undefined}
       data-plate={plate() ?? undefined}
       data-shown={shown() ? "" : undefined}
       data-instant={instant() ? "" : undefined}

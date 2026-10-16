@@ -6,7 +6,7 @@
    react (ladle's host) and the project's jsx is solid's. */
 
 import { createElement, type ReactElement, useEffect, useRef } from "react";
-import { type HomeStory, mountHome, mountMoments, mountReplay, mountState, type StateStory } from "./mount";
+import { type HomeStory, mountGlass, mountHome, mountMoments, mountReplay, mountState, type StateStory } from "./mount";
 import "./stories.css";
 
 function Host(props: { mount: (el: HTMLElement) => () => void }): ReactElement {
@@ -33,6 +33,9 @@ export const StateParked = state("parked");
 export const StateIdleSeen = state("idle");
 export const HomeAsRecorded = home("live");
 export const HomeLongAsk = home("ask-long");
+export const HomeAnswerSheet = home("answer");
+export const HomeSpawnOnlyAgent = home("stray");
+export const HomeAnswerSheetTwoQuestions = home("answer-two");
 export const HomeTwoQuestions = home("ask-two");
 export const HomeOffline = home("offline");
 export const HomeUpdated = home("reload");
@@ -41,10 +44,13 @@ export const HomeStaleThreadUrl = home("stale");
 export const HomeCrowdedBar = home("crowd");
 export const HomeFirstLeaves = home("gone");
 export const HomeEmpty = home("empty");
-export const HomeRailFolded = home("rail-folded");
+export const HomeWindowsHidden = home("windows-hidden");
 export const HomeInspectorFolded = home("inspector-folded");
-export const HomeBothFolded = home("both-folded");
+export const HomeWindowsHiddenInspectorFolded = home("hidden-inspector-folded");
 export const HomeInspectorTurns = home("inspector-turns");
+export const HomeStripFolded = home("strip-folded");
+export const HomeDetailsByWidth = home("details");
+export const HomeGlassControls = () => createElement(Host, { mount: mountGlass });
 export const HomeLiveReplay = () => createElement(Host, { mount: mountReplay });
 export const HomeLiveMoments = () => createElement(Host, { mount: mountMoments });
 

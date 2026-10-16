@@ -4,30 +4,35 @@ the reading law for a thread: what a turn is made of, how the work is
 folded, how you move through it, how it links, and how every state of
 every part looks. it extends `design.md` (the stage, the composer, the
 scroll law and the materials are decided there) and is binding the same
-way (AGENTS.md, rule 6). it was accepted 2026-10-01; the implementation
+way (AGENTS.md, design law). it was accepted 2026-10-01; the implementation
 is `app/src/ui/thread/`, and every part type and state below has a story
 under `app/.ladle`.
 
 ## the direction: the ledger
 
-a turn is a ledger. one row for each thing the agent did, in the order it
-happened, and nothing summarised away. the kind of thing on the left,
-the thing itself, and what came of it on the right; the clock in the
-margin beside it where the minute changes, wherever the stage leaves a
-margin. what the agent said to you breaks out
-in sans between the rows; what it thought is a quiet row you can open.
-every row opens in place to its output, its diff, its hits or its
-thoughts. failures and pending asks are open already. heavy turns carry
-a tape at the turn's end, the turn's work drawn in time. live, the turn
-is the same ledger growing at its end, and the tape rides at the bottom
-of the view beside it.
+a turn reads as text. what the agent said to you is the page, in sans;
+every run of steps between two of its texts (the tool calls, and the
+thinking that led to the next call) folds into one **step group**: a line
+that says what the run did ("6 steps · read 3, ran 2, edited 1 · 1 min")
+over a slim strip of its steps in time, the run's timeline. thinking that
+led to words sits directly above them as its own quiet "thought for" row;
+asks and permission prompts never fold. a group opens in place to the
+ledger of its run: one row for each thing the agent did, in the order it
+happened, the kind on the left, the thing itself, what came of it on the
+right, the clock in the margin where the minute changes. every row opens
+to its output, its diff, its hits or its thoughts; failures and pending
+asks are open already. live, the run going on now is a group with its
+running step open under it, and once the agent writes again the run folds
+whole.
 
-why: summaries in place of the work ("ran 6 commands") read as lazy;
-truncation hides what a reader came to read; anything read often must not
-hide behind a tap;
-things shown in one place and hidden in another read as jank; a modal
-that opens the work is a symptom of a page that hides it; and nothing may
-float or change shape while a turn runs.
+why (2026-10-16, the native client's decision 25, ported): the steps
+buried the words, and the tape under a heavy turn was a second,
+inconsistent way to see a run (its scrub, its clocks, its place). one way
+to see a run: the group. its rows are one tap away and its line says how
+many there are and what they were, so nothing is summarised away; things
+shown in one place and hidden in another read as jank; a modal that opens
+the work is a symptom of a page that hides it; and a fold never moves the
+reader.
 
 ## anatomy of a turn
 
@@ -36,48 +41,64 @@ float or change shape while a turn runs.
                          │ okay now go ahead and       │  your message, right
                          │ implement everything   17:17│
                          └─────────────────────────────┘
-  17:17 │thought  Implementing everything is a big   20 s   the ledger; the clock
-        │         scope, so I need to plan this               hangs in the margin
+  17:17 │thought  Implementing everything is a big   20 s   the thought that led
+        │         scope, so I need to plan this               to the words under it
   17:18 │Starting implementation. First I need to know what   prose runs the measure
         │I can build and verify here.
-        │run      6 commands: git status, git        2 s
-        │         branch, git log, xcodebuild
-        │thought  I see there are uncommitted            4 s
-        │         CloudLibrary changes in the tree
-        │skill    ios-autonomous-dev
-  17:19 │read     StreamView.swift, StreamSurface.swift
-        │edit     UpscaleStrategy.swift             +46 -0
-        │         Packages/VideoRenderingKit/Sources
-        │run      bun test               ▬▬▬▬ 54 passed
+        │›        11 steps · ran 6, read 4, loaded 1  2 min   a run of steps: its
+        │         ▬  ▬▬ ▬  ▬▬▬    ▬▬  ▬                       line and its strip,
+        │         | ▮▮▮| |▮ ▮▮▮▮▮▮▮▮▮ | ▮▮                    opening to its rows
+  17:19 │thought  Good, the retry succeeded and the    4 s
+        │         baseline builds fine
+        │Baseline builds clean. Now reading the rest of the
+        │files I'll be changing.
   17:49 │files    changed 19 files            +4,391 -25
         │stopped  you stopped it after 11 min                 only if it was
         │Everything is already on origin. Both repos are     the answer
         │clean.
- ┌───────────────────────────────────────────────────────┐
- │ worked 32 min          89 steps, 52 thoughts, 1 agent │  the tape, the turn's
- │ thinking ▬▬  ▬ ▬▬   ▬▬▬    ▬ ▬▬                       │  footer (heavy turns);
- │ tools    ▮▮| ||▮ |▮▮| || ▮   ||| ▮ |                  │  live, it sticks to the
- │          transport_impl, 128 steps                    │  bottom of the view
- │ agent               ▬▬|▮|||▮▮▬▬ ||▮|                  │
- │          17:17      10 min      20 min          17:49 │
- └───────────────────────────────────────────────────────┘
 ```
 
 in order:
 
 1. **what started the turn.** your message as the bubble on the right
    (`design.md`: light on the dark flood, the deep pair on the light one),
-   with its time; "queued, 17:17" or "steer, 17:17"
-   when it was one of those; in an agent's own thread, the brief its parent
+   with its time; a message that waits (queued, or a steer waiting for the
+   step in flight) is the composer's queue's and draws no bubble until it
+   lands as a turn (`composer.md`); in an agent's own thread, the brief its parent
    sent is the same bubble, "brief, 17:17" ("brief from worker_a," when a
-   nested agent sent it). an agent's report is a quiet card ("transport_impl
-   reported, 17:49" and "copy" in its header, the report's markdown,
-   clamped to eight lines with "read the whole report" when longer than
-   700 characters); a note from
-   another agent is the same card, "worker_a wrote". a runtime
+   nested agent sent it). an agent's report is one chip, one line
+   whatever it holds (the native client's decision 26; the card clamped to
+   eight lines "looked strange"): a capsule in the flood's own colour lifted
+   toward the light with the glass edge (the stage's scroller is masked, so
+   a backdrop filter there sees nothing), 38 px tall, padded 7 px and 14 px
+   at its end; the outcome's glyph on a 24 px disc of its colour at 18%,
+   read from the report's first word (ready, done, merged, landed, shipped,
+   fixed, complete, finished, passed, green: a tick in the add green;
+   blocked, waiting, stuck, paused, needs, question: "!" in gold; failed,
+   failing, broken, error, crashed, aborted, red: a cross in red; any other
+   word: the agent's letter in the light tone), the agent's name (14 px,
+   600, the full ink), " · " and the report's first line in the second ink
+   (12.5 px) without its markdown marks and without an outcome word that
+   only labels it ("blocked: the zoom shots wait" reads "the zoom shots
+   wait"; "ready to merge cd16978" stays whole), cut at its end, and a
+   chevron. a note is the same chip. its name says it whole: "report from
+   transport_impl, ready, 17:49, ready to merge cd16978" ("note from").
+   a press raises the **report's sheet**: glass in the top layer from the
+   screen's foot, at most 720 px wide, 55% of the screen tall, or all but
+   40 px at a press or a drag up on its grabber (a drag down halves it, or
+   closes it from half); on top the glyph on a 36 px disc, the name (17 px,
+   600; a press goes to the row that started the agent), "reported at 17:49"
+   ("wrote at" for a note; 12 px, second ink), "copy" (the whole report) and
+   a round close; under them the outcome as a tag and the report's markdown
+   at the answer's size. escape, close, a press outside it and a drag down
+   close it, and focus goes back to the chip. a report arriving moves the
+   page by one line and opening it moves nothing. a runtime
    notice (a job finished, a wake) is one mark line. a compaction is a
-   mark line, "compacted here. show the summary", opening the summary card.
-2. **the ledger** is the rows.
+   mark line, "compacted here. show the summary", opening the summary card;
+   the turn under it reads as any turn (see "every state", compacted).
+2. **the ledger**: the agent's words, the thoughts that led to them, its
+   asks, and each run of steps between them as one step group that opens
+   to its rows (see "the step group").
 3. **the files row**, when the turn edited anything: "changed 19 files,
    +4,391 -25", opening to every file with its counts and its diff.
 4. **how it ended**, when it did not end well: "stopped: you stopped it
@@ -87,8 +108,6 @@ in order:
    whole measure. once it has settled, one quiet line under it holds
    "copy", which copies the answer's markdown as the agent wrote it (see
    "code and copying").
-6. **the tape**, only on a heavy turn (see below): the turn's footer, its
-   receipt, after the answer, live and settled.
 
 turns are separated by 32 px; inside a turn everything is 16 px apart.
 
@@ -151,17 +170,17 @@ what each kind shows, and what opens beneath it:
 | watch, type | the command it watched, or what it typed "into" it | the same | the output it saw |
 | commit | the subject, in sans | the hash as a chip | `+a -d in N files` |
 | push | `branch to origin` | a tick | nothing |
-| edit | the file name, then its directory on one line, cut from the start so the part nearest the file stays | `+a -d` | the file line (where in the file it landed), then the diff |
-| write | the same | `+N new` or `+N` | the file's content as a diff of additions; "and N more lines" past 80 |
-| read | one file: name and directory. several: the names, up to six; past six, "14 files" | one file: `312 lines` or `40 of 312`. several: nothing | every file with its span and a file line; the first file's opening lines; the images it returned as thumbnails under their file (design.md, the transcript) |
+| edit | the file name, then its directory on one line, cut from the start so the part nearest the file stays | `+a -d` | the file line (where in the file it landed), then the diff; past 60 lines its first 24 fade over their last 28 px into "show the whole diff, 192 lines" (the light tone, 13 px, 40 px tall, the bed's own foot), which opens it in place to every line |
+| write | the same | `+N new` or `+N` | the file's content as a diff of additions; the step keeps 80 lines ("and N more lines" past them), and like an edit's a diff past 60 shows its first 24 with "show the whole diff", which opens every line of the content the agent sent (the same string the store holds) |
+| read | one file: name and directory. several: the names, up to six; past six, "14 files" | one file: `312 lines` or `40 of 312`. several: nothing | every file with its span and a file line; the first file's opening lines in a bed with their numbers (the widest number's digits, the faint ink, 10 px from the text), headed by their facts ("lines 85 to 94 of 312", "12 lines", "the end of the file, 300 lines"), "reader" and "copy" (every line the bed holds). the bed holds every line the read returned, read from the tool's output the store holds when the row opens (its wrapper, the line numbers and the tool's notes taken off; `evidence.ts`, `readLines`); past 40 lines its first 14 fade into "show all 386 lines", which opens it in place. an output that is not numbered lines it can read (a directory's entries) keeps the 10-line preview; "reader" opens the file full screen (the native client's toolrows): close and "wrap" (44 px, off by default), the name in mono with its facts and folder, copy, the lines with their numbers scrolling both ways unwrapped, and at their end "the read stopped at line 94 of 312", "the end of what was read", or, when the row has only the preview and the read returned more, "the thread keeps only the first 10 lines of the 45 read" (nothing is made up); escape and close end it and focus goes back to "reader"; the images it returned as thumbnails under their file (design.md, the transcript) |
 | grep, find, recall | the pattern in the string tone, "in dir" when scoped; several fold to `"a", "b", "c"` up to four, then "5 searches" | `12 hits`, `8 files` | hits by file with the match lit; a glob's files |
 | fetch, search | the host and path; the query | `6 results` | titles, domains |
-| agent | the name, then the first sentence of its brief in sans | `reported`, a live clock while its child works (the turn's or not), `wants you` while the daemon waits on the person for it, `parked` while it waits on agents of its own, `128 steps` when its turn ended and never reported, nothing when it never started | its state in words ("working for 7 min", "reported after 4 min", "waiting on you", "parked on agents of its own", "its turn ended, no report", "did not start"), its steps, its seat, the whole brief when longer than its first sentence, and the door: "open its thread" (below) |
-| ask | the question, sans 14.5 px | `wants you` while pending, `answered`, `dismissed` | the options as buttons while pending (the first in the light tone, "or type an answer"); "you answered hello" after |
+| agent | the name, then the first sentence of its brief in sans | `reported`, a live clock while its child works (the turn's or not), `wants you` while the daemon waits on the person for it, `parked` while it waits on agents of its own, `128 steps` when its turn ended and never reported, nothing when it never started | its state in words ("working for 7 min", "reported after 4 min", "waiting on you", "parked on agents of its own", "its turn ended, no report", "did not start"), its steps, its seat, the whole brief when longer than its first sentence, in a slip ("brief for helper" and "copy" on top; over 700 characters or 12 lines its opening fades out under 44 px and "read all 18 lines" opens it, "show less" closes it), and the door: "open its thread" (below) |
+| ask | the question, sans 14.5 px | `wants you` while pending, `answered`, `dismissed` | the options as buttons while pending (the first in the light tone, "or type an answer"); settled, its record: "you answered **hello**", where and when, and "show the 3 options" (below) |
 | permission (an edit, run or read row that is waiting) | the row it belongs to | `wants you` | "wants your permission to edit notes.md", the diff, allow once / always allow / deny, "or deny and say why" |
 | plan | the current item | `2 of 5` | every item with its state |
 | skill | its name | | |
-| note | `to parent` | | |
+| note | `to parent` | | what it said, in a slip: "to transport_impl" and "copy" on top, the words under them |
 | wait | running: what it waits on, `for 2 agents` (the agents at work under it), `for a reply` (a correlation id) or `for a job or a message`; done: who it heard from, `from helper`, `from a background job`, `from root`, or `nothing came` | a duration; `timed out` | |
 | thought | the first sentence, sans 13.5 px at 60%; "8 thoughts: " leads a fold | the time spent | every thought in full, each with its clock and duration |
 | (said) | the prose, sans 15.5 px (16 at strip and rail), spanning the whole row, as markdown | | nothing; it is not a button |
@@ -171,7 +190,8 @@ what each kind shows, and what opens beneath it:
 
 a **gap** of more than 90 s between one row ending and the next starting
 is a dotted line labelled "3 min later", starting at the kind column.
-live turns show no gaps; the tape carries the time.
+a gap before a run of steps sits above its group; inside a group the gaps
+between its rows show when it is open.
 
 ## folding
 
@@ -213,7 +233,8 @@ these decide how a thing is shown, never whether it is shown.
   with `~` for home.
 - **an agent's brief** shows its first sentence; the whole brief opens.
 - **your message** clamps at six lines with "show all 423 characters";
-  a report at eight with "read the whole report". the answer never clamps.
+  a report is one line, its chip, and the whole of it is its sheet. the
+  answer never clamps.
 - numbers are tabular everywhere; counts carry thousands separators.
 
 ## open in place
@@ -241,21 +262,22 @@ row, and a story:
 
 | part | state | the row |
 |---|---|---|
-| text, user, typed | | the bubble; "queued," or "steer," before its time when it was |
+| text, user, typed | | the bubble |
+| text, user, waiting (`info.queued`, or a steer waiting for the step in flight) | | no bubble: the composer's queue shows it (`composer.md`); the turn takes no room until it lands |
 | text, user, `mail` kind `task` (the brief that started this agent) | | the bubble, "brief," before its time |
-| text, user, `mail` kind `report` (an agent's report) | | the report card |
-| text, user, `mail` kind `message` (a note from another agent) | | the report card, "worker_a wrote" |
+| text, user, `mail` kind `report` (an agent's report) | | the report chip; its sheet on a press |
+| text, user, `mail` kind `message` (a note from another agent) | | the report chip, "note from worker_a"; its sheet says "wrote at" |
 | text, user, `mail` kind `job` or `system`, or `notice` | | the mark line |
 | text, user, `synthetic` | | not shown (context the daemon added) |
 | text, assistant | streaming | the said row with a caret at the end; words arrive with the blur settle; in a running turn it is the window's newest row, from the announcement of the part |
 | text, assistant | settled | the said row; the last one after the last step is the answer, as markdown |
-| reasoning | streaming | live: "thinking" with a running clock, its text in a 112 px box that follows the newest line |
+| reasoning | streaming | live: "thinking" with a running clock, its text in a 112 px box that follows the newest line; a tap on the box shows the whole thought, growing as it is written, and a second takes it back to the box |
 | reasoning | settled | the thought row, folded with its neighbours |
 | tool | pending | the row with `waiting` in the light tone; a permission ask on it opens the permission card |
-| tool | running | the row with a live clock; a shell's last 2 kb of output in the open body, following the newest line; a running command on the tape stretches |
+| tool | running | the row with a live clock; a shell's last 2 kb of output in the open body, following the newest line; on its group's strip a running step grows to the head |
 | tool | completed | the row with its result |
 | tool | error | red kind and result, open, the error in a red bed; "stopped" and faint when the error is an interrupt (`MessageAbortedError`, `interrupted`) |
-| file | | a thumbnail row: the file name and its size, opening the image or the document's first page |
+| file | | on your message, a photo (an image a browser draws: png, jpeg, gif, webp, by mime and data url) stands above its words as a thumbnail of the tool pictures' box (76 px, 96 on the wide stages, 8 px apart), flush right, 4 px over the bubble, each opening full size in the picture viewer (the native client's sentphotos); a photo sent alone has no words, and its bubble keeps its time. any other file: a thumbnail row, the file name and its size, opening the document's first page (not built) |
 | tool | completed, with images (`state.attachments`) | a read of an image says `1 image` in place of its lines and opens to thumbnails under its file's line, each opening full size; a fold of reads groups them by file; a command's or a script's open body draws them too. at most eight, then "and 3 more images" (design.md, pictures a tool returned) |
 
 the turn's own states, from `MessageInfo` (`time.completed`, `error`,
@@ -265,12 +287,12 @@ the turn's own states, from `MessageInfo` (`time.completed`, `error`,
 |---|---|
 | working | live layout below; the header's line says "working 3:40, 12 steps" with a stop control |
 | done | the ledger, then the answer |
-| aborted (`MessageAbortedError`, or `finish: aborted`) | the ledger, then the stopped row; the tape says "stopped after 11 min" |
+| aborted (`MessageAbortedError`, or `finish: aborted`) | the ledger, then the stopped row |
 | failed (any other error) | the ledger, then the red failed row with the reason |
 | retrying (`SessionStatusRetry`) | the header's line says "retrying in 20 s, attempt 2: rate limited"; the ledger keeps its shape |
 | parked (`SessionStatusIdle.parked`) | with agents at work the thread is working: the header's line says "working 0:41, 2 agents" (a live clock from when its own turn handed over; a door to the agents panel) and the window is "working"; parked on jobs alone, "parked, waiting on 2 jobs". the last row is the wait or the agent |
-| queued behind (`info.queued`) | the provisional message is a faded bubble; it becomes solid under its transcript id when it lands (`message.removed` retires the provisional one) |
-| compacted | the mark line and the summary card, from the assistant message with `summary: true` |
+| queued behind (`info.queued`) | no bubble: the provisional message is the composer's queue's card; it draws as the turn's bubble under its transcript id when it lands (`message.removed` retires the provisional one) |
+| compacted | the mark line, "compacted here. show the summary", and under it the turn read as any turn: its rows, its groups and its answer with copy (cmx2 compacts mid-turn and at the first request after an idle spell, so what follows the summary is the turn's own work; the native client's decision 27). the summary is the text of the assistant message marked `summary: true`, never a row or the answer: only the card the mark opens, a well right under it (16 px of padding, radius 18, the report's prose); closed, it is nothing. a compaction recorded with no message marked summary keeps the old reading: its last words are the summary and the turn shows only its mark |
 
 asks (answered in place; the routes are under "the stage, as built"):
 
@@ -279,32 +301,77 @@ asks (answered in place; the routes are under "the stage, as built"):
 | question | raised (in the fleet's pending list) | the ask row, open: the question's own short label above its words in the light tone (the one the window shows), options as buttons, each with its description wrapped under it; the first option is primary; "or type an answer" when the daemon takes one; "dismiss". the row's head is the question, across the row's whole width on a phone |
 | question | raised with several questions (one ask, one list of answers per question) | the row says "2 questions"; the card has a block for each (its header, its words, its options, its typed answer) and one "answer" that sends them all once each has an answer; the options choose, they do not send |
 | question | running but not raised (the daemon has not put it yet; on 2026-09-30 a turn's asks came one at a time, on 2026-10-01 together) | the row closed, `waiting`; open, it says "waiting its turn: not asked yet" |
-| question | answered | `answered`; "you answered hello" opens |
-| question | dismissed (`question.rejected`, or the turn aborted) | `dismissed`; the tool row is an interrupt, not a failure |
+| question | answered | `answered`; open, its record (`ui/asks/card.tsx`, the native client's askrecord): "you answered **hello**" behind the light tone's 6 px dot, the answer in the full ink and bold, the words around it in the second ink (sans 13 px); several questions, a line each, "models: **all four**"; typed words in quotes. under it where and when (sans 12 px, second ink, tabular): "on this iphone at 17:18" when this device's reply was the one the daemon took ("this ipad", "this mac", "this phone", "this computer" by the device's class), "on ipad at 23:49" when another device answered first (the daemon's `{by, at}`), else "at 17:18" from the step's end. then "show the 3 options" ("show the option"; "hide the options"; mono 11.5 px, 32 px tall), opening the options as they were offered: the chosen ones with a filled dot in the light tone and the full ink, the rest a ring in the second ink, a typed answer in quotes marked "typed"; several questions keep their headers and words, a hairline apart. nothing animates. who answered is this device's record of its reply (`sync/replies.ts`, below), so a row painted again, or the thread after a reload, still says it; with no record (another client of the daemon answered, or the record fell past the cap) the time alone |
+| question | dismissed (`question.rejected`: the daemon's words say "dismissed") | `dismissed`; the record says "you dismissed it" and when; the tool row is an interrupt, not a failure |
+| question | its turn ended under it (any other error: an abort) | `dismissed`; the record says "not answered: its turn ended" and when |
 | permission | raised | the tool row it belongs to, open, `wants you`: "wants your permission to edit notes.md", the diff, allow once, always allow, deny, "or deny and say why" (an input) |
-| permission | allowed once, always | the tool row runs; its facts say "you allowed it once, 17:18" or "always, for this project" (m4 carries who and when) |
-| permission | denied | the tool row is an interrupt: "you denied it"; the agent's next words explain |
+| permission | allowed once, always | the tool row runs. when this device replied, the row opens on its record, a line above the tool's own body (`PermitRecord`, sans 13 px second ink, then where and when in sans 12 px): "you allowed it once" or "you always allowed it", "on this mac at 17:18"; a reply that lost the race says "answered", "on ipad at 23:49". a permission this device did not answer leaves no line (the daemon tells nobody who answered it) |
+| permission | denied | the tool row is an interrupt; this device's record says "you denied it: “not that file”" with the words typed, or "you denied it"; the agent's next words explain |
 | any | in a live turn | the row's card arrives in the transcript where it was asked; the thread's window on home shows only its preview and keeps its size (`design.md`: an ask never grows its window) |
-| any | named by a window's "answer" pill, the bar's "wants you", the capsule or a push | the stage goes to the ask's row (only its own scroller moves, and the row's top lands just below the bar, the bar's laid-out height plus its 36 px fade; the end's pin lets go for it, so the thread does not follow itself back to the end), its card takes focus, and one ring in the repo's light tone is drawn round the whole row, on the row's own box (the row is not lit as well: two boxes read as two things); a stage already on the thread goes there too (`stage.tsx`, `goToAsk`). a stage under another layer, or under the new-thread sheet, takes the focus when what covers it lets go, and one poured again on top of its own thread's agent takes it as it mounts; an ask the thread does not show yet is waited for, 4 s from the moment the fetch behind the thread has landed (a cache's rows are from before the ask), and then the focus is let go; an ask the fleet does not hold, once the stream has caught up (a second after it went live: it is live at the hello, before the replay brings the asks), is let go at once |
+| any | named by a tap on an asking window or the answer sheet's "open the thread", the bar's "wants you", the capsule or a push | the stage goes to the ask's row (only its own scroller moves, and the row's top lands just below the bar, the bar's laid-out height plus its 36 px fade; the end's pin lets go for it, so the thread does not follow itself back to the end), its card takes focus, and one ring in the repo's light tone is drawn round the whole row, on the row's own box (the row is not lit as well: two boxes read as two things); a stage already on the thread goes there too (`stage.tsx`, `goToAsk`). a stage under another layer, or under the new-thread sheet, takes the focus when what covers it lets go, and one poured again on top of its own thread's agent takes it as it mounts; an ask the thread does not show yet is waited for, 4 s from the moment the fetch behind the thread has landed (a cache's rows are from before the ask), and then the focus is let go; an ask the fleet does not hold, once the stream has caught up (a second after it went live: it is live at the hello, before the replay brings the asks), is let go at once |
 | any | scrolled out of view | one line above the dock, "wants you: which greeting?", that scrolls to it; never lost, never shown twice. a review waiting has the same line ("ready to merge" and its note) while its card is out of view, and an ask's line outranks it (design.md, ask) |
 | a reply | sending | the tapped option pressed, the rest quiet, "sending" |
 | a reply | sent | "sent: hi" until the ask leaves the stream, when the row settles; the `perf.send` row is stamped then, from the stream, never from the local call |
 | a reply | not sent | "not sent: the server is not answering. tap to try again." in red; the retry carries the same `clientID`, so it cannot answer twice |
 | a reply | already settled elsewhere (409) | "answered on iphone at 23:49" from the daemon's `{by, at}` (a6), a quiet note with nothing to retry and the options held; the row settles from the stream and keeps the note |
 | a reply | the ask is gone (404) | "this is gone: it was answered, or its turn ended.", the same: a note, nothing to retry |
+| a reply | settled (taken, or lost the race) | this device keeps a record of it (`sync/replies.ts`): the thread, the tool call the ask was raised on, what was replied, who settled it and when. the transcript keeps a question's answers but never who gave them, a permission's reply not at all, and the stream's settle carries only the ask's id, so the record is the only place either lives. the store holds the records (`state.replies`, set at once by `keepReply` in `sync/client.ts`), the worker writes them to indexeddb's outbox store under `ask:` beside the sends and the telemetry rows, at most 200, the oldest dropped first; boot reads them back. the cards, home's answer sheet and the composer's typed answer all keep one |
 
 agents (the row reads the child's own state from the fleet, so it is right
 after the parent's turn ended too):
 
-| state | the agent row | the tape |
-|---|---|---|
-| started, working (the child's status is busy or retrying) | `agent name`, a live clock from when it was started; the facts say "working for 7 min" | a lane under the tools lane, labelled with its name and step count, from the moment it started. a settled turn whose agent still works keeps its tape's clock running: the header says "working 7:21, through its agents" in the light tone, the scale runs ahead as it does live, the head moves |
-| wants you (an ask is pending on the child) | `wants you` in the light tone | the lane holds |
-| parked (the child's status is idle with `parked`) | `parked`; "parked on agents of its own" | the lane holds |
-| reported | `reported`; the report card appears where it arrived, and links back | the lane ends |
-| never started (no child session) | no result; the facts say "did not start" | no lane |
-| idle without a report | `128 steps` once its thread is held (nothing until then); "its turn ended, no report" | the lane ends |
-| gone (the fleet knows the parent and not the child: archived or deleted) | `archived`; "its thread was archived"; no door. the agents panel's row says "archived" and is not a control | the lane stays as recorded |
+| state | the agent row |
+|---|---|
+| started, working (the child's status is busy or retrying) | `agent name`, a live clock from when it was started; the facts say "working for 7 min". a settled turn whose agent still works keeps the row's clock running |
+| wants you (an ask is pending on the child) | `wants you` in the light tone |
+| parked (the child's status is idle with `parked`) | `parked`; "parked on agents of its own" |
+| reported | `reported`; the report chip appears where it arrived, and links back |
+| never started (no child session) | no result; the facts say "did not start" |
+| idle without a report | `128 steps` once its thread is held (nothing until then); "its turn ended, no report" |
+| not in the fleet (the fleet knows the parent and not the child: it holds only each host's newest 300 threads, so an agent's session is often older, or it was archived; which is not known) | idle: "its turn ended, no report" (or reported, when its report is in the thread), and a door that opens it by its key; a thread the server cannot find says so (reading, below). the agents panel's row says "no report" or "reported" and is a door, as the ios app has it. the spend sheet still calls it archived and leaves its cost out, since the fleet's cost is what it lacks |
+
+### reading, and what the stage can vouch for
+
+a stage is never left on "reading the thread." with no word of why
+(`reading.ts`, the ios app's `ThreadStageModel` words):
+
+- **the patience.** a stage that shows nothing (the thread not held, or
+  held and still reading with nothing in it) waits 10 s from when it
+  opened or was last retried. a thread the worker does not hold by then is
+  asked for again once by itself (`rereadThread`, an open) before the
+  second wait says anything. then the empty stage says, in order: the
+  stream down, "offline. the thread loads once the server answers."; not
+  held, "the thread came, but this screen did not draw it."; a read that
+  fails, the server's own words as a sentence ("vm-a is not answering."),
+  "the server did not answer." when it gave none; a read still out, "the
+  server has not sent this thread yet.". under it, "it is asked for again
+  on its own. retry asks now." and a `retry` (named "read the thread
+  again"). the status line says "offline", "not drawn", "did not load" or
+  "still reading" in place of "reading the thread".
+- **not found.** a read the server answers 404 (an agent's thread the
+  fleet does not hold, opened by its key) is said at once: "the server
+  cannot find this thread.", "it is asked for again on its own, in case it
+  comes.", retry; the status line says "not found on the server". the
+  worker keeps asking on its backoff.
+- **the read's trouble** comes from the worker: each failed try of a
+  transcript read (`read.ts`) dispatches `read-failed` with `{ gone,
+  problem }` before its backoff wait, and the thread carries it as
+  `trouble` (in memory only, cleared by the read that lands). the problem
+  is the server's `{ error: { message } }` from a json answer (a few
+  bytes; any other body is not downloaded), else "the server answered
+  502". retry is `reread`: the read starts over now under a new number,
+  without the backoff it was sitting out; the old read's answer is no
+  longer the thread's.
+- **the freshness line** sits under the newest turn (above the review and
+  the end), only while the stage has turns: "offline. showing the saved
+  copy." once the stream has been down 5 s; "showing the saved copy.
+  reading the thread again." while the stream is live and the read is
+  failing; "not on home: new turns show, but whether it is working is not
+  followed live." for a thread the fleet does not hold, once the stream
+  has caught up (a second after it went live). in that order. a read that
+  is merely out says nothing: the thread shows what it had and every
+  entry the stream brings. the line keeps the room it took once it goes,
+  so its going does not pull a pinned reader's view down.
 
 ### an agent's own thread
 
@@ -328,11 +395,13 @@ the same scroll position. as built:
   an agent of the long helper", its back is "back to the long helper"
   at every size (strip and rail stages have no other back), and its own
   agents, status line, composer and menu are the ordinary ones. it keeps
-  the parent's colour.
+  the parent's colour. the parent is the session's `parentID`, else the
+  layer it was opened over (`StageProps.parent`), so an agent the fleet
+  does not hold still says whose it is.
 - **the agents** are a section of the thread's details (design.md, the
   header, the details and the menu), wherever the details show (home's
-  inspector at the rail 1400 wide and up, docked in a wide stage, a sheet
-  on the phone): one row per agent the thread started, read from the
+  inspector at the rail 1400 wide and up, docked in a stage with room for
+  the column beside them, a sheet elsewhere): one row per agent the thread started, read from the
   fleet (every session whose `parentID` is this one, however it was
   started: the spawn tool, or `agents.spawn` inside a `run` script, which
   leaves no spawn part at all, cmx2 ask a27), named by the spawn row that
@@ -364,56 +433,502 @@ the same scroll position. as built:
   2 jobs". the live line on
   home's window says "wait" for the same step.
 
-## the tape
+## an assistant's thread (2026-10-15)
 
-a heavy turn (more than 6 steps, or longer than 3 minutes, or any agent)
-carries the tape at its end, after the answer: the turn's footer, its
-receipt. it is a reading of the turn's time:
+an assistant's thread is the same ledger on the same stage, in the
+assistant's palette (`design.md`, agents: who a window belongs to). your
+messages stay light bubbles, its words stay prose, its tool steps fold
+into today's step group with its strip, and its asks are today's cards.
+what is new is what a conversation on a phone carries: voice both ways,
+pictures and files, quotes, reactions, the channel a message came in on,
+and runs the assistant starts on its own. every row below is drawn from
+the contract 2 part kinds and message fields (`docs/agents.md`: `audio`,
+`image`, `file`, a `text` part's `notice` flag, `origin`, `quote`, `reactions`), and every
+control on it is gated on a capability by name, never on the runtime.
+on the web these rows are built as standalone components with a story per
+state (`app/src/ui/assistant/`, ladle groups `assistant-voice` and
+`assistant-thread`), waiting for contract 2's store to feed them; what
+they decided where this law is silent is in `design.md` (the agent
+surfaces on the web, as built).
 
-- a header: "worked 32 min" (or "stopped after 11 min", or, live,
-  "working 0:37" in the light tone) and the counts: steps, thoughts,
-  agents, failures in red.
-- two channels with labels like track headers: **thinking**, a 4 px line
-  with a filled span for each thought; **tools**, a 20 px lane with a
-  mark for each step: a block as wide as a command ran (1.2 s or longer),
-  a full tick for an edit, a short tick for a read or search, a white tick
-  for an agent starting, a white diamond for an ask, red for a failure.
-  one colour for the kinds; the ledger carries the detail.
-- one lane per agent under it, labelled "name, 128 steps", starting where
-  the agent started.
-- a scale: the turn's start and end as clock times at the ends, marks
-  every 30 s, 1, 2, 5, 10, 15, 30 or 60 minutes so there are at most six.
-  quiet stretches over three minutes fold to a notch so the work fills
-  the width.
-- **scrubbing.** a drag across the tape moves a playhead and a caption
-  ("17:36, 19 min in / write MetalVideoRenderer.swift / +433"); letting go
-  scrolls the ledger to the row for that moment and lights it for 1.6 s.
-  on touch, a sideways drag scrubs and a vertical one scrolls. the tape is
-  a slider to assistive technology.
+```
+ ┌──────────────────────────────────────┐
+ │ ‹  a title for the thread        ⋯   │  the bar
+ │    <name> · thinking                 │  the live line takes the name
+ │            ┌──────────────────────┐  │
+ │            │ remind me to water   │  │  your message, its origin
+ │            │ the plants on friday │  │  in the time slot
+ │            │ 09:12 · via whatsapp │  │
+ │            └──────────────────────┘  │
+ │ set for friday at 18:00.             │  prose
+ │            ┌──────────────────────┐  │
+ │            │ ▸ ılılıllıılı  0:14  │  │  your voice note
+ │            │                11:31 │  │
+ │            └──────────────────────┘  │
+ │                       › transcript   │  its fold
+ │ › 3 steps · checked calendar,   8 s  │  the step group
+ │   ▬  ▬▬▬▬  ▬▬▬▬▬  ▬▬▬▬▬▬             │  and its strip
+ │ ┌──────────────────────┐             │
+ │ │ ▸ ılıılllıılı  0:22  │             │  its voice note
+ │ │       <name>'s voice │             │
+ │ └──────────────────────┘             │
+ │ › what <name> said                   │  its fold
+ │ ┌────────────────────┐               │
+ │ │      (an image)    │               │  a generated image
+ │ └────────────────────┘               │
+ │ ┌────────────────────┐               │
+ │ │ ▤ booking.pdf      │               │  a file
+ │ │   84 kb            │               │
+ │ └────────────────────┘               │
+ │            ┌──────────────────────┐  │
+ │            │▎<name>               │  │  a quote in your message
+ │            │▎0:22 · booked. cour… │  │
+ │            │ perfect. add a       │  │
+ │            │ reminder friday      │  │
+ │            └──────────────────────┘  │
+ │ ▎you · remind me to water the pla…   │  its quote of yours
+ │ done, friday at 21:00.               │
+ │ ┌──────────────────────────────────┐ │
+ │ │ permission                       │ │  the ask card
+ │ │ wants permission to run brew     │ │
+ │ │ upgrade on vm-a                  │ │
+ │ │ (allow once) always allow  deny  │ │
+ │ └──────────────────────────────────┘ │
+ │ • thinking                           │  the live edge
+ │ ┌──────────────────────────────────┐ │
+ │ │ starts the     (model) (thinking)│ │  the composer (composer.md)
+ │ │ (+) message <name>          (mic)│ │
+ │ └──────────────────────────────────┘ │
+ └──────────────────────────────────────┘
+```
+
+type, colour and sizes for each row are in `design.md` (the new rows:
+type and colour); names in `design.md` (accessible names for agent
+surfaces). spacing is the ledger's: 16 px inside a turn, 32 between
+turns; a card that follows a voice note or another card sits 10 px under
+it, so a note and the image it came with read as one delivery.
+
+### the stage and the turn
+
+- **the flood** is the assistant's palette, as a repo's is; the bar, the
+  title block and the facts line are as built. the title is the thread's
+  (`thread.title`); the live line under it reads `<name> · thinking`
+  while a turn runs and nothing streams yet, `<name> · working 0:40`
+  while it steps, `<name> · listening` while you record a note (this
+  device's own state: nothing is sent to the agent for it), and the
+  thread's state as today otherwise. the facts line says what applies:
+  the model and level when the agent declares `model` and `reasoning`,
+  context and spend only with `spend`, then the channel when the thread
+  is one (`on whatsapp`).
+- **what started a turn** is your bubble when you did. a turn the
+  assistant started on a schedule (`origin.kind: scheduled`) starts with
+  a mark line where the bubble would be, "scheduled, 08:00: morning check"
+  (its `origin.name` when it has one), or "heartbeat, 08:30" for a
+  heartbeat run. a message from you that arrived on a channel is your
+  bubble as usual, with the channel in its time slot.
+- **the step group.** an assistant's tool steps fold into the work line
+  of today's stage (`design.md`, the transcript): the chevron, "3 steps ·
+  checked calendar, searched 2 sites" and the time they took, with its
+  strip under it in the palette's accent (see "the step group", which cmx
+  threads have too). the words come from each step's `family` in the past
+  tense and its count ("ran 2", "read 4", "searched 2"), or from the tool's
+  `state.title` for `other` ("checked calendar") once contract 2 feeds it
+  (cmx says "used 2"); at most three named, "2 more" past that. it opens to the ledger's rows as for cmx: the
+  kind column carries the family's word (`run`, `read`, `search`, `edit`,
+  `fetch`, `agent`, `ask`, `plan`, `skill`, `wait`), and for `other` the
+  tool's own name, cut to 10 characters, in the same dim mono.
+- **the live edge** while the agent thinks with no reasoning text shown
+  is one line, a still dot and "thinking" in the accent; with reasoning
+  text it is today's thinking box. nothing pulses.
+
+### your message: the origin line
+
+- a message that arrived through a channel (`origin.kind: channel`)
+  carries the channel in its time slot: "09:12 · via whatsapp". a message
+  sent from boxbox, or from the agent's own runtime, carries its time
+  alone. the time is when the message reached the agent, not when boxbox
+  first saw it. the channel is said by its name ("via whatsapp", "via
+  telegram"), and `control-ui` as "via the control ui". the message's own
+  `origin` is the one source for the bubble and the window's footer; the
+  thread's `origin` is read only for the facts line.
+- the agent's own words that went out to a channel as well carry nothing
+  extra: the window's footer says the channel once (`home.md`), and a
+  line on every paragraph would be noise.
+
+### voice notes
+
+an `audio` part with `flavour: voice` is a voice note. yours is a bubble
+on the right; the agent's is a card on the left, inline with its prose.
+both hold a play disc, the waveform (the part's `waveform`, 64 peaks;
+`design.md`, buttery, for where peaks come from when it has none), and
+the duration (`durationMs`, rounded to the second, `m:ss`).
+
+| part | state | the row |
+|---|---|---|
+| audio, yours | sending | the bubble, faded, the waveform drawn from the recording's own peaks, a 20 px determinate ring over the play disc while its bytes go up; "sending" in the time slot |
+| audio, yours | sent | the bubble, solid, its time (and origin) in the slot |
+| audio, yours | not sent | the bubble stays, faded, with a red edge and "not sent: <reason>. tap to try again." under it; the retry carries the same `clientID`; "back to draft" puts the note back in the composer's locked review state, not into a text draft |
+| audio, yours | with a transcript (`transcript`) | "transcript" folds under the bubble, right aligned; open, the words in a well under it, 15.5 px |
+| audio, yours | no transcript | no fold. a transcript is your device's (`docs/agents.md`: a boxbox sidecar): native makes one on the device as the note is sent; the web makes none and shows one another device made |
+| audio, the agent's | settled | the card, "<name>'s voice" under the duration |
+| audio, the agent's | with what it said (`spoken`) | "what <name> said" folds under the card; open, the words as the agent's said rows (markdown, 15.5 px) |
+| audio, the agent's | no `spoken` | no fold (the agent's words for a note arrive with it or not at all; there is no "transcribing" state) |
+| audio | still being copied (`media.state: pending`) | the card or bubble at its size, the disc a still quarter arc in the third ink, the waveform flat; not a button; it becomes playable when the part updates |
+| audio | the gateway lost it (`missing`) | the card or bubble keeps its box; the disc is replaced by a dashed ring, the waveform stays if it was drawn, and "no longer on vm-b" replaces the duration's label; not a button; a transcript or `spoken` text still folds |
+| audio | boxbox evicted it (the media route answers 410 `media-evicted`) | the same box and folds, with "no longer on the server"; no play control |
+| audio | playing | the disc shows pause, the played part of the waveform fills from the left, the speed control appears beside the duration (below) |
+| audio, not a voice note (`flavour: attached` or `generated`) | | a file card (below) with a play disc in place of the type tile: "<name>.mp3", its duration and size; plays in the same player |
+
+**playback.**
+
+- **one player for the app**, owned by the shell, not by the row: on
+  the web one `<audio>` element, natively one player on the audio
+  session's playback category. so a note keeps playing when its row
+  leaves the window's mounted turns, when you go back to home, and when
+  the screen locks or another app comes forward, as far as the platform
+  lets a home-screen app play (the web sets the media session's metadata,
+  "<name>'s voice note", the thread's title, and the palette's round
+  mark as artwork, with play, pause, seek and next track; native sets the
+  now playing info and the remote commands the same way). starting
+  another note, or recording one, stops the one playing.
+- **scrub.** the waveform is a slider. a drag across it moves the
+  playhead 1:1 and shows the position in place of the duration ("0:12");
+  release plays from there if it was playing. a tap on the waveform jumps
+  there. arrow keys step 5 s, page keys 15 s.
+- **speed.** while a note plays (and after, until another starts) a
+  small pill beside its duration cycles 1x, 1.5x, 2x on a tap. the
+  choice is this device's and holds for every note after it, stored as
+  the composer's other device prefs are.
+- **play on.** when a note ends and the next row in the thread (with
+  nothing between but a fold, a reaction or the end of a turn) is a voice
+  note from anyone, it plays next after 300 ms, and so on until a row that
+  is not one. a reader who paused, or started another note, ends the run.
+  the media session's next track does the same by hand.
+- **the now playing line.** while a note plays and its row is out of
+  view, the line above the dock that carries an out of view ask
+  (`design.md`, the transcript) carries it instead: "<name>'s voice note,
+  0:12 of 0:22", a pause control, and a tap that goes to the row. an ask's
+  line outranks it, and it comes back when the ask's goes. on home the
+  playing thread's window shows its voice line's disc as pause (`home.md`).
+
+### pictures and files
+
+- **an image** (`image` part: a file whose mime is png, jpeg, gif or
+  webp, as `docs/agents.md` maps it) is a card at the image's own ratio
+  within 300 x 190, never taller than 360, its box fixed from `width` and
+  `height` before a byte arrives so nothing shifts. when either is
+  absent the box is 300 x 190 and the image is fitted inside it on the
+  well, whole, so the box still never changes. any other image type
+  (heic included) is a file card. the caption is its `filename` when it has
+  one that is not a generated hash. `alt` is its description to a screen
+  reader. a generated image (`flavour: generated`) has no caption by
+  default; its name is the agent's.
+- **a file** (any other `file` part) is a card: the type tile, the name
+  (broken between words, never inside one, as file names in the ledger),
+  and its size in mono. a press opens it in the platform's preview: on
+  the web an image, audio, video or `pdf` file opens in a new tab through
+  boxbox's media route (served inline, the browser's own viewer), and
+  every other type, text included, downloads under its own name (served
+  as an attachment); natively it opens in quick look
+  (`QLPreviewController`) with share and save from there. a video's card
+  carries a play glyph on its type tile and opens the same way.
+- **the viewer.** a press on an image opens the viewer, the pictures
+  card of `design.md` grown into a pager: every image of the thread that
+  the window holds, in order, the pressed one in view. it fits the image,
+  pinch and double tap zoom (to 4x, about the touch point; a double tap
+  again fits), a pan moves a zoomed image, a sideways swipe at fit moves
+  to the next or previous image, and a swipe down at fit closes it. its
+  header holds the name (or "image from <name>, 11:34"), "2 of 5", save
+  and share, and close. save downloads it (web) or adds it to photos
+  (native, asking for add-only access the first time); share is the
+  platform's sheet (the web share api with the file where the browser
+  takes files, else the control is not shown). escape, close and a press
+  outside the image close it; focus returns to the card. with a keyboard:
+  left and right move, `+` `-` `0` zoom and fit.
+- **pending, missing, evicted.** an image or file still being copied
+  (`media.state: pending`) keeps its box with a still quarter arc and no
+  tap; one the gateway no longer holds (`missing`, or a notice that the
+  copy failed) keeps its box, its name and its size, with "no longer on
+  vm-b" in place of the image or under the name; one boxbox's own store
+  evicted (the media route answers 410 `media-evicted`) does the same
+  with "no longer on the server". none of them is a button.
+- **sending yours.** an attachment you send is in your bubble, above its
+  words, as the agent's are on the left. while it uploads it carries a
+  determinate ring and the bubble is faded; a refusal leaves it with a red
+  edge and the reason, its numbers the agent's own `maxBytes` and
+  `maxCount` ("too large for <name>: <maxBytes> at most", "<name> does
+  not take .zip files", "the upload stopped. tap to try again."), and the
+  retry sends the same bytes under the same `clientID`.
+
+### a send that is not confirmed
+
+an assistant's gateway cannot always say whether a send landed. the
+send answers `checking` when the agent's acknowledgement was lost, and
+the thread's `sends` then carries the outcome by `clientID`:
+
+- **checking**: the bubble stays faded, "checking with vm-b" in its time
+  slot.
+- **uncertain**: boxbox never resends on its own, because a resend can
+  start a second turn. the bubble stays where it was, faded, with "not
+  confirmed: <name> may not have it." under it and one control, "send it
+  again", which sends the same words and attachments under a new
+  `clientID` once the person chooses to.
+- **cancelled**: "not sent: vm-b cancelled it." with "send it again".
+- the bubble turns solid by itself whenever the user message with its
+  `clientID` turns up in the thread, whatever `sends` said before.
+- **the conversation changed** (409 `generation-changed`: another
+  surface swapped the conversation under the send): "not sent: the
+  conversation changed on vm-b. read it, then send again." with the same
+  control.
+
+an entry leaves `sends` 30 minutes after it was made; the bubble keeps
+its words and its control until the person sends again or takes it back
+to the draft. cmx never reports `uncertain` (its repeat key makes a
+retry safe), so a cmx send keeps today's retry.
+
+### quotes
+
+- **in your message** (`quote`): a block at the top of your bubble with
+  the quoted sender in their colour and one line of `preview`, led by its
+  glyph's word for media ("voice note 0:22 ·" for audio, its duration
+  from the quote's `durationMs` and left out when it has none, "photo ·",
+  "<file> ·"). an image quote carries a 32 px thumbnail at the block's
+  right.
+- **in the agent's words**: a quote line above its said row, "▎you ·
+  remind me to water the plants on friday", one line cut at the end.
+- **jump to the original.** a quote whose `message` is in the thread is
+  a button: a press scrolls the stage to the original (only its own
+  scroller moves; an unmounted turn is filled first, `the window`) and
+  rings it once in the accent for 1.6 s, as a landing from a strip does.
+  a quote whose `message` is null, or whose message the thread no longer
+  holds, is not a button.
+
+### reactions
+
+- **drawn** whenever a message carries `reactions`: a pill per emoji
+  hanging under the message's corner (design.md, the new rows), the
+  count when more than one sender chose it, and a ring of the accent when
+  one of them is you. a `reactions` change updates the pill in place: it
+  arrives with the fade curve, never moves the row, and the row's height
+  holds (the pill hangs into the 16 px gap below).
+- **adding one** (`reactions` capability): long-press a message
+  (native, and the web on touch) or its react control on hover (web, a
+  fine pointer) opens a small glass bar over the row with boxbox's own
+  six (thumbs up, red heart, face with tears of joy, face with open
+  mouth, crying face, folded hands), in that order; one press sends it
+  and closes the bar. your own pill is a button that takes it back. a
+  reaction is sent with a `clientID` and drawn faded until the echo, as
+  any send.
+- **on a row that came in on a channel** a reaction is mirrored there as
+  the agent's own (the gateway reacts on whatsapp as the bot). so it is
+  offered only when the thread is a direct conversation, never in a
+  group, and the bar says so under its six: "also reacts on whatsapp"
+  (the row's channel, 12.5 px, second ink). when the mirror fails the
+  pill stays and the status says "reacted here. whatsapp did not take
+  it."
+
+### the agent's asks
+
+- **a permission** an assistant raises (`approvals`) is today's
+  permission card, at the live edge where it was raised: "permission",
+  the agent's words for what it wants ("wants permission to run `brew
+  upgrade` on vm-a", a command in mono), and the options the agent offers
+  in its order, each with the server's own `label`, the first primary
+  (allow once, always allow, deny as openclaw words them today; their
+  ids are `once`, `always`, `reject`). an option marked `lasting` (it
+  leaves a standing grant) carries "keeps applying" under its label in
+  the card's quiet ink, and its `scope` when there is one ("for brew in
+  ~/projects"). a permission with `risk: high` carries its `warning` as
+  one line above the options in the card's ink at full weight, never
+  red (the law keeps red for failure); its `detail` opens under "show
+  what it runs". nothing in it says openclaw.
+- **answer by.** an ask with `expires` carries one line under its
+  question, "answer by 11:58" (13.5 px, the card's ink at 62%); in its
+  last minute it counts down, "0:42 left", tabular. in the last 5 s the
+  options are held and the line says "too late to answer here", since an
+  answer then would race the gateway's own timeout.
+- **answered**, the card folds to one line in the light tone at 55%,
+  from `ask.settled`'s `outcome` and `option`: "allowed once · brew
+  upgrade on vm-a" (the option's label in the past tense: "always
+  allowed", "denied"), and the agent's next words follow it.
+- **answered elsewhere** (`by` is a channel, the runtime or another
+  device): the fold says so, "allowed once on whatsapp, 11:40", from the
+  settle's `by` and `at`.
+- **expired** (`outcome: expired`): the card folds to "this ask timed out
+  on the gateway" in the second ink, with nothing to retry; `cancelled`
+  folds to "this ask was cancelled on vm-b", `unknown` to "this ask
+  settled on vm-b".
+- **a question** (`questions`) is today's question card.
+
+### the thread's own states
+
+- **a turn that failed** (its message carries `error`) ends with today's
+  red failed row and the gateway's words; a turn that was stopped
+  (`finish: aborted`) ends with the stopped row, "stopped on vm-b" when
+  nobody here stopped it. a thread whose last turn failed is `failed` on
+  home, as a cmx thread is.
+- **a compaction or a reset** the runtime made (`compaction` part) is
+  today's mark line, "compacted here. show the summary" when it carries
+  one, or "a new conversation starts here" for a reset (`/new` on the
+  channel); the turns above it stay readable. a `marker` is never drawn.
+- **who said it.** in a group conversation on a channel a message from
+  someone other than you carries its `sender` as a 12.5 px line over the
+  bubble's top in the second ink; your own carry nothing, as today. such
+  a bubble sits on the right as yours do only when `sender` is you;
+  anyone else's is a quiet well on the left with the same origin line.
+- **read only** (`browseOnly`): a thread boxbox can show but not write to
+  has no composer; in its place one line, "this thread is read only here.
+  answer it on whatsapp." (its channel), and no reply, react or ask
+  controls.
+- **archived on the gateway** (the gateway files away an idle thread on
+  its own): the title block says "archived" after the title in the second
+  ink; a send into it works and brings it back (the server unarchives it
+  first, `docs/openclaw.md`), so the composer says nothing extra.
+- **read again from the start** (`thread.reset`): the server could not
+  prove the thread's rows were whole, so the client drops what it holds
+  for the thread and reads it again. the stage repaints from that read in
+  place with no motion (a fresh read, so it never animates), keeps the
+  reader on the same row by its id where that row still exists and at the
+  end where it does not, and keeps the draft, the reply strip and the
+  outbox. open folds of rows that still exist stay open.
+- **stale** (the gateway is not answering, or refused): boxbox serves the
+  thread from its read cache, the last rows it read, not a copy of
+  record, and says so on the read (`x-boxbox-cache: stale`), which is
+  what the client draws this state from. the live line says "vm-b is not answering. this is what boxbox
+  last read, 11:40." in the second ink (`refused`: "boxbox cannot talk to
+  vm-b's gateway. this is what it last read, 11:40."), rows look as they
+  always do, nothing is sent (sends wait as offline ones do, faded, "waits
+  for vm-b"), and asks show their options held with "vm-b is not
+  answering". a thread the cache does not hold says "vm-b is not
+  answering, and boxbox has not read this thread yet." and shows nothing
+  else.
+
+### web and native
+
+the law is one; these are the idioms each platform takes:
+
+| | web | native (boxbox-ios) |
+|---|---|---|
+| reply to a row | swipe right on touch; a reply control at the row's end under `(hover: hover)`; `r` on a focused row | swipe right with a haptic tick at the line; the row's context menu |
+| react | the react control on hover beside reply; long-press on touch | long-press: the reaction bar over the context menu |
+| play in the background | one `<audio>` and the media session api, as far as the browser allows a home-screen app | the audio session's playback category, now playing info, remote commands |
+| a file | the browser's viewer in a new tab, or a download | quick look |
+| save and share an image | a download; the web share api with files where it exists | photos (add only); the share sheet |
+
+### copy, and class names
+
+the words: "via whatsapp", "<name>'s voice", "transcript", "what <name>
+said", "no longer on vm-b", "no longer on the server", "scheduled, 08:00:
+<name of the run>", "heartbeat, 08:30", "thinking", "listening",
+"allowed once", "always allowed", "denied", "allowed once on whatsapp,
+11:40", "this ask timed out on the gateway", "this ask was cancelled on
+vm-b", "this ask settled on vm-b", "answer by 11:58", "0:42 left", "too
+late to answer here", "sending", "not sent: <reason>. tap to try again.",
+"not confirmed: <name> may not have it.", "send it again", "not sent: the
+conversation changed on vm-b. read it, then send again.", "too large for
+<name>: <maxBytes> at most", "<name> does not take .zip files", "the
+upload stopped. tap to try again.", "also reacts on whatsapp", "reacted
+here. whatsapp did not take it.", "stopped on vm-b", "a new conversation
+starts here", "this thread is read only here. answer it on whatsapp.",
+"archived", "vm-b is not answering. this is what boxbox last read,
+11:40.", "waits for vm-b", "image from <name>", "2 of 5", "save",
+"share".
+
+classes, scoped as the rest: `vn` (a voice note), `vn-disc`, `vn-wave`,
+`vn-played`, `vn-dur`, `vn-speed`, `vn-fold`; `media-img`, `media-cap`,
+`media-file`, `media-tile`, `media-gone`, `media-ring`; `viewer`,
+`viewer-h`, `viewer-page`; `qb` (a quote block), `qb-who`, `qb-text`,
+`qline` (the agent's quote line); `rx` (a reaction), `rx-bar`;
+`origin`; `sched` (a scheduled run's mark line); `ask-fold`; `nowplay`.
+state classes are the existing ones (`on`, `bad`, `lit`) and
+`data-state` `playing`, `sending`, `gone`.
+
+## the step group
+
+decided 2026-10-16, porting the native client's decision 25: every run of
+steps between two of the agent's texts is one group, and the group is that
+run's timeline. the turn tape that sat under a heavy turn is gone; its
+lanes live on, scaled down, as each group's strip. the model is
+`groups.ts` (pure, exported for home's windows), the view `GroupView` and
+`strip.tsx`.
+
+```
+ ›  6 steps · read 3, ran 2, edited 1                 1 min
+    ▬▬   ▬  ▬▬▬    ▬▬                                         thinking
+    | |  ▮▮▮▮  ▮  |  ▮▮                                       tools
+```
+
+- **what folds.** the rows of a turn fold into a run unless they stand on
+  their own: the agent's words; a thought that led to words, to an ask or to
+  the end of a settled turn (the "thought for" row, its usual thought row,
+  directly above the words it led to); an ask, or a step that waits on the
+  person's permission (pending, from the step or the fleet's list). a
+  thought that led to a tool call is in the run, and so is the thought a
+  running turn is having now (what it leads to is not known yet). the
+  turn's last rows (its files, how it ended) come after the runs, above a
+  thought that stands over the answer.
+- **the line.** a chevron in the kind column (9 px, the third ink, the light
+  tone while live; it turns down when open, with no animation), then the
+  line, sans 13.5 px at 20 px, one line cut at its end: settled "6 steps ·
+  read 3, ran 2, edited 1" (the three verbs that came most, ties in the
+  order they came, the rest as "2 more"), live "running bun test · 4 steps"
+  (what the newest row is doing, in the full ink, then the count), and "1
+  failed" after either in red. the verbs: read, searched, edited, ran,
+  fetched, started, messaged, waited, checked, asked, planned, loaded,
+  used; live reading, searching, editing, running, fetching, starting,
+  messaging, waiting, writing, thinking. the line is the second ink closed
+  and the full ink open. the result column holds the clock: how long the run
+  took ("1 min", nothing under a second), live its clock from the first
+  step in the light tone (mono 11.5 px, tabular).
+- **the strip**, under the line in the words' column, 4 px below it and 8
+  px above the row's end, 16 px tall wherever it is drawn: the thinking
+  track (3 px, ink at 6%) with a span in the light tone at 85% for each
+  thought; the tools' bed (from 6 px to the foot, ink at 4%, radius 3)
+  with a mark for each step: an edit a tall tick in the add green, a
+  command of 1.2 s or more a bar in the light tone as long as it ran, an
+  agent a full-height ink line, a question a 5 px ink square, the rest a
+  short tick of ink at 42%, a failure red over any. settled, its span is
+  the run's own with quiet stretches over three minutes folded to 20 s each
+  side and a 3 px break in the tracks; live, the span runs ahead to the next
+  of 30 s, 1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180 or 240 minutes past
+  now, the bed washes in the light tone at 10% up to a 1 px head at now,
+  and the running step grows to it. drawn in order (a home window, whose
+  tail has no clock) its marks stand evenly apart and there is no head.
+- **open.** a press on the line (or on the kind column beside the strip)
+  opens the group: its strip stays, and every row of the run follows it,
+  only the latest one open; the older ones are one line each, opened by a
+  tap. groups the reader opens stay open; nothing is animated, and the stage
+  does not chase the end for it. no surface, open or closed: the group is
+  a line between the agent's paragraphs, not a card.
+- **a step on the strip.** a press on the strip opens the group at the step
+  nearest it, opens that step's row and lights it (1.6 s), as a link does.
+  a link that names a part folded into a closed group finds the group (it
+  answers for those parts) and opens it.
+- **height.** one line and a fixed strip: a group never changes height as
+  steps fold into it.
 
 ## live
 
 2026-10-02: a person checking on a running turn could not see or scroll
 through what was going on right now, and had to scroll up to find the
 timeline, which belongs at the bottom. so a running turn is the same ledger as a settled one,
-growing at its end, and its instrument rides at the live edge:
+growing at its end, and the run going on now is at the live edge:
 
 ```
  ┌─────────────────────────────┐
  │ your prompt                 │
  └─────────────────────────────┘
-   read   notes.md      4 lines     every row as it happens, and any
-   edit   notes.md       +1 -1      of them opens while the turn runs
+   Starting. First I need to         what it said, the page
+   know what I can build.
+ ›  3 steps · read 2, ran 1  2 s     a run that ended: one line
+    ▬  ▬▬  ▮    |                    and its strip
+ ⌄  running xcodebuild · 2 s 0:16    the run going on now: what it
+    ▬▬▬ ▮ ▮▮▮▮▮▮▮▮▮▮▮|               is doing, its clock, the head
  ┌ run    xcodebuild       0:16 ┐
- │   $ building…               │   the newest row, open, following
+ │   $ building…               │   its running step, open, following
  └─────────────────────────────┘   the newest line of its output
    the reply streams here as        the reply, as markdown, with its
-   markdown, with its caret▌        caret
- ┌─────────────────────────────┐
- │ working 1:34  5 steps, 5 th…│   the tape: the turn's footer; while
- │ thinking ▬▬  ▬  ▬▬          │   the turn runs it sticks to the
- │ tools    |  | ▮  ▮▮▮|       │   bottom of the view
- └─────────────────────────────┘
+   markdown, with its caret▌        caret; the run above folds whole
  ┌ the composer ───────────────┐
 ```
 
@@ -425,8 +940,14 @@ growing at its end, and its instrument rides at the live edge:
 - **the newest row is open** with its live body: a thought streams into a
   112 px box that fills from the top and then follows its newest line
   under a fade; a command shows its last 2 kb of output the same way; an
-  edit shows its diff. when the next row arrives, the row before closes
-  unless the reader opened it. one fixed box at the end keeps the end
+  edit shows its diff. a tap on a thought's box shows the whole thought
+  (the native client's decision 21): it grows as it is written, with no
+  box, and a second tap takes it back to the box. the control lies over
+  the box ("the thought being written", "the whole thought",
+  `aria-expanded`), and while the box is full a chevron in a 20 px well at
+  its corner says it continues; the row's head still opens and closes the
+  row, and nothing animates. when the next row arrives, the row before folds
+  into its run's group (or closes, when the reader opened the group). one fixed box at the end keeps the end
   steady: a streaming body never grows the page line by line, and for a
   reader at the end a step moves the rows above up by one row.
 - **the reply streams as the newest said row**, at full height, as
@@ -444,27 +965,35 @@ growing at its end, and its instrument rides at the live edge:
   view the pinned line above the dock carries it.
 - **gaps** ("3 min later") show live too, where they happen, so the settle
   adds nothing.
-- **the tape is the footer** of a heavy turn, live and settled, and arrives
-  at the end the moment the turn turns heavy, the way a row does. **while
-  the turn runs it sticks to the bottom of the view** (`position: sticky`
-  within its turn), resting exactly where it sits for a reader at the end,
-  40 px above the scroller's foot, so scrolling back through the running
-  turn moves nothing and the instrument stays beside the stream; above the
-  running turn it leaves with it, and the composer's line carries the
-  newest step there. live it floats, so it is a card in the flood's own
-  colour, its foot lifted a step toward the light (on the dark flood a
-  touch of white, on the light one more), with the glass edge and a soft
-  drop; never a neutral grey slab on a coloured stage. it cannot blur what
-  passes under it, because the scroller's mask turns `backdrop-filter` off
-  (`gotchas.md`), so while it is stuck the scroller's mask also clears the
-  band between the card and the composer: nothing reads below it. at the settle it lands into the
-  page as the pressed well, a 160 ms cross-fade. on a stage 600 px wide or
-  less, while stuck, it is drawn without its scale (the card sits 24 px
-  lower so its foot stays on the line; its layout box keeps its height, so
-  the scroll range never changes and a stuck tape at the end can always
-  let go). scrubbing works live: letting go lands on the row, which unpins
-  the stage. the new-below pill and the pinned ask ride 10 px above the
-  stuck card.
+- **the run going on now is a group** (see "the step group"): its line
+  says what the newest row is doing ("running bun test · 4 steps") with a
+  live clock from the run's first step, its strip's head travels at now,
+  and its running step is open under it, the row the reader watches. as a
+  step finishes the next takes the same place, so the end does not jump:
+  the row is the run's, not the step's. the line appears once something
+  has folded into the run, or from the start when the live row is a tool
+  step; a lone live thought has no line, since it may lead to words and
+  stand alone. once the agent writes again (or the turn ends) the run
+  folds whole: the rows under it rise into its place, and a reader at the
+  end stays at the end without anything above them moving: the room the
+  run's open row had is kept under the end (the foot room, `foot.ts`, the
+  native client's `ThreadFootRoom`), the words that follow rise into it,
+  and growth fills it before the end moves again. it is kept only while a
+  turn plays (and for the change that ends it) and while the end is on
+  screen; it goes, unseen, once the end leaves the view, and room larger
+  than the view is content that went out of sight, not room to keep. the
+  room is a spacer under the transcript (`.stage-room`, its height
+  `--hold`), not the scroller's padding: padding is the scroller's box,
+  so writing it from the resize observer came back to every observer of
+  the scroller in the same delivery ("resizeobserver loop completed"). the
+  story `stage--foot-room` plays the heavy turn's opening to its first
+  words and fails if the turn moves down under a pinned reader (15 times,
+  up to 681 px, before the foot room). no room is kept while an ask the
+  stage brought to the bar holds the view (`win.hold`, `holding`): the
+  ask would rise into it, up under the bar (the shell story
+  `thread-ask-slow` at the ipad's width, 31 px under it two runs in
+  three); the end is followed instead, which keeps the ask where it
+  landed.
 - **the stage follows the end** while the reader is pinned to it: any growth
   of the transcript, and any change of the scroller's own box (the dock
   taller, the keyboard up), is scrolled to in the frame that paints it, so a
@@ -500,15 +1029,16 @@ growing at its end, and its instrument rides at the live edge:
 - the header's line and the bar's line say "working 1:34, 5 steps" with a
   stop control, and "done just now, worked 1 min" for a minute after a
   turn the reader watched ends.
-- **the settle changes as little as it can.** the newest row closes, the
-  trailing reply becomes the answer, the tape lets go and lands as a well.
+- **the settle changes as little as it can.** the run folds whole into its
+  group and the trailing reply becomes the answer.
   a reader at the end stays at the end however the end moved; a reader
   further up stays exactly where they were (the stage's `SettleContext`).
-  the room it leaves under a shorter end (`--hold`, the scroller's end
-  padding) is bounded (`endRoom`, `pin.ts`): room that would fill the view with
-  padding is not kept, the view goes to the new end. a hold is padding, padding
-  is part of the scroller's box, and a flex item is never smaller than its
-  padding: a hold of 100,787 px (the settle read the list at 65 turns and laid
+  the room it leaves under a shorter end (`--hold`, the spacer under the
+  transcript) is kept as the foot room's, filled by what grows next rather
+  than given up when the next message comes, and bounded (`endRoom`,
+  `pin.ts`): room that would fill the view is not kept, the view goes to the
+  new end. the hold was once the scroller's padding, and a flex item is never
+  smaller than its padding: a hold of 100,787 px (the settle read the list at 65 turns and laid
   it out at 8, see the shown list above) made the scroller 100,827 px tall in a
   917 px stage with the view in the padding, and the release (it reads the
   scroller's height, which the padding was) could not fire: the thread blank
@@ -546,7 +1076,7 @@ decided here, where the law was silent:
   theirs), and the bar takes its condensed state without fading until the
   opened thread has landed and been seen.
 - **what this replaced.** until 2026-10-02 a running turn kept one fixed
-  shape: the prompt and the tape held still at the top and a 340 px window
+  shape: the prompt and the tape (gone since 2026-10-16) held still at the top and a 340 px window
   showed only the newest rows, unfolding into the whole ledger at the
   settle. it kept the eye still and hid the work; the work has to be visible
   and scrollable, with the timeline at the live edge.
@@ -593,8 +1123,7 @@ palette and the control are in `design.md`, code and copying).
   place, in red, for 4 s, in words that say what is possible: "could not
   copy. select the text instead", and where the text cannot be selected by
   hand, what can be: an output with its middle not shown, "could not copy.
-  only the lines shown can be selected"; a report shown clamped, "could not
-  copy. read the whole report, then select it". if the chunk that keeps the
+  only the lines shown can be selected". if the chunk that keeps the
   hold and the announcement cannot be fetched, the outcome is still drawn on
   the control and goes back by itself; it is never silent. the code stays
   selectable; the control is not text and never opens the callout.
@@ -603,8 +1132,7 @@ palette and the control are in `design.md`, code and copying).
   the strip by a pseudo element, which nothing clips.
 - **the reply.** under a settled answer, one quiet line holds "copy"
   (`act-line`), which copies the answer's markdown as the agent wrote it. a
-  report card holds "copy" in its header, beside the time, copying the whole
-  report whatever the card shows of it. both speak in the face around them
+  report's sheet holds "copy" in its header, copying the whole report. both speak in the face around them
   (sans, 12.5 px), not the machine's mono. a said row mid-turn has no reply
   control, on purpose: the ledger stays quiet, and its prose stays text to
   select (its code blocks carry theirs). a streaming reply has none.
@@ -621,7 +1149,10 @@ palette and the control are in `design.md`, code and copying).
   wall-time preamble some tools add is taken off), up to 256,000 characters,
   and a copy that stops there announces "copied the first 256,000 characters
   of the output". the open row shows a head and a tail, each line cut at 220
-  characters; the copy is not cut, and the refusal says only the lines shown
+  characters, and once it cut, "show all 79 lines" under them opens the bed in
+  place to every line, read from the output the store holds at the press, up
+  to the same 256,000 characters ("and 1,204 more lines, past what a bed
+  opens to" under the last when it stops); the copy is not cut, and the refusal says only the lines shown
   can be selected when the bed is cut or clipped. the newest row of a
   running turn shows its live window and has no control. the error bed, a
   read's preview and a diff have none.
@@ -699,7 +1230,12 @@ touching those (`big-text.ts`):
   backdrop: the log dissolves under it through a 40 px eased mask at the
   scroller's top edge (design.md, depth), and once the big title has gone
   by, the title and status fade in at one line each. the big title rests
-  below the band. nothing changes height.
+  below the band. nothing changes height. while a turn works and the big
+  title has gone by, the bar carries stop (a round control with a filled
+  square, named "stop", before the details toggle), so stop is in reach at
+  any scroll; the status line's own stop keeps its place under the bar,
+  hidden and inert, and leaves the name to the bar's: one stop is ever
+  exposed.
 - **the ruler** (`design.md` calls it the rail): one hairline per prompt
   on the right edge, evenly spaced (4 to 9 px apart), appearing while you
   scroll and hiding 1.2 s after; an ask's turn has its hairline in the
@@ -711,19 +1247,46 @@ touching those (`big-text.ts`):
 - **turns.** from the thread menu at every size (in the menu, not the
   bar), shown where the details would be:
   home's inspector column at the rail 1400 wide and up (its close goes
-  back to the details), docked on the right in a wide stage (312 px; the
-  ruler stays away while a panel is docked), a sheet from the bottom on the
-  phone (74% tall, its close closes it). one line per turn: its clock, its prompt (two lines,
+  back to the details), docked on the right where the column beside it
+  keeps 704 px (330 px; the ruler stays away while a panel is docked), a
+  sheet from the bottom elsewhere (74% tall, no wider than 560 px, its
+  close closes it). one line per turn: its clock, its prompt (two lines,
   "transport_impl reported", "compacted"), a dot for a turn that asked,
   and under it a duration bar whose length is the square root of the
   turn's time against the session's longest (a red end mark when a step
   failed) with "89 steps, 32 min" or ", stopped". the turn in view is
   highlighted and kept centred when the panel opens; tapping one scrolls
   to it.
-- **the menu** (`⋯`): turns, agents (with the count), show thinking
-  (checked), then rename, fork from here, compact, copy link.
+- **the menu** (`⋯`), in three groups: turns (the count of prompts),
+  details (its summary), agents (the count; held when there are none; it
+  opens the details), show thinking (checked); then compact ("compacting"
+  while it runs, held while a turn runs or the stream is down; it is the
+  composer's compaction, one state per thread, so the composer's card says
+  it with its clock: `composer/compact.ts`) and copy link (`/?thread=` with
+  `&at=` the turn in view, else the newest; "copied" under the bar for
+  1.6 s, or "could not copy. the address bar holds the same link" for 4
+  s); then archive. esc closes it and gives the keyboard back to `⋯`.
+  rename and fork from here wait on a daemon verb.
+- **the turn keys** (the ios app's, ⌘ on a mac and control elsewhere; the
+  stage on top only, not under another layer or the sheet): ⌥⌘↓ and ⌥⌘↑
+  the next and previous prompt, ⌘↓ the latest, ⌘I the details, ⇧⌘T the
+  turns (each a toggle), ⌘. stop while it works, ⌘[ back where there is
+  one. the arrows and ⌘[ are left to a field being typed in. esc is
+  home's back (`home.tsx`). a browser that keeps ⇧⌘T for itself (a tab,
+  not the installed app) never hands it over. the controls carry them in
+  `aria-keyshortcuts`.
 - **the scroll law** is `design.md`'s: pinned at the bottom while you are
-  there, nothing moves once you scroll up, "new below" counts what came.
+  there, nothing moves once you scroll up, the jump to the latest counts
+  what came (messages that arrive once the thread is read: a read landing
+  over a cache's copy is the thread arriving, not news). it is one control,
+  not a pill and a button: 44 px round glass (`.lg`, tinted 70% with the
+  flood's foot) centred above the dock, above the pinned ask's line when
+  there is one, shown while the reader is more than a screen above the end
+  or something came, by opacity and a scale from 0.6 (a fade under reduced
+  motion); the count is an 18 px accent capsule hung 6 px past its corner,
+  "99+" past 99. named "jump to the latest", with ", 3 new messages below"
+  when something came. a tap or ⌘↓ more than two screens away cuts to a
+  screen above the end and glides the rest; nearer, one glide.
   pinned is a latch that only the reader's own scroll clears (`pin.ts`, live);
   sending a message takes the reader to the end.
 
@@ -735,17 +1298,32 @@ touching those (`big-text.ts`):
   scroll), so a relaunch or a shared link lands on the same turn.
   `&part=<partID>` names a row: its turn is filled (the window), and the row
   is opened, scrolled to and lit for 1.6 s once it has painted. a push's `?ask=<id>` lands on that
-  ask's row the same way, and so does a window's "answer" pill (home sets the same
+  ask's row the same way, and so does a tap on an asking window (home sets the same
   `state.focus`): the row's card takes focus. no history entries are pushed (`design.md`, the
   system swipe). the pretty form, `/t/<host>/<session>`, waits for the
   server to serve the app shell under any path (m7).
 - **copy link** in the menu copies the url of the turn in view (m7).
-- an agent row's `reported` links to its report card, the nearest one
+- an agent row's `reported` links to its report chip, the nearest one
   after it; the report's agent name links back to the row that started
-  it. a tape scrub links to a row. the turns panel and the ruler link to
+  it. a step on a group's strip links to its row. the turns panel and the ruler link to
   turns.
 - links in prose open in a new tab with no referrer (the sanitiser sets
-  `target` and `rel`). a path in the answer that matches a file the turn
+  `target` and `rel`). a link goes to `http`, `https` or `mailto` and nowhere
+  else: any other href is dropped and its words stay.
+- **the markdown is github's reading** (`markdown-gfm.ts`, the owner's call
+  2026-10-16, after the native client's): a single tilde is a tilde
+  (`~/.agents/x`, "~3 files") and only `~~two~~` strikes; footnotes
+  (`[^1]` and `[^1]: words`) are superscript numbers in the light tone, by
+  the order they are first referenced, with the notes as a list at the end
+  in the second ink under a hairline (a definition nothing refers to is
+  dropped, a reference with no note stays as written). the html an agent
+  may write is everything the native client paints and more that is safe
+  (`ALLOWED_TAGS`): paragraphs, breaks, rules, headings, quotes, pre, code,
+  kbd, emphasis, strike, sub, sup, mark, lists, definition lists, details
+  and summary, tables, links; any other tag is dropped and its words kept;
+  script, style, iframe, object, embed, form and every input are dropped
+  with what they hold, and no `on*` attribute survives. an image is never
+  loaded: its alt text stands where it was. a path in the answer that matches a file the turn
   changed opens that file in the files row (m7).
 
 ## layout by device
@@ -754,15 +1332,22 @@ touching those (`big-text.ts`):
 |---|---|---|---|
 | gutters | 20 px | 32 px | 32 px |
 | measure | full width | 640 px | 680 px |
+| the composer, the bar's title | the words' gutters | the measure's column | the measure's column |
 | the clock | not shown | in the margin | in the margin where it fits |
 | kind column | 50 px | 50 px | 50 px |
 | column gaps | 8 px | 12 px | 12 px |
 | said | 15.5 px | 16 px | 16 px |
 | answer | 16.5 px | 17 px | 17 px |
+
+one column (the native app's ipadmac and ipadfit): the composer takes the
+words' gutters and, on a wide stage, their measure, so the two share x and
+width at every size (the stage's dock sets the composer's `--cz-inset`,
+the one side inset its window and its menus share, composer.css); the bar's title starts where the words do unless a
+control (back, the windows' toggle) leads the bar (`stage.css`).
 | open row's body | from the kind column, so beds take the width | from the content column | from the content column |
 | the bar | 60 px | 64 px | 64 px |
 | big title | 24 px | 28 px | 28 px |
-| turns, details | a sheet | docked, 312 px, a well in the flood | docked; at 1400 and up home's inspector column |
+| turns, details | a sheet | docked, 330 px, a well in the flood, where the column beside keeps 704 px; else a sheet | docked beside the folded rail, or a sheet; at 1400 and up home's inspector column |
 | the window (live) | 340 px | 340 px | 340 px |
 
 spacing is the one scale, 4, 8, 12, 16, 24, 32. text sits at least 8 px
@@ -773,7 +1358,7 @@ measures all three and the stories' screenshot test runs it.
 ## materials and colour
 
 - the ledger has no surface of its own; the ground and the type carry it.
-  surfaces appear for an open row, a bed, an ask's options, the tape, a
+  surfaces appear for an open row, a bed, an ask's options, a
   report and the summary card, each one plane (`design.md`, depth).
 - red means a failed step and nothing else. the repo's light tone marks
   what is rare and earned: an agent, an ask, a commit, a push, a passing
@@ -789,7 +1374,8 @@ measures all three and the stories' screenshot test runs it.
   around the view, the snap spring; the body reveals under a clip.
 - a new live row: rises 18 px with the snap spring; the rows above slide
   by its height.
-- the tape's scale stepping up: the lanes glide with the sheet spring.
+- a step group opening or closing, and its chevron: nothing animates; the
+  rows are there or they are not (the stage does not chase the end for it).
 - the header's title fading in: 200 ms opacity, a 6 px rise with the
   snap spring.
 - landing from a scrub or the turns panel: a smooth scroll, then the row
@@ -811,10 +1397,15 @@ its plain name, so the names read in the order the work happened. what is
 counted is what is mounted: a turn the window has not filled carries no
 controls and counts for nothing (see "the window"). the
 live window counts the rows it shows; a raised ask is told apart from
-the asks raised with it. the tape and
-the ruler are sliders with names and values (a tape's is "scrub through the
-work of this turn, turn 12", and a report's "read the whole report, turn 12"
-and "the agent helper, where it started, turn 12", and a long message's
+the asks raised with it. a step group is two controls: its line, a button
+named by the line with its pauses ("6 steps, read 3, ran 2, edited 1, 1
+min"; live, without the clock, so the name does not change each second),
+`aria-expanded`, and its strip, a slider named "steps of this run" whose
+value is how many steps there are until the arrows walk it ("2 of 6, run
+bun test, exit 1, failed"; enter opens that step), both told apart from
+their namesakes the way rows are. the ruler is a slider with a name and a
+value, and a report's chip "report from helper, ready, 17:49, ready to
+merge, turn 12", and a long message's
 "show all 476 characters, turn 12": where the turn stands on the page tells
 the turns' own controls apart; ten messages of one length had ten buttons
 named "show all 476 characters"). every option in an ask is
@@ -871,11 +1462,13 @@ report", "read the whole note", "show all N characters", "allow once",
 ## class names
 
 every class is scoped to its element and nothing reuses a generic word:
-`row`, `row-h`, `row-t`, `row-k`, `row-c`, `row-r`, `row-b`; `tape`,
-`tape-h`, `tape-lanes`, `lane`, `lane-hd`, `lane-plot`, `lane-name`,
-`tp-think`, `tp-mk`, `tp-now`, `tp-scale`, `tp-playhead`, `tp-cap`;
+`row`, `row-h`, `row-t`, `row-k`, `row-c`, `row-r`, `row-b`; `group`
+(a row that is a step group, `shown` while open), `group-chev`,
+`group-doing`, `group-band`, `group-gutter`, `strip`, `strip-lane`,
+`strip-track`, `strip-bed`, `strip-wash`, `strip-think`, `strip-mk`,
+`strip-head`;
 `tail`; `bar`, `bar-title`, `title-block`, `tb-repo`, `tb-h1`,
-`tb-status`; `you`, `report`, `rep-h`, `rep-b`, `rep-all`, `mark`,
+`tb-status`; `you`, `report` (the chip), `rep-line`, `rep-chev`, `rep-glyph`, `rep-sheet`, `rep-grab`, `rep-sheet-h`, `rep-sheet-body`, `rep-tag`, `rep-b`, `mark`,
 `sumcard`; `bed`, `fl`, `fb`, `hits`, `todo`, `facts`, `gap`, `dir`, `fn`;
 `cblock`, `cblock-h`, `cblock-lang` (a code block, its header and its
 language, which the command's and the output's beds wear too; `lone`, the
@@ -933,7 +1526,7 @@ filed as asks:
   announcement of a streaming part has `time.start`, its final update both,
   published when the part's block ends (a26: a thought's final comes when the
   reply begins, not at the step's end, so its clock stops there).
-  a thought's duration, the thinking channel of the tape and the live
+  a thought's duration, the thinking track of a group's strip and the live
   thinking clock read it. a session recorded before 0.8.5 has no `time` on
   its parts, so the line below still holds for old turns. reasoning now
   streams (a23): the live row can show the thought growing from its
@@ -948,8 +1541,8 @@ parser that pretends to understand them.
 ## the stage, as built (m3)
 
 `app/src/ui/thread/`: `model.ts`, `rows.ts`, `ledger.ts`, `shell.ts`,
-`evidence.ts`, `tape.ts` and `wire.ts` are pure; `thread.tsx` paints a turn; `live.ts`
-reads the store; `asks.ts` answers; `stage.tsx` is the screen; `motion.ts`
+`evidence.ts`, `groups.ts` and `wire.ts` are pure; `thread.tsx` paints a turn; `live.ts`
+reads the store; `asks.ts` answers, through the cards in `ui/asks/card.tsx` (shared with home's answer sheet, with their record words in `record.ts`); `stage.tsx` is the screen; `motion.ts`
 holds the springs and flip. the markdown is `markdown.ts`'s one painter;
 `languages.ts` (what a fence's word means, pure), `highlight.ts` (the cache
 and the way into the highlighter), `highlight-engine.ts` (highlight.js, a
@@ -996,7 +1589,7 @@ object identity, because the running turn is still a new object on every
 delta. the last turn is live while it has no
 `time.completed` or the session's status is `busy` or `retry`; a clock
 ticks each second only then, or while any of the turn's agents still
-works (`ctx.tick`, the agent rows' and the settled tape's clock; `ctx.now`
+works (`ctx.tick`, the agent rows' clock; `ctx.now`
 stays the sign that the turn itself runs). the clock is not part of the
 context the stage shares (`data.ctx`: the children, the asks by call id,
 the thinking setting, and the mail turns an agent row finds its report in):
@@ -1012,7 +1605,7 @@ told only when its own names changed.
 
 **what is remembered.** four caches outlive a stage, each a byte-capped
 least-recently-used map (`lru.ts`, the one class the highlighter's cache
-is too; AGENTS rule 7), made once and owned by the store (`store.ts`,
+is too; AGENTS.md, memory and latency), made once and owned by the store (`store.ts`,
 `threadCaches`): the turns `createTurns` built, by thread and turn, valid
 for the digest of the messages they were built from (32 MB; no part memo is
 kept, which would hold the store's own part states alive after the worker
@@ -1061,9 +1654,8 @@ panel never holds. what is not held is read from the fleet's session info
 alone: its title, its status, when it started and how long it lasted
 (created to updated), and the step count is left off until the thread is
 read, never shown as zero: the agent row's result is empty and its facts
-leave the count out ("its turn ended, no report"), the panel's line says
-"no report" where a held child says "128 steps", and the tape's lane
-carries its name and its marks only once its items are here. a thread is
+leave the count out ("its turn ended, no report"), and the panel's line says
+"no report" where a held child says "128 steps". a thread is
 read when its messages can be shown (live, or restored from the cache and
 stale): one the worker has only started, hydrating with nothing in it, is
 not, and says nothing of steps. a held child is summarised once, in a memo
@@ -1111,11 +1703,18 @@ pane is the only scroller; the bar floats over it and condenses once the big
 title in the log has gone by (an intersection observer). the ruler
 appears on a scroll the person made (wheel, touch, pointer or key in the
 last 900 ms), never on the app following new text. the side panel (the
-details or the turns) docks from 660 px of stage width and is a sheet
-below that; given home's inspector (the rail, 1400 and up) it portals
-there instead and never docks. the scroll law:
+details or the turns) docks only where the column beside it keeps 704
+px (the strip's 640 measure in the wide gutters; `docksBeside` in
+`inspector.ts`, the native app's ipadfit) and is a sheet elsewhere, while
+the bar keeps its wide chrome and the details toggle from 660 px. at home
+the answer is home's (`DetailsRoom`, `home/windows.ts` `detailsPlace`),
+which can make room the stage's own width cannot: at the rail the open
+rail folds to its swatches while the details are open, gives the room
+back when they close, and asking the windows back closes them. given
+home's inspector (the rail, 1400 and up) it portals there instead and
+never docks. the scroll law:
 pinned at the bottom while there; once scrolled up, new messages count
-into "N new messages below". the keyboard's height reaches the stage as
+on the jump to the latest. the keyboard's height reaches the stage as
 `--keyboard` only while an editable on it holds focus (decision 19), and
 its inputs are 16 px.
 
@@ -1142,8 +1741,8 @@ queue (`ToWorker.telemetry`), the one emitter.
 decided 2026-10-08, after a 300-turn thread opened in over a
 second with 32,000 elements: every turn is a box on the page from the start
 (`section.turn[data-turn]`, so the ruler, the turns panel, the url's place
-and every query by turn keep working), and the rows, bubble, answer and
-tape of a turn are mounted into its box when the turn comes near. the
+and every query by turn keep working), and the rows, groups, bubble and
+answer of a turn are mounted into its box when the turn comes near. the
 design, and what each part of it says:
 
 - **mount once.** a turn that is not filled is an empty box of a remembered
@@ -1186,7 +1785,7 @@ design, and what each part of it says:
   such momentum to protect, and its scrolls hold nothing back: the boxes near
   the view are filled ahead of it, so one rarely comes into view empty.
 - **a move the page makes always lands.** a link, the turns panel, the ruler,
-  a step on the tape, an ask and "to the bottom" go through one door
+  a step on a strip, an ask and "to the bottom" go through one door
   (`StageWindow.travel`, `moveTo`). one under two and a half screens is a
   smooth scroll: the turns it goes past, and one beyond each end, are filled
   first, with the reader's place kept, so the heights it lands by are real;
@@ -1214,8 +1813,8 @@ design, and what each part of it says:
 - **heights.** an empty box has the height the turn measured the last time
   it was filled, at the width it wrapped at (to the nearest 8 px; in memory,
   a byte-capped cache, `memo-cache.ts`), else an estimate from what the turn
-  holds (`windowing.ts`: its prompt, its rows, its said words, its answer,
-  its tape), scaled by how the turns measured so far came out against their
+  holds (`windowing.ts`: its prompt, its said words, each run of steps
+  between them as one folded group, its answer), scaled by how the turns measured so far came out against their
   estimates (between half and four times). an estimate only has to be near:
   a box that fills is measured, and the reader's place is kept (next).
 - **one owner of where the view is.** `stage-window.ts` and the pin (`pin.ts`)
@@ -1249,8 +1848,8 @@ design, and what each part of it says:
   inside the box that holds it, so it never moves what is held, and the
   tapped row keeps its place as it did.
 - **one way to a turn.** the ruler, the turns panel, a link (`at`, `part`),
-  an ask (the dock's line, the window's "answer", a push), "N new messages
-  below", a report's link to the row that started its agent and a row's link
+  an ask (the dock's line, an asking window, a push), the jump to the
+  latest, a report's link to the row that started its agent and a row's link
   to its report all go through `reveal`: the turn and the one either side of
   it are filled, with the reader's place kept, and the box is answered; then
   the move is made to what is laid out. a move over more than 2.5 screens
@@ -1340,6 +1939,14 @@ design, and what each part of it says:
   (only text changes).
 - the live turn never reads layout inside a frame loop: the flip measures
   once per row set change.
+- an assistant's rows (2026-10-15) hold the same budgets, and the ones
+  of their own are in `design.md` (buttery, as numbers: `perf.voice`,
+  `perf.media`, and the buffers). a voice note, an image or a file card
+  has its box at its first frame from the part's own numbers (duration,
+  `width` and `height`, or the 300 x 190 box when they are absent), so a
+  thread of pictures opens with zero layout
+  shift; a card's bytes are asked for only once its turn is mounted and
+  within 2.5 screens of the view, as the window fills turns.
 
 ## verification
 
@@ -1348,12 +1955,13 @@ design, and what each part of it says:
   `app/src/ui/thread/fixtures/` (excerpts of three real sessions: a heavy
   turn with an agent, a deploy with a commit, a push and two asks, and a
   native session with a permission, a question, a steer, an abort and a
-  park), plus the tape, the live window and the turns panel. the pending
+  park), plus the step groups (settled, open, failed, stopped, live, and a
+  strip in order as home draws it), the live window and the turns panel. the pending
   question has three rows: the recorded "which greeting", a long ask (a
   header, a four line question, three options of three to five lines) and
   an ask of two questions (`stories/asks.ts`, written in neutral names: the
   recording holds neither), and the shell's `thread-ask-*` stories open the
-  stage the way a window's "answer" pill does and fail unless the card is
+  stage the way a tap on an asking window does and fail unless the card is
   focused in its one ring, the row under the bar's fade, and the card the
   same card a tick of the clock later: `long` and `two` (the asks), `settles`
   (words typed into the card kept, then an answer from another device),
@@ -1390,6 +1998,6 @@ design, and what each part of it says:
   reply with four fenced blocks a few characters at a time: the real loop for
   the code blocks (a block written under the eye holds its control back, the
   names are unique, each control copies what its block holds).
-- **devices.** a real iphone and ipad for the tape's scrub, the ruler's
+- **devices.** a real iphone and ipad for a strip's press, the ruler's
   hold, the rows' tap targets and the live window's frame rate. these are
   owed and not yet done (2026-10-01).

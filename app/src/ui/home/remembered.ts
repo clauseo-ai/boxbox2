@@ -1,16 +1,21 @@
-/* what this device remembers about home's two side columns (design.md, one layout law
-   for three devices): whether the rail of windows is open or folded to its swatches, and what the
-   inspector beside the stage shows. a preference of the device, not of the account: a phone and a
+/* what this device remembers about home's side columns (design.md, one layout law
+   for three devices): whether the strip's row of windows is open or folded to its swatches, whether
+   the windows are put away (focus), and what the inspector beside the stage shows. the rail is not
+   remembered: it folds only while the details need its room (the native app's ipadfit), so
+   `boxbox.rail`, which a person's fold once wrote, is no longer read. a preference of the device, not of the account: a phone and a
    mac fold differently. storage that is refused (a private window, a full disk) is ignored, and the
    defaults stand. */
 
 export type RailState = "open" | "folded";
+export type FocusState = "shown" | "hidden";
 export type InspectorState = "details" | "turns" | "folded";
 
-export const RAIL_KEY = "boxbox.rail";
 export const INSPECTOR_KEY = "boxbox.inspector";
+export const STRIP_KEY = "boxbox.strip";
+export const FOCUS_KEY = "boxbox.focus";
 
 const RAIL_STATES: readonly RailState[] = ["open", "folded"];
+const FOCUS_STATES: readonly FocusState[] = ["shown", "hidden"];
 const INSPECTOR_STATES: readonly InspectorState[] = ["details", "turns", "folded"];
 
 type Store = Pick<Storage, "getItem" | "setItem">;
@@ -41,16 +46,24 @@ function write(store: Store | null, key: string, value: string): void {
   }
 }
 
-export function readRail(store: Store | null = deviceStore()): RailState {
-  return read(store, RAIL_KEY, RAIL_STATES) ?? "open";
+export function readFocus(store: Store | null = deviceStore()): FocusState {
+  return read(store, FOCUS_KEY, FOCUS_STATES) ?? "shown";
+}
+
+export function rememberFocus(state: FocusState, store: Store | null = deviceStore()): void {
+  write(store, FOCUS_KEY, state);
+}
+
+export function readStrip(store: Store | null = deviceStore()): RailState {
+  return read(store, STRIP_KEY, RAIL_STATES) ?? "open";
+}
+
+export function rememberStrip(state: RailState, store: Store | null = deviceStore()): void {
+  write(store, STRIP_KEY, state);
 }
 
 export function readInspector(store: Store | null = deviceStore()): InspectorState {
   return read(store, INSPECTOR_KEY, INSPECTOR_STATES) ?? "details";
-}
-
-export function rememberRail(state: RailState, store: Store | null = deviceStore()): void {
-  write(store, RAIL_KEY, state);
 }
 
 export function rememberInspector(state: InspectorState, store: Store | null = deviceStore()): void {

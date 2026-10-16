@@ -1,0 +1,29 @@
+{
+  "golden": "prompt-client-id-taken",
+  "proves": "a client id already used on another thread is 409; today boxbox reads the daemon's ConflictError as settled, by someone",
+  "request": {
+    "method": "POST",
+    "path": "/api/hosts/bench/sessions/<ses 1>/prompt",
+    "accept-encoding": "gzip",
+    "body": {
+      "device": "golden-phone",
+      "deviceClass": "iphone",
+      "clientID": "golden-prompt-1",
+      "text": "[bench:words 4 1] say four words"
+    }
+  },
+  "status": 409,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "code": "settled",
+      "message": "already answered on someone",
+      "settled": {
+        "by": "someone",
+        "at": null
+      }
+    }
+  }
+}

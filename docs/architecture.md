@@ -14,22 +14,34 @@ parameters with numbers, not hopes. every number here has a gate in
 </picture>
 </p>
 
+boxbox is one place to control every agent: a server that watches agents of
+any kind and clients that show their work and send verbs back. each kind of
+agent is a source behind one seam (`agents.md`, the agent source seam): cmx2
+is supported, openclaw is being built in m9, hermes follows in m10, and
+claude code and codex are planned. a new kind is a new source module and a
+new `boxbox.toml` entry; the fleet, the journals and the clients do not
+change for it, because clients render from capabilities (decision 30).
+
 boxbox is one rust binary on the vm, with the solid web app embedded in it. it is reachable on the tailnet only and behind
-a password gate. inside it, upstream watchers feed the fleet actor, which
+a password gate. inside it, one supervised source task per connection feeds
+the fleet actor (for cmx2, today's upstream watcher), which
 feeds the journal and the client streams. push, read state, needs, presence,
 the pty relay and telemetry all hang off that actor. the
 static assets are embedded, state is one sqlite file, and telemetry is .jsonl.
 [the pieces](README.md#the-pieces) draws the inside. the board daemon is a bun
 process on the mac, and a separate client of the normal api, not part of the server: its firmware, verbs, render and scenes are unchanged, and
-only `client.ts` is ported to v2. host credentials live on the server and
+only `client.ts` is ported to v2. the native ios app is a third client,
+kept in its own repository. agent credentials live on the server and
 nowhere else.
 
-why one server in the middle, not browsers talking to daemons directly:
+why one server in the middle, not browsers talking to agents directly:
 
 - **push needs a watcher that never sleeps.** only a server that holds
-  every host's stream can decide to buzz the phone while every screen is
+  every agent's stream can decide to buzz the phone while every screen is
   off.
-- **host credentials never reach a browser** (v1's rule, kept).
+- **agent credentials never reach a browser** (v1's rule, kept).
+- **one seam for every kind.** a runtime's protocol stays inside its
+  source, so the clients speak one wire however many kinds join.
 - **one computation for every surface.** v1's drifting read state, faults
   and session lists came from each client deriving its own (`scars.md`:
   computed once). the server derives needs, order, read and window tails
@@ -130,6 +142,8 @@ message, never by shared locks on the hot path:
 | telemetry | the day's .jsonl file | appends in batches |
 | pty relay, one per terminal | two bounded websocket pumps | the browser and cmx2 |
 | icons task | the repo-icon cache (256 entries, 8 mb), the lookups in flight, three per-host memories (project list, host cannot read files, home) | spawns a lookup task per `(host, root)`; reads the fleet for the places a host has shown; one `find/file` and `/file/content` conversation per daemon |
+| agent source, one per connection (m9) | the connection (a cmx2 daemon's watcher, an openclaw or hermes gateway's socket), its cursors, its id maps, its in-memory seen index, its reader channel and request queue, and for a socket source its transcript cache file (`<data dir>/cache/<connection>.db`, written on its own blocking thread) | sends `SourceEvent`s to the fleet actor; answers verbs through the `AgentSource` trait (`agents.md`, the seam). the upstream watcher above becomes the cmx2 source's run loop |
+| media task (m9) | the media store under the data dir and its index rows: uploads (and their buffers), copies of agents' media, eviction | the store writer; the sources, for copies; `GET /api/media/{id}` reads files by id (`agents.md`, media) |
 
 **the fleet model** is the single source for every surface: the sessions
 index (identity is `host:session`, repos never merge across hosts), each
@@ -161,19 +175,39 @@ owner; every map has an eviction rule. the caps:
 
 | thing | cap | on overflow |
 |---|---|---|
-| journal ring | 16 mb or 100,000 events | oldest events fall out; a cursor older than the floor gets `reset` plus a snapshot |
+| journal ring | 16 mb or 100,000 events (from m9 this is contract 2's ring; contract 1's sits beside it while contract 1 lives, 8 mb or 50,000 events, each ring with its own epoch, `agents.md`, the transition) | oldest events fall out; a cursor older than the floor gets `reset` plus a snapshot; a cursor from the other contract's epoch gets `reset` with reason `epoch` |
+| model caps (m9) | order 300, sessions 1000, adopted 20, clears 2000, needs 500 open and 200 served, each kept twice: once over cmx2 threads, once over every other source's (`agents.md`, the transition) | each side evicts by today's rule; contract 1 reads the cmx2 side only, so an assistant never changes a contract 1 frame |
 | client outbound channel | 512 kb | the stream is closed; the client resumes from its cursor. a slow phone can never grow the server |
 | upstream sse line buffer | 8 mb per frame (a tool part's 4 mb of image attachments, whole) | the frame is logged and skipped, the stream survives |
 | transcript hydration proxy | streamed, never buffered whole; gzip on the wire (`http/compress.rs`) | n/a |
 | worker cache (indexeddb) and the threads in its memory | 40 opened threads, 16 held-only threads beside them, and 150 mb for both, by the size of each thread's json (a read's body, then every change applied) | the count caps evict their own kind, longest unused first; the byte cap evicts held-only threads first, then opened ones longest ago first, never the thread on stage or the one the open or read is for (the indexeddb layout, above) |
 | pty relay | 256 kb each way | the socket is closed; the relay redials with the cursor |
+| media store (m9) | `[media] max_bytes`, 2 GiB unless set; 64 MiB a file; 4 uploads at once, 1 MiB buffered each, owned by the media task; 2 copies per connection in flight and 64 queued, 1 MiB buffered each, queued by the source and written by the media task (`agents.md`, buffers and caps) | least recently used first, never pinned media or media under 24 hours old; an evicted id answers 410 (`agents.md`, media). a fifth upload answers 503; a full copy queue defers the copy, never marks it missing |
+| socket source buffers (m9, per openclaw or hermes connection) | reader channel 4096 frames or 16 mb; seen index 200 rows of 24 bytes for 2,000 threads (9.2 mb); live text 8 runs of 256 kb; 256 events per session held during its first read; 10,000 thread ids; 256 sends being reconciled; requests 4 in flight and 8 queued (`agents.md`, buffers and caps) | the reader sheds at half and stops reading when full; the seen index and id map evict least recently used; a verb past the request queue answers 503 `agent-busy` |
+| transcript cache (m9) | `[cache] transcript_bytes` on disk, 256 MiB unless set, split between socket connections; per thread 200 rows or 2 MiB, threads active or opened in 30 days; 2 mb of sqlite page cache per connection in memory | least recently opened threads go first; a deleted file refills by use (`agents.md`, the transcript cache) |
 | window tails | 12 items per session, 300 sessions with windows | older items drop; sessions without a window keep no tail |
 | window tail reads | one per session with a window; 3 open per host, 512 queued, 4 mb a body; 24 tail changes kept while one is out | a full queue leaves the session to ask on its next change; a larger body is read again as the last 3 messages; more changes drop the read and take it again, three times at most |
 | repo icons | 256 entries and 8 mb of icon bytes (an icon is at most 512 kb); 64 lookups in flight, 4 talking to daemons; 256 requests queued; 64 hosts in each per-host memory | expired entries go first, then the least recently used; a lookup past a bound is answered `retry` at once and nothing queues |
 | telemetry batch | 1,000 events or 500 ms | flushed |
 | telemetry recent ids | 4,096 ids (under 400 kb) | the oldest id is forgotten; a repeat older than that is written twice, which the query tool tolerates |
 | message photos in flight | 100 mb of memory: two messages at the body limit (25 mb), each counted twice (the bytes read, then the strings parsed from them), taken from the announced size before a byte is read; a body over 25 mb is refused as it passes the limit (413) | a message waits up to 2 minutes for room, holding nothing, then is answered 503 `photos-busy`; words (under 256 kb) never wait. measured in `composer.md`: linux returns to idle (9 mb) after every burst |
-| process | steady rss 64 mb for 3 hosts and 300 sessions (a message with photos is a peak on top of it, bounded by the row above, for the seconds it is in flight); systemd `MemoryMax=256M` as the backstop, never the plan | the soak test fails the build |
+| process | steady rss 64 mb for 3 hosts and 300 sessions (a message with photos is a peak on top of it, bounded by the row above, for the seconds it is in flight); from m9, 80 mb steady for 3 cmx2 connections, 1 openclaw connection and 300 windows, and 211 mb at peak (the arithmetic below); systemd `MemoryMax=256M` as the backstop, never the plan | the soak test fails the build |
+
+**the m9 arithmetic.** steady: today's 64 mb, plus 8 mb for the contract 1
+ring, plus 4 mb for the model's second copy of each cmx2 thread (the
+neutral shapes beside the raw objects contract 1 encodes from, at most
+1000 threads, against the snapshot's 256 kb for 300) and the threads of
+other sources, plus 4 mb per socket connection in steady use (its id map
+of 10,000 rows, 2 mb of cache pages, a seen index far below its cap):
+80 mb with one openclaw connection. peak, every bound full at once: a
+socket connection's buffers add 27 mb over its steady share (16 mb
+reader, 9.2 mb seen index, 2 mb live text, 2 mb copy buffers, 1 mb held
+events, less the 4 mb already counted), uploads add 4 mb, and a message
+with photos adds the 100 mb of its row: 80 + 27 + 4 + 100 = 211 mb with
+one openclaw connection, 238 mb with two, both under the backstop. the m9
+gate measures idle, steady and this peak; a third socket connection is
+past the backstop's margin and needs the backstop raised by 32 mb a
+connection in the same change.
 
 the v1 balloon is impossible by construction: resyncs are bounded (a1,
 a2), one reset emits one event and not one per scope, streams can't queue
@@ -292,7 +326,7 @@ the build if a new event kind is not handled (`scars.md`:
 journals.
 
 **indexeddb layout**: `meta` (cursor, epoch, build id), `fleet` (the
-model), `thread:<host:session>` pages of 50 messages, `drafts` (a target's words) and `draftPhotos` (its photos, written only when the set changes), `prefs`.
+model), `thread:<host:session>` pages of 50 messages, `drafts` (a target's words) and `draftPhotos` (its photos, written only when the set changes), `outbox` (sends not yet echoed by client id, telemetry rows under `row:`, and this device's replies to asks under `ask:`, at most 200, the oldest dropped first: `app/src/sync/replies.ts`), `prefs`.
 
 **what the cache keeps and lets go.** a thread is *opened* (the person
 opened it: `openedAt` is the time) or only *held* for another thread (a
@@ -389,16 +423,17 @@ first frame).
 | home | `/` | the launch; `‹ windows`; back from a thread on the deck | none |
 | thread | `?thread=<host:session>[&at=<turn>][&part=<part>]` | a window's title, `⌥1` to `⌥9`, `⌥↑` `⌥↓`, the capsule, the bar's "wants you", a push | home |
 | a push's link | `?thread=&ask=&push=` | a push tap: at launch, or posted to an open window by the service worker | the thread route; `ask` and `push` become `state.focus`, then leave the url (`push/links.ts`) |
-| machines | `?screen=machines` | the "machines" pill in home's bar | home |
+| machines (agents from m9) | `?screen=machines`; from m9 `?screen=agents`, with `?screen=machines` rewritten to it (`agents.md`, identity) | the "machines" pill in home's bar, "agents" from m9 | home |
 | history | `?screen=history` | the "history" pill in home's bar | home |
 | settings | `?screen=settings` | "settings" in the machines' head | machines |
 | terminal | `?terminal=<host>:<id>` | a machine window's terminal row, or "new terminal" | machines |
 
 **the inbox and needs have no screen** (`design.md`, the order is the
 inbox): what wants you is the front of the deck and the top of the strip
-and the rail, each a preview of its ask with an "answer" pill; the ask card
-that answers is the thread's. the bar's "<repo> wants you", a window's pill
-and a push all open the thread with the ask in front.
+and the rail, each with its need in an accent tray that opens the answer
+sheet over home (every pending ask's card, and "open the thread"). the
+bar's "<repo> wants you", a tap on the window, the sheet's "open the
+thread" and a push all open the thread with the ask in front.
 
 **back** goes to the route's parent by every means that exists at a form,
 and the same way by each: the surface's own control, `esc`, and the deck's
@@ -549,6 +584,12 @@ utf-16 units, as cmx2 defines it.
   http-only cookie (hmac-signed, 180 days). the board logs in the same way.
   dev servers use a different cookie name so a secure prod cookie never
   shadows them.
+- **connections and agents** (m9): `boxbox.toml` gains `[[cmx2]]` (with
+  `[[host]]` read as it), `[[openclaw]]` and `[[hermes]]`. each entry is a
+  connection with 1 to n agents. contract 2's verbs live under
+  `/api/agents/{agent}/...`, media under `/api/media`, and today's
+  `/api/hosts/{host}/...` routes stay as contract 1 while it lives
+  (`agents.md`). the host bullets below describe cmx2 connections.
 - **hosts** come from two places, merged by the upstream supervisor (the
   one owner of the host list): `boxbox.toml` (mode 0600), each host's
   name, url and daemon password, edited only in the file; and pairing from

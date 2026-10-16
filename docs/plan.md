@@ -309,3 +309,138 @@ deploy's health and rss, and the 3 day soak digest showing zero reloads,
 every eligible push delivered, and every budget in design.md met; or,
 after 40 turns, report what is done, what is verified, what
 is not, and the exact next command, and stop."
+
+## m9 · agents
+
+turns boxbox into a client for agents (`agents.md`, decisions 24 to 45).
+cmx2 keeps every behaviour it has; an openclaw assistant becomes a first
+class agent on both clients. the openclaw side is `openclaw.md`; the
+screens are `design.md`, `home.md`, `thread.md` and `composer.md`.
+
+- **the seam.** `SourceEvent` in, the `AgentSource` trait out, the
+  registry, the supervisor running one source per connection, the cmx2
+  source (today's watcher plus the translation table), every `http/` and
+  `pty/` call to cmx2 routed through it, the capability check with 422
+  `unsupported`, and the new `boxbox.toml` entries with `[[host]]` still
+  read. every existing test passes unchanged.
+- **the neutral wire.** the contract 2 types and their utoipa schemas, the
+  cmx2 mapping table, the two journals with their own epochs, caps counted
+  per contract so contract 1 is a function of cmx2 alone, `?protocol=2` on
+  the stream, fleet, needs and history, the `/api/agents` route for every
+  verb, the contract 2 hydration translated message by message, `Cmx2Raw`
+  for contract 1's passthroughs, `thread.reset`, the runs window, sends
+  that end `uncertain` rather than twice, contract 1 frozen and proved byte
+  for byte beside a busy assistant, the per-day stream count.
+- **ids and identity.** `agents` and `thread_ids` with their migrations,
+  the hashed thread ids and reversible message ids, agent labels, marks and
+  the named assistant palettes, the agents screen (`?screen=agents`).
+- **the openclaw source** per `openclaw.md`: the connection and pairing,
+  the sync with every committed row journaled and the bounded seen index,
+  the transcript cache, sends with receipts, approvals and questions, quotes,
+  reactions, read state, archive, model and thinking, the method
+  allowlist and its test, the pinned protocol with a safe refusal on a
+  mismatch, and the dev gateway in the bench.
+- **media.** the store, its index and eviction, `POST /api/media`,
+  `GET /api/media/{id}` with ranges, copies on first sight, voice
+  sidecars, the cmx2 source building its data urls from the store.
+- **the web app** on contract 2 in the same release: every surface reads
+  the neutral shapes and renders from capabilities; voice notes recorded
+  and played, image, file and audio cards, quote replies and reactions,
+  the via line, the agent row in "start something", the unknown part row.
+- **the ios app** on contract 2 in one build, its pin moved to a server
+  commit that serves both contracts and its drift test covering both:
+  the same surfaces, with recording (hold, slide to cancel, lock, the
+  on-device transcript), playback (scrub, speed, now playing,
+  background), saving photos and opening files.
+- the telemetry kinds these surfaces need, added to `telemetry/schema.ts`.
+
+**gate:** the verification tiers in `agents.md`, all of them. the
+contract 1 proof is the mixed-fleet one: the recorded cmx2 session (its
+upstream frames, the commands boxbox took, mark read, clear, adopt, a
+review answered and presence, and the recorded clock of every input) is
+replayed alone and again interleaved with a scripted openclaw session that
+runs past 300 windows and 1,000 threads of its own, and the contract 1
+journal is byte for byte equal across both runs and to the journal before
+the seam, epoch and build normalised; golden tests, recorded before the
+seam, hold after it for the contract 1 `hello` and `reset` snapshot of a
+mixed fleet, cursors across contracts (reset reason `epoch` both ways),
+`/api/fleet`, `/api/needs` (body and `x-boxbox-seq`), the hydration
+routes with their headers and gzip, the prompt 202 and 409 bodies, push
+payloads and titles (no foreign notice or `served` to a contract 1
+device), a pty redial, review merge and discard, and one run of the
+board's client; the scripted session and the exactly-once suite
+passing with the web app on contract 2; the openclaw drive and its chaos
+cases against the dev gateway with the journal and thread printed after
+each; every gated route answering 422 for the assistant; the installed
+pre-m9 ios build showing every cmx2 thread on the new server and never the
+assistant, its gap, undecodable and dropped counters at 0 after a soak with
+a busy assistant; a held assistant thread that misses rows while the
+gateway is away ends whole or with `thread.reset`, never with a silent
+gap; a send whose acknowledgement is lost ends accepted or not confirmed,
+never twice; the contract 2 ios build and the pwas recording and playing a
+voice note on the real devices; rss with both journals and two connections,
+idle, steady and with every source buffer full, inside the budget in
+`architecture.md`.
+
+**goal:** "m9 of boxbox v2 per docs/plan.md is done: print the mixed-fleet contract
+1 byte-for-byte comparison and the golden table, the scripted session and exactly-once suite on
+contract 2 against a cmx2 dev daemon on a port from 4840 to 4849, the
+openclaw drive and chaos table against a dev gateway the session started,
+the 422 table, the old ios build on contract 1 and the new one on contract
+2 described from screenshots looked at, a voice note recorded and played
+on a real phone, and the rss numbers; or, after 80 turns, report what is
+done, what is verified, what is not, and the exact next command, and
+stop."
+
+## m10 · hermes
+
+a hermes agent joins on the seam m9 built, with no change to contract 2
+(decision 35). its source talks over hermes's tui gateway websocket from a
+stock `hermes serve` on loopback and reads each profile's state.db read
+only for the fleet; one agent per profile. its capabilities column in
+`agents.md` is confirmed live and corrected there in the same change.
+
+- the hermes source: connection, server requests for approvals and
+  clarify, history, sends, steer and queue, compaction, model and effort,
+  archive.
+- a hermes dev gateway in the bench with a scripted model.
+
+**gate:** the `agents.md` real loop run for a hermes agent beside cmx2 and
+openclaw, its chaos cases included, with no contract 2 schema change in
+the diff.
+
+**goal:** "m10 of boxbox v2 per docs/plan.md is done: print the hermes
+drive and chaos table against a hermes gateway the session started, the
+capability column as confirmed, and a diff showing no contract 2 schema
+change; or, after 40 turns, report what is done, what is verified, what is
+not, and the exact next command, and stop."
+
+## m11 · claude code (planned)
+
+claude code joins as a coding agent on the same seam, with no change to
+contract 2 (decision 46). its source, its connection entry and its
+capabilities column in `agents.md` are designed when the milestone opens;
+until then nothing is reserved for it.
+
+- the claude code source and its `boxbox.toml` entry.
+- a claude code dev setup in the bench with a scripted model.
+
+**gate:** the `agents.md` real loop run for a claude code agent beside
+cmx2, openclaw and hermes, its chaos cases included, with no contract 2
+schema change in the diff.
+
+**goal:** written when the milestone opens, in m10's shape.
+
+## m12 · codex (planned)
+
+codex joins as a coding agent on the same seam, with no change to contract
+2 (decision 46), designed when the milestone opens like m11.
+
+- the codex source and its `boxbox.toml` entry.
+- a codex dev setup in the bench with a scripted model.
+
+**gate:** the `agents.md` real loop run for a codex agent beside the
+kinds before it, its chaos cases included, with no contract 2 schema
+change in the diff.
+
+**goal:** written when the milestone opens, in m10's shape.

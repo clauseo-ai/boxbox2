@@ -1,9 +1,9 @@
 # verification
 
-the bench v2 is judged on. claims discipline (AGENTS.md rule 2): nothing is
-verified unless it was driven end to end against a real cmx2 daemon in
-the same session, and the evidence is printed. a build passing is not
-verified; a unit test is not verified.
+the bench v2 is judged on. claims (AGENTS.md, working): say what you
+checked and how, and never call something verified that you did not
+check. a passing build shows it builds and a unit test shows its unit;
+only a run against a real cmx2 daemon shows the path end to end.
 
 ## the tiers, cheapest first
 
@@ -313,6 +313,57 @@ the terminal's part runs on its own: `just build && bun bench/terminal.ts`
 verification). it owns the pinned daemon on 4890, a cutter on 4892 between
 boxbox and the daemon (cutting it is the relay's upstream dropping), and
 the release binary on 3031, and prints `lsof` on its ports when it stops.
+
+## contract 1 goldens (m9)
+
+m9's gate proves contract 1 frozen across the agent source seam
+(`plan.md`, m9; `agents.md`, verification). the baseline was recorded on
+main before the seam, in `server/goldens/contract1/`:
+
+- `tape.jsonl.gz`: a session against the cmx2 dev daemon, as the fleet
+  actor took it: every upstream frame, host read and tail read on the wire,
+  every command (mark read, clear, adopt, a review answered, asks answered,
+  sends, stream pages, fleet and needs reads), presence, and the tail clock,
+  each with the `now_ms` it ran at. the session runs past the caps: 1,100
+  threads (57 evicted at 1,000), the order full at 300, 40 turns in windows.
+- `live.json.gz`: what that server sent: the whole journal from cursor 0,
+  every stream the bench opened, every `/api/fleet` and `/api/needs` answer.
+- `golden/`: the end of the session as today's server answers it, epoch and
+  build normalised: `hello` and `reset`, resumes inside, at and past the
+  head, from another epoch and from before the ring (expired), the fleet,
+  the needs with `x-boxbox-seq`, and the payload and title of every push.
+
+`cargo test fleet::replay` (part of `just check`, no daemon) replays the
+tape through the actor and holds the journal byte for byte against the live
+one, replays it twice and compares, and holds every stream, fleet and needs
+answer and every golden. recorded frames enter at one place,
+`Replay::upstream` in `server/src/fleet/replay.rs`: `fleet::Upstream`
+before the seam, the cmx2 source after it. the seam moves that function and
+nothing else.
+
+recording again (only for a new baseline, never to make a test pass):
+`bun bench/golden.ts record` (the pinned daemon on 4950, the bench model on
+4951, a server built with `--features record` on 3051; `GOLDEN_WORLD`,
+`GOLDEN_DAEMON_PORT` and `GOLDEN_BOXBOX_PORT` move them), then
+`BOXBOX_GOLDENS=write cargo test goldens`.
+
+### the live goldens
+
+the routes a replay cannot answer, because the daemon answers them, are
+held by `bun bench/golden-live.ts check` against a live pinned daemon
+(4954, the bench model on 4955, a copy of `target/debug/boxbox` on 4957;
+`GOLDEN_LIVE_BINARY` names another build, `GOLDEN_LIVE_WORLD` another
+world). it runs one session and compares each answer with its file in
+`server/goldens/contract1/live/`: the transcript and one message, plain and
+gzipped, with `x-cmx2-seq`, `x-next-cursor` and their pages; history and
+its pages; a prompt's 202, its repeat, and the 409 of its client id on
+another thread; a terminal redialled with its cursor, from 0 and with -1; a
+checkout's review read, merged, discarded and refused (uncommitted work);
+and one run of the board's client. ids, times, seqs, shas, the world
+directory, the minted passwords and the machine's name become placeholders
+before anything is written or compared. it prints a table, one row per
+golden, and exits 1 on any difference. `bun bench/golden-live.ts record`
+writes the files again, only for a new baseline.
 
 ## device checks that only a real device can answer
 

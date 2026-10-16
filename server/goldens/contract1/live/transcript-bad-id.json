@@ -1,0 +1,19 @@
+{
+  "golden": "transcript-bad-id",
+  "proves": "an id that could step out of its path segment is refused before the daemon hears it",
+  "request": {
+    "method": "GET",
+    "path": "/api/hosts/bench/sessions/bad/id/messages",
+    "accept-encoding": "gzip"
+  },
+  "status": 400,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "code": "bad-request",
+      "message": "\"bad/id\" is not a session or message id"
+    }
+  }
+}

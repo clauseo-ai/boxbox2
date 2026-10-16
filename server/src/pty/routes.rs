@@ -4,15 +4,12 @@
 //! upgrades to a websocket and starts a relay.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use axum::Json;
-use axum::body::Body;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
-use axum::response::{IntoResponse, Response};
-use reqwest::Method;
+use axum::http::{HeaderMap, header};
+use axum::response::Response;
 use serde::Deserialize;
 use tracing::info;
 use utoipa::{IntoParams, ToSchema};
@@ -20,15 +17,13 @@ use utoipa::{IntoParams, ToSchema};
 use super::relay::{CAP, Relay, Target};
 use super::telemetry::Stamp;
 use crate::cmx2::{CreatePtyBody, CreatePtyBodyOrigin, UpdatePtyBody, UpdatePtyBodySize};
-use crate::config::HostConfig;
-use crate::http::AppState;
 use crate::http::error::{ApiError, ErrorBody};
-use crate::upstream::{plain, request};
-
-/// how long the host may take to answer a rest call.
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
-/// a terminal list or a shell list is a few kb; this is far past any real one.
-const MAX_ANSWER: usize = 1024 * 1024;
+use crate::http::{AppState, agents};
+#[cfg(test)]
+use crate::source::cmx2::verbs::pty::host_message;
+use crate::wire::Capability;
+#[cfg(test)]
+use axum::http::HeaderValue;
 /// rows and columns a terminal may be resized to; a phone is about 45 by
 /// 20, a wide monitor under 400 by 120.
 const MAX_SIZE: u16 = 1000;
@@ -94,8 +89,8 @@ pub async fn list(
     State(state): State<Arc<AppState>>,
     Path(host): Path<String>,
 ) -> Result<Response, ApiError> {
-    let host = find(&state, &host)?;
-    forward(&state, &host, Method::GET, "/pty", None).await
+    let source = agents::cmx2(&state, &host, Some(Capability::Terminal))?;
+    source.terminals_raw().await
 }
 
 /// the login shells the host lists, the host user's own first.
@@ -115,8 +110,8 @@ pub async fn shells(
     State(state): State<Arc<AppState>>,
     Path(host): Path<String>,
 ) -> Result<Response, ApiError> {
-    let host = find(&state, &host)?;
-    forward(&state, &host, Method::GET, "/pty/shells", None).await
+    let source = agents::cmx2(&state, &host, Some(Capability::Terminal))?;
+    source.terminal_shells_raw().await
 }
 
 /// opens a terminal on the host, as a person's (it goes when it exits).
@@ -139,7 +134,7 @@ pub async fn create(
     Path(host): Path<String>,
     Json(new): Json<NewTerminal>,
 ) -> Result<Response, ApiError> {
-    let host = find(&state, &host)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Terminal))?;
     let body = CreatePtyBody {
         command: new.command.filter(|c| !c.trim().is_empty()),
         args: new.args,
@@ -148,7 +143,7 @@ pub async fn create(
         origin: Some(CreatePtyBodyOrigin::Tui),
         ..CreatePtyBody::default()
     };
-    forward(&state, &host, Method::POST, "/pty", Some(to_json(&body)?)).await
+    source.create_terminal_raw(to_json(&body)?).await
 }
 
 /// one terminal.
@@ -171,9 +166,9 @@ pub async fn one(
     State(state): State<Arc<AppState>>,
     Path((host, id)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
-    let host = find(&state, &host)?;
-    let route = format!("/pty/{}", terminal_id(&id)?);
-    forward(&state, &host, Method::GET, &route, None).await
+    let source = agents::cmx2(&state, &host, Some(Capability::Terminal))?;
+    let id = terminal_id(&id)?;
+    source.terminal_raw(id).await
 }
 
 /// renames or resizes a terminal.
@@ -199,15 +194,15 @@ pub async fn update(
     Path((host, id)): Path<(String, String)>,
     Json(change): Json<TerminalChange>,
 ) -> Result<Response, ApiError> {
-    let host = find(&state, &host)?;
-    let route = format!("/pty/{}", terminal_id(&id)?);
+    let source = agents::cmx2(&state, &host, Some(Capability::Terminal))?;
+    let id = terminal_id(&id)?;
     let size = change.size.map(size).transpose()?;
     let title = change.title.filter(|t| !t.trim().is_empty());
     if size.is_none() && title.is_none() {
         return Err(ApiError::BadRequest("send a title, a size, or both".into()));
     }
     let body = UpdatePtyBody { size, title };
-    forward(&state, &host, Method::PUT, &route, Some(to_json(&body)?)).await
+    source.change_terminal_raw(id, to_json(&body)?).await
 }
 
 /// kills a terminal and has the host forget it.
@@ -230,9 +225,9 @@ pub async fn kill(
     State(state): State<Arc<AppState>>,
     Path((host, id)): Path<(String, String)>,
 ) -> Result<Response, ApiError> {
-    let host = find(&state, &host)?;
-    let route = format!("/pty/{}", terminal_id(&id)?);
-    forward(&state, &host, Method::DELETE, &route, None).await
+    let source = agents::cmx2(&state, &host, Some(Capability::Terminal))?;
+    let id = terminal_id(&id)?;
+    source.kill_terminal_raw(id).await
 }
 
 /// the terminal's bytes, as a websocket: cmx2's pty stream relayed, plus
@@ -262,14 +257,18 @@ pub async fn connect(
     upgrade: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
     same_origin(&headers)?;
-    let host = find(&state, &host)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Terminal))?;
     let pty = terminal_id(&id)?.to_owned();
     if query.cursor.is_some_and(|c| c < -1) {
         return Err(ApiError::BadRequest("the cursor is -1 or more".into()));
     }
     let relay = Relay {
-        stamp: Stamp::new(query.device.as_deref(), query.class.as_deref(), &host.name),
-        target: Target { host, pty },
+        stamp: Stamp::new(
+            query.device.as_deref(),
+            query.class.as_deref(),
+            source.name(),
+        ),
+        target: Target { source, pty },
         dialer: state.terminals.dialer.clone(),
         telemetry: state.telemetry.clone(),
         shutdown: state.shutdown.clone(),
@@ -277,7 +276,7 @@ pub async fn connect(
     };
     info!(
         relay = %relay.id,
-        host = %relay.target.host.name,
+        host = %relay.target.source.name(),
         pty = %relay.target.pty,
         cursor = query.cursor.unwrap_or(-2),
         "terminal connect"
@@ -333,17 +332,6 @@ fn to_json(body: &impl serde::Serialize) -> Result<Vec<u8>, ApiError> {
         .map_err(|e| ApiError::BadRequest(format!("the body did not serialize: {e}")))
 }
 
-fn find(state: &AppState, name: &str) -> Result<Arc<HostConfig>, ApiError> {
-    state
-        .upstreams
-        .hosts
-        .borrow()
-        .iter()
-        .find(|h| h.config.name == name)
-        .map(|h| Arc::clone(&h.config))
-        .ok_or_else(|| ApiError::UnknownHost(name.to_owned()))
-}
-
 /// a terminal id as one path segment; anything that could step out of it
 /// is refused.
 fn terminal_id(id: &str) -> Result<&str, ApiError> {
@@ -359,85 +347,6 @@ fn terminal_id(id: &str) -> Result<&str, ApiError> {
             "\"{id}\" is not a terminal id"
         )))
     }
-}
-
-/// one call to the host, answered with its status and body as they came.
-/// the host's own errors become boxbox's, so the app reads one shape.
-async fn forward(
-    state: &AppState,
-    host: &HostConfig,
-    method: Method,
-    route: &str,
-    body: Option<Vec<u8>>,
-) -> Result<Response, ApiError> {
-    let started = Instant::now();
-    let mut call = request(&state.client, host, method.clone(), route);
-    if let Some(body) = body {
-        call = call
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(body);
-    }
-    let unreachable = |reason: String| ApiError::HostUnreachable {
-        host: host.name.clone(),
-        reason,
-    };
-    let answer = tokio::time::timeout(ANSWER_TIMEOUT, async {
-        let answer = call.send().await?;
-        let status = answer.status();
-        let kind = answer.headers().get(reqwest::header::CONTENT_TYPE).cloned();
-        let bytes = answer.bytes().await?;
-        Ok::<_, reqwest::Error>((status, kind, bytes))
-    })
-    .await
-    .map_err(|_| unreachable(format!("no answer within {}s", ANSWER_TIMEOUT.as_secs())))?
-    .map_err(|e| unreachable(plain(&e)))?;
-    let (status, kind, bytes) = answer;
-    info!(
-        host = %host.name,
-        %method,
-        route,
-        status = status.as_u16(),
-        latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        "terminal call"
-    );
-    if bytes.len() > MAX_ANSWER {
-        return Err(unreachable(format!(
-            "the answer was {} kb, past any terminal list",
-            bytes.len() / 1024
-        )));
-    }
-    match status.as_u16() {
-        200..=299 => {
-            let mut response = Body::from(bytes).into_response();
-            let headers = response.headers_mut();
-            if let Some(kind) = kind.and_then(|k| HeaderValue::from_bytes(k.as_bytes()).ok()) {
-                headers.insert(header::CONTENT_TYPE, kind);
-            }
-            headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-            *response.status_mut() =
-                StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK);
-            Ok(response)
-        }
-        400 => Err(ApiError::BadRequest(
-            host_message(&bytes).unwrap_or_else(|| "the host refused the request".into()),
-        )),
-        401 => Err(ApiError::HostRefused(host.name.clone())),
-        404 => Err(ApiError::NoSuchTerminal(
-            route.rsplit('/').next().unwrap_or(route).to_owned(),
-        )),
-        other => Err(unreachable(match host_message(&bytes) {
-            Some(message) => format!("it answered {other}: {message}"),
-            None => format!("it answered {other}"),
-        })),
-    }
-}
-
-/// the message in cmx2's error body, `{name, data: {message}}`.
-fn host_message(body: &[u8]) -> Option<String> {
-    serde_json::from_slice::<crate::cmx2::ErrorBody>(body)
-        .ok()
-        .map(|e| e.data.message)
-        .filter(|m| !m.is_empty())
 }
 
 #[cfg(test)]

@@ -3,7 +3,9 @@
 //! `/global/health` with its credential, looks at the data dir (the cookie
 //! secret, `boxbox.db` and the push key in it, telemetry) and tries the
 //! listen address. it never writes: the db is opened read-only, and nothing
-//! is minted or created.
+//! is minted or created. an openclaw gateway is checked from the file
+//! alone (its url and token file); the server connects to it when it
+//! starts. a hermes entry is listed as reserved.
 //!
 //! nothing secret is printed: passwords are "set", never shown or counted,
 //! and a url loses its userinfo and query.
@@ -20,6 +22,7 @@ use reqwest::Url;
 
 use crate::cmx2;
 use crate::config::{self, Config, ConfigError, Credential, HostConfig};
+use crate::source::{ConnectionConfig, HermesConfig, OpenclawConfig, OpenclawMode};
 use crate::upstream;
 
 /// the health route the upstream watcher starts every connection with.
@@ -107,11 +110,41 @@ fn examine(runtime: &tokio::runtime::Runtime, config_path: &str) -> Vec<Section>
     let Some(config) = config else {
         return sections;
     };
+    let connections = config.connections();
+    let gateways = connections.len() - config.hosts.len();
     sections.push(Section {
         title: "hosts",
         subject: None,
-        lines: runtime.block_on(examine_hosts(&config.hosts)),
+        lines: runtime.block_on(examine_hosts(&config.hosts, gateways)),
     });
+    let openclaw: Vec<&OpenclawConfig> = connections
+        .iter()
+        .filter_map(|c| match c {
+            ConnectionConfig::Openclaw(o) => Some(o),
+            _ => None,
+        })
+        .collect();
+    if !openclaw.is_empty() {
+        sections.push(Section {
+            title: "openclaw",
+            subject: None,
+            lines: examine_openclaw(&openclaw),
+        });
+    }
+    let hermes: Vec<&HermesConfig> = connections
+        .iter()
+        .filter_map(|c| match c {
+            ConnectionConfig::Hermes(h) => Some(h),
+            _ => None,
+        })
+        .collect();
+    if !hermes.is_empty() {
+        sections.push(Section {
+            title: "hermes",
+            subject: None,
+            lines: examine_hermes(&hermes),
+        });
+    }
     sections.push(Section {
         title: "data",
         subject: Some(config.data_dir.display().to_string()),
@@ -169,9 +202,29 @@ fn examine_config(path: &str) -> (Section, Option<Config>) {
         lines.push(line(
             Level::Ok,
             format!(
-                "loads: listen {}, {}",
+                "loads: listen {}, {}{}{}",
                 config.listen,
-                count(config.hosts.len(), "host", "hosts")
+                count(config.hosts.len(), "host", "hosts"),
+                if config.openclaw.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ", {}",
+                        count(
+                            config.openclaw.len(),
+                            "openclaw gateway",
+                            "openclaw gateways"
+                        )
+                    )
+                },
+                if config.hermes.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ", {}",
+                        count(config.hermes.len(), "hermes gateway", "hermes gateways")
+                    )
+                }
             ),
         ));
         lines.push(line(Level::Ok, "gate password set (never shown)"));
@@ -206,7 +259,15 @@ fn examine_config(path: &str) -> (Section, Option<Config>) {
     )
 }
 
-async fn examine_hosts(hosts: &[HostConfig]) -> Vec<Line> {
+/// `gateways`: how many other connections the file holds, so a config
+/// of assistants alone is not told it lacks a daemon.
+async fn examine_hosts(hosts: &[HostConfig], gateways: usize) -> Vec<Line> {
+    if hosts.is_empty() && gateways > 0 {
+        return vec![line(
+            Level::Note,
+            "none: this config watches no cmx2 daemon. add a [[cmx2]] (or [[host]]) for each one",
+        )];
+    }
     if hosts.is_empty() {
         return vec![line(
             Level::Warn,
@@ -393,6 +454,117 @@ fn examine_secret(path: &Path) -> Line {
         ),
         _ => line(Level::Ok, "cookie secret present, mode 600"),
     }
+}
+
+/// each gateway from the file alone: the url (the loader already holds it
+/// to wss://, or ws:// to this machine) and its token file. doctor never
+/// speaks the gateway's protocol; the server does, when it starts.
+fn examine_openclaw(gateways: &[&OpenclawConfig]) -> Vec<Line> {
+    let width = gateways.iter().map(|g| g.name.len()).max().unwrap_or(0);
+    let mut lines = Vec::new();
+    for gateway in gateways {
+        let name = format!("{:<width$}", gateway.name);
+        let secure = if gateway.url.scheme() == "wss" {
+            "wss"
+        } else {
+            "ws on this machine"
+        };
+        let watch = match gateway.mode {
+            OpenclawMode::Full => "",
+            OpenclawMode::Watch => ", watch only (sends nothing that writes)",
+        };
+        let machine = gateway
+            .machine
+            .as_deref()
+            .map(|m| format!(", on {m}"))
+            .unwrap_or_default();
+        lines.push(line(
+            Level::Ok,
+            format!(
+                "{name}  {}  {secure}{machine}{watch}",
+                redact_url(&gateway.url)
+            ),
+        ));
+        let token = examine_key_file(&gateway.token_file, "token file", "the gateway's token");
+        lines.push(line(token.0, format!("{name}  {}", token.1)));
+        if let Some(path) = &gateway.device_key {
+            let key = examine_key_file(path, "device key", "the gateway device key");
+            lines.push(line(key.0, format!("{name}  {}", key.1)));
+        }
+        lines.push(line(
+            Level::Note,
+            format!(
+                "{name}  doctor does not reach the gateway: boxbox serve connects and checks it when it starts"
+            ),
+        ));
+    }
+    lines
+}
+
+/// a file holding a gateway secret: there, a regular file, mode 600 and not
+/// empty. what it holds is never printed, and neither is its length.
+fn examine_key_file(path: &Path, what: &str, holds: &str) -> (Level, String) {
+    let shown = path.display();
+    let meta = match fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return (
+                Level::Fail,
+                format!("{what} {shown} is missing: put {holds} in it, then `chmod 600 {shown}`"),
+            );
+        }
+        Err(e) => return (Level::Fail, format!("cannot read the {what} {shown}: {e}")),
+    };
+    if !meta.is_file() {
+        return (
+            Level::Fail,
+            format!("{what} {shown} is not a regular file: point it at the file holding {holds}"),
+        );
+    }
+    if let Some(mode) = file_mode(path)
+        && mode & 0o077 != 0
+    {
+        return (
+            Level::Fail,
+            format!(
+                "{what} {shown} is mode {mode:o}: others can read it. run `chmod 600 {shown}`, then doctor again"
+            ),
+        );
+    }
+    let has_text = match fs::read(path) {
+        Ok(bytes) => bytes.iter().any(|b| !b.is_ascii_whitespace()),
+        Err(e) => return (Level::Fail, format!("cannot read the {what} {shown}: {e}")),
+    };
+    if has_text {
+        let mode = file_mode(path).unwrap_or(0o600);
+        (
+            Level::Ok,
+            format!("{what} {shown}, mode {mode:o}, set (never shown)"),
+        )
+    } else {
+        (
+            Level::Fail,
+            format!("{what} {shown} is empty: put {holds} in it"),
+        )
+    }
+}
+
+/// hermes is reserved for m10 (decision 35): listed, never reached.
+fn examine_hermes(gateways: &[&HermesConfig]) -> Vec<Line> {
+    let width = gateways.iter().map(|g| g.name.len()).max().unwrap_or(0);
+    gateways
+        .iter()
+        .map(|gateway| {
+            line(
+                Level::Note,
+                format!(
+                    "{:<width$}  {}  reserved: not built yet (m10), so nothing connects to it",
+                    gateway.name,
+                    redact_url(&gateway.url)
+                ),
+            )
+        })
+        .collect()
 }
 
 /// `boxbox.db` and the push key in it, read-only: a running server keeps
@@ -731,6 +903,132 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn an_openclaw_token_file_is_checked_and_never_printed() {
+        let dir = TempDir::new("token");
+        let token = dir.0.join("vm-b.token");
+        fs::write(&token, "oc-hunter22\n").unwrap();
+        chmod(&token, 0o600);
+        let path = write_config(
+            &dir,
+            &format!(
+                "password = \"gate-long-enough\"\n[[openclaw]]\nname = \"vm-b\"\nurl = \"wss://u:url-hunter22@vm-b.example?t=hunter22\"\ntoken_file = \"{}\"\nmode = \"watch\"\n",
+                token.display()
+            ),
+        );
+        let (section, config) = examine_config(&path);
+        let config = config.unwrap();
+        assert!(
+            section.lines[1]
+                .text
+                .ends_with("0 hosts, 1 openclaw gateway"),
+            "{:?}",
+            section.lines[1]
+        );
+        let gateways: Vec<&OpenclawConfig> = config.openclaw.iter().collect();
+        let lines = examine_openclaw(&gateways);
+        assert_eq!(levels(&lines), [Level::Ok, Level::Ok, Level::Note]);
+        assert!(lines[0].text.contains("watch only"), "{:?}", lines[0]);
+        assert!(lines[1].text.contains("mode 600, set (never shown)"));
+        assert!(
+            lines[2]
+                .text
+                .contains("boxbox serve connects and checks it")
+        );
+        let text = render(&[Section {
+            title: "openclaw",
+            subject: None,
+            lines,
+        }]);
+        assert!(!text.contains("hunter22"), "{text}");
+
+        chmod(&token, 0o644);
+        let lines = examine_openclaw(&gateways);
+        assert_eq!(lines[1].level, Level::Fail);
+        assert!(
+            lines[1]
+                .text
+                .contains("is mode 644: others can read it. run `chmod 600"),
+            "{:?}",
+            lines[1]
+        );
+        fs::write(&token, " \n").unwrap();
+        chmod(&token, 0o600);
+        let lines = examine_openclaw(&gateways);
+        assert!(lines[1].text.contains("is empty"), "{:?}", lines[1]);
+        fs::remove_file(&token).unwrap();
+        let lines = examine_openclaw(&gateways);
+        assert!(lines[1].text.contains("is missing"), "{:?}", lines[1]);
+        fs::create_dir(&token).unwrap();
+        let lines = examine_openclaw(&gateways);
+        assert!(
+            lines[1].text.contains("not a regular file"),
+            "{:?}",
+            lines[1]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_device_key_is_checked_like_the_token_file_only_when_set() {
+        let dir = TempDir::new("device-key");
+        let token = dir.0.join("vm-b.token");
+        fs::write(&token, "oc-hunter22").unwrap();
+        chmod(&token, 0o600);
+        let key = dir.0.join("vm-b.key");
+        fs::write(&key, "key-hunter22").unwrap();
+        chmod(&key, 0o640);
+        let path = write_config(
+            &dir,
+            &format!(
+                "password = \"gate-long-enough\"\n[[openclaw]]\nname = \"vm-b\"\nurl = \"ws://127.0.0.1:9\"\ntoken_file = \"{}\"\ndevice_key = \"{}\"\n",
+                token.display(),
+                key.display()
+            ),
+        );
+        let config = examine_config(&path).1.unwrap();
+        let gateways: Vec<&OpenclawConfig> = config.openclaw.iter().collect();
+        let lines = examine_openclaw(&gateways);
+        assert_eq!(
+            levels(&lines),
+            [Level::Ok, Level::Ok, Level::Fail, Level::Note]
+        );
+        assert!(lines[0].text.contains("ws on this machine"));
+        assert!(lines[2].text.contains("device key"), "{:?}", lines[2]);
+        assert!(lines[2].text.contains("chmod 600"));
+        let without = OpenclawConfig {
+            device_key: None,
+            ..config.openclaw[0].clone()
+        };
+        assert_eq!(examine_openclaw(&[&without]).len(), 3);
+        assert!(!format!("{lines:?}").contains("hunter22"));
+    }
+
+    #[test]
+    fn a_hermes_entry_is_listed_as_reserved() {
+        let dir = TempDir::new("hermes");
+        let path = write_config(
+            &dir,
+            "password = \"gate-long-enough\"\n[[hermes]]\nname = \"vm-c\"\nurl = \"wss://vm-c.example\"\n",
+        );
+        let config = examine_config(&path).1.unwrap();
+        let gateways: Vec<&HermesConfig> = config.hermes.iter().collect();
+        let lines = examine_hermes(&gateways);
+        assert_eq!(levels(&lines), [Level::Note]);
+        assert!(
+            lines[0].text.contains("not built yet (m10)"),
+            "{:?}",
+            lines[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn no_cmx2_daemon_beside_a_gateway_is_a_note_and_alone_a_warning() {
+        assert_eq!(levels(&examine_hosts(&[], 1).await), [Level::Note]);
+        assert_eq!(levels(&examine_hosts(&[], 0).await), [Level::Warn]);
+    }
+
     #[test]
     fn the_report_never_prints_a_password() {
         let dir = TempDir::new("redact");
@@ -882,7 +1180,7 @@ mod tests {
             credential: None,
             origin: crate::config::Origin::Config,
         };
-        let lines = examine_hosts(&[host]).await;
+        let lines = examine_hosts(&[host], 0).await;
         assert_eq!(levels(&lines), [Level::Fail]);
         assert!(
             lines[0].text.contains("cannot connect"),

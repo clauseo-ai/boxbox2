@@ -30,12 +30,13 @@ const LINE_ANSWER = 27;
 const ROW = 32;
 const BUBBLE = 44;
 const TURN_GAP = 16;
-const TAPE = 150;
+/** a folded step group: its line and the strip under it (thread.css, `.row.group`, `.group-band`) */
+const GROUP = 60;
 
 const lines = (chars: number, perLine: number): number => Math.max(1, Math.ceil(chars / Math.max(10, perLine)));
 
 /** about how tall a turn is at a measure `width` px wide, from what it holds: its prompt (a bubble clamps at six lines), its rows
-    (a said row by its words), its answer, its tape. a first guess, which `calibrate` scales by what the turns already measured
+    (a said row by its words, each run of steps between them one folded group: groups.ts), its answer. a first guess, which `calibrate` scales by what the turns already measured
     came to; it only has to be near, since a turn that fills in is measured and the view is kept where it was */
 export function estimateHeight(turn: Turn, width: number): number {
   const measure = Math.max(200, width - GUTTERS);
@@ -45,11 +46,14 @@ export function estimateHeight(turn: Turn, width: number): number {
   else if (turn.by === "mail") px += 96 + Math.min(8, lines(turn.prompt.length, said)) * LINE_SAID;
   else px += 40;
   if (turn.by !== "compaction") {
-    for (const row of rowsOf(turn.items)) px += row.k === "say" ? lines(row.say.text.length, said) * LINE_SAID + 12 : ROW;
+    let run = false;
+    for (const row of rowsOf(turn.items)) {
+      if (row.k === "say") { px += lines(row.say.text.length, said) * LINE_SAID + 12; run = false; }
+      else if (!run) { px += GROUP; run = true; }
+    }
     if (turn.answer) px += lines(turn.answer.text.length, answer) * LINE_ANSWER + 56;
     if (turn.files.size) px += ROW;
     if (turn.status === "aborted" || turn.status === "failed") px += ROW;
-    if (turn.items.filter((x) => x.k === "step").length > 6 || turn.items.some((x) => x.k === "step" && x.family === "spawn") || turn.end - turn.at > 180_000) px += TAPE;
   }
   return Math.round(px + TURN_GAP);
 }

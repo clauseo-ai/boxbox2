@@ -191,7 +191,7 @@ describe("the running turn, delta by delta", () => {
   });
 });
 
-/* every control on a page has a name of its own (AGENTS.md rule 5; docs/thread.md, accessibility): a row whose label a
+/* every control on a page has a name of its own (AGENTS.md, accessibility; docs/thread.md, accessibility): a row whose label a
    row above it already carries says how many times it has come up, and a place that is not a control has no name */
 describe("the rows' names", () => {
   test("a label the page has not shown yet is the name as it is", () => {

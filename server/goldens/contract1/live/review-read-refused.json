@@ -1,0 +1,34 @@
+{
+  "golden": "review-read-refused",
+  "proves": "a checkout with uncommitted work reads as dirty",
+  "request": {
+    "method": "GET",
+    "path": "/api/hosts/bench/sessions/<ses 1>/review",
+    "accept-encoding": "gzip"
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "additions": 1,
+    "base": "main",
+    "baseRef": "main",
+    "branch": "cmx2/golden-refused",
+    "checkout": "golden-refused",
+    "commits": 1,
+    "deletions": 0,
+    "diff": "diff --git a/refused.txt b/refused.txt\nnew file mode 100644\nindex 0000000..<short 1>\n--- /dev/null\n+++ b/refused.txt\n@@ -0,0 +1 @@\n+from the checkout\n",
+    "dirty": true,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 0,
+        "path": "refused.txt",
+        "status": "added"
+      }
+    ],
+    "mergeable": true,
+    "truncated": false
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "golden": "review-base-after",
+  "proves": "the base branch holds the squash commit and nothing of the discarded or refused checkouts",
+  "log": [
+    "add merge.txt from the checkout",
+    "scratch"
+  ]
+}

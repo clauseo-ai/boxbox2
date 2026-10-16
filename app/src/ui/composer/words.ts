@@ -6,6 +6,7 @@
 import type { Compaction } from "../../store";
 import type { TailItem } from "../../sync/protocol";
 import { lastSentences } from "../window/tail";
+import { withoutBlockMarks } from "./inline";
 
 /** how the thread stands, as the composer needs it */
 export type Agent = "working" | "idle" | "wants" | "offline";
@@ -97,24 +98,73 @@ export function cardWords(card: Card, agent: Agent): { label: string; why: strin
 }
 
 /** what a card offers, from its state and the agent's: a message that did not go can be retried or taken back to the draft; the
-    first waiting one can be steered in or stopped for (run now), a steer can be stopped for; the daemon's own can be unsent.
-    nothing that sends the message again from the card is offered for one with photos, since the card cannot carry them */
-export type CardVerbs = { retry: boolean; edit: boolean; steerNow: boolean; runNow: boolean; unsend: boolean; apart: boolean };
+    first waiting one can be steered in or stopped for (run now), a steer can be stopped for; the daemon's own can be unsent,
+    and, while the draft is empty, edited: taken back into the draft with the caret in its words (an unsend named for what it
+    is for; a draft that holds words has no room for them). nothing that sends the message again from the card is offered for
+    one with photos, since the card cannot carry them */
+export type CardVerbs = { retry: boolean; edit: boolean; editWaiting: boolean; steerNow: boolean; runNow: boolean; unsend: boolean; apart: boolean };
 
-export function cardVerbs(card: Card, agent: Agent): CardVerbs {
+export function cardVerbs(card: Card, agent: Agent, draftEmpty = false): CardVerbs {
   const first = card.state === "queued" && card.place === 0 && agent === "working";
   const steerNow = first && !card.photos;
   const runNow = first || runsNow(card, agent);
+  const unsend = card.state === "queued" || card.state === "steer";
   return {
     retry: card.state === "failed" && !card.photosReturned,
     edit: card.state === "failed",
+    editWaiting: unsend && draftEmpty,
     steerNow,
     runNow,
-    unsend: card.state === "queued" || card.state === "steer",
+    unsend,
     // a card with a verb that stops the turn puts its verbs on a row of their own, so its words keep the width
     apart: steerNow || runNow,
   };
 }
+
+/** when a waiting message goes, in the fewest words, beside its label on the queue's strip ("steer, at its next step", "next,
+    after this turn"): what will happen is never left to be inferred from the label alone. one that did not go has none: its
+    second line says what went wrong */
+export function cardWhen(card: Card, agent: Agent): string | null {
+  switch (card.state) {
+    case "steer":
+      return agent === "working" ? "at its next step" : "with the next turn";
+    case "queued":
+      if (card.place > 0) return "after the one before it";
+      return agent === "working" ? "after this turn" : "waiting to run";
+    case "sending":
+      return "on its way";
+    case "waiting":
+      return "when the connection is back";
+    case "failed":
+      return null;
+    default:
+      return card.state satisfies never;
+  }
+}
+
+/** the message the strip shows: one that did not go comes first, since it needs the person; else the first in line. its index,
+    or -1 when nothing is on its way */
+export function leadOf(cards: readonly { card: Card }[]): number {
+  const failed = cards.findIndex((c) => c.card.state === "failed");
+  return failed >= 0 ? failed : cards.length > 0 ? 0 : -1;
+}
+
+/** the strip's name for a screen reader: how many are on their way, and the one it shows */
+export function stripName(count: number, label: string, when: string | null, text: string): string {
+  const lead = when ? `${label}, ${when}` : label;
+  return count > 1 ? `${count} messages on their way. ${lead}: ${text}` : `${lead}: ${text}`;
+}
+
+/** a swipe left this far (px) takes the strip's message back on letting go, as does a fling that would carry it half as far
+    again; short of both it springs back */
+export const UNSEND_AT = 96;
+
+export function swipeUnsends(offset: number, velocity: number, flingMs = 180): boolean {
+  return offset <= -UNSEND_AT || Math.min(0, offset + velocity * flingMs) <= -UNSEND_AT * 1.5;
+}
+
+/** the line while a drag the composer can take is over it */
+export const DROP_LINE = "drop a photo to add it, or a file to mention it";
 
 /** what a composer says while this device has no room to keep drafts: what is written stays only while the page is open */
 export const DRAFTS_FULL = "this device has no room left to keep drafts, so what you write here stays only while this page is open. free some space and it saves again";
@@ -158,6 +208,9 @@ export function tailPrint(tail: readonly TailItem[]): string {
   return tail.map((item) => `${item.messageID}/${item.partID}/${item.text.length}`).join("|");
 }
 
+/** the tools that are never the live line: a question (asked, then settled, it is the ask card's) and the agent's own list */
+const LINELESS_TOOLS: ReadonlySet<string> = new Set(["question", "todowrite", "todoread"]);
+
 /** the live line: the newest thing the agent is doing, from the window's tail. `key` names the row it is: the text of a
     row growing is the same line, and only a new row is a new one */
 export function liveLine(tail: readonly TailItem[]): { kind: string; text: string; prose: boolean; key: string } | null {
@@ -174,9 +227,16 @@ export function liveLine(tail: readonly TailItem[]): { kind: string; text: strin
       break;
     }
     const key = `${item.messageID}/${item.partID}`;
-    if (item.kind === "tool") { if (item.text.trim()) return { kind: item.tool ?? "tool", text: item.text, prose: false, key }; continue; }
+    if (item.kind === "tool") {
+      // a question is the ask card's and the agent's own list is the window's to leave out: a settled question row is never
+      // the line (the window's cards hide the same tools, tail.ts)
+      if (LINELESS_TOOLS.has(item.tool ?? "")) continue;
+      if (item.text.trim()) return { kind: item.tool ?? "tool", text: item.text, prose: false, key };
+      continue;
+    }
     if (item.kind === "reasoning" || item.kind === "text") {
-      const text = proseOf(item.text);
+      // the marks are read where the line is drawn (inline.ts); a line's block marks go first, before it is cut to its last sentences
+      const text = proseOf(withoutBlockMarks(item.text));
       if (text) return { kind: item.kind === "reasoning" ? "thought" : "", text, prose: true, key };
       continue;
     }

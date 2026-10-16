@@ -1,0 +1,21 @@
+{
+  "golden": "message-unknown",
+  "proves": "a message the daemon does not have is the daemon's own 404, passed through as it wrote it",
+  "request": {
+    "method": "GET",
+    "path": "/api/hosts/bench/sessions/<ses 1>/messages/<msg 1>",
+    "accept-encoding": "gzip"
+  },
+  "status": 404,
+  "headers": {
+    "content-type": "application/json;charset=utf-8",
+    "content-encoding": "gzip",
+    "vary": "accept-encoding"
+  },
+  "body": {
+    "name": "NotFoundError",
+    "data": {
+      "message": "no message <msg 1> in session <ses 1>"
+    }
+  }
+}

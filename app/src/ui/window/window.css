@@ -21,13 +21,14 @@
   box-shadow: var(--win-edge), var(--win-cast);
 }
 
-/* the highlight falling from the top left */
+/* the highlight falling from the top left, on an eased falloff: a straight ramp leaves a visible edge where its slope
+   stops, these stops end flat (the native app's WindowLight curve) */
 .win::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: radial-gradient(90% 50% at 20% 0%, var(--win-glow), transparent 60%);
+  background: radial-gradient(90% 50% at 20% 0%, var(--win-glow), color-mix(in srgb, var(--win-glow) 78%, transparent) 12%, color-mix(in srgb, var(--win-glow) 42%, transparent) 27%, color-mix(in srgb, var(--win-glow) 14%, transparent) 42%, color-mix(in srgb, var(--win-glow) 3%, transparent) 53%, transparent 60%);
   pointer-events: none;
 }
 
@@ -241,22 +242,61 @@
   overflow-wrap: anywhere;
 }
 
-/* the ask's preview: what is waiting, in the window's own words, and the one pill that opens the thread to it
-   (design.md, the inbox in the windows). the preview has no stacking of its own, so a tap on its words reaches the
-   window's stretched open button; only the pill sits above it. the question clamps to --ask-lines, set per arrangement */
+/* the working run's strip under the tail: the step group's lane, at its one height, in the window's own colours */
+.win .wstrip {
+  flex: none;
+  margin-top: 10px;
+}
+
+[data-arrangement="strip"] .win .wstrip,
+[data-arrangement="rail"] .win .wstrip {
+  margin-top: 6px;
+}
+
+/* the tray a window that wants you wears (the native app's decision 24): a slab of the repo's accent inside the window,
+   its corner concentric with the window's, holding what the thread needs in one line and the key that answers. the accent
+   is the one thing on home lit solid, so the window that waits on you is the loudest one on the screen, in its own colour.
+   the whole tray is the key: it opens the answer sheet (asks/sheet.tsx), above the window's stretched open button. the
+   line clamps to --ask-lines, set per arrangement */
 .win .wask {
+  all: unset;
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
   min-width: 0;
+  padding: var(--tray-inset);
+  border-radius: var(--tray-radius);
+  background: var(--accent);
+  color: var(--on-accent);
+  text-align: left;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  transition: transform var(--press-t), opacity var(--fade-t);
+}
+
+.win .wask:active {
+  transform: scale(0.985);
+}
+
+.win .wask:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
+/* the tray's quiet words: its ink at 72% */
+.win .wask-label,
+.win .wask-waiting {
+  margin: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--on-accent) 72%, transparent);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .win .wask-label {
-  margin: 0;
-  overflow: hidden;
-  color: var(--accent);
   font-weight: 620;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .win .wask-text {
@@ -279,43 +319,66 @@
 
 .win .wask-waiting {
   min-width: 0;
-  overflow: hidden;
-  color: var(--text-2);
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
-/* the "wants you" chip's material, as a control: the repo's light tone with its ink, 34 px tall like the chip, a
-   finger's 44 by the pseudo-element so the row keeps its height */
-.win .wask-go {
-  all: unset;
+/* the key inside the key: the tray's ink as a pill with the accent on it. an assistant's window keeps its preview with
+   the key as the one button (assistant/home/window.tsx): there it is a real button, so the app's button defaults go */
+.win button.wask-go {
+  min-height: 0;
+  border: 0;
+  margin: 0;
   position: relative;
   z-index: 2;
-  flex: none;
-  box-sizing: border-box;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-family: "Boxbox Sans Chip", "Boxbox Sans", system-ui, sans-serif;
-  font-size: 12.5px;
-  font-weight: 620;
-  line-height: 34px;
-  white-space: nowrap;
   cursor: pointer;
   -webkit-touch-callout: none;
 }
 
-.win .wask-go::before {
-  content: "";
-  position: absolute;
-  inset: -5px -4px;
-}
-
-.win .wask-go:focus-visible {
+.win button.wask-go:focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
+}
+
+.win .wask-go {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  height: var(--tray-key);
+  padding: 0 var(--tray-key-inset);
+  border-radius: 999px;
+  background: var(--on-accent);
+  color: var(--accent);
+  font-family: "Boxbox Sans Chip", "Boxbox Sans", system-ui, sans-serif;
+  font-size: 12.5px;
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.win .wask-go svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* the edge of a window that wants you: its own edge lit in the accent, inside it, so it stays apart from the stage's ring
+   (outside the edge, with a gap of ground) when the thread on the stage is also the one that waits */
+.win[data-asking] {
+  box-shadow: var(--win-lit), inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 85%, transparent), var(--win-cast);
+}
+
+/* the one attention ring (window.tsx, ping): drawn on the page at the window's box, since the window clips */
+.win-ping {
+  position: fixed;
+  z-index: 50;
+  box-sizing: border-box;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+  opacity: 0;
 }
 
 .win .wf {
@@ -439,8 +502,12 @@
 
 [data-arrangement="deck"] .win .wask {
   --ask-lines: 6;
+  --tray-inset: 16px;
+  --tray-radius: 22px;
+  --tray-key: 34px;
+  --tray-key-inset: 14px;
   flex: none;
-  padding-top: 14px;
+  margin-top: 14px;
 }
 
 [data-arrangement="deck"] .win .wask-label {
@@ -481,17 +548,32 @@
   border-radius: 22px;
 }
 
+/* the window on the stage: a 2 px ring of its accent outside its edge with 2 px of ground between, as the folded swatch's
+   ring sits. flush on the edge it read as a highlighter line painted on the card; with its gap it is a mark around the
+   window, and the window keeps its own lit edge and rim. the strip and the rail keep 4 px of room above their first
+   window so their scroll clip never cuts it (home.css) */
 [data-arrangement="strip"] .win[data-current],
 [data-arrangement="rail"] .win[data-current] {
   box-shadow:
+    var(--win-edge),
+    0 0 0 2px var(--ground),
+    0 0 0 4px var(--accent),
+    var(--win-cast);
+}
+
+[data-arrangement="strip"] .win[data-current][data-asking],
+[data-arrangement="rail"] .win[data-current][data-asking] {
+  box-shadow:
     var(--win-lit),
-    0 0 0 2px var(--accent),
+    inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 85%, transparent),
+    0 0 0 2px var(--ground),
+    0 0 0 4px var(--accent),
     var(--win-cast);
 }
 
 @media (hover: hover) {
-  [data-arrangement="strip"] .win:not([data-current]):hover,
-  [data-arrangement="rail"] .win:not([data-current]):hover {
+  [data-arrangement="strip"] .win:not([data-current], [data-asking]):hover,
+  [data-arrangement="rail"] .win:not([data-current], [data-asking]):hover {
     box-shadow:
       inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.2)),
       inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--p1) 24%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.12)),
@@ -576,10 +658,13 @@
 
 [data-arrangement="strip"] .win .wask,
 [data-arrangement="rail"] .win .wask {
-  --ask-lines: 3;
+  --ask-lines: 2;
+  --tray-inset: 10px;
+  --tray-radius: 14px;
+  --tray-key: 32px;
+  --tray-key-inset: 11px;
   flex: none;
   margin-top: auto;
-  padding-top: 8px;
 }
 
 [data-arrangement="strip"] .win .wask-label,

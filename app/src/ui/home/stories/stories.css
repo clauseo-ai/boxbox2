@@ -27,3 +27,63 @@
   font-size: 13px;
   color: var(--text-3);
 }
+
+/* home's glass controls over windows (mount.tsx, mountGlass): the .home here is a page of panels, not home's frame */
+.home.story-glass {
+  position: static;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  padding: 28px;
+  overflow: visible;
+}
+
+.glass-panel {
+  position: relative;
+  margin: 0;
+  width: min(360px, calc(100vw - 56px));
+  min-height: 560px;
+  --window-width: 100%;
+}
+
+.glass-ground {
+  display: grid;
+  gap: 14px;
+}
+
+.glass-over {
+  position: absolute;
+  inset: 40px 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.glass-panel .capsule {
+  position: relative;
+  top: auto;
+  left: auto;
+  right: auto;
+}
+
+.glass-panel .fold-new {
+  margin-top: 0;
+}
+
+.glass-panel figcaption {
+  position: absolute;
+  bottom: -24px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+/* the solid material, forced: the tokens reduced transparency sets on the root (styles.css), set on the panel */
+.glass-panel[data-solid] {
+  --lg-fill: var(--lg-solid);
+  --lg-clear-fill: var(--lg-solid-clear);
+  --lg-filter: none;
+  --lg-clear-filter: none;
+  --lg-press-scale: 1;
+  --lg-press-light: transparent;
+  --lg-press-dim: 0.6;
+}

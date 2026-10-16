@@ -647,6 +647,80 @@ in `scars.md`.
   compile a given commit forces the crate to rebuild and reads that it did;
   `strings target/debug/boxbox | grep app/dist` names the dist it carries.
 
+## the openclaw dev gateway (`just openclaw`)
+
+- **`git clone --mirror` of openclaw is past 10 gib.** github serves every
+  pull request's refs to a mirror clone; the first cold run was at 10 gib
+  and still growing when it was stopped. the mirror at
+  `~/.cache/boxbox/openclaw.git` is a bare repo that fetches exactly the
+  pinned commit with `--depth=1` (165 mib), which is all `git archive`
+  needs. a pin move fetches the new commit the same way.
+- **`spawnSync` cannot buffer the export.** `git archive` of the tree is
+  over 1 gib of tar; a `maxBuffer` of `1 << 31` overflows to a negative
+  number and node refuses it. the export streams `git archive | tar -x`
+  through a pipe.
+- **node 25 and later ship no corepack.** the tree pins
+  `pnpm@12.5.1+sha512...`; `npx --yes corepack@0.36.0 pnpm ...` runs that
+  exact version (homebrew's pnpm 10 is not used).
+- **the tree's build stamps the enclosing git commit.** `.openclaw/<commit>/`
+  sits inside the boxbox checkout, so `hello-ok.server.buildId` carries
+  boxbox's commit, not openclaw's. `server.version` is right; never read
+  the commit from `buildId`.
+- **the 2026.10.1 config refuses older shapes.** `default: true` on an
+  agent entry fails start ("legacy agents.entries default markers need
+  explicit surface owners", exit 78); `tts.providers.<id>.voice` and
+  `agents.defaults.models` without `modelPolicy.allow` are flagged. the
+  fixture uses what `openclaw doctor --fix` writes: `agents.ownership:
+  "explicit"`, `agents.defaults.systemAgent.agentId`, `talk.agentId`,
+  `modelPolicy.allow`, `speakerVoice`, `plugins.entries.openai.enabled`.
+  when a pin move breaks the config, run doctor on a scratch copy and
+  diff.
+- **thinking levels need `reasoning: true` on the model.** with
+  `reasoning: false`, `sessions.create {thinkingLevel: "low"}` answers
+  "not supported for mock-openai/gpt-5.6-luna (use off|ultra)".
+- **an exec approval is denied at once without an approval client.**
+  "headless runs cannot wait for interactive exec approval" until a
+  connected operator claims the `approvals` cap (docs/openclaw.md, 3.5);
+  the bench client claims it.
+- **most agent tools are behind `tool_call`.** the model sees read, write,
+  edit, exec and a handful more by name; ask_user, automations and the
+  rest are "cataloged behind compact prompt surface" and must be called
+  as `tool_call {id: "ask_user", args}`. calling them by name answers
+  "Tool ask_user not found".
+- **a `MEDIA:` line with a `data:` url stays text.** a workspace path
+  (`MEDIA: ./dot.png`) becomes an image block; the bench writes `dot.png`
+  into each workspace.
+- **media blocks land after the final event.** the tts `audio` block and a
+  `MEDIA` image join the assistant row a moment after `chat` `final`; a
+  history read right at final has only the text. the recorder polls.
+- **a delta row is an envelope.** `chat.history {cursor}` rows are
+  `{sessionKey, message, messageId, messageSeq, session, ...}`, not the bare
+  message a page answers; `activeLeafEntryId` is at
+  `sessionInfo.activeLeafEntryId`, not top level.
+- **`sessions.create` with an `idempotencyKey` needs a device.** a
+  device-less shared-token client is refused ("idempotent session creation
+  requires an authenticated principal or device identity"); boxbox's
+  paired device is fine.
+- **`sessions.create` with no key makes a dashboard session**
+  (`agent:main:dashboard:<uuid>`), which `archiveDashboardAfter` archives
+  as `stale-dashboard`. a bench started with `--archive-dashboard-after
+  20s` archives every keyless test session 20 s after its last activity.
+- **the log file is machine-wide by default.** without `logging.file` the
+  gateway writes `/tmp/openclaw/openclaw-<date>.log`, shared by every
+  gateway on the machine; the fixture sets it to `.openclaw/bench/logs/`.
+- **recorded fixtures name the machine unless scrubbed.** the hello-ok
+  presence snapshot carries the lan address, the hardware model and the
+  host name, and paths carry the checkout; `bench/openclaw-record.ts`
+  scrubs them and refuses to write a file that matches a private pattern
+  (the same `BOXBOX_PRIVATE_PATTERN` or `private/check-patterns.txt` as
+  `scripts/check-public.sh`).
+- **a script that edits a file through a tool's printed output truncates
+  it.** a tool that caps its output at 2000 lines or 50 kb hands back the
+  tail of a long file plus a footer; writing that back replaced
+  `docs/openclaw.md` with its last 47 kb. edit large files in place
+  (`edit`, or a script that reads and writes the file itself), never
+  through a shell's captured output.
+
 ## typescript, the root project
 
 - **a test that imports a component's module pulls the dom into the root
@@ -673,7 +747,7 @@ in `scars.md`.
 
 - **3001 is not always free for the bench.** on a mac that runs a live
   boxbox v1, 3001 can be held by it (never stopped from a dev session,
-  AGENTS.md rule 13). rule: the bench configs, `just dev`, `bench/exactly-once.ts`,
+  AGENTS.md, the live fleet). rule: the bench configs, `just dev`, `bench/exactly-once.ts`,
   `bench/stalled.ts` and `bench/cut.ts` read `BOXBOX_PORT` (default 3001);
   on a machine where 3001 is taken, run them with `BOXBOX_PORT=3011`.
 - **agent-browser shuts its browser down after a few idle minutes.** the
@@ -1237,6 +1311,30 @@ a url's `?thread=` naming a session the fleet does not hold (archived, another i
   which the css obeyed. rule: settings tells the motion module
   (`setMotionChoice`), and every caller reads `prefersReducedMotion()`.
 
+## an animation started in a `ref` never ran
+
+- **solid's elements are born in an inert document.** jsx is cloned from a
+  `<template>`, whose contents belong to a document with no window, and a
+  `ref` runs before the clone is put in the page. `el.animate()` there
+  never ran: chromium took that document's timeline, which never ticks,
+  and webkit (every iphone) left it pending even when handed
+  `document.timeline`. either way it held its first frame for good
+  (`getAnimations()` does not list it). a queued card's arrival (opacity 0,
+  `fill: "backwards"`) left every card queued with the composer up for
+  more than 600 ms invisible, still taking its room, until a reload
+  painted it with no arrival. naming the page's timeline fixed chromium
+  only; the fix shipped and the bug stayed on the phone. rule: `play`
+  starts an animation on an element not yet in the page a microtask later
+  (solid has inserted it by then), so a `ref` may animate; a raw
+  `el.animate` waits until the element is in the page. a motion fix is
+  checked in webkit too (playwright's, with an iphone profile), not only
+  in chrome.
+- **a `<For>` over objects built in a memo makes every row again.** the
+  queue's cards were rebuilt whenever the thread's messages changed (every
+  step of a working turn), so each card was a new element and played its
+  arrival again. rule: a list whose rows animate in is keyed by id
+  (`<For each={ids()}>`) and each row reads its latest by id.
+
 ## ladle and screenshots, learned in the folds
 
 - **a new story export needs a ladle restart**: the running server does
@@ -1445,3 +1543,71 @@ a url's `?thread=` naming a session the fleet does not hold (archived, another i
 - **editing a file the dev server serves reloads the page under a bench that
   is driving it.** a drift pass that finds every turn's box changed at once, and
   its line gone from the dom, was reloaded by a save, not broken.
+
+## the fleet's maps and the contract 1 replay (m9 goldens)
+
+- **a map's iteration order leaks wherever ties are not broken.** the same
+  recorded inputs replayed three times gave `/api/needs` a different served
+  order once: `Needs::serve_where` served the matching needs in `HashMap`
+  order, and every `min_by` or `max_by` over a map picks among equal keys by
+  that order too (eviction by `updated`, the oldest arm). the journal itself
+  stayed byte for byte, so only a replay of the needs answers caught it. each
+  such pick now breaks ties by id or key; a new one must too, or the
+  contract 1 goldens flake.
+- **a recording stream falls 512 kb behind while the bench is busy.** a bun
+  `fetch` reader on the same event loop as the script that drives the
+  session got closed for falling behind on order frames (a thousand threads
+  make each one about 9 kb). the head comes from `/api/needs`'s
+  `x-boxbox-seq`, and the journal is read once from cursor 0 at the end.
+
+## a streamed body ignores the router's body limit (media, m9)
+
+`DefaultBodyLimit` (the router's 64 KiB `SMALL_BODY`) is applied by the
+extractors that buffer (`Bytes`, `String`, `Json`); a handler that takes
+`axum::body::Body` and streams it gets every byte the client sends. the
+media upload proved it in the real loop: a 63 MB body passed the 64 KiB
+router limit untouched. a streaming route counts its own bytes and refuses
+as they pass its cap (`media/receive.rs`), and refuses an announced
+`content-length` before reading (`http/media.rs`).
+
+an appended migration also breaks any schema test that asserts how many
+migrations run from an older version; count them as `VERSION - n`, never a
+literal (`store/schema.rs`).
+
+## a raw json value inside a tagged or flattened shape (m9 seam)
+
+`Box<RawValue>` deserializes only straight from serde_json's reader. inside
+an internally tagged enum (`#[serde(tag = "type")]`) or a `#[serde(flatten)]`
+struct, serde buffers the object first and a raw value then fails with
+"invalid type: newtype struct". contract 2's `Part` hit it inside the
+`part` change: its `Deserialize` reads a `serde_json::Value` and builds the
+raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
+`Part::from_raw`, which keeps the daemon's bytes.
+
+## voice notes in the browser
+
+- **chromium's aac recorder refuses a low bitrate.** `new MediaRecorder(s, { mimeType: "audio/mp4;codecs=mp4a.40.2",
+  audioBitsPerSecond: 32000 })` starts, hands one empty chunk and fires `error` (`EncodingError: Internal Error`) at
+  once in chrome 151; 48 kbps and up record. opus in webm takes 32. the recorder picks its rate per kind
+  (`recorder-model.ts`, `bitrateOf`).
+- **a headless tab will not play without a gesture, even muted.** `audio.play()` on a `new Audio()` rejects with
+  `NotAllowedError` in agent-browser's chrome whether or not the element is muted, and an `AudioContext` stays
+  suspended. the screenshot run cannot click, so a story that shows a note playing plays the real player against a
+  clock that keeps time as a media element does (`app/src/ui/assistant/stories/fake-audio.ts`); a story opened with
+  `&aloud` in its url uses a real element, and the browser check drives it with agent-browser's real `click`.
+- **a fake microphone needs launch flags on every call.** agent-browser launches a session's browser on the first
+  command after it closed, and only with that call's `--args` (or `AGENT_BROWSER_ARGS`): pass
+  `--use-fake-device-for-media-stream,--use-fake-ui-for-media-stream` in the environment of every command, or a
+  relaunch silently comes back with no microphone and a permission prompt nobody answers.
+- **`navigator.permissions.query({ name: "microphone" })` says nothing in safari and firefox** (it throws, or the name
+  is unknown). the first press there is told from a recording one by a device flag (`boxbox.mic.granted`).
+
+## a cleanup that reads the stage (home--home-first-leaves)
+
+- **a view's cleanup reads nothing reactive.** when the thread on the stage leaves the fleet, the stage's `<Show>` lets
+  its thread go and solid takes the turns down inside that update, while the stage's memos are still stale. a cleanup
+  that read the thread's key (the ledger's cache key) threw solid's "stale value from <Show>"; one that read a prop
+  backed by those memos (a turn's `live`, its `turn`, a window slot's id) ran them again, and they took the same turns
+  down a second time (`cannot read properties of null` inside `cleanNode`). either error left home half torn down and
+  the story never reported. a view reads what its cleanup needs when it is made (a cache key, a slot's id) or keeps it
+  as last seen from a computation (`Ledger`, `seen`), and the cleanup reads only those.

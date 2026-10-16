@@ -8,7 +8,7 @@
    it owns everything it runs and stops all of it on the way out: the
    pinned daemon (4940, WINDOWS_DAEMON_PORT moves it within the port rule)
    with the bench model on the next port, and the release binary on 3071
-   (WINDOWS_BOXBOX_PORT). the world lives under /tmp (AGENTS.md rule 19):
+   (WINDOWS_BOXBOX_PORT). the world lives under /tmp (AGENTS.md, scratch in /tmp):
    the daemon's dirs, boxbox's config and data, and two scratch repos with
    one commit each, made with the caller's git config kept out
    (docs/gotchas.md, the board trace harness). it refuses to start if any
@@ -269,7 +269,7 @@ async function capture(world: World, seconds: number): Promise<number> {
           .filter((l) => l.startsWith("data:"))
           .map((l) => l.slice(5).trimStart())
           .join("\n");
-        // cmx2 writes the machine's name into each turn's context; this is a public repo (AGENTS.md rule 12)
+        // cmx2 writes the machine's name into each turn's context; this is a public repo (AGENTS.md, public repo)
         if (data) lines.push(JSON.stringify({ id, frame: JSON.parse(data) }).replaceAll(MACHINE, "bench-host"));
       }
     }

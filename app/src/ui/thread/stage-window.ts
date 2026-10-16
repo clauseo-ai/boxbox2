@@ -46,6 +46,8 @@ export type StageWindow = {
   /** holds the view by `el` (an ask's row the stage brought to the bar) until the reader scrolls, instead of by what is at the top: rows
       between that grow do not push it down */
   hold(el: HTMLElement | null): void;
+  /** a box holds the view now (`hold`): the stage keeps no foot room under it, which the box would rise into */
+  holding(): boolean;
   /** a change to the page that may move what the reader looks at (turns arriving above the view): made with their place taken first and
       put back before paint */
   keep(change: () => void): void;
@@ -152,8 +154,8 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
   let heldTimer: ReturnType<typeof setTimeout> | undefined;
   /** a move the page is making: where it is going, and the poll that sees it stop */
   let travelling: { target: () => number; last: number; still: number; started: number; poll: ReturnType<typeof setInterval>; ended: () => void } | null = null;
-  /* a box that is stuck to the foot of the view (the live tape) or has no place of its own is no place to hold the view by */
-  const holds = (el: Element): boolean => !el.classList.contains("tape") && !el.classList.contains("tape-sentinel") && el.getClientRects().length > 0;
+  /* a box with no place of its own is no place to hold the view by */
+  const holds = (el: Element): boolean => el.getClientRects().length > 0;
   /** the first box under the top of the view inside `slot`, then the first box of that one, down to where a box has none: the deepest
       thing the reader's eye is above. heights inside a turn change above the eye too (a block of code is highlighted, a font arrives).
       the boxes of a turn are in order down the page, so the first under the top is found by bisection: a turn of a hundred rows costs a
@@ -161,7 +163,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
   const deepest = (s: HTMLElement, slot: HTMLElement): HTMLElement => {
     let at = slot;
     for (let depth = 0; depth < 4; depth++) {
-      const kids = Array.from(at.children).filter((c): c is HTMLElement => c instanceof HTMLElement && !c.classList.contains("tape") && !c.classList.contains("tape-sentinel"));
+      const kids = Array.from(at.children).filter((c): c is HTMLElement => c instanceof HTMLElement);
       let lo = 0, hi = kids.length - 1, found = -1;
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
@@ -414,12 +416,14 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
     slot(el, id, turn) {
       watchers();
       owner.set(el, { id, turn });
-      slots.set(id(), el);
+      /* read once: a slot's turn keeps its id, and reading it again as the view goes would run the stage's memos while it takes the
+         turns down (a thread that leaves the fleet), taking the same turns down twice */
+      const at = id();
+      slots.set(at, el);
       nearWatch?.observe(el);
       seeingWatch?.observe(el);
       sizeWatch?.observe(el);
       return () => {
-        const at = id();
         owner.delete(el);
         if (slots.get(at) === el) slots.delete(at);
         near.delete(at);
@@ -453,6 +457,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
       held = el;
       if (el) { heldTimer = setTimeout(() => { held = null; }, HOLD_MS); if (!pin.pinned()) capture(); }
     },
+    holding: () => held !== null,
     interrupt() { endTravel(false); clearTimeout(heldTimer); held = null; },
     scrolled(reader) {
       if (reader && touched) lastScroll = performance.now();

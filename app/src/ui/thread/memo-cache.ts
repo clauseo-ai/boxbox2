@@ -1,5 +1,5 @@
 /* what is expensive to make for a finished part of a thread and is kept between stages (docs/thread.md, the stage as built: what is
-   remembered). four caches, each a byte-capped least-recently-used map (lru.ts, AGENTS.md rule 7), made once and owned by the store
+   remembered). four caches, each a byte-capped least-recently-used map (lru.ts, AGENTS.md, memory and latency), made once and owned by the store
    (store.ts), which empties them at sign-out and drops a thread's when the worker lets the thread go:
 
    - the turns `createTurns` built, by thread and turn. a hit needs the digest of the turn's messages to be the one it was built from

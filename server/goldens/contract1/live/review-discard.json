@@ -1,0 +1,19 @@
+{
+  "golden": "review-discard",
+  "proves": "a discard removes the checkout, keeping its last state under a ref",
+  "request": {
+    "method": "POST",
+    "path": "/api/hosts/bench/sessions/<ses 1>/review/discard",
+    "accept-encoding": "gzip"
+  },
+  "status": 200,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "discarded": true,
+    "snapshot": "<sha 1>",
+    "ref": "refs/cmx2/rescue/golden-discard",
+    "stopped": []
+  }
+}

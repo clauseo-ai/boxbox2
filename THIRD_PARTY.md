@@ -1,12 +1,13 @@
 # third-party code, data and fonts
 
 every dependency boxbox takes, what it is for, and its licence. a new one
-lands here in the same change that adds it (AGENTS.md, rule 15).
+lands here in the same change that adds it (AGENTS.md, dependencies).
 
 ## the rust server (`server/Cargo.toml`)
 
 | crate | why | licence |
 |---|---|---|
+| aws-lc-rs (`aws-lc-sys` only) | the openclaw device identity: ed25519 key generation, pkcs#8 load and signing (`server/src/openclaw/identity.rs`, docs/openclaw.md 3.2). already in the tree as rustls' crypto provider, taken directly at the same version, so no second copy | ISC AND (Apache-2.0 OR ISC) |
 | axum (with `ws`) | http routing, extractors, the server loop, the terminal websocket | MIT |
 | bytes | shared byte buffers | MIT |
 | data-encoding | base64 for the host credential on the pty websocket dial (already in the tree through tungstenite) | MIT |
@@ -37,7 +38,7 @@ build only (`build/`):
 
 | crate | why | licence |
 |---|---|---|
-| typify, schemars | rust types from cmx2's openapi schemas | Apache-2.0, MIT |
+| typify, schemars | rust types from cmx2's openapi schemas and openclaw's vendored protocol schema | Apache-2.0, MIT |
 | syn, quote, proc-macro2, prettyplease | generating and formatting that code | MIT OR Apache-2.0 |
 | heck | naming generated types | MIT OR Apache-2.0 |
 
@@ -88,4 +89,13 @@ the composer's model menu shows each provider's mark. the svg paths are copied a
 | path | from | licence |
 |---|---|---|
 | `vendor/cmx2/openapi.json`, `vendor/cmx2/manifest.ts` | cmx2 at the commit in `cmx2.pin`, byte for byte | MIT |
+| `vendor/openclaw/protocol.schema.json` | the published `@openclaw/gateway-protocol` npm tarball at the version in `openclaw.pin`, byte for byte (its sha512 is the pin's `schema`) | MIT (OpenClaw Foundation) |
+| `server/tests/fixtures/openclaw/*.json` | recorded from the openclaw dev gateway (`bench/openclaw-record.ts`), scrubbed of machine names | MIT, as this repo |
 | `board/`, `telemetry/schema.ts`, `telemetry/db.ts`, `telemetry/views.ts`, `scripts/telemetry.ts` | boxbox v1 at `18df8bd`, by the same author, carried under this repo's licence | MIT |
+
+## dev tools run from source, never shipped
+
+| what | how | licence |
+|---|---|---|
+| openclaw at the commit in `openclaw.pin` | `just openclaw` fetches it into `~/.cache/boxbox/openclaw.git`, exports it into the gitignored `.openclaw/<commit>/` and builds it with its own pnpm; its `scripts/e2e/mock-openai-server.mjs` is the scripted model. nothing of it is committed or embedded | MIT (OpenClaw Foundation) |
+| corepack 0.36.0 | runs the tree's pinned pnpm through `npx` (node 25 and later ship none) | MIT |

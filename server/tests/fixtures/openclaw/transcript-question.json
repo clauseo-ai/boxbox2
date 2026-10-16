@@ -1,0 +1,423 @@
+{
+  "sessionKey": "agent:main:dashboard:22fdc842-a127-455a-9301-414275764906",
+  "sessionId": "4888a873-6559-4b94-89eb-8809af6d9df6",
+  "messages": [
+    {
+      "role": "user",
+      "content": "ask me something",
+      "timestamp": 1792054868808,
+      "idempotencyKey": "c3f4744c-ab10-4c43-a390-25072d452a32:user",
+      "__openclaw": {
+        "senderIsOwner": true,
+        "transport": {
+          "clients": [
+            {
+              "id": "gateway-client",
+              "mode": "backend",
+              "displayName": "boxbox bench"
+            }
+          ]
+        },
+        "id": "9e391df8-57d3-47ee-9006-fe0b6d0f6b2c",
+        "idempotencyKey": "c3f4744c-ab10-4c43-a390-25072d452a32:user",
+        "recordTimestampMs": 1792054869032,
+        "transcriptPosition": {
+          "source": "V7CQ6Vyc_vOvC6LvfHAtlzga2RzevI379zi5QLXI2Mo",
+          "rawSeq": 1
+        },
+        "seq": 1
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolCall",
+          "id": "call_bench_mv9b76fa_18|fc_bench_mv9b76fa_18",
+          "name": "tool_call",
+          "arguments": {
+            "id": "ask_user",
+            "args": {
+              "questions": [
+                {
+                  "id": "greeting",
+                  "header": "greeting",
+                  "question": "which greeting should the notes use?",
+                  "options": [
+                    {
+                      "label": "hello",
+                      "description": "the plain one"
+                    },
+                    {
+                      "label": "hi",
+                      "description": "the short one"
+                    }
+                  ]
+                }
+              ],
+              "timeoutSeconds": 600
+            }
+          }
+        }
+      ],
+      "api": "openai-responses",
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "input": 64,
+        "output": 16,
+        "totalTokens": 80,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "toolUse",
+      "timestamp": 1792054869163,
+      "responseId": "resp_bench_mv9b76fa_18",
+      "diagnostics": [
+        {
+          "type": "openai_responses_terminal",
+          "timestamp": 1792054869170,
+          "details": {
+            "eventType": "response.completed",
+            "stopReason": "toolUse",
+            "endTurn": "absent"
+          }
+        }
+      ],
+      "__openclaw": {
+        "runId": "c3f4744c-ab10-4c43-a390-25072d452a32",
+        "id": "91a631d7-b148-457c-bd50-7e60e3ac4042",
+        "recordTimestampMs": 1792054869171,
+        "transcriptPosition": {
+          "source": "V7CQ6Vyc_vOvC6LvfHAtlzga2RzevI379zi5QLXI2Mo",
+          "rawSeq": 4
+        },
+        "seq": 2
+      }
+    },
+    {
+      "role": "custom",
+      "customType": "openclaw.nested-tool.v1",
+      "display": true,
+      "excludeFromContext": true,
+      "content": [
+        {
+          "type": "toolCall",
+          "id": "tool_call:call_bench_mv9b76fa_18_fc_bench_mv9b76fa_18:ask_user:1",
+          "runId": "c3f4744c-ab10-4c43-a390-25072d452a32",
+          "name": "ask_user",
+          "arguments": {
+            "questions": [
+              {
+                "id": "greeting",
+                "header": "greeting",
+                "question": "which greeting should the notes use?",
+                "options": [
+                  {
+                    "label": "hello",
+                    "description": "the plain one"
+                  },
+                  {
+                    "label": "hi",
+                    "description": "the short one"
+                  }
+                ]
+              }
+            ],
+            "timeoutSeconds": 600
+          },
+          "parentToolCallId": "call_bench_mv9b76fa_18|fc_bench_mv9b76fa_18",
+          "timestamp": 1792054869183
+        },
+        {
+          "runId": "c3f4744c-ab10-4c43-a390-25072d452a32",
+          "scopeId": "1458234f-365f-4ff5-a4d7-f5a2b6ab85f1",
+          "afterEntryId": "91a631d7-b148-457c-bd50-7e60e3ac4042",
+          "startOrder": 0,
+          "parentToolCallId": "call_bench_mv9b76fa_18|fc_bench_mv9b76fa_18",
+          "toolCallId": "tool_call:call_bench_mv9b76fa_18_fc_bench_mv9b76fa_18:ask_user:1",
+          "toolName": "ask_user",
+          "isError": false,
+          "startedAt": 1792054869183,
+          "timestamp": 1792054869192,
+          "content": [
+            {
+              "type": "text",
+              "text": "greeting: hello\n\n{\n  \"status\": \"answered\",\n  \"answers\": {\n    \"answers\": {\n      \"greeting\": [\n        \"hello\"\n      ]\n    }\n  }\n}"
+            }
+          ],
+          "type": "toolResult",
+          "role": "toolResult"
+        }
+      ],
+      "timestamp": 1792054869183,
+      "idempotencyKey": "1458234f-365f-4ff5-a4d7-f5a2b6ab85f1:tool_call:call_bench_mv9b76fa_18_fc_bench_mv9b76fa_18:ask_user:1",
+      "__openclaw": {
+        "id": "d0e68358-c881-43b6-b6af-4479624b2055",
+        "idempotencyKey": "1458234f-365f-4ff5-a4d7-f5a2b6ab85f1:tool_call:call_bench_mv9b76fa_18_fc_bench_mv9b76fa_18:ask_user:1",
+        "recordTimestampMs": 1792054869193,
+        "transcriptPosition": {
+          "source": "V7CQ6Vyc_vOvC6LvfHAtlzga2RzevI379zi5QLXI2Mo",
+          "rawSeq": 5,
+          "activity": {
+            "afterRawSeq": 4,
+            "scopeId": "1458234f-365f-4ff5-a4d7-f5a2b6ab85f1",
+            "startOrder": 0
+          }
+        },
+        "seq": 3,
+        "runId": "c3f4744c-ab10-4c43-a390-25072d452a32"
+      },
+      "runId": "c3f4744c-ab10-4c43-a390-25072d452a32"
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "call_bench_mv9b76fa_18|fc_bench_mv9b76fa_18",
+      "toolName": "tool_call",
+      "content": [
+        {
+          "type": "text",
+          "text": "{\n  \"tool\": {\n    \"id\": \"openclaw:core:ask_user\",\n    \"name\": \"ask_user\",\n    \"source\": \"openclaw\"\n  },\n  \"result\": {\n    \"content\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"greeting: hello\\n\\n{\\n  \\\"status\\\": \\\"answered\\\",\\n  \\\"answers\\\": {\\n    \\\"answers\\\": {\\n      \\\"greeting\\\": [\\n        \\\"hello\\\"\\n      ]\\n    }\\n  }\\n}\"\n      }\n    ],\n    \"details\": {\n      \"status\": \"answered\",\n      \"answers\": {\n        \"answers\": {\n          \"greeting\": [\n            \"hello\"\n          ]\n        }\n      }\n    }\n  }\n}"
+        }
+      ],
+      "isError": false,
+      "timestamp": 1792054869203,
+      "__openclaw": {
+        "runId": "c3f4744c-ab10-4c43-a390-25072d452a32",
+        "id": "b5fcb054-0e76-418d-b643-c3f1c6a10c77",
+        "recordTimestampMs": 1792054869203,
+        "transcriptPosition": {
+          "source": "V7CQ6Vyc_vOvC6LvfHAtlzga2RzevI379zi5QLXI2Mo",
+          "rawSeq": 6
+        },
+        "seq": 4
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "noted the greeting you picked.",
+          "textSignature": "{\"v\":1,\"id\":\"msg_e2e_1\"}"
+        }
+      ],
+      "api": "openai-responses",
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "input": 11,
+        "output": 7,
+        "totalTokens": 18,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop",
+      "timestamp": 1792054869218,
+      "responseId": "resp_e2e",
+      "diagnostics": [
+        {
+          "type": "openai_responses_terminal",
+          "timestamp": 1792054869227,
+          "details": {
+            "eventType": "response.completed",
+            "stopReason": "stop",
+            "endTurn": "absent"
+          }
+        }
+      ],
+      "__openclaw": {
+        "runId": "c3f4744c-ab10-4c43-a390-25072d452a32",
+        "id": "4a3c7b8c-999c-4a57-aa4d-bf676cf5718a",
+        "recordTimestampMs": 1792054869228,
+        "transcriptPosition": {
+          "source": "V7CQ6Vyc_vOvC6LvfHAtlzga2RzevI379zi5QLXI2Mo",
+          "rawSeq": 8
+        },
+        "seq": 5
+      }
+    }
+  ],
+  "activity": [
+    {
+      "messageId": "91a631d7-b148-457c-bd50-7e60e3ac4042",
+      "items": []
+    },
+    {
+      "messageId": "d0e68358-c881-43b6-b6af-4479624b2055",
+      "items": [
+        {
+          "itemId": "tool:tool_call:call_bench_mv9b76fa_18_fc_bench_mv9b76fa_18:ask_user:1",
+          "toolCallId": "tool_call:call_bench_mv9b76fa_18_fc_bench_mv9b76fa_18:ask_user:1",
+          "name": "ask_user",
+          "kind": "tool",
+          "phase": "end",
+          "title": "Ask User which greeting should the notes use?",
+          "status": "completed",
+          "meta": "which greeting should the notes use?",
+          "commandBearing": false
+        }
+      ]
+    },
+    {
+      "messageId": "b5fcb054-0e76-418d-b643-c3f1c6a10c77",
+      "items": []
+    }
+  ],
+  "hasMore": false,
+  "totalMessages": 5,
+  "pendingInputs": {
+    "items": [],
+    "total": 0,
+    "queuedCount": 0
+  },
+  "deltaCursor": "eyJhZ2VudElkIjoibWFpbiIsImdlbmVyYXRpb24iOiI3OTlmYWVjZTE4NmQ0NDA4ODMwNDExMTc0YWQ0MmE1OCIsImxhc3RTZXEiOjgsInNlc3Npb25JZCI6IjQ4ODhhODczLTY1NTktNGI5NC04OWViLTg4MDlhZjZkOWRmNiIsInZlcnNpb24iOjF9",
+  "defaults": {
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "contextTokens": 128000,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "modelSelectionTarget": "session"
+  },
+  "sessionInfo": {
+    "key": "agent:main:dashboard:22fdc842-a127-455a-9301-414275764906",
+    "visibility": "shared",
+    "permissionModePending": false,
+    "spawnDepth": 0,
+    "createdVia": "operator",
+    "participants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "expandedParticipants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "participantCount": 1,
+    "createdAt": 1792054868788,
+    "kind": "direct",
+    "label": "record question 1792054868768",
+    "classification": "direct",
+    "agentId": "main",
+    "isMain": false,
+    "isBackground": false,
+    "displayName": "record question 1792054868768",
+    "chatType": "direct",
+    "updatedAt": 1792054869341,
+    "archived": false,
+    "pinned": false,
+    "unread": true,
+    "lastInteractionAt": 1792054868880,
+    "lastActivityAt": 1792054869258,
+    "sessionId": "4888a873-6559-4b94-89eb-8809af6d9df6",
+    "systemSent": true,
+    "abortedLastRun": false,
+    "effectiveFastMode": false,
+    "effectiveFastModeSource": "default",
+    "fastAutoOnSeconds": 60,
+    "inputTokens": 75,
+    "outputTokens": 23,
+    "totalTokens": 11,
+    "totalTokensFresh": true,
+    "estimatedCostUsd": 0,
+    "status": "done",
+    "startedAt": 1792054869157,
+    "endedAt": 1792054869258,
+    "runtimeMs": 101,
+    "lastRunId": "c3f4744c-ab10-4c43-a390-25072d452a32",
+    "parentSessionKey": "agent:main:main",
+    "effectiveResponseUsage": "off",
+    "effectiveQueueMode": "steer",
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "modelOverrideSource": null,
+    "runtimeSelectionLocked": false,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "contextTokens": 128000,
+    "contextBudgetStatus": {
+      "schemaVersion": 1,
+      "source": "pre-prompt-estimate",
+      "updatedAt": 1792054869150,
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "route": "fits",
+      "shouldCompact": false,
+      "estimatedPromptTokens": 17916,
+      "contextTokenBudget": 128000,
+      "promptBudgetBeforeReserve": 108000,
+      "reserveTokens": 20000,
+      "effectiveReserveTokens": 20000,
+      "remainingPromptBudgetTokens": 90084,
+      "overflowTokens": 0,
+      "toolResultReducibleChars": 0,
+      "messageCount": 0,
+      "unwindowedMessageCount": 0,
+      "sessionId": "4888a873-6559-4b94-89eb-8809af6d9df6"
+    },
+    "snapshotAt": 1792054869774,
+    "placement": {
+      "state": "local",
+      "generation": 0,
+      "createdAtMs": 1792054869054,
+      "updatedAtMs": 1792054869256,
+      "stateChangedAtMs": 1792054869054
+    },
+    "activitySummary": {
+      "state": "unavailable",
+      "canEnsure": true
+    },
+    "sharingRole": "admin",
+    "sendDisabledReason": null,
+    "hasActiveRun": false,
+    "activeRunIds": [],
+    "activeLeafEntryId": "4a3c7b8c-999c-4a57-aa4d-bf676cf5718a"
+  }
+}

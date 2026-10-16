@@ -1,6 +1,6 @@
 /* the checked-in traces: each is the scenario it claims to be, reads as a
    real session (frames, calls, the pit's answers), and names nothing on
-   the machine it was recorded on (rule 12). replaying them needs the
+   the machine it was recorded on (AGENTS.md, public repo). replaying them needs the
    world; reading them does not. */
 
 import { describe, expect, test } from "bun:test";

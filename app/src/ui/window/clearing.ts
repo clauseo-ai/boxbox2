@@ -39,7 +39,7 @@ export function clearName(view: Pick<WindowView, "repo" | "title" | "host">, sho
 }
 
 /** for windows that would have the same clear name (a fan of threads titled alike in one repo), a suffix of the
-    session id as short as tells them apart (AGENTS.md rule 5). windows with a name of their own get none. the key is
+    session id as short as tells them apart (AGENTS.md, accessibility). windows with a name of their own get none. the key is
     `host:session`, and a window is the same as another when its repo, title and, if the name shows it, machine match */
 export function nameSuffixes(windows: readonly Pick<WindowView, "key" | "repo" | "title" | "host">[], showHost: boolean): Map<string, string> {
   const groups = new Map<string, string[]>();

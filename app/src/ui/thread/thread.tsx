@@ -3,37 +3,35 @@
    growing at its end. state that is the reader's (which rows are open) lives
    here; everything about the turn comes from the model. */
 
-import { type Accessor, For, Index, type JSX, type Signal, Show, createComputed, createContext, createEffect, createMemo, createRenderEffect, createSignal, on, onCleanup, onMount, untrack, useContext } from "solid-js";
+import { type Accessor, For, Index, type JSX, Show, createComputed, createContext, createEffect, createMemo, createRenderEffect, createSignal, on, onCleanup, onMount, untrack, useContext } from "solid-js";
 import { type Copying, CopyButton } from "./copy-button";
-import { commandLabel, outputLabel, replyLabel, reportLabel } from "./copy-names";
+import { commandLabel, outputLabel, replyLabel } from "./copy-names";
 import { boundedPlain, newestOf, openLabel } from "./big-text";
 import { painter } from "./markdown";
-import { type Item, type Picture, type Say, type Step, type Turn, spawnsOf } from "./model";
-import { SNAP, flip, installMotion, rise } from "./motion";
-import { type Live, ledgerOf, namesOf, sameCtxFor } from "./ledger";
+import { type Picture, type Say, type Turn, spawnsOf } from "./model";
+import { flip, installMotion, rise } from "./motion";
+import { type Entry, type Live, ledgerOf, namesOf, sameCtxFor } from "./ledger";
 import { type Label, NONE, type Names, createNames, sameList } from "./names";
 import { type ThreadCaches, cacheKey, weighTurn } from "./memo-cache";
 import { type StageWindow, moveTo } from "./stage-window";
-import { COPY_OUTPUT_CAP, cleanOutput } from "./evidence";
-import { type Bed, type Body, type Child, type DiffLine, type FileLine, type Inline, type Result, type RowCtx, type RowModel, clock, clockDur, clockS, dur, firstSentence, heavy, isBad, n, pictureNames, plural, readout } from "./rows";
+import { COPY_OUTPUT_CAP, DIFF_PREVIEW, DIFF_WHOLE, cleanOutput, wholeLines } from "./evidence";
+import { type Bed, type Body, type DiffLine, type FileLine, type Inline, type Result, type RowCtx, type RowModel, clock, clockDur, clockS, dur, firstSentence, n, pictureNames, plural } from "./rows";
 import { base, dirOf } from "./shell";
-import { shortWords } from "../asks/words";
-import { blockForKey, layoutTop } from "./ask-landing";
-import type { AskOutcome } from "./outcome";
-import { type Mark, marksOf, nearest, scaleOf, thinkSpans, timeMap } from "./tape";
+import { AskCard, PermissionCard, PermitRecord } from "../asks/card";
+import { layoutTop } from "./ask-landing";
+import { DiffView, watchOverflow } from "./diff";
+import { FileBed, ShowAll, Slip } from "./code";
+import { type Group, type StripMark, currentOf, foldedOf, groupClock, groupLabel, groupLine, groupsOf, lineShown, nearestMark } from "./groups";
+import { StripLane } from "./strip";
+import { reportOf } from "./report";
+import { ReportGlyph, ReportSheet } from "./report-sheet";
 import "./thread.css";
 
 /* ---------- answering in place ---------- */
 
 export type { AskOutcome } from "./outcome";
-
-/** what the stage does when an ask is answered; the stories provide none, so their cards only look the part */
-export type AskActions = {
-  answer(askID: string, answers: string[][]): Promise<AskOutcome>;
-  reject(askID: string): Promise<AskOutcome>;
-  permit(askID: string, reply: "once" | "always" | "reject", message?: string): Promise<AskOutcome>;
-};
-export const AskContext = createContext<AskActions>();
+/** what the stage does when an ask is answered, and the context the cards read it from (ui/asks/card.tsx, which draws them for home too) */
+export { AskContext, type AskActions } from "../asks/card";
 /** the stage's perf hook: how long a row took from the tap to the frame that showed it open */
 export const MeasureContext = createContext<(what: "row", ms: number) => void>();
 /** the stage's door into an agent's own thread (design.md: a subagent opens as its own stage, back returns to the parent);
@@ -44,13 +42,8 @@ export const OpenAgentContext = createContext<(child: string, name: string) => v
     does not chase the end for it and the row they tapped keeps its place */
 export type Follow = { hold(): void };
 export const FollowContext = createContext<Follow>();
-/** the live tape sticks above the dock while a turn runs and reports how far it reaches up from the scroller's bottom
-    edge to its own top (its foot offset and its height), 0 when it is not stuck or gone; the stage lifts the new-below
-    pill and the pinned ask above it */
-export type LiveTape = { stuck(px: number): void };
-export const LiveTapeContext = createContext<LiveTape>();
 
-/** the stage's way to learn which agents are on screen: an element that shows a child (its row, its lane on the tape) says so,
+/** the stage's way to learn which agents are on screen: an element that shows a child (its row) says so,
     and the stage holds that child's thread while it is within a screen of the view (live.ts, `want`). answers what stops it.
     the stories provide none, so their children are as their fixtures made them */
 export const ChildWatchContext = createContext<(el: HTMLElement, child: string) => () => void>();
@@ -150,18 +143,11 @@ function ResultView(props: { r: Result; now?: number | undefined }) {
 
 /* ---------- beds and bodies ---------- */
 
-/** marks a sideways scroller as continuing past its edge */
-function watchOverflow(el: HTMLElement): void {
-  const check = () => el.classList.toggle("overflows", el.scrollWidth > el.clientWidth + 2 && el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
-  check();
-  el.addEventListener("scroll", check, { passive: true });
-  void document.fonts?.ready.then(check);
-}
 
 /** a bed that has a copy control: the command, or the output. it is dressed as a code block is (a header, the control at the same inset), so the three read as one family; `label` is what its header says it is */
 type BedCopy = { kind: "command" | "output"; label: string; name: string; text: () => string | Copying; refused?: string | undefined };
 
-function BedView(props: { bed: Bed; cls?: string; copy?: BedCopy | undefined }) {
+function BedView(props: { bed: Bed; cls?: string; copy?: BedCopy | undefined; /** under the lines, inside the bed's block: its "show all" */ foot?: JSX.Element }) {
   let el!: HTMLDivElement;
   onMount(() => watchOverflow(el));
   const bed = () => (
@@ -172,29 +158,56 @@ function BedView(props: { bed: Bed; cls?: string; copy?: BedCopy | undefined }) 
           <span>{l || " "}</span>
         </>
       )}</For>
+      <Show when={props.bed.rest}>{(rest) => <span class="cut">and {plural(rest(), "more line", "more lines")}, past what a bed opens to</span>}</Show>
     </div>
   );
   return (
-    <Show when={props.copy} fallback={bed()}>
+    <Show when={props.copy} fallback={<>{bed()}{props.foot}</>}>
       {(c) => (
         <div class="bed-wrap">
           <div class="cblock-h"><span class="cblock-lang">{c().label}</span><CopyButton kind={c().kind} name={c().name} text={c().text} refused={c().refused} /></div>
           {bed()}
+          {props.foot}
         </div>
       )}
     </Show>
   );
 }
 
-function DiffView(props: { lines: DiffLine[] }) {
-  let el!: HTMLDivElement;
-  onMount(() => watchOverflow(el));
+/** a command's output: its head and tail, and once it was cut, "show all 3,200 lines" opens the bed in place to every line (up to
+    what a bed opens to, the copy's own cap), read from the output the store holds when pressed, never kept on the model */
+function OutputBed(props: { bed: Bed; raw: string | undefined; count: number; copy: BedCopy | undefined; row: string }) {
+  const [all, setAll] = createSignal(false);
+  const more = () => props.raw !== undefined && (props.bed.cut !== undefined || props.bed.clipped === true);
+  const shown = createMemo((): Bed => {
+    if (!all() || props.raw === undefined) return props.bed;
+    const whole = wholeLines(cleanOutput(props.raw));
+    return { lines: whole.lines, ...(whole.rest ? { rest: whole.rest } : {}) };
+  });
+  return <BedView bed={shown()} copy={props.copy} foot={<Show when={more() && !all()}><ShowAll count={props.count} row={props.row} onShow={() => setAll(true)} /></Show>} />;
+}
+
+/** an edit's diff: whole up to DIFF_WHOLE lines; a longer one shows its first DIFF_PREVIEW under a fade, and "show the whole diff"
+    opens it in place, a write's from the content the agent sent (its diff keeps 80 lines) */
+function DiffBed(props: { lines: DiffLine[]; wrote?: string | undefined; row: string }) {
+  const [all, setAll] = createSignal(false);
+  const long = () => props.lines.length > DIFF_WHOLE;
+  const whole = createMemo((): DiffLine[] => {
+    if (props.wrote === undefined) return props.lines;
+    const w = wholeLines(props.wrote);
+    return [...w.lines.map((l): DiffLine => ({ kind: "add", text: `+${l}` })), ...(w.rest ? [{ kind: "tail" as const, text: `and ${plural(w.rest, "more line", "more lines")}, past what a bed opens to` }] : [])];
+  });
+  const count = () => (props.wrote !== undefined ? props.wrote.split("\n").length : props.lines.filter((l) => l.kind === "add" || l.kind === "del" || l.kind === "ctx").length);
   return (
-    <div ref={el} class="bed">
-      <For each={props.lines}>{(l) => <span class={l.kind === "add" ? "la" : l.kind === "del" ? "ld" : l.kind === "hunk" ? "hunk" : l.kind === "tail" ? "tail-note" : ""}>{l.text || " "}</span>}</For>
-    </div>
+    <Show when={long()} fallback={<DiffView lines={props.lines} />}>
+      <div class="bed-wrap plain">
+        <DiffView lines={all() ? whole() : props.lines.slice(0, DIFF_PREVIEW)} faded={!all()} />
+        <Show when={!all()}><ShowAll count={count()} diff row={props.row} onShow={() => setAll(true)} /></Show>
+      </div>
+    </Show>
   );
 }
+
 
 function FileBar(props: { bar: NonNullable<FileLine["bar"]> }) {
   const pc = (x: number) => `${Math.max(0, Math.min(100, (x / props.bar.total) * 100)).toFixed(2)}%`;
@@ -273,7 +286,7 @@ function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | unde
             <>
               <Show when={x.command}>{(c) => <BedView bed={{ lines: c() }} cls="wrap" copy={command} />}</Show>
               <Show when={x.facts.length}><Facts facts={x.facts} /></Show>
-              <Show when={x.output} fallback={<Show when={!x.error}><div class="none">no output</div></Show>}>{(o) => <BedView bed={o()} copy={output} />}</Show>
+              <Show when={x.output} fallback={<Show when={!x.error}><div class="none">no output</div></Show>}>{(o) => <OutputBed bed={o()} raw={x.outputRaw} count={x.outputLines ?? o().lines.length} copy={output} row={props.row} />}</Show>
               <Show when={x.images || x.more}><Pictures groups={[{ pics: x.images ?? [] }]} more={x.more} /></Show>
               <Show when={x.error}>{(e) => <BedView bed={{ lines: e().split("\n").slice(0, 12) }} cls="err" />}</Show>
             </>
@@ -282,14 +295,14 @@ function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | unde
           case "diff": return (
             <>
               <Show when={x.bar}>{(bar) => <FileBar bar={bar()} />}</Show>
-              <Show when={x.lines} fallback={<div class="none">{x.none}</div>}>{(l) => <DiffView lines={l()} />}</Show>
+              <Show when={x.lines} fallback={<div class="none">{x.none}</div>}>{(l) => <DiffBed lines={l()} wrote={x.wrote} row={props.row} />}</Show>
               <Show when={x.error}>{(e) => <BedView bed={{ lines: e().split("\n").slice(0, 12) }} cls="err" />}</Show>
             </>
           );
           case "read": return (
             <>
               <Pictures more={x.more} groups={x.files.map((f) => ({ head: () => <div class="fl"><FileName path={f.path} /><span class="fv">{f.note}</span><Show when={f.bar}>{(bar) => <FileBar bar={bar()} />}</Show></div>, pics: f.images ?? [] }))} />
-              <Show when={x.preview}>{(p) => <BedView bed={p()} />}</Show>
+              <Show when={x.file} fallback={<Show when={x.preview}>{(p) => <BedView bed={p()} />}</Show>}>{(f) => <FileBed file={f()} row={props.row} />}</Show>
               <Show when={x.error}>{(e) => <BedView bed={{ lines: e().split("\n").slice(0, 12) }} cls="err" />}</Show>
             </>
           );
@@ -305,6 +318,7 @@ function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | unde
             </>
           );
           case "agent": return <AgentBody b={x} />;
+          case "message": return <Slip head={<>to <b>{x.to}</b></>} text={x.text} copy={{ kind: "message", name: `copy the message to ${x.to}, ${props.row}` }} />;
           // built above, once
           case "ask":
           case "permission": return null;
@@ -328,10 +342,10 @@ type PictureGroup = { /** what introduces the group's thumbnails: a read's file 
     the close control and a press outside it close it, and focus goes back to the thumbnail. the thumbnails are the same data
     url strings the step holds (an img takes the string, there is no copy of it here), loaded lazily and decoded off the
     main thread. what the row does not draw (past its cap, past the daemon's) is said, not hidden */
-function Pictures(props: { groups: readonly PictureGroup[]; more?: number | undefined }) {
+function Pictures(props: { groups: readonly PictureGroup[]; more?: number | undefined; /** what tells these thumbnails from another turn's of the same names */ suffix?: string | undefined }) {
   const [viewing, setViewing] = createSignal<{ pic: Picture; name: string } | null>(null);
   /* a name for each thumbnail that is its own in the row, whatever file it came from */
-  const names = createMemo(() => pictureNames(props.groups.flatMap((g) => g.pics)));
+  const names = createMemo(() => pictureNames(props.groups.flatMap((g) => g.pics)).map((n) => `${n}${props.suffix ?? ""}`));
   const starts = createMemo(() => { let at = 0; return props.groups.map((g) => { const from = at; at += g.pics.length; return from; }); });
   return (
     <>
@@ -389,7 +403,7 @@ function AgentBody(props: { b: Extract<Body, { k: "agent" }> }) {
   return (
     <>
       <Facts facts={props.b.facts} />
-      <Show when={props.b.brief}><div class="brief-full">{props.b.brief}</div></Show>
+      <Show when={props.b.brief}><Slip head={<>brief for <b>{props.b.name}</b></>} text={props.b.brief} copy={{ kind: "brief", name: `copy the brief for ${props.b.name}` }} /></Show>
       <Show when={door()}>
         {(d) => <button class="agent-door" aria-label={`open ${props.b.name}'s thread`} onClick={() => d().open(d().child, props.b.name)}>open its thread<i /></button>}
       </Show>
@@ -397,158 +411,6 @@ function AgentBody(props: { b: Extract<Body, { k: "agent" }> }) {
   );
 }
 
-/* ---------- asks, answered where they happened ---------- */
-
-/** the honest state of a reply: nothing sent, sending, sent (until the ask settles on the stream), a note (it lost the race, or the
-    ask is gone: said in the law's words, with nothing to retry), or a problem to tap */
-function useReply() {
-  const [busy, setBusy] = createSignal(false);
-  const [sent, setSent] = createSignal<string | null>(null);
-  const [problem, setProblem] = createSignal<string | null>(null);
-  const [note, setNote] = createSignal<string | null>(null);
-  let last: (() => Promise<AskOutcome>) | null = null;
-  const run = async (label: string, send: () => Promise<AskOutcome>) => {
-    if (busy() || sent() !== null || note() !== null) return;
-    last = send;
-    setBusy(true);
-    setProblem(null);
-    const out = await send();
-    setBusy(false);
-    if (out.ok) setSent(label);
-    else if (out.settled || out.gone) setNote(out.problem);
-    else setProblem(out.problem);
-  };
-  const retry = () => { if (last) void run(sent() ?? "", last); };
-  return { busy, sent, problem, note, run, retry };
-}
-
-/** keys 1 to 9 press the options of one question while focus is on the card or inside it, never in a field: the window used to
-    answer them, and the card a push or a window's pill sends you to takes focus, so a keyboard answers it from there. an ask of
-    several questions counts within the question focus is in, else the first with no answer yet (ask-landing.ts) */
-function pressOption(event: KeyboardEvent): void {
-  if (event.metaKey || event.ctrlKey || event.altKey || event.target instanceof HTMLInputElement) return;
-  const digit = Number(event.key);
-  if (!Number.isInteger(digit) || digit < 1 || !(event.currentTarget instanceof HTMLElement)) return;
-  const card = event.currentTarget;
-  const blocks = [...card.querySelectorAll<HTMLElement>(".ask-q")];
-  const scope = blocks[blockForKey(blocks.map((b) => ({ focused: b.contains(document.activeElement), answered: b.querySelector('[aria-pressed="true"]') !== null || (b.querySelector<HTMLInputElement>("input")?.value.trim() ?? "") !== "" })))] ?? card;
-  const option = scope.querySelectorAll<HTMLButtonElement>("button.ask-opt")[digit - 1];
-  if (!option || option.disabled) return;
-  event.preventDefault();
-  option.click();
-}
-
-function AskCard(props: { b: Extract<Body, { k: "ask" }> }) {
-  const actions = useContext(AskContext);
-  const reply = useReply();
-  /* the questions as words: a new body with the same words is the same questions, so the blocks and their fields are kept */
-  const questions = createMemo(() => props.b.questions, props.b.questions, { equals: (a, b) => JSON.stringify(a) === JSON.stringify(b) });
-  const several = () => questions().length > 1;
-  /* what is chosen and what is typed, a list of each per question: a typed answer is the one the daemon takes in place of
-     the options, so it wins when there are words in it */
-  const [picked, setPicked] = createSignal<string[][]>([]);
-  const [typed, setTyped] = createSignal<string[]>([]);
-  const answerOf = (i: number): string[] => { const words = typed()[i]?.trim(); return words ? [words] : (picked()[i] ?? []); };
-  const complete = () => questions().length > 0 && questions().every((_, i) => answerOf(i).length > 0);
-  const id = () => props.b.askID;
-  const send = (answers: string[][]) => { const askID = id(); if (!askID || !actions) return; void reply.run(answers.map((a) => a.join(", ")).join("; "), () => actions.answer(askID, answers)); };
-  const sendAll = () => send(questions().map((_, i) => answerOf(i)));
-  const dismiss = () => { const askID = id(); if (!askID || !actions) return; void reply.run("dismissed", () => actions.reject(askID)); };
-  const locked = () => reply.busy() || reply.sent() !== null || reply.note() !== null;
-  const choose = (question: number, label: string, multiple: boolean) => setPicked((all) => {
-    const next = questions().map((_, i) => [...(all[i] ?? [])]);
-    const held = next[question] ?? [];
-    next[question] = multiple ? (held.includes(label) ? held.filter((x) => x !== label) : [...held, label]) : [label];
-    return next;
-  });
-  const type = (question: number, words: string) => setTyped((all) => questions().map((_, i) => (i === question ? words : (all[i] ?? ""))));
-  const first = () => questions()[0];
-  /* one tap answers a lone question with one choice; anything more is chosen, then sent */
-  const oneTap = () => !several() && first()?.multiple !== true;
-  const sentLabel = () => reply.sent();
-  return (
-    <div class="ask-card" data-ask={id()} tabIndex={-1} role="group" aria-label={several() ? `${questions().length} questions` : `question: ${shortWords(first()?.question ?? "", 60)}`} onKeyDown={pressOption}>
-      <Show when={props.b.pending && !id()}><div class="ask-ans">waiting its turn: not asked yet</div></Show>
-      <Show when={props.b.pending && id()} fallback={<Show when={!props.b.pending}><div class="ask-ans">{reply.note() ?? (props.b.dismissed ? "you dismissed it" : <>you answered <b>{questions().map((q) => q.answer?.join(", ") || "nothing").join("; ") || "nothing"}</b></>)}</div></Show>}>
-        <For each={questions()}>{(q, qi) => (
-          <div class="ask-q" role={several() || q.multiple ? "group" : undefined} aria-label={several() ? q.question : q.multiple ? "pick any" : undefined}>
-            <Show when={several()}>
-              <Show when={q.header}><p class="ask-h">{q.header}</p></Show>
-              <p class="ask-t">{q.question}</p>
-            </Show>
-            <div class="ask-opts">
-              <For each={q.options}>{(o, i) => (
-                <button
-                  class={`ask-opt ${i() === 0 && oneTap() ? "first" : ""}`}
-                  aria-label={several() ? `answer ${o.label}, ${shortWords(q.question, 60)}` : `answer ${o.label}`}
-                  aria-pressed={oneTap() ? (sentLabel() === o.label ? "true" : "false") : (picked()[qi()]?.includes(o.label) ?? false)}
-                  disabled={locked()}
-                  onClick={() => (oneTap() ? send([[o.label]]) : choose(qi(), o.label, q.multiple))}
-                >
-                  {o.label}
-                  <Show when={o.description && o.description !== `answer ${o.label}`}><small>{o.description}</small></Show>
-                </button>
-              )}</For>
-            </div>
-            <Show when={q.custom}>
-              <form class="ask-line" onSubmit={(e) => { e.preventDefault(); const words = typed()[qi()]?.trim(); if (several()) { if (complete()) sendAll(); } else if (words) send([[words]]); }}>
-                <input class="ask-input" type="text" placeholder="or type an answer" aria-label={several() ? `type an answer to ${shortWords(q.question, 60)}` : "type an answer"} value={typed()[qi()] ?? ""} onInput={(e) => type(qi(), e.currentTarget.value)} disabled={locked()} autocomplete="off" />
-                <Show when={!several()}><button class="ask-go" type="submit" aria-label="answer with what you typed" disabled={locked() || !typed()[qi()]?.trim()}>answer</button></Show>
-              </form>
-            </Show>
-          </div>
-        )}</For>
-        <Show when={several()}>
-          <button class="ask-go ask-send" aria-label={`answer all ${questions().length} questions: ${shortWords(first()?.question ?? "", 40)}`} disabled={locked() || !complete()} onClick={sendAll}>answer</button>
-        </Show>
-        <Show when={!several() && !oneTap()}>
-          <button class="ask-go ask-send" disabled={locked() || (picked()[0]?.length ?? 0) === 0} onClick={() => send([picked()[0] ?? []])}>answer with {picked()[0]?.length ?? 0} picked</button>
-        </Show>
-        <div class="ask-foot">
-          <Show when={reply.busy()}><span class="ask-sent">sending</span></Show>
-          <Show when={reply.sent()}>{(s) => <span class="ask-sent">sent: {s()}</span>}</Show>
-          <Show when={reply.note()}>{(n) => <span class="ask-note">{n()}</span>}</Show>
-          <Show when={reply.problem()}>{(p) => <button class="ask-problem" onClick={reply.retry}>{p()}</button>}</Show>
-          <Show when={!locked()}><button class="ask-quiet" onClick={dismiss}>dismiss</button></Show>
-        </div>
-      </Show>
-    </div>
-  );
-}
-
-function PermissionCard(props: { b: Extract<Body, { k: "permission" }> }) {
-  const actions = useContext(AskContext);
-  const reply = useReply();
-  const [why, setWhy] = createSignal<string | null>(null);
-  const id = () => props.b.askID;
-  const locked = () => reply.busy() || reply.sent() !== null || reply.note() !== null;
-  const permit = (r: "once" | "always" | "reject", label: string, message?: string) => { const askID = id(); if (!askID || !actions) return; void reply.run(label, () => actions.permit(askID, r, message)); };
-  return (
-    <div class="ask-card" data-ask={id()} tabIndex={-1} role="group" aria-label={`permission: ${shortWords(props.b.what, 60)}`} onKeyDown={pressOption}>
-      <div class="facts">wants your permission to <b>{props.b.what}</b></div>
-      <Show when={props.b.diff}>{(d) => <DiffView lines={d()} />}</Show>
-      <div class="ask-opts">
-        <button class="ask-opt first" aria-label="allow once" aria-pressed={reply.sent() === "allowed once" ? "true" : "false"} disabled={locked()} onClick={() => permit("once", "allowed once")}>allow once</button>
-        <button class="ask-opt" aria-label="always allow" aria-pressed={reply.sent() === "always allowed" ? "true" : "false"} disabled={locked()} onClick={() => permit("always", "always allowed")}>always allow<small>every {props.b.permission} in this project</small></button>
-        <button class="ask-opt" aria-label="deny" aria-pressed={reply.sent() === "denied" ? "true" : "false"} disabled={locked()} onClick={() => permit("reject", "denied")}>deny</button>
-      </div>
-      <Show when={why() === null} fallback={
-        <form class="ask-line" onSubmit={(e) => { e.preventDefault(); permit("reject", "denied", why()?.trim() || undefined); }}>
-          <input class="ask-input" type="text" placeholder="say why, and the agent reads it" aria-label="why not" value={why() ?? ""} onInput={(e) => setWhy(e.currentTarget.value)} disabled={locked()} autocomplete="off" />
-          <button class="ask-go" type="submit" disabled={locked()}>deny</button>
-        </form>
-      }>
-        <Show when={!locked()}><button class="ask-quiet" onClick={() => setWhy("")}>or deny and say why</button></Show>
-      </Show>
-      <div class="ask-foot">
-        <Show when={reply.busy()}><span class="ask-sent">sending</span></Show>
-        <Show when={reply.sent()}>{(s) => <span class="ask-sent">sent: {s()}</span>}</Show>
-        <Show when={reply.note()}>{(n) => <span class="ask-note">{n()}</span>}</Show>
-        <Show when={reply.problem()}>{(p) => <button class="ask-problem" onClick={reply.retry}>{p()}</button>}</Show>
-      </div>
-    </div>
-  );
-}
 
 /* ---------- a row ---------- */
 
@@ -583,8 +445,8 @@ export function light(el: HTMLElement, within?: HTMLElement): void {
   setTimeout(() => el.classList.remove("lit"), 1600);
 }
 
-export function RowView(props: { m: RowModel; time: string; now?: number | undefined; /** the newest row of a running turn: open with what it is doing */ cur?: boolean; live?: Live | undefined; /** a row arriving while the reader watches rises in */ enter?: boolean; /** the name the page tells it apart by, when a row above shares its label */ name?: string | undefined }) {
-  const [open, setOpen] = createSignal(props.m.open);
+export function RowView(props: { m: RowModel; time: string; now?: number | undefined; /** the newest row of a running turn: open with what it is doing */ cur?: boolean; live?: Live | undefined; /** a row arriving while the reader watches rises in */ enter?: boolean; /** the name the page tells it apart by, when a row above shares its label */ name?: string | undefined; /** it opens when first painted: the latest step of a group the reader opened */ opened?: boolean }) {
+  const [open, setOpen] = createSignal(props.m.open || props.opened === true);
   /* the newest row of a running turn is open on its own; a reader who closes it keeps it closed */
   const [shut, setShut] = createSignal(false);
   const [over, setOver] = createSignal(false);
@@ -594,7 +456,7 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
   let liveEl: HTMLDivElement | undefined;
   const follow = useContext(FollowContext);
   const landing = useContext(LandingContext);
-  const hasBody = () => props.m.body !== undefined || props.live !== undefined;
+  const hasBody = () => props.m.body !== undefined || props.live !== undefined || props.m.permit !== undefined;
   const isOpen = () => !shut() && (open() || (props.cur === true && hasBody()));
   const measure = () => setOver(!isOpen() && contentEl.scrollHeight > contentEl.clientHeight + 1);
   onMount(() => {
@@ -607,9 +469,22 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
      function whenever its dependencies notify, and a running row's model is handed over on every tick, so an effect
      on `props.m.key` alone would close a tapped-open row at the next second */
   const key = createMemo(() => props.m.key);
-  createEffect(on(key, () => { setOpen(props.m.open); setShut(false); queueMicrotask(measure); }, { defer: true }));
+  createEffect(on(key, () => { setOpen(props.m.open || props.opened === true); setShut(false); queueMicrotask(measure); }, { defer: true }));
   /* live: the box follows its newest line once it overflows */
-  createEffect(() => { void props.live?.text; void props.live?.out?.length; if (liveEl) { liveEl.scrollTop = liveEl.scrollHeight; liveEl.classList.toggle("over", liveEl.scrollTop > 2); } });
+  /* a thought being written shows in its box, or whole: a tap on the box opens the whole thought, which grows as it is written, and a
+     second tap takes it back to the box (the native client's decision 21). the row's head still opens and closes the row */
+  const [whole, setWhole] = createSignal(false);
+  const [boxOver, setBoxOver] = createSignal(false);
+  createEffect(() => {
+    void props.live?.text; void props.live?.out?.length;
+    if (!liveEl) return;
+    if (whole() && props.live?.text !== undefined) { setBoxOver(false); liveEl.classList.remove("over"); return; }
+    liveEl.scrollTop = liveEl.scrollHeight;
+    const over = liveEl.scrollTop > 2;
+    liveEl.classList.toggle("over", over);
+    setBoxOver(over);
+  });
+  const toggleWhole = () => { follow?.hold(); setWhole(!whole()); };
   /* an agent's row on screen is a reason to hold its child's thread (live.ts, `want`): its step count and its lane come from it */
   const watch = useContext(ChildWatchContext);
   const child = createMemo(() => props.m.child);
@@ -659,9 +534,16 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
         <button class="row-h" aria-expanded={isOpen() ? "true" : "false"} aria-label={props.name ?? props.m.label} onClick={toggle}>{head()}</button>
         <Show when={isOpen()}>
           <div ref={bodyEl} class="row-b">
+            {/* the line a settled permission leaves: what this device replied, where and when (sync/replies.ts) */}
+            <Show when={props.m.permit}>{(r) => <PermitRecord record={r()} />}</Show>
             <Show when={props.cur && props.live} fallback={<Show when={props.m.body}>{(b) => <BodyView b={b()} root={() => flipRoot(rowEl)} now={props.now} row={props.name ?? props.m.label} />}</Show>}>{(l) => (
               <Show when={l().text !== undefined} fallback={<div ref={liveEl} class="live-out"><Show when={l().diff} fallback={<BedView bed={{ lines: l().out ?? [" "] }} />}>{(d) => <DiffView lines={d()} />}</Show></div>}>
-                <div ref={liveEl} class={`live-text ${l().streaming ? "caret" : ""}`}><Streamed text={l().text ?? ""} /></div>
+                <div class="live-thought">
+                  <div ref={liveEl} class={`live-text ${l().streaming ? "caret" : ""} ${whole() ? "whole" : ""}`}><Streamed text={l().text ?? ""} whole={whole()} /></div>
+                  <button class="live-door" aria-expanded={whole() ? "true" : "false"} aria-label={whole() ? "the whole thought" : "the thought being written"} title={whole() ? "shows only its newest lines" : "shows the whole thought"} onClick={toggleWhole}>
+                    <Show when={boxOver() && !whole()}><i class="live-more" aria-hidden="true" /></Show>
+                  </button>
+                </div>
               </Show>
             )}</Show>
           </div>
@@ -674,10 +556,11 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
 /** a streamed thought's words: what is there stays put and what arrives enters with the blur settle (design.md, motion). a text
     that does not carry on from the last one is painted whole with no motion, as is the first text a row paints, so a
     thread opened mid-stream never animates (replay never animates) */
-function Streamed(props: { text: string }) {
+function Streamed(props: { text: string; /** the whole thought, not the box's newest lines */ whole?: boolean }) {
   type Chunk = { text: string; fresh: boolean };
-  /* the box follows the newest line, so a thought of megabytes shows its last few thousand characters and nothing else (big-text.ts) */
-  const newest = () => newestOf(props.text);
+  /* the box follows the newest line, so a thought of megabytes shows its last few thousand characters and nothing else (big-text.ts);
+     whole, it shows as much of it as a page lays out (its bound) */
+  const newest = () => (props.whole ? boundedPlain(props.text).shown : newestOf(props.text));
   const [chunks, setChunks] = createSignal<Chunk[]>([{ text: newest(), fresh: false }]);
   let shown = newest();
   /* a render effect, so the words are in the box before the box follows them (the effects after it) */
@@ -700,7 +583,7 @@ const RECENT_CHUNKS = 12;
     a change repaints on the next frame (the first paint is at once, and a row that did not change paints nothing). only the
     blocks whose html changed are replaced (markdown.ts), so a settled code block keeps its node, its focus and its "copied"
     while the reply streams on. while the text streams its caret sits at the end of the last thing written */
-function Markdown(props: { text: string; caret?: boolean | undefined; class: string; ref?: ((el: HTMLDivElement) => void) | undefined }) {
+export function Markdown(props: { text: string; caret?: boolean | undefined; class: string; ref?: ((el: HTMLDivElement) => void) | undefined }) {
   const el = <div /> as HTMLDivElement;
   createRenderEffect(() => { el.className = props.class; });
   const surface = painter(el, useContext(CachesContext)?.htmlFor());
@@ -733,20 +616,92 @@ export function SayRow(props: { say: Say; time: string; enter?: boolean }) {
 
 /* ---------- the ledger ---------- */
 
-/** the rows of a turn, in the order they happened. a running turn is the same ledger, growing at its end: every row
-    is there from the moment it happens and can be opened, the newest is open with what it is doing, and what the agent
-    is saying at the end streams as its newest row (ledger.ts) */
+/** one place the ledger paints: an entry, or a run's group. an entry in an opened group that is the run's latest step opens with it
+    (`opened`), and the first of them leaves its quiet-stretch line to the group, which shows it */
+type Place = { k: "entry"; entry: Entry; opened?: boolean; gapless?: boolean } | { k: "group"; group: Group; open: boolean };
+
+/** what a step on the strip is, in a word, where its row has no label */
+const KIND_WORD: Record<StripMark["kind"], string> = { read: "read", search: "searched", edit: "edited", run: "ran", web: "fetched", spawn: "started an agent", ask: "asked", other: "step" };
+
+/** a run of steps folded into one row (docs/thread.md, the step group): what the run did in a line, how long it took, and the run's
+    strip under it. it sits between the agent's paragraphs and reads quieter than them: the line in the second ink, no surface, a
+    chevron in the kind column where the steps' kinds stand when it opens. one line and a fixed strip, so its height never moves as
+    steps fold into it. its steps are rows of their own after it (Ledger); this draws only the group */
+export function GroupView(props: { group: Group; open: boolean; now?: number | undefined; name?: string | undefined; stripName?: string | undefined; onToggle: () => void; onPick: (m: StripMark) => void }) {
+  const g = () => props.group;
+  const line = createMemo(() => groupLine(g()));
+  const marks = () => g().strip.marks;
+  /* the step a keyboard has moved to on the strip, by its place; none until it moves */
+  const [sel, setSel] = createSignal<number | null>(null);
+  let stripEl!: HTMLDivElement;
+  const pick = (e: MouseEvent) => {
+    const r = stripEl.getBoundingClientRect();
+    if (!r.width) return;
+    const m = nearestMark(g().strip, ((e.clientX - r.left) / r.width) * 100, props.now);
+    if (m) props.onPick(m);
+  };
+  const valueText = () => {
+    const at = sel(), all = marks(), m = at === null ? undefined : all[Math.min(at, all.length - 1)];
+    if (!m || at === null) return plural(g().steps, "step");
+    const label = g().entries.find((e) => e.key === m.row)?.model?.label || KIND_WORD[m.kind];
+    return [`${Math.min(at, all.length - 1) + 1} of ${all.length}`, label, ...(m.running ? ["running"] : []), ...(m.bad ? ["failed"] : [])].join(", ");
+  };
+  const key = (e: KeyboardEvent) => {
+    const n = marks().length;
+    if (!n) return;
+    const at = sel() === null ? -1 : Math.min(sel() as number, n - 1);
+    let next: number | undefined;
+    if (e.key === "ArrowRight" || e.key === "ArrowUp") next = Math.min(n - 1, at + 1);
+    else if (e.key === "ArrowLeft" || e.key === "ArrowDown") next = Math.max(0, at - 1);
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = n - 1;
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); const m = marks()[Math.max(0, at)]; if (m) props.onPick(m); return; }
+    if (next === undefined) return;
+    e.preventDefault();
+    setSel(next);
+  };
+  /* closed, the group answers for the parts folded into it, so a link to one finds the group and opens it (the stage clicks a row's head);
+     open, the rows do */
+  const parts = () => (props.open ? undefined : foldedOf(g()).flatMap((e) => e.model?.partIDs ?? (e.say ? [e.say.id] : [])).join(" ") || undefined);
+  return (
+    <div class={`row group ${props.open ? "shown" : ""} ${g().live ? "live" : ""}`} data-key={g().key} data-from={g().at} data-to={g().end} data-part={parts()}>
+      <button class="row-h" aria-expanded={props.open ? "true" : "false"} aria-label={props.name ?? groupLabel(g())} onClick={() => props.onToggle()}>
+        <span class="row-t">{g().time}</span>
+        <span class="row-k"><i class="group-chev" /></span>
+        <span class="row-c">
+          <Show when={line().doing}>{(d) => <><span class="group-doing">{d()}</span> · </>}</Show>
+          {line().rest}
+          <Show when={line().failed}>{(f) => <> · <span class="no">{f()}</span></>}</Show>
+        </span>
+        <span class={`row-r ${g().live ? "lit" : ""}`}>{groupClock(g(), props.now) ?? ""}</span>
+      </button>
+      <div class="group-band">
+        <span class="group-gutter" aria-hidden="true" onClick={() => props.onToggle()} />
+        <div ref={stripEl} class="strip" role="slider" tabIndex={0} aria-label={props.stripName ?? "steps of this run"} aria-valuemin={1} aria-valuemax={Math.max(1, marks().length)} aria-valuenow={Math.min(sel() ?? 0, Math.max(0, marks().length - 1)) + 1} aria-valuetext={valueText()} onClick={pick} onKeyDown={key}>
+          <StripLane strip={g().strip} now={g().live ? props.now : undefined} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** the places of a turn read as text: its words, the thoughts that led to them, its asks, and every run of steps between them as one
+    group (groups.ts). a running turn is the same ledger, growing at its end: the run going on now is a group with its newest row open
+    under it, what the agent is saying at the end streams as its newest row, and once it writes again (or the turn ends) the run
+    folds whole. a group the reader opens shows its strip and every one of its steps, only the latest open */
 export function Ledger(props: { turn: Turn; ctx: RowCtx; live?: boolean; /** rows that arrive rise in */ enter?: boolean }) {
-  /* a row's model and entry are rebuilt only when what it reads changed (ledger.ts), and rows are keyed by their place:
-     an unchanged row is handed the same entry and its dom is left alone; a changed one keeps its dom and its open state */
+  /* a row's model and entry are rebuilt only when what it reads changed (ledger.ts), and places are keyed by where they stand:
+     an unchanged place is handed the same object and its dom is left alone; a changed one keeps its dom and its open state */
   const thread = useContext(ThreadKeyContext);
   const caches = useContext(CachesContext);
+  const follow = useContext(FollowContext);
   /* a settled turn's models are kept between stages, so a thread opened again paints its rows from what it had (memo-cache.ts). a
      view takes the ledger out while it paints and puts it back when it goes, so no two views of one thread share a ledger, and a
      turn that is running when it goes (it never settled) puts nothing back. a turn that is running keeps its own all along */
-  const key = () => (thread && caches ? cacheKey(thread(), untrack(() => props.turn.id)) : undefined);
+  /* read once, as the view is made: a layer's thread and a turn's id do not change under it, and the stage's <Show> that hands the
+     thread down may have let it go by the time the view does (a thread that leaves the fleet), so the cleanup must not read it */
+  const at = thread && caches ? cacheKey(untrack(thread), untrack(() => props.turn.id)) : undefined;
   const taken = (() => {
-    const at = key();
     if (at === undefined || !caches || props.live === true) return undefined;
     const held = caches.ledgers.get(at);
     if (held) caches.ledgers.delete(at);
@@ -756,144 +711,96 @@ export function Ledger(props: { turn: Turn; ctx: RowCtx; live?: boolean; /** row
   /* a view that goes after the sign-out puts nothing back (memo-cache.ts, stamp) */
   const owner = thread ? untrack(thread) : "";
   const stamp = caches?.stamp(owner) ?? 0;
+  /* the turn and whether it runs, as last seen: the cleanup reads these, not the props, since reading the stage's memos while it
+     takes the view down can run them again and take the same views down a second time */
+  let seen = { turn: untrack(() => props.turn), live: untrack(() => props.live === true) };
+  createComputed(() => (seen = { turn: props.turn, live: props.live === true }));
   onCleanup(() => {
-    const at = key();
-    if (at !== undefined && caches && !untrack(() => props.live)) caches.keep(caches.ledgers, owner, stamp, at, own, weighTurn(untrack(() => props.turn)));
+    if (at !== undefined && caches && !seen.live) caches.keep(caches.ledgers, owner, stamp, at, own, weighTurn(seen.turn));
   });
   const entries = createMemo(() => own(props.turn, props.ctx, props.live === true));
-  /* a row is a control when it has something to open (RowView) */
-  const names = turnNames(() => props.turn.id, () => entries().map((e) => (e.model?.body !== undefined || e.live !== undefined ? e.model?.label : undefined)));
+  const grouping = groupsOf();
+  const segments = createMemo(() => grouping(entries(), { running: props.live === true, ctx: props.ctx, answer: props.turn.answer }));
+  /* the groups the reader opened, by key: the reader's, so they live here and not in the model */
+  const [opened, setOpened] = createSignal<ReadonlySet<string>>(new Set());
+  /* a place is the same object while what it shows is: an entry's by the entry, a group's by the group and whether it is open */
+  const entryPlaces = new WeakMap<Entry, Map<string, Place>>();
+  const groupPlaces = new WeakMap<Group, Place[]>();
+  const entryPlace = (entry: Entry, opened = false, gapless = false): Place => {
+    const flavour = `${opened ? 1 : 0}${gapless ? 1 : 0}`;
+    let held = entryPlaces.get(entry);
+    if (!held) { held = new Map(); entryPlaces.set(entry, held); }
+    let place = held.get(flavour);
+    if (!place) { place = { k: "entry", entry, ...(opened ? { opened } : {}), ...(gapless ? { gapless } : {}) }; held.set(flavour, place); }
+    return place;
+  };
+  const groupPlace = (group: Group, open: boolean): Place => {
+    let held = groupPlaces.get(group);
+    if (!held) { held = [{ k: "group", group, open: false }, { k: "group", group, open: true }]; groupPlaces.set(group, held); }
+    return held[open ? 1 : 0] as Place;
+  };
+  const places = createMemo<Place[]>(() => {
+    const open = opened();
+    const out: Place[] = [];
+    for (const seg of segments()) {
+      if (seg.k === "entry") { out.push(entryPlace(seg.entry)); continue; }
+      const g = seg.group;
+      if (open.has(g.key)) {
+        out.push(groupPlace(g, true));
+        g.entries.forEach((e, i) => out.push(entryPlace(e, i === g.entries.length - 1 && e.model?.body !== undefined, i === 0)));
+      } else {
+        if (lineShown(g)) out.push(groupPlace(g, false));
+        const cur = currentOf(g);
+        if (cur) out.push(entryPlace(cur, false, lineShown(g)));
+      }
+    }
+    return out;
+  }, [], { equals: sameList });
+  /* a place is a control when it has something to open (RowView); a group is two, its line and its strip */
+  const labelsOf = (p: Place): Label[] => (p.k === "group" ? [groupLabel(p.group), "steps of this run"] : [p.entry.model?.body !== undefined || p.entry.live !== undefined ? p.entry.model?.label : undefined]);
+  const offsets = createMemo(() => { let at = 0; return places().map((p) => { const from = at; at += p.k === "group" ? 2 : 1; return from; }); });
+  const names = turnNames(() => props.turn.id, () => places().flatMap(labelsOf));
+  /* rows a tap on a group brings in do not rise: only what arrives while the reader watches does */
+  const [toggling, setToggling] = createSignal(false);
+  let ledgerEl: HTMLDivElement | undefined;
+  const setOpen = (group: string, open: boolean) => {
+    if (untrack(opened).has(group) === open) return;
+    follow?.hold();
+    setToggling(true);
+    setOpened((all) => { const next = new Set(all); if (open) next.add(group); else next.delete(group); return next; });
+    queueMicrotask(() => setToggling(false));
+  };
+  /* a tap on a step on the strip opens its group and goes to that step's row, open */
+  const pick = (group: string, mark: StripMark) => {
+    setOpen(group, true);
+    requestAnimationFrame(() => {
+      const row = ledgerEl?.querySelector<HTMLElement>(`:scope > .row:not(.group)[data-key="${CSS.escape(mark.row)}"]`);
+      if (!row) return;
+      if (!row.classList.contains("open")) row.querySelector<HTMLButtonElement>(":scope > button.row-h")?.click();
+      light(row, row.closest<HTMLElement>(".stage-scroll") ?? undefined);
+    });
+  };
   return (
-    <Show when={entries().length}>
-      <div class="ledger">
-        <Index each={entries()}>{(e, i) => (
-          <>
-            <Show when={e().gap}><div class="gap">{e().gap}</div></Show>
-            <Show when={e().model} fallback={<Show when={e().say}>{(say) => <SayRow say={say()} time={e().time} enter={props.enter === true} />}</Show>}>{(m) => <RowView m={m()} time={e().time} now={props.ctx.now} cur={e().cur === true} live={e().live} enter={props.enter === true} name={names()[i]} />}</Show>
-          </>
+    <Show when={places().length}>
+      <div ref={ledgerEl} class="ledger">
+        <Index each={places()}>{(p, i) => (
+          <Show when={p().k === "group" ? (p() as Extract<Place, { k: "group" }>) : undefined} fallback={(() => {
+            const e = () => (p() as Extract<Place, { k: "entry" }>).entry;
+            return (
+              <>
+                <Show when={!(p() as Extract<Place, { k: "entry" }>).gapless && e().gap}><div class="gap">{e().gap}</div></Show>
+                <Show when={e().model} fallback={<Show when={e().say}>{(say) => <SayRow say={say()} time={e().time} enter={props.enter === true && !toggling()} />}</Show>}>{(m) => <RowView m={m()} time={e().time} now={props.ctx.now} cur={e().cur === true} live={e().live} enter={props.enter === true && !toggling()} name={names()[offsets()[i] ?? 0]} opened={(p() as Extract<Place, { k: "entry" }>).opened === true} />}</Show>
+              </>
+            );
+          })()}>{(gp) => (
+            <>
+              <Show when={gp().group.gap}><div class="gap">{gp().group.gap}</div></Show>
+              <GroupView group={gp().group} open={gp().open} now={props.ctx.now} name={names()[offsets()[i] ?? 0]} stripName={names()[(offsets()[i] ?? 0) + 1]} onToggle={() => setOpen(gp().group.key, !gp().open)} onPick={(m) => pick(gp().group.key, m)} />
+            </>
+          )}</Show>
         )}</Index>
       </div>
     </Show>
-  );
-}
-
-/* ---------- the tape ---------- */
-
-/** the turn's receipt, at its end: what the turn did, on a time scale. while the turn runs it floats over the stream as an opaque
-    card in the flood's own colour, stuck above the dock wherever the reader is in the turn, so the instrument is always beside
-    what it measures; settled it lands into the page as a pressed well */
-export function Tape(props: { turn: Turn; ctx: RowCtx; now?: number | undefined; live?: boolean; /** the turn ended but its agents work on: the tape keeps time for them */ parked?: boolean; /** it arrives while the reader watches: it rises in, the way a row does */ enter?: boolean; onLand?: (s: Step) => void }) {
-  let tapeEl!: HTMLDivElement;
-  let sentinelEl: HTMLDivElement | undefined;
-  let plotEl!: HTMLDivElement;
-  const landing = useContext(LandingContext);
-  const watch = useContext(ChildWatchContext);
-  const ordinal = useOrdinal(() => props.turn.id);
-  const liveTape = useContext(LiveTapeContext);
-  onMount(() => { if (props.enter && !landing?.()) rise(tapeEl, 18); });
-
-  /* stuck: its own place is out of the view and the tape is held at the foot of it. a sentinel after the tape's place says
-     whether that place is in view (above the line the tape is held at); the tape itself says whether it is in view at all,
-     so a turn that is entirely below the view shows no tape and lifts nothing. the effect depends on a memo of `live`, so
-     a delta, which hands the tape a new turn, does not tear the observers down and flash the tape out of its stuck state */
-  const live = createMemo(() => props.live === true);
-  const [stuck, setStuck] = createSignal(false);
-  createEffect(() => {
-    if (!live() || !sentinelEl) { setStuck(false); return; }
-    const root = tapeEl.closest<HTMLElement>(".stage-scroll, .stage-sample");
-    /* the line the tape is held at, less two pixels so that its resting place, which is that line to a fraction, is in view */
-    const foot = Math.max(0, (Number.parseFloat(root ? getComputedStyle(root).getPropertyValue("--foot") : "") || 0) - 2);
-    let placeInView = true, tapeInView = false;
-    const sync = () => setStuck(tapeInView && !placeInView);
-    const place = new IntersectionObserver((es) => { placeInView = es.at(-1)?.isIntersecting ?? placeInView; sync(); }, { root, rootMargin: `0px 0px -${foot}px 0px` });
-    const self = new IntersectionObserver((es) => { tapeInView = es.at(-1)?.isIntersecting ?? tapeInView; sync(); }, { root });
-    place.observe(sentinelEl);
-    self.observe(tapeEl);
-    onCleanup(() => { place.disconnect(); self.disconnect(); setStuck(false); });
-  });
-  /* while stuck the stage is told how far up from the scroller's foot the tape reaches, and again when the tape changes height */
-  createEffect(() => {
-    if (!stuck()) return;
-    const root = tapeEl.closest<HTMLElement>(".stage-scroll, .stage-sample");
-    const report = () => liveTape?.stuck((root?.getBoundingClientRect().bottom ?? innerHeight) - tapeEl.getBoundingClientRect().top);
-    report();
-    const size = new ResizeObserver(report);
-    size.observe(tapeEl);
-    onCleanup(() => { size.disconnect(); liveTape?.stuck(0); });
-  });
-  const items = () => props.turn.items;
-  const steps = createMemo(() => items().filter((x): x is Step => x.k === "step"));
-  // the scale runs ahead while anything is still moving, so marks never slide
-  const map = createMemo(() => timeMap(props.turn, items(), props.now, live() || props.parked));
-  const agents = createMemo(() => {
-    const seen = new Set<string>();
-    return steps().flatMap((s) => { const c = s.agent?.child; if (!c || seen.has(c) || !props.ctx.children.has(c)) return []; seen.add(c); return [{ step: s, child: props.ctx.children.get(c) as Child, name: s.agent?.name ?? "agent" }]; });
-  });
-  const thoughts = () => items().filter((x) => x.k === "think").length;
-  const failed = () => steps().filter(isBad).length;
-  const total = () => (props.now ?? props.turn.end) - props.turn.at;
-  const label = () => live() ? { text: `working ${clockDur(total())}`, lit: true } : props.parked ? { text: `working ${clockDur(total())}, through its agents`, lit: true } : props.turn.status === "aborted" ? { text: `stopped after ${dur(total())}`, lit: false } : { text: `worked ${dur(total())}`, lit: false };
-  const counts = () => [plural(steps().length, "step"), thoughts() ? plural(thoughts(), "thought") : "", agents().length ? plural(agents().length, "agent") : ""].filter(Boolean).join(", ");
-
-  /* scrubbing: a playhead follows the pointer and names the step under it; letting go lands on its row */
-  const [scrub, setScrub] = createSignal<{ x: number; step: Step } | null>(null);
-  let drag: { x0: number; y0: number; live: boolean; id: number } | null = null;
-  const pct = (e: PointerEvent) => { const r = plotEl.getBoundingClientRect(); return Math.max(0, Math.min(100, ((e.clientX - r.left) / r.width) * 100)); };
-  const showAt = (p: number) => { const s = nearest(steps(), map(), p); if (!s) return; const lr = plotEl.getBoundingClientRect(), tr = tapeEl.getBoundingClientRect(); setScrub({ x: lr.left - tr.left + (map().x(s.at) / 100) * lr.width, step: s }); };
-  const down = (e: PointerEvent) => { if (!steps().length) return; drag = { x0: e.clientX, y0: e.clientY, live: e.pointerType === "mouse", id: e.pointerId }; if (drag.live) { try { tapeEl.setPointerCapture(e.pointerId); } catch { /* the pointer is already gone */ } showAt(pct(e)); } };
-  const move = (e: PointerEvent) => {
-    if (!drag) return;
-    if (!drag.live) { const dx = Math.abs(e.clientX - drag.x0), dy = Math.abs(e.clientY - drag.y0); if (dy > 10 && dy > dx) { drag = null; return; } if (dx > 6) { drag.live = true; try { tapeEl.setPointerCapture(drag.id); } catch { /* the pointer is gone */ } } else return; }
-    showAt(pct(e));
-  };
-  const up = (e: PointerEvent) => { if (!drag) return; if (!drag.live) showAt(pct(e)); const s = scrub()?.step; drag = null; setScrub(null); if (s) props.onLand?.(s); };
-  const cancel = () => { drag = null; setScrub(null); };
-  onMount(() => { document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", cancel); });
-  onCleanup(() => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.removeEventListener("pointercancel", cancel); });
-  const capText = () => { const s = scrub()?.step; if (!s) return null; const r = readout(s).text; const what = s.family === "read" || s.family === "edit" ? base(s.object) : s.family === "spawn" ? s.agent?.name ?? "agent" : s.family === "shell" ? (s.polls || s.object).split("\n")[0] ?? "" : s.object; return { when: `${clock(s.at)}, ${dur(s.at - props.turn.at)} in`, what: `${s.tool}  ${what.slice(0, 40)}`, r, bad: isBad(s) }; };
-
-  const Lane = (p: { items: readonly Item[]; steps: readonly Step[]; map: ReturnType<typeof timeMap>; agent?: boolean; now?: number | undefined; head?: boolean | undefined }) => (
-    <div class={`lane ${p.agent ? "agent" : ""}`}>
-      <For each={thinkSpans(p.items, p.map)}>{(s) => <i class="tp-think" style={{ left: `${s.left}%`, width: `${s.width}%` }} />}</For>
-      <For each={marksOf(p.steps, p.map, p.now)}>{(m: Mark) => <i class={`tp-mk ${m.kind} ${m.bad ? "bad" : ""} ${m.live ? "running" : ""}`} style={{ left: `${m.left}%`, ...(m.width !== undefined ? { width: `${m.width}%` } : {}) }} />}</For>
-      <Show when={p.head && props.now !== undefined}><i class="tp-now" style={{ left: `${p.map.x(props.now ?? 0)}%` }} /></Show>
-    </div>
-  );
-  return (
-    <>
-    <div ref={tapeEl} class={`tape ${live() ? "live" : ""} ${scrub() ? "scrub" : ""}`} data-stuck={stuck() ? "" : undefined} role="slider" aria-label={`scrub through the work of this turn${ordinal()}`} aria-valuemin={0} aria-valuemax={steps().length} aria-valuenow={scrub() ? steps().indexOf(scrub()?.step as Step) : undefined} tabIndex={0} onPointerDown={down}>
-      <div class="tape-h"><b class={label().lit ? "lit" : ""}>{label().text}</b><span>{counts()}<Show when={failed()}>, <span class="no">{failed()} failed</span></Show></span></div>
-      <div class="tape-lanes">
-        <div class="lane-hd"><span>thinking</span><span>tools</span></div>
-        <div ref={plotEl} class="lane-plot"><Lane items={items()} steps={steps()} map={map()} now={props.now} head={live() || props.parked} /></div>
-        <For each={agents()}>{(a) => {
-          const from = () => map().x(a.step.at);
-          const sub = () => { const f = from(); return { ...map(), x: (tm: number) => ((map().x(tm) - f) / Math.max(1, 100 - f)) * 100 }; };
-          let laneEl!: HTMLDivElement;
-          const child = a.step.agent?.child;
-          if (child && watch) onMount(() => onCleanup(watch(laneEl, child)));
-          const until = () => props.now ?? map().end;
-          const cItems = () => a.child.items.filter((x) => x.at >= props.turn.at && x.at <= until());
-          const cSteps = () => cItems().filter((x): x is Step => x.k === "step" && x.at + x.ms <= until() + 1);
-          return (
-            <>
-              <div class="lane-hd agent">agent</div>
-              <div ref={laneEl} class="lane-plot"><div class="lane-name">{a.name}<span>{cSteps().length ? `, ${plural(cSteps().length, "step")}` : ""}</span></div><div style={{ "margin-left": `${from()}%` }}><Lane items={cItems()} steps={cSteps()} map={sub()} agent /></div></div>
-            </>
-          );
-        }}</For>
-      </div>
-      <div class="tp-scale">
-        <For each={scaleOf(map())}>{(t) => <><i class={t.major ? "maj" : ""} style={{ left: `${t.left}%` }} /><Show when={t.label}><span style={{ left: `${t.left}%` }}>{t.label}</span></Show></>}</For>
-        <span class="first" style={{ left: "0" }}>{clock(map().start)}</span><span class="last" style={{ left: "100%" }}>{clock(map().end)}</span>
-      </div>
-      <div class="tp-playhead" style={{ left: `${scrub()?.x ?? 0}px` }} />
-      <div class="tp-cap" style={{ left: `${Math.max(112, Math.min((tapeEl?.clientWidth ?? 400) - 112, scrub()?.x ?? 0))}px` }}>
-        <Show when={capText()}>{(c) => <><small>{c().when}</small><span>{c().what}</span><Show when={c().r}><em class={c().bad ? "no" : ""}>{c().r}</em></Show></>}</Show>
-      </div>
-    </div>
-    <Show when={live()}><div ref={sentinelEl} class="tape-sentinel" aria-hidden="true" /></Show>
-    </>
   );
 }
 
@@ -903,15 +810,19 @@ export function Tape(props: { turn: Turn; ctx: RowCtx; now?: number | undefined;
 const CLAMPED_CHARS = 1200;
 
 export function YouBubble(props: { turn: Turn }) {
-  /* ten messages of one length have ten controls with the same words: the turn tells them apart (rule 5, unique names) */
+  /* ten messages of one length have ten controls with the same words: the turn tells them apart (AGENTS.md, accessibility: unique names) */
   const ordinal = useOrdinal(() => props.turn.id);
   const long = () => props.turn.prompt.length > 300 || props.turn.prompt.split("\n").length > 6;
   const [all, setAll] = createSignal(false);
   let el!: HTMLDivElement;
   const follow = useContext(FollowContext);
   // a brief from the root agent says only "brief": the title block already says whose agent this is
-  const label = () => (props.turn.by === "queued" ? "queued, " : props.turn.by === "steer" ? "steer, " : props.turn.by === "brief" ? (props.turn.from && props.turn.from !== "root" ? `brief from ${props.turn.from}, ` : "brief, ") : "");
+  const label = () => (props.turn.by === "brief" ? (props.turn.from && props.turn.from !== "root" ? `brief from ${props.turn.from}, ` : "brief, ") : "");
   return (
+    <>
+    {/* the photos sent with it stand above its words, thumbnails of one box that open full size (the native client's sentphotos); a photo
+        sent alone has no words, and its bubble keeps its time */}
+    <Show when={props.turn.photos?.length ? props.turn.photos : undefined}>{(photos) => <div class="you-photos"><Pictures groups={[{ pics: photos() }]} suffix={`, sent${ordinal()}`} /></div>}</Show>
     <div ref={el} class="you">
       <Show when={long() && !all()} fallback={boundedPlain(props.turn.prompt).shown}>
         <span class="clamp">{props.turn.prompt.slice(0, CLAMPED_CHARS)}</span>
@@ -919,13 +830,17 @@ export function YouBubble(props: { turn: Turn }) {
       </Show>
       <time>{label()}{clock(props.turn.at)}</time>
     </div>
+    </>
   );
 }
 
+/** an agent's report or note: one line, a chip (the native client's decision 26). the outcome's glyph, the agent's name and the
+    report's first line; a press raises the whole report in its sheet (report-sheet.tsx). one line whatever the report holds, so a
+    report arriving moves the page by a line and opening it moves nothing */
 export function ReportCard(props: { turn: Turn }) {
-  const [short, setShort] = createSignal(props.turn.prompt.length > 700);
-  let el!: HTMLDivElement;
-  const follow = useContext(FollowContext);
+  const [reading, setReading] = createSignal(false);
+  const report = createMemo(() => reportOf(props.turn));
+  let el!: HTMLButtonElement;
   const win = useContext(WindowContext);
   const ordinal = useOrdinal(() => props.turn.id);
   const toAgent = () => {
@@ -940,11 +855,18 @@ export function ReportCard(props: { turn: Turn }) {
     if (before) light(before, root.closest<HTMLElement>(".stage-scroll") ?? undefined);
   };
   return (
-    <div ref={el} class={`report ${short() ? "short" : ""}`} data-report={props.turn.from} data-turn={props.turn.id}>
-      <div class="rep-h"><span><button class="rep-agent" aria-label={`the agent ${props.turn.from}, where it started${ordinal()}`} onClick={toAgent}><b>{props.turn.from}</b></button> {props.turn.note ? "wrote" : "reported"}</span><span class="rep-r"><span>{clock(props.turn.at)}</span><CopyButton kind="report" name={reportLabel(props.turn.from ?? "agent", props.turn.note === true)} text={() => props.turn.prompt} refused={short() ? `could not copy. read the whole ${props.turn.note ? "note" : "report"}, then select it` : undefined} /></span></div>
-      <Markdown class="rep-b" text={props.turn.prompt} />
-      <button class="rep-all" aria-label={`read the whole ${props.turn.note ? "note" : "report"}${ordinal()}`} onClick={() => { follow?.hold(); flip(flipRoot(el), () => setShort(false)); }}>read the whole {props.turn.note ? "note" : "report"}</button>
-    </div>
+    <>
+      <button ref={el} class="report" data-report={props.turn.from} data-turn={props.turn.id} aria-haspopup="dialog" aria-label={`${report().spoken}${ordinal()}`} title={`opens the ${report().note ? "note" : "report"}`} onClick={() => setReading(true)}>
+        <ReportGlyph report={report()} size="chip" />
+        <span class="rep-line"><b>{report().name}</b><Show when={report().gist}>{(g) => <span> · {g()}</span>}</Show></span>
+        <i class="rep-chev" aria-hidden="true" />
+      </button>
+      <Show when={reading()}>
+        <ReportSheet report={report()} onClose={() => { setReading(false); el.focus({ preventScroll: true }); }} onAgent={props.turn.from ? toAgent : undefined}>
+          <Markdown class="rep-b" text={props.turn.prompt} />
+        </ReportSheet>
+      </Show>
+    </>
   );
 }
 
@@ -984,7 +906,7 @@ export function MarkLine(props: { turn: Turn }) {
   return (
     <Show when={props.turn.by === "compaction"} fallback={<div ref={el} class="turn-mark"><span>{firstSentence(props.turn.prompt).slice(0, 120)}</span></div>}>
       <div ref={el} class="turn-mark"><button aria-expanded={open() ? "true" : "false"} onClick={() => { follow?.hold(); flip(flipRoot(el), () => setOpen(!open()), open() ? null : card); }}>compacted here. <b>{open() ? "hide" : "show"} the summary</b></button></div>
-      <Markdown ref={(c) => { card = c; }} class={`sumcard ${open() ? "open" : ""}`} text={props.turn.answer?.text ?? ""} />
+      <Markdown ref={(c) => { card = c; }} class={`sumcard ${open() ? "open" : ""}`} text={props.turn.summary ?? props.turn.answer?.text ?? ""} />
     </Show>
   );
 }
@@ -1000,19 +922,6 @@ export function Answer(props: { say: Say; /** the reply's control is named by it
       </Show>
     </>
   );
-}
-
-/** scrolls the row for a step into view and lights it */
-export function landOn(turnEl: HTMLElement, s: Step): void {
-  const rows = [...turnEl.querySelectorAll<HTMLElement>(".ledger > .row")];
-  const row = rows.find((r) => Number(r.dataset["from"]) <= s.at && s.at <= Number(r.dataset["to"])) ?? rows.find((r) => Number(r.dataset["from"]) >= s.at) ?? rows[rows.length - 1];
-  if (!row) return;
-  reading(row);
-  const within = row.closest<HTMLElement>(".stage-scroll");
-  if (within) bring(row, within); else row.scrollIntoView({ behavior: "smooth", block: "start" });
-  turnEl.ownerDocument.querySelectorAll(".row.lit").forEach((r) => r.classList.remove("lit"));
-  row.classList.add("lit");
-  setTimeout(() => row.classList.remove("lit"), 1600);
 }
 
 /** what the stage does around a turn settling (docs/thread.md, live: the prompt keeps its place) */
@@ -1033,15 +942,15 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
   /* an older turn is an empty box until the stage's window fills it, and stays filled (stage-window.ts); with no window, always */
   const filled = () => win === undefined || win.filled(t().id);
   const boxHeight = createMemo(() => (win === undefined ? 0 : win.height(t())));
-  /* what a reader watches arrive rises in: the rows and the tape of a turn that runs in front of them, and what its
-     settle adds. what is painted when a thread lands does not (the rows and the tape ask LandingContext) */
+  /* what a reader watches arrive rises in: the rows of a turn that runs in front of them, and what its settle adds. what is
+     painted when a thread lands does not (the rows ask LandingContext) */
   const [watched, setWatched] = createSignal(live());
-  /* a settled turn whose agents still work keeps its tape's clock running for them (the parent is parked on them). it is handed a
+  /* a settled turn whose agents still work keeps its agent rows' clock running for them (the parent is parked on them). it is handed a
      clock to run by the stage (`now`) or, in a story, by its context (`tick`); whether it is handed one does not change for the life
      of the view, so `now` is read here only for that, untracked: this must not wake every turn each second */
   const parked = createMemo(() => (props.ctx.tick !== undefined || untrack(() => props.now !== undefined)) && spawnsOf(t()).some((s) => s.agent?.child !== undefined && props.ctx.children.get(s.agent.child)?.state === "working"));
   /* the context this turn is painted in: the stage's, with the clock only where the clock is read, the running turn (`now`)
-     and a turn whose agents work (`tick`: their rows' and the tape's clock). the memo's equality is what this turn reads of it
+     and a turn whose agents work (`tick`: their rows' clock). the memo's equality is what this turn reads of it
      (ledger.ts, sameCtxFor), so a delta, an ask or a child elsewhere does not wake the turn and a second passing wakes only
      the turns that show time */
   const ctx = createMemo<RowCtx>(() => {
@@ -1052,8 +961,8 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
     if (parked() && props.now !== undefined) return { ...props.ctx, tick: props.now };
     return props.ctx;
   }, props.ctx, { equals: (a, b) => sameCtxFor(untrack(t), a, b) });
-  /* the settle changes as little as it can: the newest row closes, the trailing reply becomes the answer in place (faded up
-     once) and the tape un-sticks into a well. the stage takes the view's place before it and gives it back after, since a
+  /* the settle changes as little as it can: the run folds whole into its group and the trailing reply becomes the answer in
+     place (faded up once). the stage takes the view's place before it and gives it back after, since a
      row closing at the end while the stage is pinned there would clamp the scroll and drop the view */
   let wasLive = live();
   createComputed(() => {
@@ -1069,19 +978,22 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
     }
     wasLive = running;
   });
-  /* heavy, by the turn's own clock while it runs: the tape arrives at the end when the turn turns heavy */
-  const heavyNow = createMemo(() => filled() && heavy(t(), live() ? props.now ?? t().at : undefined));
   onMount(() => { if (win) onCleanup(win.slot(el, () => t().id, t)); });
+  /* a message that waits and has nothing of its own yet takes no room: the composer's queue shows it */
+  const waits = () => (t().by === "queued" || t().by === "steer") && !t().items.length && !t().answer;
   return (
-    <section ref={el} class="turn" data-turn={t().id} data-pending={filled() ? undefined : ""} data-gist={filled() ? undefined : firstSentence(t().prompt).slice(0, 90)} style={filled() ? undefined : { height: `${boxHeight()}px` }}>
+    <section ref={el} class="turn" data-turn={t().id} data-waits={waits() ? "" : undefined} data-pending={filled() ? undefined : ""} data-gist={filled() ? undefined : firstSentence(t().prompt).slice(0, 90)} style={filled() ? undefined : { height: `${boxHeight()}px` }}>
       <Show when={filled()}>
         <Show when={t().by === "mail"}><ReportCard turn={t()} /></Show>
         <Show when={t().by === "compaction" || t().by === "notice"}><MarkLine turn={t()} /></Show>
-        <Show when={t().by === "you" || t().by === "queued" || t().by === "steer" || t().by === "brief"}><YouBubble turn={t()} /></Show>
-        <Show when={t().by !== "compaction"}>
+        {/* a message that waits (queued, or a steer waiting for the step in flight) is the composer's queue's, never a bubble here: it
+            draws once it lands as a turn (docs/composer.md, the queue) */}
+        <Show when={t().by === "you" || t().by === "brief"}><YouBubble turn={t()} /></Show>
+        {/* a compaction turn reads as any turn under its mark, its summary only in the card the mark opens; one recorded with no summary
+            message keeps the old reading, its last words the summary */}
+        <Show when={t().by !== "compaction" || t().summary !== undefined}>
           <Ledger turn={t()} ctx={ctx()} live={live()} enter={watched()} />
           <Show when={!live() && t().answer}>{(a) => <Answer say={a()} name={replyLabel(clock(t().at), t().prompt)} />}</Show>
-          <Show when={heavyNow()}><Tape turn={t()} ctx={ctx()} now={live() ? props.now ?? t().at : parked() ? props.now ?? props.ctx.tick : undefined} live={live()} parked={parked()} enter={watched()} onLand={(s) => landOn(el, s)} /></Show>
         </Show>
       </Show>
     </section>

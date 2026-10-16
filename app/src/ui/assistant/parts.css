@@ -1,0 +1,90 @@
+/* the assistant's rows in the thread (docs/thread.md, an assistant's thread; docs/design.md, the new rows: type and
+   colour). every rule sits under .thread, whose tokens are the stage's in the assistant's palette (styles.css), and every
+   class is the law's (thread.md, copy, and class names). nothing here animates width, height, top or left; nothing loops. */
+
+/* ---------- a voice note ---------- */
+.thread .vn-row { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 100%; }
+.thread .vn-row[data-mine] { align-items: flex-end; }
+.thread .vn {
+  --vn-ink: var(--text);
+  --vn-played: var(--accent);
+  --vn-rest: color-mix(in srgb, var(--text) 30%, transparent);
+  --vn-disc: var(--accent);
+  --vn-glyph: var(--on-accent);
+  position: relative;
+  display: grid;
+  gap: 2px;
+  width: min(100%, 340px);
+  padding: 10px 14px 10px 10px;
+  border-radius: 20px;
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff calc(10% - var(--L) * 10%), transparent), var(--well-edge);
+}
+/* yours: the bubble's material, its ink the disc, the bubble's colour its glyph */
+.thread .vn[data-mine] {
+  --vn-ink: var(--you-ink);
+  --vn-played: var(--you-ink);
+  --vn-rest: color-mix(in srgb, var(--you-ink) 35%, transparent);
+  --vn-disc: var(--you-ink);
+  --vn-glyph: color-mix(in srgb, var(--window-bottom) calc(var(--L) * 100%), #f2f2f0);
+  width: min(86%, 320px);
+  border-radius: 22px 22px 8px 22px;
+  background: linear-gradient(170deg, var(--you-1), var(--you-2));
+  color: var(--you-ink);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / calc(var(--L) * 0.16)), 0 10px 24px -12px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 45%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.7));
+}
+.thread .vn[data-state="sending"] { opacity: 0.6; }
+.thread .vn.bad { opacity: 0.6; box-shadow: inset 0 0 0 1.5px var(--red); }
+.thread .vn[data-gone="missing"], .thread .vn[data-gone="evicted"] { box-shadow: none; background-image: none; outline: 1.5px dashed color-mix(in srgb, var(--text) 14%, transparent); outline-offset: -1.5px; }
+.thread .vn[data-mine][data-gone="missing"], .thread .vn[data-mine][data-gone="evicted"] { background: var(--well); color: var(--text); --vn-ink: var(--text); --vn-rest: color-mix(in srgb, var(--text) 30%, transparent); }
+
+.thread .vn-main { display: flex; align-items: center; gap: 10px; min-height: 36px; }
+.thread .vn-disc { position: relative; flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--vn-disc); color: var(--vn-glyph); }
+.thread .vn[data-mine] .vn-disc { width: 34px; height: 34px; }
+.thread .vn-glyph { grid-area: 1 / 1; width: 18px; height: 18px; fill: currentColor; transition: opacity var(--fade-t, 120ms ease); }
+.thread .vn-pause { opacity: 0; }
+.thread .vn-disc[aria-pressed="true"] .vn-play { opacity: 0; }
+.thread .vn-disc[aria-pressed="true"] .vn-pause { opacity: 1; }
+/* still being copied: a quarter arc in the third ink on no disc; gone: a dashed ring. neither is a button */
+.thread .vn-disc[data-still="pending"], .thread .vn-disc[data-still="missing"], .thread .vn-disc[data-still="evicted"] { background: none; }
+.thread .vn-disc[data-still="missing"], .thread .vn-disc[data-still="evicted"] { box-shadow: none; outline: 1.5px dashed color-mix(in srgb, var(--vn-ink) 40%, transparent); outline-offset: -1.5px; }
+.thread .vn-arc { width: 20px; height: 20px; fill: none; stroke: var(--text-3); stroke-width: 2; stroke-linecap: round; }
+.thread .vn-disc[data-still="sending"] .vn-glyph { opacity: 0.4; }
+
+.thread .vn-wave { position: relative; flex: 1; min-width: 72px; height: 28px; touch-action: none; cursor: pointer; border-radius: 6px; }
+.thread .vn-wave[aria-hidden] { cursor: default; }
+.thread .vn-bars { position: absolute; inset: 0; display: flex; align-items: center; gap: 1.5px; color: var(--vn-rest); }
+.thread .vn-bars > i { flex: 1; min-width: 1px; border-radius: 2px; background: currentColor; }
+.thread .vn-bars[data-flat]::before { content: ""; flex: 1; height: 2px; border-radius: 1px; background: currentColor; }
+.thread .vn-played { color: var(--vn-played); }
+
+.thread .vn-side { flex: none; display: grid; justify-items: end; gap: 1px; min-width: 34px; }
+.thread .vn-dur-line { display: inline-flex; align-items: center; gap: 6px; }
+.thread .vn-dur { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--vn-ink); }
+.thread .vn:not([data-mine]) .vn-dur { font-weight: 600; }
+.thread .vn-who { font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+.thread .vn:not([data-mine]) .vn-side { justify-items: start; }
+.thread .vn-speed { height: 20px; padding: 0 7px; border-radius: 10px; font-size: 11.5px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--vn-ink); background: color-mix(in srgb, var(--vn-ink) 12%, transparent); }
+.thread .vn-time { display: block; text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--you-meta); padding-right: 0; }
+.thread .vn[data-mine]:is([data-gone="missing"], [data-gone="evicted"]) .vn-time { color: var(--text-2); }
+
+.thread .vn-fold { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; font-size: 13.5px; color: var(--text-3); }
+.thread .vn-fold svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--snap-t, 0ms linear); }
+.thread .vn-fold[aria-expanded="true"] svg { transform: rotate(90deg); }
+.thread .vn-text { max-width: min(100%, 560px); padding: 12px 16px; border-radius: 16px; background: var(--well); box-shadow: var(--well-edge); font-size: 15.5px; line-height: 1.5; color: var(--prose); }
+.thread .vn-text > p { margin: 0; white-space: pre-wrap; }
+
+.thread .vn-failed { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; margin: 0; font-size: 13.5px; }
+.thread .vn-retry { color: var(--red); text-align: right; }
+.thread .vn-back { color: var(--text-2); font-weight: 600; }
+
+/* an upload's ring: 20 px, determinate, in the accent over black 30%, at the centre of what it covers */
+.thread .media-ring { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.thread .media-ring svg { width: 20px; height: 20px; transform: rotate(-90deg); border-radius: 50%; background: rgb(0 0 0 / 0.3); }
+.thread .media-ring circle { fill: none; stroke-width: 2.4; }
+.thread .media-ring-track { stroke: rgb(255 255 255 / 0.2); }
+.thread .media-ring-fill { stroke: var(--accent); stroke-linecap: round; }
+
+@media (prefers-reduced-motion: reduce) {
+  .thread .vn-glyph, .thread .vn-fold svg { transition-duration: 120ms; }
+}

@@ -74,9 +74,11 @@ export function withoutPictureBytes(state: object): object {
     would hold the frame, and a text of that length changed in its middle at the same length is not a thing a daemon sends */
 const BIG_TEXT = 64 * 1024;
 function partDigest(part: object): string {
-  const { text, ...rest } = part as { text?: unknown };
-  if (typeof text !== "string" || text.length <= BIG_TEXT) return hash(JSON.stringify(part));
-  return hash(`${JSON.stringify(rest)}|${text.length}|${text.slice(0, 4096)}|${text.slice(-4096)}`);
+  const { text, url, ...rest } = part as { text?: unknown; url?: unknown };
+  const told = (s: unknown): unknown => (typeof s === "string" && s.length > BIG_TEXT ? `${s.length}|${s.slice(0, 4096)}|${s.slice(-4096)}` : s);
+  /* a photo a person sent is a data url of megabytes, told the same way */
+  if ((typeof text !== "string" || text.length <= BIG_TEXT) && (typeof url !== "string" || url.length <= BIG_TEXT)) return hash(JSON.stringify(part));
+  return hash(JSON.stringify({ ...rest, text: told(text), url: told(url) }));
 }
 
 /** everything `turnsOf` and the row models read of a turn's messages, as one digest: each message's info whole (cost, model, effort,

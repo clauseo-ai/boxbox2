@@ -1,0 +1,155 @@
+/* an assistant's window: what it adds to a window (ui/window/window.css), whose plane, chip, title, ask and footer it
+   wears unchanged (docs/home.md, assistants on home). sizes are the deck's; the strip and the rail scale the tail's
+   lines as a cmx window's do. */
+
+/* the name in the light tone, 15.5 px 500, where a repo's name sits; nothing follows it */
+.win .name.ah-name {
+  font-size: 15.5px;
+  font-weight: 500;
+  font-stretch: 100%;
+  letter-spacing: -0.005em;
+}
+
+/* the folded steps: each verb dim and its thing lit, joined by a dim " · "; one line, never wrapped */
+.win .tool.ah-steps {
+  justify-content: flex-start;
+  gap: 0.7ch;
+}
+
+/* "and 2 more" never gives way: the steps before it are what is dropped, and one step too long for the line is cut */
+.win .ah-steps .ah-more {
+  flex: none;
+  color: var(--text-2);
+}
+
+.win .ah-dim {
+  color: var(--text-2);
+}
+
+.win .ah-steps .ah-fail {
+  color: var(--red);
+}
+
+/* a voice note, a picture or a file: one line with its disc or glyph, in the prose's colour (the agent's) or the
+   bubble (yours) */
+.win .ah-media {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.win .me.ah-media {
+  gap: 7px;
+}
+
+/* the 22 px disc: the light tone at 22% under its glyph in the light tone. not a control (the window is one button); it
+   shows pause while that note plays */
+.win .ah-disc {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+.win .ah-disc svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* yours sits in the bubble: the disc in the bubble's ink */
+.win .me .ah-disc {
+  width: 20px;
+  height: 20px;
+  margin: -2px 0 -2px -3px;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  color: inherit;
+}
+
+.win .me .ah-disc svg {
+  width: 20px;
+  height: 20px;
+}
+
+.win .ah-glyph {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--accent);
+}
+
+.win .me .ah-glyph {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.win .ah-file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* a scheduled run's mark line: second ink, the kind word in the first */
+.win .ah-mark {
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.win .ah-mark b {
+  font-weight: 560;
+  color: var(--text);
+}
+
+/* the runs window: one line per run, the time in mono, the run's name and its preview */
+.win .ah-run {
+  overflow: hidden;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--prose) calc(var(--L) * 100%), rgb(255 255 255 / 0.9));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.win .ah-run time {
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 0.74em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.win .ah-origin {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* a pill that waits while its agent is away: the ask is answered once it is back */
+.win .wask-go:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+[data-arrangement="deck"] .win .ah-mark,
+[data-arrangement="deck"] .win .ah-run {
+  font-size: 15.5px;
+}
+
+[data-arrangement="deck"] .win .ah-mark {
+  font-size: 13.5px;
+}
+
+[data-arrangement="strip"] .win .ah-run,
+[data-arrangement="rail"] .win .ah-run {
+  font-size: 12.5px;
+}

@@ -19,8 +19,41 @@ use tracing::info;
 
 use super::{get, plain};
 use crate::config::HostConfig;
-use crate::fleet::model::{HostRead, Stamped};
 use crate::journal::Cursor;
+
+/// one host read afresh, each read stamped with the seq it reflects
+/// (cmx2-asks a2). the cmx2 source turns it into the agent's snapshot
+/// (`source/cmx2/translate.rs`).
+#[derive(Debug)]
+pub struct HostRead {
+    pub host: String,
+    pub epoch: String,
+    pub sessions: Stamped<Vec<Box<RawValue>>>,
+    /// the `GET /session/status?parked=true` map: busy, retrying and parked
+    /// sessions, each with its status.
+    pub statuses: Stamped<Vec<(String, Box<RawValue>)>>,
+    pub permissions: Stamped<Vec<Box<RawValue>>>,
+    pub questions: Stamped<Vec<Box<RawValue>>>,
+}
+
+#[derive(Debug)]
+pub struct Stamped<T> {
+    pub seq: u64,
+    pub data: T,
+}
+
+impl HostRead {
+    /// the cursor the event stream resumes from: the oldest read, so no
+    /// event any read missed is skipped (the floors drop what they had).
+    #[must_use]
+    pub fn resume_seq(&self) -> u64 {
+        self.sessions
+            .seq
+            .min(self.statuses.seq)
+            .min(self.permissions.seq)
+            .min(self.questions.seq)
+    }
+}
 
 /// 300 sessions of a few kilobytes each fit with room; a read past this is
 /// refused rather than held (every buffer has a byte cap).

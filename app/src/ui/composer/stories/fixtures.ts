@@ -77,6 +77,15 @@ export const IDLE_ON_SONNET = withModel(IDLE, { providerID: "anthropic", id: "cl
 export const IDLE_WITH_CONTEXT = withContext(IDLE, 128_000);
 export const IDLE_NEARLY_FULL = withContext(IDLE, 184_000);
 export const WORKING_WITH_CONTEXT = withContext(WORKING, 128_000);
+/** a turn writing markdown, with a strong mark still open at its end (the line drops it), after a question it settled */
+export const WORKING_MARKDOWN: SessionEntry = {
+  ...WORKING,
+  tail: [
+    ...tail,
+    { kind: "tool", tool: "question", text: "push to main or open a branch?", messageID: "msg_a", partID: "prt_3", role: "assistant", state: "completed" },
+    { kind: "text", text: "## the fix\nthe health check now runs **before** the swap, and `deploy.sh` waits for it. next the **rollback", messageID: "msg_a", partID: "prt_4", role: "assistant" },
+  ],
+};
 
 export const QUESTION: Ask = {
   id: "que_1",

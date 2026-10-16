@@ -4,15 +4,16 @@
    scroll law, links in and out, and the perf rows. the composer is another
    session's; the dock leaves it a slot. */
 
-import { For, Index, Show, createEffect, createMemo, createSignal, createUniqueId, lazy, on, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, type JSX, Show, createEffect, createMemo, createSignal, createUniqueId, lazy, on, onCleanup, onMount, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import { api } from "../../api/client";
 import { play } from "../../motion/animate";
 import { FADE, TICK_DRAW } from "../../motion/springs";
 import { FOCUS_FOR_MS, type Focus, openFocus, releaseFocus, state, threadCaches } from "../../store";
-import { type ThreadPlace, closeThread, deviceIdentity, emit, markPlace, openThread, placeInUrl } from "../../sync/client";
+import { type ThreadPlace, closeThread, deviceIdentity, emit, markPlace, openThread, placeInUrl, rereadThread } from "../../sync/client";
 import { splitKey } from "../../sync/protocol";
 import { Composer } from "../composer/composer";
+import { compactThread } from "../composer/compact";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { openReview, reviewLine } from "../review/open";
 import { ReviewSlot } from "../review/slot";
@@ -22,21 +23,25 @@ import { holdChrome } from "../settings/appearance";
 import { floodTop } from "../settings/chrome";
 import { DetailsToggle, type DetailsData, FactsButton, Panel, type TurnsData } from "./details";
 import { factsOf, filesChanged, rosterOf, spendOf, summaryOf } from "./details-model";
-import type { InspectorLink } from "./inspector";
+import { type DetailsRoom, docksBeside, type InspectorLink } from "./inspector";
 import { askActions, replies, settled } from "./asks";
 import { type ThreadData, createThreadData, toneOfColour } from "./live";
 import { watchMeasure } from "./measure";
 import { createPin, endRoom } from "./pin";
+import { FootRoom } from "./foot";
 import { CLEAR_OF_BAR, askLanding, layoutTop } from "./ask-landing";
 import { createLapse } from "./focus-lapse";
 import { createCaughtUp } from "../caught-up";
 import type { Turn } from "./model";
 import { flip, installMotion, reducedMotion } from "./motion";
 import { clock, clockDur, dur, plural, waitingOn } from "./rows";
-import { AskContext, CachesContext, ChildWatchContext, FollowContext, LandingContext, LiveTapeContext, MeasureContext, NamesContext, OpenAgentContext, READING, type Settle, SettleContext, ThreadKeyContext, TurnView, WindowContext, bring, light } from "./thread";
+import { AskContext, CachesContext, ChildWatchContext, FollowContext, LandingContext, MeasureContext, NamesContext, OpenAgentContext, READING, type Settle, SettleContext, ThreadKeyContext, TurnView, WindowContext, bring, light } from "./thread";
 import { createStageWindow } from "./stage-window";
 import { paintSource } from "./paint-source";
 import { createNames } from "./names";
+import { copyText } from "./clipboard";
+import { COPIED_MS, REFUSED_MS } from "./copy";
+import { READING_PATIENCE_MS, freshnessOf, readingOf, readingWords } from "./reading";
 import "./stage.css";
 
 /* the review is a chunk of its own: most threads never have one, so its card, controller and words stay out of the first
@@ -78,10 +83,20 @@ export type StageProps = {
   headerRef?: (header: HTMLElement) => void;
   /** opens an agent's own thread over this one (home stacks a layer and brings this one back on its back); without it
       the agent's thread takes this one's place */
-  onOpenAgent?: (key: string) => void;
+  /** an agent's door: its key, and the name of the row that opened it (home names a thread the fleet does not hold by it) */
+  onOpenAgent?: (key: string, name?: string) => void;
   /** home's inspector column beside the stage (the rail, 1400 wide and up): the stage shows its details or its turns
       there instead of docking them inside itself. only the layer on top gets it */
   inspector?: InspectorLink;
+  /** below it, home's say in whether the panel docks and in making the room for it (inspector.ts) */
+  room?: DetailsRoom;
+  /** what home puts at the start of the bar (the windows' toggle while they are put away) */
+  barStart?: JSX.Element;
+  /** the thread this one was opened over, when it is an agent's (home's stacked layer knows it): back and the title block name
+      it even when the fleet does not hold the agent's session, whose `parentID` would say it */
+  parent?: string;
+  /** what to call a thread the fleet does not hold, and its repo's root (home's layer for a spawn-only agent) */
+  fallback?: { title: string; root: string };
 };
 
 export function Stage(props: StageProps) {
@@ -111,6 +126,11 @@ export function Stage(props: StageProps) {
      thread opened with history lands at its end, the title has gone by, and the bar's own title would fade in */
   const [still, setStill] = createSignal(true);
   const [wide, setWide] = createSignal(false);
+  /** the stage's own width, for where the panel goes when home has no say (a stage off home) */
+  const [ownWidth, setOwnWidth] = createSignal(0);
+  /** the panel docks beside the column only where that keeps its least width (home/windows.ts, docksBeside); a stage with the
+      bar's wide chrome that is still too narrow shows it as a sheet */
+  const docks = () => wide() && (props.room ? props.room.docks() : docksBeside(ownWidth()));
   /** the panel on the right (a sheet on the phone): the turns, or the details. it is docked only when home has no
       inspector for it; with one, home's column shows them and this stays null */
   const [panel, setPanel] = createSignal<"turns" | "details" | null>(null);
@@ -118,6 +138,8 @@ export function Stage(props: StageProps) {
   const [rulerShown, setRulerShown] = createSignal(false);
   const [rulerDrag, setRulerDrag] = createSignal<number | null>(null);
   const [newBelow, setNewBelow] = createSignal(0);
+  /** the reader is more than a screen above the end: the jump to the latest shows whatever came */
+  const [far, setFar] = createSignal(false);
   const [offline, setOffline] = createSignal(false);
   const [stopping, setStopping] = createSignal(false);
   /* the menu's archive: a tap asks in words first (what leaves, what stays), a second tap does it */
@@ -136,8 +158,12 @@ export function Stage(props: StageProps) {
 
   /* ---------- what the lines say ---------- */
   const session = () => state.fleet.sessions[key()];
+  /* the name and repo the stage says: the session's, or for a thread the fleet does not hold, what home knows of it (an
+     agent's: the row that opened it and its parent's repo) */
+  const title = () => (session() ? data.title() : (props.fallback?.title ?? data.title()));
+  const repoRoot = () => (session() ? data.repoRoot() : (props.fallback?.root ?? data.repoRoot()));
   /* a subagent's stage knows its parent (`parentID`): the back returns there, the title says whose agent it is */
-  const parentKey = () => { const p = session()?.info.parentID; return p ? `${data.host()}:${p}` : null; };
+  const parentKey = () => { const p = session()?.info.parentID; return p ? `${data.host()}:${p}` : (props.parent ?? null); };
   const parentTitle = () => { const k = parentKey(); return k ? state.fleet.sessions[k]?.info.title || k.slice(data.host().length + 1) : ""; };
   const lastTurn = () => data.turns().at(-1);
   const stepsOfLast = () => lastTurn()?.items.filter((x) => x.k === "step").length ?? 0;
@@ -164,6 +190,26 @@ export function Stage(props: StageProps) {
     }
     return working;
   }, data.working());
+  /* ---------- reading: a stage that shows nothing says why after its patience, and offers retry (reading.ts) ---------- */
+  /* nothing to show: not held, or held and still reading with nothing in it. a thread that is read and empty says "nothing here yet" */
+  const showsNothing = () => !data.held() || (data.hydrating() && !data.turns().length);
+  const [stalled, setStalled] = createSignal(false);
+  /* a retry starts the patience over */
+  const [patience, setPatience] = createSignal(0);
+  /* a stage whose thread the worker does not hold asks for it again once by itself before it says anything: that is the
+     client's own fault, and the second wait is the one that names it */
+  let healed = false;
+  createEffect(on([showsNothing, patience, key], ([nothing]) => {
+    setStalled(false);
+    if (!nothing) return;
+    const timer = setTimeout(() => {
+      if (!untrack(data.held) && !healed) { healed = true; rereadThread(untrack(key)); setPatience((n) => n + 1); return; }
+      setStalled(true);
+    }, READING_PATIENCE_MS);
+    onCleanup(() => clearTimeout(timer));
+  }));
+  const reading = createMemo(() => readingOf({ empty: showsNothing(), stalled: stalled(), streamDown: state.stream.state === "down", held: data.held(), hydrating: data.hydrating(), trouble: data.trouble() }));
+  const retryReading = () => { rereadThread(key()); setPatience((n) => n + 1); };
   const status = createMemo(() => {
     const s = session()?.status;
     const asks = data.asks().size;
@@ -190,6 +236,8 @@ export function Stage(props: StageProps) {
       if (s.parked.agents > 0) return { text: `working ${clockDur(Math.max(0, data.now() - (s.since ?? data.now())))}, ${plural(s.parked.agents, "agent")}`, live: true, agents: true };
       return { text: `parked, waiting on ${plural(s.parked.jobs, "job")}`, live: false, agents: false };
     }
+    const r = reading();
+    if (r) return { text: readingWords(r).status, live: false, agents: false };
     if (data.hydrating() && !data.turns().length) return { text: "reading the thread", live: false, agents: false };
     const turns = data.turns().length;
     if (last && fresh() && last.status === "done") return { text: `done just now, worked ${dur(Math.max(0, last.end - last.at))}`, live: false, agents: false };
@@ -245,9 +293,10 @@ export function Stage(props: StageProps) {
     /* wide is read from the stage itself, whose box `wide` does not change; the scroller's does (the gutter, the docked
        turns), and observing it looped the observer once per resize. the width comes from the entry, so the callback
        forces no layout of its own */
-    const ro = new ResizeObserver(([entry]) => { if (entry) setWide(entry.contentRect.width >= 660); });
+    const ro = new ResizeObserver(([entry]) => { if (entry) { setWide(entry.contentRect.width >= 660); setOwnWidth(entry.contentRect.width); } });
     ro.observe(stageEl);
     setWide(stageEl.clientWidth >= 660);
+    setOwnWidth(stageEl.clientWidth);
     onCleanup(() => ro.disconnect());
   });
 
@@ -264,10 +313,20 @@ export function Stage(props: StageProps) {
   const markTouched = () => { touchedAt = performance.now(); pin.input(); win.interrupt(); };
   /* the room a settled turn leaves under its end so nothing above it drops (docs/thread.md, live): a turn that settles
      shorter (its open row closed, no files row to arrive) would let the browser pull the view down to the new end. it is
-     the scroller's end padding (`--hold`), given up as soon as the view no longer shows it and when the next message
-     comes, so nothing is ever left between two turns */
+     the spacer under the transcript (`--hold`, `.stage-room`), kept as the foot's room below: what grows after it fills it, and it is given up as
+     soon as the view no longer shows the end, so nothing is ever left between two turns */
   let hold = 0;
-  const setHold = (px: number) => { hold = px; scroller.style.setProperty("--hold", `${px}px`); };
+  const setHold = (px: number) => { if (px === hold) return; hold = px; scroller.style.setProperty("--hold", `${px}px`); };
+  /* the room a live turn gives back above the end is kept the same way while it plays (foot.ts, the native client's foot room): a run
+     folding whole when the agent writes again leaves its open row's room under the end, the words rise into it, and growth fills it
+     before anything above a pinned reader moves. it goes, unseen, once the end leaves the view */
+  const foot = new FootRoom();
+  /** where the transcript's content ends, px from the top of the scroller's content: not scrollHeight, which counts the end padding
+      and, for a view shorter than its box, reports the box */
+  const contentEnd = () => threadEl.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  /** the scroller's own end padding, without an ask's landing room (the room kept is the spacer under the transcript, not padding) */
+  const basePad = () => parseFloat(getComputedStyle(scroller).paddingBottom) - askPad;
+  createEffect(on(key, () => setHold(foot.letGo(0)), { defer: true }));
   /* the end room an ask's landing asked for (ask-landing.ts, `pad`), for the ask that is pending: the thread ends that far below its last
      row, out of the view. it goes with the ask, once answered or gone (the effect at the ask's landing) */
   let askPad = 0;
@@ -275,7 +334,11 @@ export function Stage(props: StageProps) {
   /* at the end the pill has nothing to count */
   createEffect(on(pin.pinned, (at) => { if (at) { setNewBelow(0); seenCount = messagesCount(); } }, { defer: true }));
   const onScroll = () => {
-    if (hold > 0 && scroller.scrollTop + scroller.clientHeight <= scroller.scrollHeight - hold) setHold(0);
+    /* the room goes once the view no longer shows the end, and nothing is kept until it is back */
+    const end = contentEnd();
+    if (scroller.scrollTop + scroller.clientHeight >= end - 1) foot.came();
+    else setHold(foot.letGo(end));
+    setFar(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > scroller.clientHeight);
     /* the window keeps the reader's place and holds its fills above the view while the reader's own scroll runs (stage-window.ts) */
     win.scrolled(pin.scrolled());
     if (performance.now() - touchedAt < 900) showRuler();
@@ -283,8 +346,8 @@ export function Stage(props: StageProps) {
   };
   /* a turn ends and the end of the thread changes in place: its newest row closes, its reply becomes the answer, its files row
      arrives. the view's place is taken before and given back after. a reader at the end stays there, however the end moved
-     (the answer and the tape hold still on screen and the rows above them make room); a reader further up keeps exactly the
-     view they had. where the settled end is shorter than the view, the room it leaves is end padding (`--hold`), so nothing
+     (the answer and its group hold still on screen and the rows above them make room); a reader further up keeps exactly the
+     view they had. where the settled end is shorter than the view, the room it leaves is the spacer's (`--hold`), so nothing
      above it drops */
   const settle: Settle = {
     begin() {
@@ -292,9 +355,9 @@ export function Stage(props: StageProps) {
       const atEnd = pin.pinned();
       return () => {
         /* where the content now ends, not scrollHeight: a view that has become shorter than its box reports the box */
-        const end = threadEl.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top + scroller.scrollTop;
-        const pad = parseFloat(getComputedStyle(scroller).paddingBottom) - hold - askPad;
-        const room = endRoom(top, scroller.clientHeight, end, pad);
+        const end = contentEnd();
+        const room = endRoom(top, scroller.clientHeight, end, basePad());
+        foot.keep(end, room);
         setHold(room);
         scroller.scrollTop = atEnd && room === 0 ? scroller.scrollHeight : top;
         pin.derive();
@@ -309,7 +372,15 @@ export function Stage(props: StageProps) {
   let held = false;
   onMount(() => {
     /* a change a row the reader toggled makes is theirs, and is not told to the pin as a size change (it is held, below) */
-    const ro = new ResizeObserver(() => { if (held) return; pin.resized(); pin.follow(); });
+    const ro = new ResizeObserver(() => {
+      if (held) { foot.moved(contentEnd()); return; }
+      /* an ask the stage brought to the bar holds the view (win.hold): what the rows above it give back is not kept as room, which the
+         ask would rise into, up under the bar; the end is followed instead, and that keeps the ask where it landed */
+      if (win.holding()) foot.moved(contentEnd());
+      else setHold(foot.read(contentEnd(), data.working(), scroller.clientHeight));
+      pin.resized();
+      pin.follow();
+    });
     ro.observe(threadEl);
     ro.observe(scroller);
     onCleanup(() => ro.disconnect());
@@ -333,13 +404,18 @@ export function Stage(props: StageProps) {
       for (const type of ["touchstart", "touchend", "touchcancel"]) document.removeEventListener(type, touches as EventListener, { capture: true });
       document.removeEventListener("keydown", keys, { capture: true });
     });
-    /* a scroll the stage makes for the reader's tap (a link to a row, a step on the tape) says so first (thread.tsx, light and landOn) */
+    /* a scroll the stage makes for the reader's tap (a link to a row, a step on a group's strip) says so first (thread.tsx, light and landOn) */
     scroller.addEventListener(READING, pin.input);
     onCleanup(() => scroller.removeEventListener(READING, pin.input));
   });
-  createEffect(on(messagesCount, (count) => {
+  /* the count is of messages that came once the thread was read: a read landing over a cache's copy, or the rest of a thread filling in,
+     is the thread arriving, not news (the ios app's settled gate) */
+  let wasRead = untrack(() => data.held() && !data.hydrating());
+  createEffect(on([messagesCount, () => data.held() && !data.hydrating()], ([count, isRead]) => {
+    const arrived = isRead && !wasRead;
+    wasRead = isRead;
     if (count === seenCount) return;
-    if (pin.pinned()) { seenCount = count; setHold(0); } else setNewBelow(count - seenCount);
+    if (pin.pinned()) seenCount = count; else if (!isRead || arrived) seenCount = count; else setNewBelow(count - seenCount);
   }, { defer: true }));
   /* the reader's own send is the reader asking for the end (the composer calls this from its send): the message is going to land
      there, and a reader who had scrolled up to read follows it down */
@@ -353,10 +429,20 @@ export function Stage(props: StageProps) {
       requestAnimationFrame(() => requestAnimationFrame(() => { held = false; pin.derive(); }));
     },
   };
-  /* the live tape sticks above the dock while a turn runs (thread.tsx): the pill and the pinned ask ride above it, and the
-     transcript ends where its card does, so nothing reads in the band between the card and the composer (stage.css, the dissolve) */
-  const liveTape = { stuck: (px: number) => { stageEl.style.setProperty("--live-tape", `${px}px`); stageEl.toggleAttribute("data-tape-stuck", px > 0); } };
-  const toBottom = () => { pin.input(); win.travel(() => scroller.scrollHeight - scroller.clientHeight); setNewBelow(0); seenCount = messagesCount(); };
+  /* the jump to the latest (and ⌘↓): more than two screens away it cuts to one screen above the end and glides the last, as the ios
+     app does, so a long way is not a fly-past; reduced motion lands at once */
+  const toBottom = () => {
+    pin.input();
+    const end = () => scroller.scrollHeight - scroller.clientHeight;
+    if (reducedMotion()) scroller.scrollTo({ top: end(), behavior: "auto" });
+    else {
+      if (end() - scroller.scrollTop > 2 * scroller.clientHeight) scroller.scrollTop = end() - scroller.clientHeight;
+      win.travel(end);
+    }
+    setNewBelow(0);
+    seenCount = messagesCount();
+  };
+  const jumpShown = () => !pin.pinned() && (far() || newBelow() > 0);
 
   /* ---------- links: the url names the turn in view; a link in opens a row ---------- */
   const turnEls = () => [...scroller.querySelectorAll<HTMLElement>("section.turn[data-turn]")];
@@ -390,6 +476,15 @@ export function Stage(props: StageProps) {
   const read = () => data.held() && !data.hydrating();
   /* the stream has caught up: it is live at the hello, before the frames that bring the fleet's asks (ui/caught-up.ts) */
   const caughtUp = createCaughtUp();
+  /* the line under the newest turn: the stage shows a saved copy it cannot bring up to date, or a thread the fleet does not follow */
+  const freshness = createMemo(() => freshnessOf({ turns: data.turns().length, offline: offline(), live: state.stream.state === "live", failing: data.trouble() !== undefined, followed: session() !== undefined, caughtUp: caughtUp() }));
+  /* the room the line took stays once it goes: it sits just above the end, and its going would pull a pinned reader's view down by its height */
+  const [freshRoom, setFreshRoom] = createSignal(0);
+  const watchFresh = (el: HTMLElement) => {
+    const ro = new ResizeObserver(([entry]) => { const h = entry?.borderBoxSize[0]?.blockSize ?? 0; if (h > untrack(freshRoom)) setFreshRoom(h); });
+    ro.observe(el);
+    onCleanup(() => ro.disconnect());
+  };
   /* the wait for an ask the focus names and the thread does not show yet: it starts once the thread is read, not when the focus was set,
      since a cold launch spends its first seconds on the gate, the sign-in and the thread itself (store.ts, FOCUS_FOR_MS) */
   const lapse = createLapse<Focus>(FOCUS_FOR_MS, releaseFocus);
@@ -531,7 +626,7 @@ export function Stage(props: StageProps) {
   /** how far from the middle of the view each element within a screen of it is, px */
   const near = new Map<Element, number>();
   let childWatch: IntersectionObserver | undefined;
-  /* a child is within a screen when any of its elements is (its row, its lane on the tape): the nearest says how near */
+  /* a child is within a screen when any of its elements is (its row, its mark on a strip): the nearest says how near */
   const tell = (child: string): void => {
     let nearest: number | null = null;
     for (const [el, c] of watched) { const d = near.get(el); if (c === child && d !== undefined && (nearest === null || d < nearest)) nearest = d; }
@@ -616,7 +711,7 @@ export function Stage(props: StageProps) {
   };
   const [cur, setCur] = createSignal(0);
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
-  const showRuler = () => { if (wide() && panel() !== null) return; setRulerShown(true); clearTimeout(hideTimer); hideTimer = setTimeout(() => { if (rulerDrag() === null) setRulerShown(false); }, RULER_HIDE_MS); };
+  const showRuler = () => { if (docks() && panel() !== null) return; setRulerShown(true); clearTimeout(hideTimer); hideTimer = setTimeout(() => { if (rulerDrag() === null) setRulerShown(false); }, RULER_HIDE_MS); };
   onCleanup(() => clearTimeout(hideTimer));
   createEffect(on(() => scroller, () => scroller.addEventListener("scroll", () => { if (rulerDrag() === null) setCur(current()); }, { passive: true })));
   let rulerEl!: HTMLDivElement;
@@ -647,10 +742,20 @@ export function Stage(props: StageProps) {
   const goTo = (t: Turn) => {
     const el = win.reveal(t.id);
     if (el) { pin.input(); win.travel(() => topOf(el) - 72); }
-    if (!wide()) setPanel(null);
+    if (!docks()) setPanel(null);
   };
-  /* one panel at a time; docked, the ledger makes room for it by flip */
-  const showPanel = (which: "turns" | "details" | null) => { if (wide()) flip(scroller, () => setPanel(which)); else setPanel(which); };
+  /* one panel at a time; docked, the ledger makes room for it by flip. home makes the room first where it has a say (the
+     open rail folds for it), and gives it back once the panel has gone */
+  const showPanel = (which: "turns" | "details" | null) => {
+    const go = () => { if (docks()) flip(scroller, () => setPanel(which)); else setPanel(which); };
+    if (props.room && (which !== null) !== (panel() !== null)) props.room.make(which !== null, go);
+    else go();
+  };
+  createEffect(on(() => props.room?.closes() ?? 0, () => setPanel(null), { defer: true }));
+  /* a stage that stops being the one home made room for (another thread poured over it, or it leaves) with its panel open
+     gives the room back */
+  createEffect(on(() => props.room, (now, before) => { if (!now && before && untrack(panel) !== null) before.make(false, () => undefined); }, { defer: true }));
+  onCleanup(() => { if (untrack(panel) !== null) props.room?.make(false, () => undefined); });
   /* where the panel is: home's inspector when it gave one, else docked in the stage (a sheet on the phone) */
   const shown = () => (props.inspector ? props.inspector.view() : panel());
   const openPanel = (which: "turns" | "details" | null) => (props.inspector ? props.inspector.show(which) : showPanel(which));
@@ -702,13 +807,13 @@ export function Stage(props: StageProps) {
     get info() { return session()?.info; },
     get spend() { return spent(); },
     get now() { return data.now(); },
-    openAgent: (id) => openAgent(`${data.host()}:${id}`),
+    openAgent: (id, name) => openAgent(`${data.host()}:${id}`, name),
   };
   /* the repo's name, as the window says it: its project root's, never a worktree directory's */
-  const repoLabel = () => repoName(data.repoRoot()) || data.host();
+  const repoLabel = () => repoName(repoRoot()) || data.host();
   /* the phone's sheet is headed by the thread, as the prototype's details sheet is */
   const sheetHeading = {
-    get title() { return data.title(); },
+    get title() { return title(); },
     get sub() { return `${repoLabel()}, on ${data.host()}`; },
   };
   const turnsData: TurnsData = {
@@ -717,7 +822,7 @@ export function Stage(props: StageProps) {
     label: (t) => turnLabel(t),
     goTo,
   };
-  const openAgent = (childKey: string) => { setPanel(null); if (props.onOpenAgent) props.onOpenAgent(childKey); else openThread(childKey); };
+  const openAgent = (childKey: string, name?: string) => { setPanel(null); if (props.onOpenAgent) props.onOpenAgent(childKey, name); else openThread(childKey); };
   const toggleThinking = () => { const next = thinking() === "open" ? "rows" : "open"; setThinking(next); prefs.set(THINKING_KEY, next); };
 
   const tone = () => (props.colour ? toneOfColour(props.colour) : data.tone());
@@ -782,11 +887,80 @@ export function Stage(props: StageProps) {
   onCleanup(() => { cancelAnimationFrame(growFrame); clearTimeout(growTimer); });
   createEffect(() => { if (data.more() && state.focus && state.focus.thread === key()) data.all(); });
 
+  /* ---------- the menu's compact and copy link ---------- */
+  /* one compaction per thread: the composer's plus menu and this share the store's state (compact.ts), and the composer's card shows it */
+  const compaction = () => state.composer.compacting[key()];
+  const compacting = () => compaction()?.state === "running";
+  /* the daemon refuses a thread with a turn running, and nothing reaches it while the stream is down */
+  const compactBlocked = () => compacting() || data.working() || state.stream.state === "down";
+  const compactNow = () => {
+    setMenuOpen(false);
+    if (compactBlocked()) return;
+    void compactThread(data.host(), key().slice(data.host().length + 1));
+  };
+  /** the receipt of a copied link, held as long as a copy control's (copy.ts) */
+  const [linkCopied, setLinkCopied] = createSignal<"copied" | "refused" | null>(null);
+  let linkTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(linkTimer));
+  /* the link names the turn in view, else the newest, as the url does (shell/routes.ts). copied in the tap's own call: on ios the
+     textarea way is allowed only there (copy.ts) */
+  const copyLink = () => {
+    setMenuOpen(false);
+    const at = turnAtLine(turnEls())?.dataset["turn"] ?? data.turns().at(-1)?.id;
+    const url = new URL(location.pathname, location.origin);
+    url.searchParams.set("thread", key());
+    if (at) url.searchParams.set("at", at);
+    void copyText(url.toString()).then((ok) => {
+      setLinkCopied(ok ? "copied" : "refused");
+      clearTimeout(linkTimer);
+      linkTimer = setTimeout(() => setLinkCopied(null), ok ? COPIED_MS : REFUSED_MS);
+    });
+  };
+
+  /* ---------- the turn keys (docs/thread.md, navigation; the ios app's ThreadKeys) ---------- */
+  const backable = () => props.deck !== false || parentKey() !== null;
+  const goBack = (event: Event) => (props.onBack ? props.onBack(event) : parentKey() ? openThread(parentKey() as string) : closeThread());
+  /** the next prompt below the line under the bar, or the last one above it */
+  const stepTurn = (by: 1 | -1) => {
+    const els = new Map(turnEls().map((e) => [e.dataset["turn"], e]));
+    const line = scroller.scrollTop + 72;
+    const placed = prompts().flatMap((t) => { const el = els.get(t.id); return el ? [{ t, top: topOf(el) }] : []; });
+    const target = by > 0 ? placed.find((p) => p.top > line + 4) : placed.reverse().find((p) => p.top < line - 4);
+    if (target) goTo(target.t);
+  };
+  const togglePanel = (which: "turns" | "details") => (shown() === which ? openPanel(null) : enter(which));
+  const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // the stage on top only: one under another layer or the new-thread sheet is inert
+      if (e.defaultPrevented || e.isComposing || stageEl.closest("[inert]")) return;
+      if (!(MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
+      const typing = e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]") !== null;
+      const key_ = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      let act: (() => void) | null = null;
+      if (e.altKey && !e.shiftKey && (key_ === "ArrowDown" || key_ === "ArrowUp")) act = typing ? null : () => stepTurn(key_ === "ArrowDown" ? 1 : -1);
+      else if (e.altKey) act = null;
+      else if (!e.shiftKey && key_ === "ArrowDown") act = typing ? null : toBottom;
+      else if (!e.shiftKey && key_ === "i") act = () => togglePanel("details");
+      else if (e.shiftKey && key_ === "t") act = () => togglePanel("turns");
+      else if (!e.shiftKey && key_ === "." && data.working()) act = () => void stop();
+      else if (!e.shiftKey && key_ === "[" && !typing && backable()) act = () => goBack(e);
+      if (!act) return;
+      /* taken before anything else hears it: home moves between windows on ⌥↓ and ⌥↑ whatever else is held */
+      e.preventDefault();
+      e.stopPropagation();
+      act();
+    };
+    addEventListener("keydown", onKey, { capture: true });
+    onCleanup(() => removeEventListener("keydown", onKey, { capture: true }));
+  });
+  const mod = MAC ? "Meta" : "Control";
+
   return (
     <section
       ref={stageEl}
       class="thread-stage"
-      classList={{ wide: wide() }}
+      classList={{ wide: wide(), docks: docks() }}
       data-thread={key()}
       style={{ "--tone": tone().tone, "--window-top": tone().top, "--window-bottom": tone().bottom, "--keyboard": `${inset()}px` }}
     >
@@ -798,19 +972,28 @@ export function Stage(props: StageProps) {
             {/* only the deck has a back: at strip and rail the stage never empties (design.md, input; the route table).
                 an agent's stage has one everywhere: it sits over its parent, and back returns there */}
             <Show when={props.deck !== false || parentKey()}>
-              <button class="back" aria-label={parentKey() ? `back to ${parentTitle()}` : "back to all windows"} onClick={(event) => (props.onBack ? props.onBack(event) : parentKey() ? openThread(parentKey() as string) : closeThread())} />
+              <button class="back" aria-label={parentKey() ? `back to ${parentTitle()}` : "back to all windows"} aria-keyshortcuts={`${mod}+BracketLeft`} onClick={goBack} />
             </Show>
+            {props.barStart}
             <div class="stage-bar-title">
-              <b>{data.title()}</b>
+              <b>{title()}</b>
               <span><Show when={status().live}><i /></Show>{status().text}</span>
             </div>
+            {/* stop follows the title: once the status line has gone under the bar, the bar carries it, in reach at any scroll */}
+            <Show when={condensed() && data.working()}><button class="round bar-stop" aria-label="stop" aria-keyshortcuts={`${mod}+Period`} onClick={() => void stop()} disabled={stopping()}><i /></button></Show>
             <Show when={wide()}><DetailsToggle expanded={shown() === "details"} controls={panelId} shortcut={props.inspector !== undefined} onClick={toggleDetails} /></Show>
             <button ref={moreEl} class="round more" aria-label="thread menu" aria-expanded={menuOpen() ? "true" : "false"} aria-controls="stage-menu" onClick={() => setMenuOpen(!menuOpen())}><i /><i /><i /></button>
           </header>
-          <div id="stage-menu" class="menu" classList={{ on: menuOpen() }} inert={!menuOpen()} role="menu" aria-label="thread menu">
-            <button role="menuitem" onClick={() => { setMenuOpen(false); enter("turns"); }}>turns<em>{prompts().length}</em></button>
-            <button role="menuitem" onClick={() => { setMenuOpen(false); enter("details"); }}>details<em>{summaryOf(agents().length, changed().files.length)}</em></button>
+          {/* esc closes the menu and gives the keyboard back to its button, before home's esc (back) hears it */}
+          <div id="stage-menu" class="menu" classList={{ on: menuOpen() }} inert={!menuOpen()} role="menu" aria-label="thread menu" onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); setMenuOpen(false); moreEl.focus({ preventScroll: true }); } }}>
+            <button role="menuitem" aria-keyshortcuts={`${mod}+Shift+T`} onClick={() => { setMenuOpen(false); enter("turns"); }}>turns<em>{prompts().length}</em></button>
+            <button role="menuitem" aria-keyshortcuts={`${mod}+I`} onClick={() => { setMenuOpen(false); enter("details"); }}>details<em>{summaryOf(agents().length, changed().files.length)}</em></button>
+            <button role="menuitem" disabled={!agents().length} onClick={() => { setMenuOpen(false); enter("details"); }}>agents<em>{agents().length}</em></button>
             <button role="menuitemcheckbox" aria-checked={thinking() === "open" ? "true" : "false"} onClick={() => { setMenuOpen(false); toggleThinking(); }}>show thinking<em>{thinking() === "open" ? "on" : "off"}</em></button>
+            <div class="menu-sep" role="separator" />
+            <button role="menuitem" disabled={compactBlocked()} onClick={compactNow}>{compacting() ? "compacting" : "compact"}<em>summarise to free the context</em></button>
+            <button role="menuitem" onClick={copyLink}>copy link</button>
+            <div class="menu-sep" role="separator" />
             <Show
               when={confirming()}
               fallback={<button ref={archiveItem} role="menuitem" onClick={() => ask(true)}>archive</button>}
@@ -825,32 +1008,42 @@ export function Stage(props: StageProps) {
               </div>
             </Show>
           </div>
+          <Show when={linkCopied()}>{(c) => <p class="stage-receipt" role="status">{c() === "copied" ? "copied" : "could not copy. the address bar holds the same link"}</p>}</Show>
           <div ref={scroller} class="stage-scroll" onScroll={onScroll} onWheel={markTouched} onTouchStart={markTouched} onPointerDown={markTouched} onKeyDown={markTouched}>
             <div ref={threadEl} class="thread" classList={{ wide: wide() }} data-flip-root aria-label="transcript">
               <div ref={titleBlock} class="title-block">
-                <div class="tb-repo"><RepoMark host={data.host()} root={data.repoRoot()} name={repoLabel()} colour={colour()} size={20} /><span>{repoLabel()}<Show when={parentKey()}><span class="tb-parent">an agent of {parentTitle()}</span></Show></span></div>
-                <h1 class="tb-h1">{data.title()}</h1>
+                <div class="tb-repo"><RepoMark host={data.host()} root={repoRoot()} name={repoLabel()} colour={colour()} size={20} /><span>{repoLabel()}<Show when={parentKey()}><span class="tb-parent">an agent of {parentTitle()}</span></Show></span></div>
+                <h1 class="tb-h1">{title()}</h1>
                 <div class="tb-status" aria-live="polite">
                   <Show when={status().live}><i /></Show>
                   {/* a line about the agents opens them */}
                   <Show when={status().agents && agents().length} fallback={<span>{status().text}</span>}>
                     <button class="tb-agents" aria-controls={panelId} onClick={() => enter("details")}>{status().text}</button>
                   </Show>
-                  <Show when={data.working()}><button class="stop" onClick={() => void stop()} disabled={stopping()}>stop</button></Show>
+                  {/* under the bar it keeps its place (nothing above the reader moves) and leaves the reach, and the name, to the bar's:
+                      inert, so one stop is ever exposed, whichever line has it */}
+                  <Show when={data.working()}><button class="stop" classList={{ away: condensed() }} inert={condensed()} aria-keyshortcuts={`${mod}+Period`} onClick={() => void stop()} disabled={stopping()}>stop</button></Show>
                 </div>
                 <Show when={facts()}>{(line) => <FactsButton facts={line()} open={() => enter("details")} />}</Show>
               </div>
-              <Show when={!data.held() || (data.hydrating() && !data.turns().length)}><p class="stage-empty">reading the thread.</p></Show>
+              <Show when={showsNothing() || reading()}>
+                <Show when={reading()} fallback={<p class="stage-empty">reading the thread.</p>}>{(r) => (
+                  <div class="stage-trouble">
+                    <p role="status">{readingWords(r()).line} <span>{readingWords(r()).next}</span></p>
+                    <button class="stage-retry" aria-label="read the thread again" onClick={retryReading}>retry</button>
+                  </div>
+                )}</Show>
+              </Show>
               <Show when={data.held() && !data.hydrating() && !data.turns().length}><p class="stage-empty">nothing here yet.</p></Show>
               <AskContext.Provider value={actions}>
                 <MeasureContext.Provider value={measure}>
                   <NamesContext.Provider value={names}>
-                    <CachesContext.Provider value={threadCaches}><ThreadKeyContext.Provider value={key}><WindowContext.Provider value={win}><ChildWatchContext.Provider value={watchChild}><LandingContext.Provider value={still}><SettleContext.Provider value={settle}><FollowContext.Provider value={follow}><LiveTapeContext.Provider value={liveTape}>
-                      <OpenAgentContext.Provider value={(child) => openAgent(`${data.host()}:${child}`)}>
+                    <CachesContext.Provider value={threadCaches}><ThreadKeyContext.Provider value={key}><WindowContext.Provider value={win}><ChildWatchContext.Provider value={watchChild}><LandingContext.Provider value={still}><SettleContext.Provider value={settle}><FollowContext.Provider value={follow}>
+                      <OpenAgentContext.Provider value={(child, name) => openAgent(`${data.host()}:${child}`, name)}>
                         {/* turns are keyed by their id: the running turn is rebuilt as an object on every delta and must keep its dom, and turns come in above the first */}
                         <For each={data.ids()}>{(id) => { let last: Turn | undefined; const turn = (): Turn => (last = data.turnOf(id) ?? last) as Turn; return <TurnView turn={turn()} ctx={data.ctx()} live={isLive(turn())} now={data.now()} />; }}</For>
                       </OpenAgentContext.Provider>
-                    </LiveTapeContext.Provider></FollowContext.Provider></SettleContext.Provider></LandingContext.Provider></ChildWatchContext.Provider></WindowContext.Provider></ThreadKeyContext.Provider></CachesContext.Provider>
+                    </FollowContext.Provider></SettleContext.Provider></LandingContext.Provider></ChildWatchContext.Provider></WindowContext.Provider></ThreadKeyContext.Provider></CachesContext.Provider>
                   </NamesContext.Provider>
                 </MeasureContext.Provider>
               </AskContext.Provider>
@@ -858,9 +1051,16 @@ export function Stage(props: StageProps) {
               <Show when={reviewNeed() || reviewHeld()}>
                 <ReviewSlot Layer={ReviewLayer} box={setReviewBox} layer={{ client: api, motion: { play, fade: FADE, tick: TICK_DRAW }, host: data.host, session: () => key().slice(data.host().length + 1), need: reviewNeed, holding: setReviewHeld }} />
               </Show>
+              <div ref={watchFresh} class="stage-fresh" classList={{ on: freshness() !== null || freshRoom() > 0 }} style={{ "min-height": freshRoom() ? `${freshRoom()}px` : undefined }}>
+                <Show when={freshness()}>{(line) => <p role="status">{line()}</p>}</Show>
+              </div>
               {/* the transcript's end, for the composer's line: it shows the newest step only while this is out of view */}
               <div ref={transcriptEnd} class="thread-end" aria-hidden="true" />
             </div>
+            {/* the room kept under the end (`--hold`: a settle's, and the foot's while a turn plays). an element of its own, not the
+                scroller's padding: padding is the scroller's box, so its change came back to every observer of the scroller inside
+                the resize observer's own callback, and a flex item is never smaller than its padding */}
+            <div class="stage-room" aria-hidden="true" />
           </div>
           <div ref={rulerEl} class="ruler" classList={{ show: rulerShown(), drag: rulerDrag() !== null }} role="slider" aria-label="jump to a turn" aria-valuemin={1} aria-valuemax={prompts().length} aria-valuenow={cur() + 1} tabIndex={0} onPointerDown={rulerDown} onPointerMove={rulerMove} onPointerUp={rulerUp} onPointerCancel={rulerUp} style={{ "--gap": `${Math.max(4, Math.min(9, (scroller?.clientHeight ?? 600) / Math.max(1, prompts().length) - 0.5))}px` }}>
             <For each={prompts()}>{(t, j) => <b classList={{ "k-cur": j() === cur(), "k-ask": t.items.some((x) => x.k === "step" && x.family === "ask") }} />}</For>
@@ -873,17 +1073,22 @@ export function Stage(props: StageProps) {
             </div>
           )}</Show>
           <div class="stage-dock" data-slot="composer">
-            <Show when={newBelow() > 0}><button class="new-below" onClick={toBottom}>{plural(newBelow(), "new message")} below</button></Show>
+            {/* one control, not two: the round glass jump, with what came below as its count. it stays in the dom so it comes and goes by
+                opacity and scale and nothing under it moves */}
+            <button class="jump lg lg-press" classList={{ on: jumpShown() }} inert={!jumpShown()} aria-hidden={jumpShown() ? undefined : "true"} aria-label={newBelow() > 0 ? `jump to the latest, ${plural(newBelow(), "new message")} below` : "jump to the latest"} aria-keyshortcuts={`${mod}+ArrowDown`} onClick={toBottom}>
+              <i class="jump-g" aria-hidden="true" />
+              <Show when={newBelow() > 0}><b class="jump-n" aria-hidden="true">{newBelow() > 99 ? "99+" : newBelow()}</b></Show>
+            </button>
             <Show when={pinned()}>{(p) => <button class="pinned" aria-label={`wants you: ${p().text}. go to it`} onClick={() => toAsk(p().id)}><i /><span><b>wants you</b> {p().text}</span></button>}</Show>
             <Show when={reviewPinned()}>{(r) => <button class="pinned" data-kind="review" aria-label={r().name} onClick={toReview}><i /><span><b>ready to merge</b> {r().note}</span></button>}</Show>
             <Show when={splitKey(key())}>
-              {(place) => <Composer target={{ kind: "session", host: place().host, session: place().session, directory: data.directory() }} mount="bar" title={data.title()} onScreen={() => transcriptEnd} onSent={sent} agents={{ count: agents().length, open: () => enter("details") }} colour={colour()} />}
+              {(place) => <Composer target={{ kind: "session", host: place().host, session: place().session, directory: data.directory() }} mount="bar" title={title()} onScreen={() => transcriptEnd} onSent={sent} agents={{ count: agents().length, open: () => enter("details") }} colour={colour()} dropZone={() => stageEl} />}
             </Show>
           </div>
         </div>
         <Show when={!props.inspector}>
           <aside id={panelId} ref={panelEl} class="turns" classList={{ on: panel() !== null }} aria-label={lastPanel()} inert={panel() === null}>
-            <Panel which={lastPanel()} place={wide() ? "docked" : "sheet"} heading={sheetHeading} palette={tone()} details={detailsData} turns={turnsData} filling={data.more()} close={{ label: `close ${lastPanel()}`, run: () => showPanel(null) }} />
+            <Panel which={lastPanel()} place={docks() ? "docked" : "sheet"} heading={sheetHeading} palette={tone()} details={detailsData} turns={turnsData} filling={data.more()} close={{ label: `close ${lastPanel()}`, run: () => showPanel(null) }} />
           </aside>
         </Show>
       </div>
@@ -897,7 +1102,7 @@ export function Stage(props: StageProps) {
           )}</Show>
         </Portal>
       )}</Show>
-      <div class="scrim" classList={{ on: menuOpen() || (panel() !== null && !wide()) }} onClick={() => { setMenuOpen(false); if (!wide()) setPanel(null); }} />
+      <div class="scrim" classList={{ on: menuOpen() || (panel() !== null && !docks()) }} onClick={() => { setMenuOpen(false); if (!docks()) showPanel(null); }} />
     </section>
   );
 }

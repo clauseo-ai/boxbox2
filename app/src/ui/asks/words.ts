@@ -1,7 +1,7 @@
 /* what an ask says, read loosely from the daemon's request as it wrote
    it: a question's header, text and options, the words a window's preview
    uses for what is waiting, and the card's words for an answer that lost the
-   race. pure, so it is tested without a browser. the card that answers is the thread's (ui/thread/thread.tsx);
+   race. pure, so it is tested without a browser. the card that answers is ui/asks/card.tsx, drawn by the thread and by home;
    a window only says that an ask is there and opens the thread to it. */
 
 import type { Ask } from "../../sync/protocol";
@@ -42,7 +42,7 @@ const counted = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? ""
 /** the quiet line under a window's preview: what is waiting, in the fewest words. a permission has only its three
     replies; a question says how many questions, or how many options, or that only words will do */
 export function waitingWords(ask: Ask): string {
-  // the card's own words for its three replies (thread.tsx, PermissionCard)
+  // the card's own words for its three replies (card.tsx, PermissionCard)
   if (ask.kind === "permission") return "allow once, always allow or deny";
   const questions = questionsOf(ask);
   if (questions.length > 1) return counted(questions.length, "question");

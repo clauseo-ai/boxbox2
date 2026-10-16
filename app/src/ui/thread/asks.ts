@@ -3,10 +3,14 @@
    retry, so a flaky network cannot answer twice (cmx2-asks a4). the send
    is honest: the card shows the reply as sent only when the daemon took it,
    and `perf.send` is stamped when the ask leaves the fleet's list, never
-   from the local call. */
+   from the local call. a reply the daemon took, or one that lost the race
+   to another device, leaves this device's record of it (sync/replies.ts),
+   which the settled row reads for who answered and when. */
 
 import { api } from "../../api/client";
-import { deviceIdentity, emit } from "../../sync/client";
+import { deviceIdentity, emit, keepReply } from "../../sync/client";
+import { type Replied, replyOf } from "../../sync/replies";
+import { state } from "../../store";
 import { type AskOutcome, outcomeOf } from "./outcome";
 import type { AskActions } from "./thread";
 
@@ -51,10 +55,14 @@ export function settled(askID: string, session: string): void {
   emit("perf.send", { verb: "reply", retries: held.retries }, { ok: true, ms: Math.round(performance.now() - held.startedAt), surface: "thread", session });
 }
 
-async function call(askID: string, send: () => Promise<Answer>): Promise<AskOutcome> {
+async function call(host: string, askID: string, replied: Replied, send: () => Promise<Answer>): Promise<AskOutcome> {
   begin(askID);
+  /* the ask as the fleet holds it now: it leaves the list once settled, perhaps before the answer is back */
+  const ask = state.fleet.asks[`${host}:${askID}`];
   try {
     const outcome = outcomeOf(await send());
+    const record = replyOf(ask, replied, outcome, Date.now());
+    if (record) keepReply(record);
     if (!outcome.ok && !outcome.settled) failed(askID);
     if (!outcome.ok && outcome.settled) replies.delete(askID);
     return outcome;
@@ -67,8 +75,8 @@ async function call(askID: string, send: () => Promise<Answer>): Promise<AskOutc
 export function askActions(host: () => string): AskActions {
   const path = (askID: string) => ({ params: { path: { host: host(), ask: askID } } });
   return {
-    answer: (askID, answers) => call(askID, () => api.POST("/api/hosts/{host}/questions/{ask}", { ...path(askID), body: { ...deviceIdentity(), clientID: clientIdFor(askID, "answer"), answers } })),
-    reject: (askID) => call(askID, () => api.POST("/api/hosts/{host}/questions/{ask}/reject", { ...path(askID), body: { ...deviceIdentity(), clientID: clientIdFor(askID, "reject") } })),
-    permit: (askID, reply, message) => call(askID, () => api.POST("/api/hosts/{host}/permissions/{ask}", { ...path(askID), body: { ...deviceIdentity(), clientID: clientIdFor(askID, reply), reply, message: message ?? null } })),
+    answer: (askID, answers) => call(host(), askID, { k: "answers", answers }, () => api.POST("/api/hosts/{host}/questions/{ask}", { ...path(askID), body: { ...deviceIdentity(), clientID: clientIdFor(askID, "answer"), answers } })),
+    reject: (askID) => call(host(), askID, { k: "dismissed" }, () => api.POST("/api/hosts/{host}/questions/{ask}/reject", { ...path(askID), body: { ...deviceIdentity(), clientID: clientIdFor(askID, "reject") } })),
+    permit: (askID, reply, message) => call(host(), askID, { k: "permit", reply, ...(message ? { message } : {}) }, () => api.POST("/api/hosts/{host}/permissions/{ask}", { ...path(askID), body: { ...deviceIdentity(), clientID: clientIdFor(askID, reply), reply, message: message ?? null } })),
   };
 }

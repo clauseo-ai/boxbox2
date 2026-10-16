@@ -1,0 +1,62 @@
+/* the mic key and the recorder (docs/composer.md, recording; docs/design.md, motion: recording a voice note, and red for
+   recording). the key is one 44 px box whose face crosses between the mic, the hot mic and send in the fade curve, so
+   nothing moves; held, it grows to 52 by `scale` on the snap spring, filled with --rec and a 7 px halo drawn once. --rec is
+   used only while the microphone captures. */
+
+.cz-voice .cz-body { align-items: flex-end; }
+.cz-voice .cz-key.plus[data-dim] { opacity: 0.4; pointer-events: none; }
+
+.cz-voice .rec-keybox { position: relative; flex: none; width: 44px; height: 44px; }
+.cz-voice .rec-key { position: absolute; inset: 0; padding: 0; border-radius: 22px; touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+.cz-voice .rec-face {
+  position: absolute; inset: 0; border-radius: 22px; display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent); box-shadow: var(--cz-raise-disc);
+  transition: background-color var(--fade-t, 120ms ease), color var(--fade-t, 120ms ease), scale var(--snap-t, 0ms linear), box-shadow var(--fade-t, 120ms ease);
+}
+.cz-voice .rec-g { grid-area: 1 / 1; width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: opacity var(--fade-t, 120ms ease); }
+.cz-voice .rec-g-mic { opacity: 0; stroke-width: 1.9; }
+/* the mic at rest: the plus key's quiet material and the first ink, never the accent beside an empty field */
+.cz-voice .rec-key[data-face="mic"] .rec-face { background: var(--cz-fill-key); color: color-mix(in srgb, var(--cz-ink-1) calc(var(--L) * 100%), rgb(244 244 246 / 0.82)); box-shadow: var(--cz-edge-key); }
+.cz-voice .rec-key:is([data-face="mic"], [data-face="hot"]) .rec-g-mic { opacity: 1; }
+.cz-voice .rec-key:is([data-face="mic"], [data-face="hot"]) .rec-g-send { opacity: 0; }
+.cz-voice .rec-key[data-face="hot"] .rec-face { background: var(--rec); color: #fff; scale: 1.18; box-shadow: 0 0 0 7px color-mix(in srgb, var(--rec) 20%, transparent); }
+.cz-voice .rec-key:disabled .rec-face { background: color-mix(in srgb, color-mix(in srgb, var(--p1) 9%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.1)); color: color-mix(in srgb, color-mix(in srgb, var(--cz-text) 40%, transparent) calc(var(--L) * 100%), rgb(244 244 246 / 0.4)); box-shadow: none; }
+@media (hover: hover) and (pointer: fine) {
+  .cz-voice .rec-key[data-face="mic"]:hover .rec-face { background: var(--cz-hover-key); color: var(--cz-text); }
+}
+.cz-voice .rec-key:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* the lock: a glass capsule 36 x 76 risen 12 px above the key, its track filling with the drag; a button too */
+.cz-voice .rec-lock {
+  position: absolute; left: 4px; bottom: calc(100% + 12px); width: 36px; height: 76px; padding: 0 0 10px; border-radius: 18px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end; overflow: hidden;
+  background: var(--glass-deep); box-shadow: var(--glass-edge), var(--lift); color: var(--cz-text);
+  animation: rec-rise var(--snap-t, 0ms linear) both;
+}
+.cz-voice .rec-lock svg { position: relative; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cz-voice .rec-lock-track { position: absolute; inset: 0; background: color-mix(in srgb, var(--accent) 30%, transparent); transform-origin: bottom; transform: scaleY(var(--fill, 0)); }
+@keyframes rec-rise { from { transform: translateY(12px); opacity: 0; } }
+
+/* the top row while recording: the red dot, the timer (mono 15 px 600 tabular) and the live waveform */
+.cz-voice .rec-top { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; height: 100%; padding-right: 10px; }
+.cz-voice .rec-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--cz-dim); }
+.cz-voice .rec-dot[data-on] { background: var(--rec); }
+.cz-voice .rec-timer { flex: none; font-family: var(--mono); font-stretch: 90%; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--cz-text); }
+.cz-voice .rec-left { flex: none; font-size: 12.5px; color: var(--cz-dim); }
+.cz-voice .rec-wave { position: relative; flex: 1; min-width: 0; height: 28px; overflow: hidden; color: var(--cz-text); }
+.cz-voice .rec-wave canvas { position: absolute; left: 0; top: 0; display: block; }
+.cz-voice .rec-note { margin: 2px 18px 6px; font-size: 12.5px; color: var(--cz-dim); }
+
+/* where the words were: "slide to cancel" following the finger, or "cancel" once locked */
+.cz-voice .rec-mid { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; justify-content: flex-end; padding-right: 10px; }
+.cz-voice .rec-slide { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; color: var(--cz-dim); will-change: transform, opacity; }
+.cz-voice .rec-slide svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cz-voice .rec-cancel { min-height: 44px; padding: 0 12px; font-size: 15px; font-weight: 600; color: var(--cz-text); border-radius: 14px; }
+@media (hover: hover) and (pointer: fine) {
+  .cz-voice .rec-cancel:hover { background: var(--cz-hover-key); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cz-voice .rec-key[data-face="hot"] .rec-face { scale: 1; }
+  .cz-voice .rec-lock { animation: none; }
+}

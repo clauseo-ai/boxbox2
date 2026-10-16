@@ -1,0 +1,64 @@
+/* an ask's card (card.tsx): pressed into the row that holds it in the thread, or into home's answer sheet, its options pressed too,
+   the first one filled. it reads only the page's and the stage's tokens (--well, --accent, --text, ...), sets its own sizes, and
+   undoes the app's button defaults itself, so it looks the same wherever it is drawn */
+:where(.ask-card) button { min-height: 0; border-radius: 0; padding: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; -webkit-touch-callout: none; transition: none; }
+.ask-card :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+.ask-card { display: grid; gap: 12px; border-radius: 14px; outline: none; }
+/* the page's own focus ring (styles.css) would draw a second box on the card: the row's is the one */
+.ask-card:focus-visible { outline: none; }
+/* grid children default to their content's width; everything in a card is held to the card */
+.ask-card, .ask-card > *, .ask-q, .ask-line, .ask-input { min-width: 0; }
+/* several questions in one ask: each is a block of its own, told apart by a hairline, and the one "answer" sends them all */
+.ask-q { display: grid; gap: 12px; }
+.ask-q + .ask-q { padding-top: 12px; border-top: 1px solid var(--hairline); }
+.ask-h { margin: 0; font-size: 12.5px; font-weight: 620; color: var(--accent); }
+.ask-t { margin: 0; font-size: 15px; line-height: 1.4; font-weight: 520; overflow-wrap: anywhere; }
+.ask-send { justify-self: end; }
+.ask-opts { display: grid; gap: 7px; }
+.ask-opt { overflow-wrap: anywhere; text-align: left; border-radius: 14px; padding: 12px 14px; min-height: 46px; font-size: 15px; background: var(--well); box-shadow: var(--well-edge); display: grid; }
+.ask-opt small { font-size: 12.5px; color: var(--text-2); margin-top: 2px; line-height: 1.35; }
+.ask-opt.first { background: var(--accent); color: var(--on-accent); font-weight: 620; box-shadow: 0 8px 20px -8px color-mix(in srgb, color-mix(in srgb, var(--window-bottom) 55%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.6)), inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.2) calc(var(--L) * 100%), transparent); }
+.ask-opt.first small { color: var(--on-accent); opacity: 0.75; font-weight: 450; }
+.ask-opt:disabled { cursor: default; }
+.ask-opt:disabled:not([aria-pressed="true"]) { opacity: 0.45; }
+.ask-opt[aria-pressed="true"]:not(.first) { box-shadow: inset 0 0 0 1.5px var(--accent), var(--well-edge); }
+.ask-line { display: flex; gap: 8px; align-items: center; }
+/* 16 px or larger on touch, or ios zooms the page on focus (decision 19) */
+.ask-input { flex: 1; min-width: 0; font: inherit; font-size: max(16px, 1rem); color: var(--text); min-height: 44px; padding: 0 14px; border-radius: 14px; border: 1px solid var(--hairline); background: var(--well); box-shadow: var(--well-edge); }
+.ask-input::placeholder { color: var(--text-3); }
+.ask-input:disabled { opacity: 0.5; }
+.ask-go { flex: none; min-height: 44px; padding: 0 16px; border-radius: 14px; background: var(--well); box-shadow: var(--well-edge); font-weight: 620; font-size: 14px; }
+.ask-go:disabled { opacity: 0.4; cursor: default; }
+.ask-foot { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; min-height: 20px; font-size: 13px; }
+.ask-foot:empty { display: none; }
+.ask-sent { color: var(--accent); }
+.ask-note { color: var(--text-2); font-size: 13px; }
+.ask-problem { color: var(--red); font-size: 13px; text-align: left; }
+.ask-quiet { color: var(--text-3); font-size: 13px; padding: 4px 0; }
+@media (hover: hover) { .ask-quiet:hover { color: var(--text-2); } }
+.ask-ans { font-size: 13.5px; color: var(--text-2); }
+.ask-what { font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
+.ask-what b { color: var(--text); font-weight: 560; }
+
+/* a settled question's record: the answer behind the accent's dot (the card's lit option, settled), where and when under it, and the
+   options as they were offered one tap away. the second ink for the words around the answer, the full ink for the answer */
+.ask-record { display: grid; gap: 8px; justify-items: start; }
+.ask-rec-said { display: grid; gap: 4px; }
+.ask-rec-lead { margin: 0; font-size: 13px; line-height: 18px; color: var(--text-2); overflow-wrap: anywhere; }
+.ask-rec-lead.lit { position: relative; padding-left: 14px; }
+.ask-rec-lead.lit::before { content: ""; position: absolute; left: 0; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.ask-rec-lead b { color: var(--text); font-weight: 640; }
+.ask-permit { display: grid; gap: 2px; }
+.ask-rec-facts { margin: 0; font-size: 12px; line-height: 16px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.ask-rec-opts { display: grid; gap: 12px; width: 100%; }
+.ask-rec-q { display: grid; gap: 6px; }
+.ask-rec-q + .ask-rec-q { padding-top: 12px; border-top: 1px solid var(--hairline); }
+.ask-rec-q ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.ask-rec-q li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 8px; align-items: baseline; font-size: 13.5px; line-height: 19px; color: var(--text-2); overflow-wrap: anywhere; }
+.ask-rec-q li i { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--text) 34%, transparent); transform: translateY(1px); }
+.ask-rec-q li.chosen { color: var(--text); }
+.ask-rec-q li.chosen i { background: var(--accent); box-shadow: none; }
+.ask-rec-q li small { font-family: var(--mono); font-stretch: 90%; font-size: 10.5px; color: var(--text-2); }
+.ask-rec-more { min-height: 32px; font-family: var(--mono); font-stretch: 90%; font-size: 11.5px; color: var(--text-2); border-radius: 8px; }
+@media (hover: hover) { .ask-rec-more:hover { color: var(--text); } }
+.ask-rec-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

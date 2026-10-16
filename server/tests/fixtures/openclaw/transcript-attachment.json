@@ -1,0 +1,226 @@
+{
+  "sessionKey": "agent:main:dashboard:a45fb618-10d0-48f1-9f1e-55a3190a0988",
+  "sessionId": "9d8d0ad5-9ced-4846-9a40-80ab1faa4261",
+  "messages": [
+    {
+      "role": "user",
+      "content": "here is a picture and a voice note",
+      "timestamp": 1792054855916,
+      "idempotencyKey": "64e3f593-1d8e-47db-8412-d563c6d09638:user",
+      "__openclaw": {
+        "senderIsOwner": true,
+        "transport": {
+          "clients": [
+            {
+              "id": "gateway-client",
+              "mode": "backend",
+              "displayName": "boxbox bench"
+            }
+          ]
+        },
+        "media": [
+          {
+            "url": "media://inbound/dot---0f385a3c-dee8-4622-a20c-0751d490c845.png",
+            "contentType": "image/png",
+            "kind": "image",
+            "fileName": "dot.png",
+            "sizeBytes": 73
+          },
+          {
+            "url": "media://inbound/note---e1daf4b8-3ee8-45c5-b243-c280d328efe4.ogg",
+            "contentType": "audio/ogg",
+            "kind": "audio",
+            "fileName": "note.ogg",
+            "sizeBytes": 6026,
+            "durationMs": 1207,
+            "hydrationSuppressed": true
+          }
+        ],
+        "mediaImageLayout": {
+          "slots": [
+            {
+              "kind": "inline",
+              "factIndex": 0
+            }
+          ]
+        },
+        "id": "60020da1-9942-40db-bfcf-c747248788d5",
+        "idempotencyKey": "64e3f593-1d8e-47db-8412-d563c6d09638:user",
+        "recordTimestampMs": 1792054861599,
+        "transcriptPosition": {
+          "source": "UMVPoK0_0JcDpo1Pmel_SJ31uRYwBWvKhHJGED_K-Xg",
+          "rawSeq": 1
+        },
+        "seq": 1
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "the gateway is real and only",
+          "textSignature": "{\"v\":1,\"id\":\"msg_e2e_1\"}"
+        }
+      ],
+      "api": "openai-responses",
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "input": 11,
+        "output": 7,
+        "totalTokens": 18,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop",
+      "timestamp": 1792054861765,
+      "responseId": "resp_e2e",
+      "diagnostics": [
+        {
+          "type": "openai_responses_terminal",
+          "timestamp": 1792054861780,
+          "details": {
+            "eventType": "response.completed",
+            "stopReason": "stop",
+            "endTurn": "absent"
+          }
+        }
+      ],
+      "__openclaw": {
+        "runId": "64e3f593-1d8e-47db-8412-d563c6d09638",
+        "id": "604d78cd-45b7-47b5-8b0c-02ea435151f9",
+        "recordTimestampMs": 1792054861782,
+        "transcriptPosition": {
+          "source": "UMVPoK0_0JcDpo1Pmel_SJ31uRYwBWvKhHJGED_K-Xg",
+          "rawSeq": 4
+        },
+        "seq": 2
+      }
+    }
+  ],
+  "hasMore": false,
+  "totalMessages": 2,
+  "pendingInputs": {
+    "items": [],
+    "total": 0,
+    "queuedCount": 0
+  },
+  "deltaCursor": "eyJhZ2VudElkIjoibWFpbiIsImdlbmVyYXRpb24iOiJmMzdlNjQ2NmViYjA0YWY1ODZkMWRmNmU3MDBkY2ZiOCIsImxhc3RTZXEiOjQsInNlc3Npb25JZCI6IjlkOGQwYWQ1LTljZWQtNDg0Ni05YTQwLTgwYWIxZmFhNDI2MSIsInZlcnNpb24iOjF9",
+  "defaults": {
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "contextTokens": 128000,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "modelSelectionTarget": "session"
+  },
+  "sessionInfo": {
+    "key": "agent:main:dashboard:a45fb618-10d0-48f1-9f1e-55a3190a0988",
+    "visibility": "shared",
+    "permissionModePending": false,
+    "spawnDepth": 0,
+    "createdVia": "operator",
+    "participants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "expandedParticipants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "participantCount": 1,
+    "createdAt": 1792054855842,
+    "kind": "direct",
+    "label": "record attachment 1792054855802",
+    "classification": "direct",
+    "agentId": "main",
+    "isMain": false,
+    "isBackground": false,
+    "displayName": "record attachment 1792054855802",
+    "chatType": "direct",
+    "updatedAt": 1792054861822,
+    "archived": false,
+    "pinned": false,
+    "unread": true,
+    "lastInteractionAt": 1792054861395,
+    "lastActivityAt": 1792054861820,
+    "sessionId": "9d8d0ad5-9ced-4846-9a40-80ab1faa4261",
+    "systemSent": true,
+    "abortedLastRun": false,
+    "effectiveFastMode": false,
+    "effectiveFastModeSource": "default",
+    "fastAutoOnSeconds": 60,
+    "totalTokensFresh": false,
+    "status": "running",
+    "startedAt": 1792054861759,
+    "endedAt": 1792054861820,
+    "runtimeMs": 61,
+    "lastRunId": "64e3f593-1d8e-47db-8412-d563c6d09638",
+    "parentSessionKey": "agent:main:main",
+    "effectiveResponseUsage": "off",
+    "effectiveQueueMode": "steer",
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "modelOverrideSource": null,
+    "runtimeSelectionLocked": false,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "contextTokens": 128000,
+    "snapshotAt": 1792054861837,
+    "placement": {
+      "state": "local",
+      "generation": 0,
+      "createdAtMs": 1792054861625,
+      "updatedAtMs": 1792054861817,
+      "stateChangedAtMs": 1792054861625
+    },
+    "activitySummary": {
+      "state": "unavailable",
+      "canEnsure": true
+    },
+    "sharingRole": "admin",
+    "sendDisabledReason": null,
+    "hasActiveRun": true,
+    "activeLeafEntryId": "604d78cd-45b7-47b5-8b0c-02ea435151f9"
+  }
+}

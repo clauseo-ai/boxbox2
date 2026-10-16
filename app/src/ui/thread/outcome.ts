@@ -11,7 +11,7 @@ export type AskOutcome =
 
 /** what boxbox's server writes for the device when the daemon did not say who answered (server/src/http/asks.rs): a placeholder, not
     a device, so the words treat it as no device named */
-const NOBODY = "someone";
+export const NOBODY = "someone";
 
 /** what an answer's response says: boxbox's refusal in words (server/src/http/error.rs), and who settled the ask first. it reads the
     refusal's `code`, which is stable, and not the status, which other refusals share: a 409 `already-sent` is a message sent twice,

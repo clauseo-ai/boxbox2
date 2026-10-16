@@ -94,8 +94,9 @@
   --win-lit: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.16));
   --win-rim: inset 0 0 0 1px color-mix(in srgb, color-mix(in srgb, var(--p1) 13%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.05));
   --win-edge: var(--win-lit), var(--win-rim);
-  /* the highlight falling from the top left */
-  --win-glow: color-mix(in srgb, rgb(255 255 255 / 0.7) calc(var(--L) * 100%), rgb(255 255 255 / 0.13));
+  /* the highlight falling from the top left: white on the light card; on the deep pair the repo's own light tone at 13%,
+     so the corner lifts in the window's colour (white greyed it into a milky haze) */
+  --win-glow: color-mix(in srgb, rgb(255 255 255 / 0.7) calc(var(--L) * 100%), color-mix(in srgb, var(--p3) 13%, transparent));
   /* a quiet fill resting on the window (a chip, a key hint, a hovered word): the light tone's ink on the dark pair, the
      deep colour at a few percent on the light card, so it takes the window's hue rather than reading grey */
   --win-fill: color-mix(in srgb, color-mix(in srgb, var(--p1) 9%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.1));
@@ -140,6 +141,8 @@
   --hairline: color-mix(in srgb, rgb(16 17 20 / 0.1) calc(var(--L) * 100%), rgb(255 255 255 / 0.08));
   /* red means failure and nothing else */
   --red: color-mix(in srgb, #ad2323 calc(var(--L) * 100%), #ff6b6b);
+  /* the one other red, and only while it is true: a microphone that is capturing (design.md, red for recording) */
+  --rec: color-mix(in srgb, #c42b2b calc(var(--L) * 100%), #ff4f4f);
   /* the agent's prose: a touch under full ink, so the bubble and the titles stay the loudest words */
   --prose: color-mix(in srgb, rgb(16 17 20 / 0.9) calc(var(--L) * 100%), rgb(255 255 255 / 0.93));
   /* diff lines and +/- counts; each holds 4.5:1 on every stop of its appearance's flood and on a bed laid over it
@@ -172,6 +175,101 @@
   --focus: color-mix(in srgb, #34298a calc(var(--L) * 100%), #b7abff);
 }
 
+/* liquid glass (design.md, depth: the layer of controls): what floats over content and is touched, home's bar and fold
+   controls, the dock, the composer, the jump to the latest. not windows, sheets or menus, which keep their materials.
+   two variants, as the system's: regular, a lens that frosts what is under it enough to read a control on any ground;
+   clear, a thin lens that bends and brightens what is under it and leaves it legible (the composer over the log, which
+   lays its own shade behind its words). each is a fill, a backdrop filter, a rim (a specular top, a lit foot where the
+   lens gathers light, a hairline that holds the shape) and a short drop. a surface takes `.lg` (and `.clear`), or reads
+   the tokens itself; `--lg-tint` with `--lg-tint-mix` washes a colour into the fill (the dock's repo, the capsule's
+   asking window). under reduced transparency or without backdrop-filter the glass is the solid material it stands in
+   for (`--lg-solid`), the same shape, as the native app's BoxboxGlass falls back */
+:root {
+  --lg-fill: color-mix(in srgb, rgb(255 255 255 / 0.56) calc(var(--L) * 100%), rgb(38 40 48 / 0.46));
+  --lg-filter: blur(14px) saturate(1.8) brightness(calc(1 + var(--L) * 0.04));
+  --lg-clear-fill: color-mix(in srgb, rgb(255 255 255 / 0.14) calc(var(--L) * 100%), rgb(255 255 255 / 0.05));
+  --lg-clear-filter: blur(3px) saturate(1.6) brightness(calc(1.06 - var(--L) * 0.02));
+  --lg-rim: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.22)),
+    inset 0 -1px 0 color-mix(in srgb, rgb(255 255 255 / 0.5) calc(var(--L) * 100%), rgb(255 255 255 / 0.08)),
+    inset 0 0 0 0.5px color-mix(in srgb, rgb(16 17 20 / 0.1) calc(var(--L) * 100%), rgb(255 255 255 / 0.14));
+  --lg-drop: 0 8px 22px -10px color-mix(in srgb, rgb(16 17 20 / 0.28) calc(var(--L) * 100%), rgb(0 0 0 / 0.6)),
+    0 1px 2px color-mix(in srgb, rgb(16 17 20 / 0.08) calc(var(--L) * 100%), rgb(0 0 0 / 0.3));
+  /* the press: the lens swells and a light gathers under the finger */
+  --lg-press-scale: 1.06;
+  --lg-press-light: color-mix(in srgb, rgb(255 255 255 / 0.55) calc(var(--L) * 100%), rgb(255 255 255 / 0.16));
+  /* the solid material a lens falls back to: the page's quiet raised fill, opaque */
+  --lg-solid: color-mix(in srgb, #fdfdfc calc(var(--L) * 100%), #23252c);
+  --lg-solid-clear: color-mix(in srgb, #fbfbfa calc(var(--L) * 100%), #1b1d23);
+}
+
+.lg {
+  background: color-mix(in srgb, var(--lg-tint, transparent) var(--lg-tint-mix, 0%), var(--lg-fill));
+  -webkit-backdrop-filter: var(--lg-filter);
+  backdrop-filter: var(--lg-filter);
+  box-shadow: var(--lg-rim), var(--lg-drop);
+}
+
+.lg.clear {
+  background: color-mix(in srgb, var(--lg-tint, transparent) var(--lg-tint-mix, 0%), var(--lg-clear-fill));
+  -webkit-backdrop-filter: var(--lg-clear-filter);
+  backdrop-filter: var(--lg-clear-filter);
+}
+
+/* an interactive lens: the press is the glass's own, a swell and a light, never a second dim on top. the light is a
+   layer of its own so only opacity animates; :where keeps the element's own position (a fixed dock, an absolute key) */
+:where(.lg-press) {
+  position: relative;
+}
+
+.lg-press {
+  transition: transform var(--press-t), opacity var(--fade-t);
+}
+
+.lg-press::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(closest-side, var(--lg-press-light), transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--press-t);
+}
+
+.lg-press:active:not(:disabled) {
+  transform: scale(var(--lg-press-scale));
+  opacity: var(--lg-press-dim, 1);
+}
+
+.lg-press:active:not(:disabled)::after {
+  opacity: 1;
+}
+
+/* the solid material: reduced transparency asks for it, and a browser without backdrop-filter could only draw a
+   translucent fill over an unbent page. the tokens themselves turn solid, so a surface that reads them rather than
+   wearing `.lg` falls back too. a solid lens cannot swell or light, so the press dims it as the system's solid buttons do */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --lg-fill: var(--lg-solid);
+    --lg-clear-fill: var(--lg-solid-clear);
+    --lg-filter: none;
+    --lg-clear-filter: none;
+    --lg-press-scale: 1;
+    --lg-press-light: transparent;
+    --lg-press-dim: 0.6;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --lg-fill: var(--lg-solid);
+    --lg-clear-fill: var(--lg-solid-clear);
+    --lg-press-scale: 1;
+    --lg-press-light: transparent;
+    --lg-press-dim: 0.6;
+  }
+}
+
 /* the stage's tokens: the repo's palette (--tone, --window-top, --window-bottom,
    which the stage, the details panel and a story set on themselves) read for the
    appearance. dark, the thread floods with the deep pair and its accents are the
@@ -181,7 +279,7 @@
    (ink, hairlines, quiet fills, the glass's edge, shadows), so nothing on the
    stage reads as the page's grey; each one is exactly the page's dark value at
    --L: 0 */
-:where(.thread-stage, .thread, .details, .stage-sample, .cz-story-stage) {
+:where(.thread-stage, .thread, .details, .stage-sample, .cz-story-stage, .as-stage) {
   /* a word, a glyph or a mark in the repo's colour, and a fill for the primary control with the ink on it */
   --accent: color-mix(in srgb, var(--window-top) calc(var(--L) * 100%), var(--tone));
   --on-accent: color-mix(in srgb, #f4f4f6 calc(var(--L) * 100%), var(--window-bottom));

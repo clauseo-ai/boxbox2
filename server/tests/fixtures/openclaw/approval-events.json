@@ -1,0 +1,94 @@
+[
+  {
+    "type": "event",
+    "event": "exec.approval.requested",
+    "payload": {
+      "approvalKind": "exec",
+      "id": "894c24c3-0ce0-4b3d-92e7-3045f0841f9d",
+      "request": {
+        "command": "echo bench-approval",
+        "systemRunBinding": null,
+        "systemRunPlan": null,
+        "cwd": "/bench/checkout/.openclaw/bench/work/main",
+        "nodeId": null,
+        "host": "gateway",
+        "security": "allowlist",
+        "ask": "on-miss",
+        "warningText": null,
+        "scope": null,
+        "commandAnalysis": {
+          "commandCount": 1,
+          "nestedCommandCount": 0,
+          "riskKinds": [],
+          "warningLines": []
+        },
+        "allowedDecisions": [
+          "allow-once",
+          "allow-always",
+          "deny"
+        ],
+        "agentId": "main",
+        "resolvedPath": "/bin/echo",
+        "sessionKey": "agent:main:dashboard:db26502e-19af-4446-a71e-7741ea8c9bd9",
+        "sessionId": null,
+        "runId": "6b39f387-249b-4d09-af60-c17589e2bb81",
+        "toolCallId": "call_bench_mv9b75nr_16|fc_bench_mv9b75nr_16",
+        "turnSourceChannel": "webchat",
+        "turnSourceTo": "agent:main:dashboard:db26502e-19af-4446-a71e-7741ea8c9bd9",
+        "turnSourceAccountId": null,
+        "turnSourceThreadId": null,
+        "cronExecutionSource": null,
+        "cronOperationBinding": null
+      },
+      "createdAtMs": 1792054868169,
+      "expiresAtMs": 1792056668169
+    },
+    "seq": 222
+  },
+  {
+    "type": "event",
+    "event": "exec.approval.resolved",
+    "payload": {
+      "id": "894c24c3-0ce0-4b3d-92e7-3045f0841f9d",
+      "decision": "allow-once",
+      "resolvedBy": "boxbox bench",
+      "ts": 1792054868178,
+      "request": {
+        "command": "echo bench-approval",
+        "systemRunBinding": null,
+        "systemRunPlan": null,
+        "cwd": "/bench/checkout/.openclaw/bench/work/main",
+        "nodeId": null,
+        "host": "gateway",
+        "security": "allowlist",
+        "ask": "on-miss",
+        "warningText": null,
+        "scope": null,
+        "commandAnalysis": {
+          "commandCount": 1,
+          "nestedCommandCount": 0,
+          "riskKinds": [],
+          "warningLines": []
+        },
+        "allowedDecisions": [
+          "allow-once",
+          "allow-always",
+          "deny"
+        ],
+        "agentId": "main",
+        "resolvedPath": "/bin/echo",
+        "sessionKey": "agent:main:dashboard:db26502e-19af-4446-a71e-7741ea8c9bd9",
+        "sessionId": null,
+        "runId": "6b39f387-249b-4d09-af60-c17589e2bb81",
+        "toolCallId": "call_bench_mv9b75nr_16|fc_bench_mv9b75nr_16",
+        "turnSourceChannel": "webchat",
+        "turnSourceTo": "agent:main:dashboard:db26502e-19af-4446-a71e-7741ea8c9bd9",
+        "turnSourceAccountId": null,
+        "turnSourceThreadId": null,
+        "cronExecutionSource": null,
+        "cronOperationBinding": null
+      }
+    },
+    "seq": 224
+  }
+]

@@ -1,0 +1,334 @@
+{
+  "sessionKey": "agent:main:dashboard:db26502e-19af-4446-a71e-7741ea8c9bd9",
+  "sessionId": "f1b7b245-9bbf-4396-811a-a5f0bace9dde",
+  "messages": [
+    {
+      "role": "user",
+      "content": "run the bench command",
+      "timestamp": 1792054867818,
+      "idempotencyKey": "6b39f387-249b-4d09-af60-c17589e2bb81:user",
+      "__openclaw": {
+        "senderIsOwner": true,
+        "transport": {
+          "clients": [
+            {
+              "id": "gateway-client",
+              "mode": "backend",
+              "displayName": "boxbox bench"
+            }
+          ]
+        },
+        "id": "0b0ae52a-bfba-4ded-b009-6c544805f3f0",
+        "idempotencyKey": "6b39f387-249b-4d09-af60-c17589e2bb81:user",
+        "recordTimestampMs": 1792054868014,
+        "transcriptPosition": {
+          "source": "KVCiURm1OtcedXkhTRsVTWfDg_rBDeqTmkGovAVZOZ8",
+          "rawSeq": 1
+        },
+        "seq": 1
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "toolCall",
+          "id": "call_bench_mv9b75nr_16|fc_bench_mv9b75nr_16",
+          "name": "exec",
+          "arguments": {
+            "command": "echo bench-approval"
+          }
+        }
+      ],
+      "api": "openai-responses",
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "input": 64,
+        "output": 16,
+        "totalTokens": 80,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "toolUse",
+      "timestamp": 1792054868143,
+      "responseId": "resp_bench_mv9b75nr_16",
+      "diagnostics": [
+        {
+          "type": "openai_responses_terminal",
+          "timestamp": 1792054868151,
+          "details": {
+            "eventType": "response.completed",
+            "stopReason": "toolUse",
+            "endTurn": "absent"
+          }
+        }
+      ],
+      "__openclaw": {
+        "runId": "6b39f387-249b-4d09-af60-c17589e2bb81",
+        "id": "5033fb28-7666-4024-9f19-f7f7e293d418",
+        "recordTimestampMs": 1792054868152,
+        "transcriptPosition": {
+          "source": "KVCiURm1OtcedXkhTRsVTWfDg_rBDeqTmkGovAVZOZ8",
+          "rawSeq": 4
+        },
+        "seq": 2
+      }
+    },
+    {
+      "role": "toolResult",
+      "toolCallId": "call_bench_mv9b75nr_16|fc_bench_mv9b75nr_16",
+      "toolName": "exec",
+      "content": [
+        {
+          "type": "text",
+          "text": "bench-approval"
+        }
+      ],
+      "isError": false,
+      "timestamp": 1792054868201,
+      "__openclaw": {
+        "runId": "6b39f387-249b-4d09-af60-c17589e2bb81",
+        "id": "4c2f7bfe-60e5-4679-9540-b9906756fce0",
+        "recordTimestampMs": 1792054868201,
+        "transcriptPosition": {
+          "source": "KVCiURm1OtcedXkhTRsVTWfDg_rBDeqTmkGovAVZOZ8",
+          "rawSeq": 5
+        },
+        "seq": 3
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "the command ran, or was refused; either way the turn is over.",
+          "textSignature": "{\"v\":1,\"id\":\"msg_e2e_1\"}"
+        }
+      ],
+      "api": "openai-responses",
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "input": 11,
+        "output": 7,
+        "totalTokens": 18,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop",
+      "timestamp": 1792054868214,
+      "responseId": "resp_e2e",
+      "diagnostics": [
+        {
+          "type": "openai_responses_terminal",
+          "timestamp": 1792054868221,
+          "details": {
+            "eventType": "response.completed",
+            "stopReason": "stop",
+            "endTurn": "absent"
+          }
+        }
+      ],
+      "__openclaw": {
+        "runId": "6b39f387-249b-4d09-af60-c17589e2bb81",
+        "id": "da30dfc8-1a22-4092-9123-4619bd9a3360",
+        "recordTimestampMs": 1792054868223,
+        "transcriptPosition": {
+          "source": "KVCiURm1OtcedXkhTRsVTWfDg_rBDeqTmkGovAVZOZ8",
+          "rawSeq": 7
+        },
+        "seq": 4
+      }
+    }
+  ],
+  "activity": [
+    {
+      "messageId": "5033fb28-7666-4024-9f19-f7f7e293d418",
+      "items": [
+        {
+          "itemId": "tool:call_bench_mv9b75nr_16|fc_bench_mv9b75nr_16",
+          "toolCallId": "call_bench_mv9b75nr_16|fc_bench_mv9b75nr_16",
+          "name": "exec",
+          "kind": "tool",
+          "phase": "end",
+          "title": "Exec",
+          "status": "completed",
+          "commandBearing": true
+        }
+      ]
+    },
+    {
+      "messageId": "4c2f7bfe-60e5-4679-9540-b9906756fce0",
+      "items": [
+        {
+          "itemId": "tool:call_bench_mv9b75nr_16|fc_bench_mv9b75nr_16",
+          "toolCallId": "call_bench_mv9b75nr_16|fc_bench_mv9b75nr_16",
+          "name": "exec",
+          "kind": "tool",
+          "phase": "end",
+          "title": "Exec",
+          "status": "completed",
+          "commandBearing": true
+        }
+      ]
+    }
+  ],
+  "hasMore": false,
+  "totalMessages": 4,
+  "pendingInputs": {
+    "items": [],
+    "total": 0,
+    "queuedCount": 0
+  },
+  "deltaCursor": "eyJhZ2VudElkIjoibWFpbiIsImdlbmVyYXRpb24iOiJlMmYwOGJjMjRkM2M0MjM1Yjc4ZmYwMjgxNTAxMjQ4MSIsImxhc3RTZXEiOjcsInNlc3Npb25JZCI6ImYxYjdiMjQ1LTliYmYtNDM5Ni04MTFhLWE1ZjBiYWNlOWRkZSIsInZlcnNpb24iOjF9",
+  "defaults": {
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "contextTokens": 128000,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "modelSelectionTarget": "session"
+  },
+  "sessionInfo": {
+    "key": "agent:main:dashboard:db26502e-19af-4446-a71e-7741ea8c9bd9",
+    "visibility": "shared",
+    "permissionModePending": false,
+    "spawnDepth": 0,
+    "createdVia": "operator",
+    "participants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "expandedParticipants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "participantCount": 1,
+    "createdAt": 1792054867799,
+    "kind": "direct",
+    "label": "record approval 1792054867775",
+    "classification": "direct",
+    "agentId": "main",
+    "isMain": false,
+    "isBackground": false,
+    "displayName": "record approval 1792054867775",
+    "chatType": "direct",
+    "updatedAt": 1792054868307,
+    "archived": false,
+    "pinned": false,
+    "unread": true,
+    "lastInteractionAt": 1792054867875,
+    "lastActivityAt": 1792054868254,
+    "sessionId": "f1b7b245-9bbf-4396-811a-a5f0bace9dde",
+    "systemSent": true,
+    "abortedLastRun": false,
+    "effectiveFastMode": false,
+    "effectiveFastModeSource": "default",
+    "fastAutoOnSeconds": 60,
+    "inputTokens": 75,
+    "outputTokens": 23,
+    "totalTokens": 11,
+    "totalTokensFresh": true,
+    "estimatedCostUsd": 0,
+    "status": "done",
+    "startedAt": 1792054868137,
+    "endedAt": 1792054868254,
+    "runtimeMs": 117,
+    "lastRunId": "6b39f387-249b-4d09-af60-c17589e2bb81",
+    "parentSessionKey": "agent:main:main",
+    "effectiveResponseUsage": "off",
+    "effectiveQueueMode": "steer",
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "modelOverrideSource": null,
+    "runtimeSelectionLocked": false,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "contextTokens": 128000,
+    "contextBudgetStatus": {
+      "schemaVersion": 1,
+      "source": "pre-prompt-estimate",
+      "updatedAt": 1792054868131,
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "route": "fits",
+      "shouldCompact": false,
+      "estimatedPromptTokens": 17918,
+      "contextTokenBudget": 128000,
+      "promptBudgetBeforeReserve": 108000,
+      "reserveTokens": 20000,
+      "effectiveReserveTokens": 20000,
+      "remainingPromptBudgetTokens": 90082,
+      "overflowTokens": 0,
+      "toolResultReducibleChars": 0,
+      "messageCount": 0,
+      "unwindowedMessageCount": 0,
+      "sessionId": "f1b7b245-9bbf-4396-811a-a5f0bace9dde"
+    },
+    "snapshotAt": 1792054868766,
+    "placement": {
+      "state": "local",
+      "generation": 0,
+      "createdAtMs": 1792054868035,
+      "updatedAtMs": 1792054868252,
+      "stateChangedAtMs": 1792054868035
+    },
+    "activitySummary": {
+      "state": "unavailable",
+      "canEnsure": true
+    },
+    "sharingRole": "admin",
+    "sendDisabledReason": null,
+    "hasActiveRun": false,
+    "activeRunIds": [],
+    "activeLeafEntryId": "da30dfc8-1a22-4092-9123-4619bd9a3360"
+  }
+}

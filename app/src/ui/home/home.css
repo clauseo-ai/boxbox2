@@ -29,7 +29,18 @@
 }
 
 .home[data-arrangement="strip"] {
+  /* a column never wider than the window: the folded bar's swatches scroll inside it, and must not widen it */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr);
+  /* the bar's one row: 34 px pills (44 on a touch screen) in 18 and 12 of padding. the folded strip's bar is as tall, so its
+     toggle sits where the open bar's does, and the card's top is there while it is folded */
+  --strip-bar: 64px;
+}
+
+@media (pointer: coarse) {
+  .home[data-arrangement="strip"] {
+    --strip-bar: 74px;
+  }
 }
 
 .home[data-arrangement="rail"] {
@@ -45,6 +56,11 @@
 
 .home[data-arrangement="rail"][data-inspector="shown"] {
   --stage-right: 330px;
+}
+
+/* the windows put away (focus): the card has the screen, 14 px in from its edges as everywhere */
+.home[data-arrangement="rail"][data-windows="hidden"] {
+  --stage-left: 14px;
 }
 
 /* the ground's soft glow of the window in view (deck only): its deep top colour on the dark ground, its light tone on the
@@ -75,7 +91,10 @@
   padding: calc(var(--inset-top) + 18px) 26px 12px;
 }
 
+/* placed, not flowed: the folded bar shares the bar's cell */
 .home[data-arrangement="strip"] .bar {
+  grid-row: 1;
+  grid-column: 1;
   padding: 18px 26px 12px;
 }
 
@@ -136,10 +155,26 @@
   order: 3;
 }
 
-.home[data-arrangement="deck"] .bar .acts,
 .home[data-arrangement="rail"] .bar .acts {
   order: 4;
   flex: 1 0 100%;
+}
+
+/* the phone's deck is two rows (the native app's stripchevron): the wordmark with its three marks (history, machines, new
+   thread), then the line with clear N at its end. the line's basis is too wide to share the first row, so it always starts
+   the second, and it gives way to the clear pill beside it, which keeps its whole word */
+.home[data-arrangement="deck"] .bar .acts {
+  order: 6;
+}
+
+.home[data-arrangement="deck"] .bar .acts:empty {
+  display: none;
+}
+
+.home[data-arrangement="deck"] .bar .pill.new svg {
+  width: 18px;
+  height: 18px;
+  margin: 0;
 }
 
 /* the line is text, not a row of boxes: it wraps where words do, after a part's comma, never before one */
@@ -160,10 +195,14 @@
   row-gap: 8px;
 }
 
-.home[data-arrangement="deck"] .sum,
 .home[data-arrangement="rail"] .sum {
   order: 5;
   width: 100%;
+}
+
+.home[data-arrangement="deck"] .sum {
+  order: 5;
+  flex: 1 1 60%;
 }
 
 .home .sum:empty {
@@ -223,26 +262,60 @@
   color: var(--text-3);
 }
 
+/* home's controls are liquid glass (styles.css, `.lg`; the native app's decision 22): the bar's pills and rounds, the
+   fold's, the clear pill, the dock and the capsule float over the windows as the stage bar's rounds float over the log,
+   so they read as one family. the windows, swatches, sheets and every chip inside a window stay solid. the pill is
+   `all: unset` for the button's defaults, so it takes the glass from the tokens rather than the class */
 .home .pill {
   all: unset;
+  position: relative;
   display: inline-flex;
   align-items: center;
   height: 34px;
   padding: 0 14px;
   border-radius: 999px;
-  background: var(--pill);
-  /* light, a hairline of ink holds the pill's shape on the pale ground, where its fill alone is a smudge */
-  box-shadow: var(--pill-edge);
+  background: var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-filter);
+  backdrop-filter: var(--lg-filter);
+  box-shadow: var(--lg-rim), var(--lg-drop);
   font-size: 13.5px;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
+  transition: transform var(--press-t), opacity var(--fade-t);
 }
 
+/* the glass answers a press: it swells and a light gathers under the finger (a solid fallback dims instead) */
+.home .pill::after,
+.home .fold-new::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(closest-side, var(--lg-press-light), transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--press-t);
+}
+
+.home .pill:active,
+.home .fold-new:active {
+  transform: scale(var(--lg-press-scale));
+  opacity: var(--lg-press-dim, 1);
+}
+
+.home .pill:active::after,
+.home .fold-new:active::after {
+  opacity: 1;
+}
+
+/* the reload screen's one act is on the bare ground with nothing under it to bend: solid ink, no glass */
 .home .pill.solid {
   background: var(--text);
   color: var(--ground);
   box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 /* the pills sit together: the deck's bar fits a mark and three pills only when the new thread pill is a plus */
@@ -358,12 +431,15 @@
 /* the row is as tall as a window rests: an asking window keeps that size (design.md, one layout law), so the stage
    below it never moves for an ask */
 .home[data-arrangement="strip"] .wins {
+  grid-row: 2;
+  grid-column: 1;
   position: relative;
   z-index: 5;
   display: flex;
   gap: 12px;
   height: 232px;
-  padding: 2px 26px 18px;
+  /* 4 px above the windows: the stage's ring stands 4 px outside the current one (window.css) */
+  padding: 4px 26px 16px;
   overflow: auto hidden;
   overscroll-behavior-x: contain;
 }
@@ -375,7 +451,7 @@
   flex-direction: column;
   gap: 10px;
   min-height: 0;
-  padding: 2px 14px 28px 18px;
+  padding: 4px 14px 28px 18px;
   overflow: hidden auto;
   overscroll-behavior-y: contain;
 }
@@ -470,8 +546,24 @@
   border-radius: var(--card-radius);
 }
 
-/* above the open rail's bar and windows, which the card covers while it grows over them and uncovers as it recedes */
-.home[data-arrangement="rail"] .stage {
+/* folded, the strip's card takes the room of the open bar and the row: it spans the grid from under the folded bar, and the
+   open bar and windows stay laid out beneath it, so a fold only ever covers and uncovers them (edge.ts, the top edge) */
+.home[data-arrangement="strip"][data-strip="folded"] .stage,
+.home[data-arrangement="strip"][data-strip="folded"] .lift {
+  grid-row: 1 / -1;
+  margin-top: var(--strip-bar);
+}
+
+.home[data-arrangement="strip"][data-windows="hidden"] .stage,
+.home[data-arrangement="strip"][data-windows="hidden"] .lift {
+  grid-row: 1 / -1;
+  margin-top: 14px;
+}
+
+/* above the open rail's (or strip's) bar and windows, which the card covers while it grows over them and uncovers as it
+   recedes */
+.home[data-arrangement="rail"] .stage,
+.home[data-arrangement="strip"] .stage {
   z-index: 7;
 }
 
@@ -526,6 +618,23 @@
   display: block;
   left: 0;
   clip-path: inset(0 var(--card-radius) 0 0);
+}
+
+.home[data-moving="windows"][data-arrangement="rail"] .rim-cap {
+  display: block;
+  left: 0;
+  clip-path: inset(0 var(--card-radius) 0 0);
+}
+
+.home[data-moving="strip"] .rim-cap,
+.home[data-moving="windows"][data-arrangement="strip"] .rim-cap {
+  display: block;
+  left: 0;
+  right: 0;
+  bottom: auto;
+  width: auto;
+  height: calc(var(--card-radius) * 2);
+  clip-path: inset(0 0 var(--card-radius) 0);
 }
 
 .home[data-moving="inspector"] .rim-cap {
@@ -642,7 +751,11 @@
 
 /* the open rail's bar and windows are laid out under the card while it is folded, and are not drawn then */
 .home[data-arrangement="rail"][data-rail="folded"]:not([data-moving="rail"]) .bar,
-.home[data-arrangement="rail"][data-rail="folded"]:not([data-moving="rail"]) .wins {
+.home[data-arrangement="rail"][data-rail="folded"]:not([data-moving="rail"]) .wins,
+.home[data-arrangement="strip"][data-strip="folded"]:not([data-moving="strip"]) .bar,
+.home[data-arrangement="strip"][data-strip="folded"]:not([data-moving="strip"]) .wins,
+.home[data-windows="hidden"]:not([data-moving="windows"]) .bar,
+.home[data-windows="hidden"]:not([data-moving="windows"]) .wins {
   visibility: hidden;
 }
 
@@ -674,13 +787,15 @@
   height: 50px;
   padding: 0 8px;
   border-radius: 25px;
-  /* a window's material on a slant (the plane's tokens, styles.css): the deep pair on dark, the lit card of its hue on light.
-     the cast is its own, not the window's: the capsule floats over the stage, so its shadow is shorter and stronger (20 px
-     down, 38% of the deep colour on light) to lift it off the stage's flood, which a window's long soft one would not */
-  background: linear-gradient(100deg, var(--win-1), var(--win-2));
+  /* glass: it slides down over the open thread and acts, so it is a control over content (styles.css, `.lg`), tinted 70%
+     with the asking window's top material so it still says whose question it is; under reduced transparency the tint lies
+     on the solid fill. the cast is its own, not the window's: the capsule floats over the stage, so its shadow is shorter
+     and stronger (20 px down, 38% of the deep colour on light) to lift it off the stage's flood */
+  background: color-mix(in srgb, var(--win-1) 70%, var(--lg-fill));
+  -webkit-backdrop-filter: var(--lg-filter);
+  backdrop-filter: var(--lg-filter);
   box-shadow:
-    var(--win-lit),
-    var(--win-rim),
+    var(--lg-rim),
     0 20px 40px -12px color-mix(in srgb, color-mix(in srgb, var(--p2) 38%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.8));
   color: var(--text);
   font-size: 14.5px;
@@ -710,6 +825,8 @@
   color: var(--on-accent);
   font-style: normal;
   font-weight: 650;
+  /* the chip's face (styles.css): its text box is close to the glyphs, so 8 px of the 34 px pill hold above and below */
+  font-family: "Boxbox Sans Chip", var(--sans);
 }
 
 .home .reload {

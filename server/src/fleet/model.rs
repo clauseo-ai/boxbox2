@@ -46,11 +46,13 @@ use super::change::{
 use super::clears::{Clear, Clears};
 use super::needs::{By, How, Moved, Need, NeedKind, Needs, last_sentences};
 use super::read::{Mark, Reads};
-use crate::cmx2::{self, Event};
-use crate::journal::Cursor;
 use crate::push::presence::Looking;
 use crate::push::{About, AskKind as PushAsk, Notice, Origin, Thread};
+use crate::source::{
+    ConnectionStatus, Notice as SourceNotice, Snapshot, SourceEvent, TailRead, ThreadFacts,
+};
 use crate::upstream::HostStatus;
+use crate::wire::{self, Part, SettlerKind};
 
 /// sessions held across every host; past it the least recently updated
 /// idle session with no ask is dropped (every map has an eviction rule).
@@ -100,47 +102,6 @@ const ANSWERING_FOR_MS: i64 = 60 * 1000;
 /// a fault inside this long after the person stopped the turn is theirs
 /// (in v1's logs most faults followed the person's own interrupt).
 const OWN_ACTION_MS: i64 = 15 * 1000;
-/// the daemon's own settlers of an ask (cmx2 a6); anything else is a person.
-const DAEMON_SETTLERS: [&str; 5] = [
-    "abort",
-    "cascade",
-    "always rule",
-    "session_ended",
-    "daemon_restart",
-];
-
-/// one host read afresh, each read stamped with the seq it reflects
-/// (cmx2-asks a2).
-#[derive(Debug)]
-pub struct HostRead {
-    pub host: String,
-    pub epoch: String,
-    pub sessions: Stamped<Vec<Box<RawValue>>>,
-    /// the `GET /session/status?parked=true` map: busy, retrying and parked
-    /// sessions, each with its status.
-    pub statuses: Stamped<Vec<(String, Box<RawValue>)>>,
-    pub permissions: Stamped<Vec<Box<RawValue>>>,
-    pub questions: Stamped<Vec<Box<RawValue>>>,
-}
-
-#[derive(Debug)]
-pub struct Stamped<T> {
-    pub seq: u64,
-    pub data: T,
-}
-
-impl HostRead {
-    /// the cursor the event stream resumes from: the oldest read, so no
-    /// event any read missed is skipped (the floors drop what they had).
-    #[must_use]
-    pub fn resume_seq(&self) -> u64 {
-        self.sessions
-            .seq
-            .min(self.statuses.seq)
-            .min(self.permissions.seq)
-            .min(self.questions.seq)
-    }
-}
 
 #[derive(Clone, Copy, Debug, Default)]
 struct Floors {
@@ -162,7 +123,15 @@ enum Domain {
 struct Session {
     host: String,
     id: String,
-    info: Box<RawValue>,
+    /// cmx2 only, while contract 1 lives: the session's info as the daemon
+    /// wrote it. a thread without one has no contract 1 entry.
+    info: Option<Box<RawValue>>,
+    /// the thread as its source knows it (its raw info moved to `info`).
+    #[allow(
+        dead_code,
+        reason = "contract 2's thread encoding reads it (m9, the neutral wire)"
+    )]
+    thread: ThreadFacts,
     updated: f64,
     /// the parent session's key, for a subagent.
     parent: Option<String>,
@@ -247,53 +216,6 @@ pub struct TailRequest {
     pub host: String,
     /// the daemon's session id.
     pub session: String,
-}
-
-/// the daemon's newest messages of a session, decoded off the actor, and
-/// the cursor of the last event they include.
-#[derive(Debug)]
-pub struct TailRead {
-    pub key: String,
-    pub cursor: Cursor,
-    pub messages: Vec<ReadMessage>,
-}
-
-/// one message of a tail read: its facts and the parts that decoded.
-#[derive(Debug)]
-pub struct ReadMessage {
-    info: MessageFacts,
-    parts: Vec<PartFacts>,
-}
-
-#[derive(Deserialize)]
-struct RawMessage<'a> {
-    #[serde(borrow)]
-    info: &'a RawValue,
-    #[serde(borrow)]
-    parts: Vec<&'a RawValue>,
-}
-
-impl ReadMessage {
-    /// decodes cmx2's `GET /session/:id/message` answer loosely: a message
-    /// whose info does not decode is skipped, and so is a part.
-    ///
-    /// # Errors
-    /// the answer is not a list of `{info, parts}`.
-    pub fn decode(body: &[u8]) -> Result<Vec<Self>, serde_json::Error> {
-        let raw: Vec<RawMessage<'_>> = serde_json::from_slice(body)?;
-        Ok(raw
-            .into_iter()
-            .filter_map(|m| {
-                let info = MessageFacts::deserialize(m.info).ok()?;
-                let parts = m
-                    .parts
-                    .into_iter()
-                    .filter_map(|p| PartFacts::deserialize(p).ok())
-                    .collect();
-                Some(Self { info, parts })
-            })
-            .collect())
-    }
 }
 
 /// who wrote a message, and whether it is a prompt still queued behind the
@@ -401,13 +323,18 @@ enum Activity {
 
 #[derive(Debug)]
 struct Status {
-    raw: Box<RawValue>,
+    /// cmx2 only, while contract 1 lives: the status as the daemon wrote it.
+    raw: Option<Box<RawValue>>,
     activity: Activity,
 }
 
 #[derive(Debug)]
 struct Pending {
+    /// contract 1's ask; a source without raw requests holds `null` in
+    /// `request` until contract 1 is isolated from other sources.
     ask: Ask,
+    /// the ask as its source told it: what its need says.
+    neutral: Box<wire::Ask>,
     /// arrival order, so the oldest ask leads the window order.
     serial: u64,
 }
@@ -437,8 +364,9 @@ pub struct Model {
     /// them, so it carries these over.
     adopted: Vec<String>,
     /// adopted threads the store kept that their host has not been read for
-    /// since the start: `(session key, info)`, held at that host's first read.
-    restored: Vec<(String, Box<RawValue>)>,
+    /// since the start: `(session key, thread)`, held at that host's first
+    /// read; none for a kept row that no longer decodes, forgotten then.
+    restored: Vec<(String, Option<ThreadFacts>)>,
     /// sends through boxbox by client id, until their message lands.
     arms: HashMap<String, Arm>,
     /// asks being answered through boxbox, by `(host, ask id)`.
@@ -480,57 +408,44 @@ struct StatusField<'a> {
     status: &'a RawValue,
 }
 
-/// the facts of a message a need or a mark needs, read loosely.
-#[derive(Debug, Deserialize)]
+/// the facts of a message a need or a mark needs.
+#[derive(Debug)]
 struct MessageFacts {
     id: String,
-    role: String,
+    role: &'static str,
     time: MessageTime,
-    #[serde(rename = "clientID")]
     client_id: Option<String>,
-    #[serde(default)]
     queued: bool,
     finish: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 struct MessageTime {
     created: f64,
     completed: Option<f64>,
 }
 
-/// what an ask says, for its need's body.
-#[derive(Deserialize)]
-struct AskWords {
-    permission: Option<String>,
-    #[serde(default)]
-    patterns: Vec<String>,
-    #[serde(default)]
-    questions: Vec<QuestionWords>,
+impl MessageFacts {
+    fn of(message: &wire::Message) -> Self {
+        Self {
+            id: message.id.clone(),
+            role: message.role.as_str(),
+            time: MessageTime {
+                created: message.created,
+                completed: message.completed,
+            },
+            client_id: message.client_id.clone(),
+            queued: message.queued,
+            finish: message.finish.clone(),
+        }
+    }
 }
 
-#[derive(Deserialize)]
-struct QuestionWords {
-    question: String,
-}
-
-/// who settled an ask, as the daemon's reply events say (cmx2 a4, a6).
-#[derive(Deserialize)]
-struct SettledBy {
-    by: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct AskFacts {
-    id: String,
-    #[serde(rename = "sessionID")]
-    session_id: String,
-}
-
-/// the few fields of a part a tail needs, read loosely: a part type this
-/// build does not know still has an id, a message and a type.
-#[derive(Debug, Deserialize)]
-struct PartFacts {
+/// the few fields of a part a tail needs. from a daemon's json they are
+/// read loosely: a part type this build does not know still has an id, a
+/// message and a type.
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+pub(crate) struct PartFacts {
     id: String,
     #[serde(rename = "messageID")]
     message_id: String,
@@ -549,8 +464,8 @@ struct PartFacts {
     mail: Option<MailFacts>,
 }
 
-#[derive(Debug, Deserialize)]
-struct MailFacts {
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+pub(crate) struct MailFacts {
     kind: Option<String>,
     from: Option<String>,
 }
@@ -574,10 +489,68 @@ impl MailFacts {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct ToolFacts {
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+pub(crate) struct ToolFacts {
     status: Option<String>,
     title: Option<String>,
+}
+
+/// what a tail reads of a part: the facts of each neutral kind, and of an
+/// unknown one the facts its json holds, read loosely as always. none when
+/// even those do not decode.
+pub(crate) fn part_facts(part: &Part) -> Option<PartFacts> {
+    let facts = |kind: &str, text: Option<&str>| PartFacts {
+        id: part.id().to_owned(),
+        message_id: part.message_id().to_owned(),
+        kind: kind.to_owned(),
+        text: text.map(str::to_owned),
+        tool: None,
+        state: None,
+        filename: None,
+        synthetic: false,
+        mail: None,
+    };
+    Some(match part {
+        Part::Text(p) => PartFacts {
+            synthetic: p.synthetic,
+            mail: p.mail.as_ref().map(|m| MailFacts {
+                kind: Some(m.kind.clone()),
+                from: m.from.clone(),
+            }),
+            ..facts("text", Some(&p.text))
+        },
+        Part::Reasoning(p) => facts("reasoning", Some(&p.text)),
+        Part::Tool(p) => PartFacts {
+            tool: Some(p.tool.clone()),
+            state: Some(ToolFacts {
+                status: Some(p.state.status.as_str().to_owned()),
+                title: p.state.title.clone(),
+            }),
+            ..facts("tool", None)
+        },
+        // contract 1 shows a picture and a recording as the file they are
+        Part::File(p) => PartFacts {
+            filename: Some(p.filename.clone()),
+            ..facts("file", None)
+        },
+        Part::Image(p) => PartFacts {
+            filename: p.filename.clone(),
+            ..facts("file", None)
+        },
+        Part::Audio(_) => facts("file", None),
+        Part::Compaction(_) => facts("compaction", None),
+        Part::Marker(p) => facts(
+            match p.marker {
+                wire::MarkerKind::StepStart => "step-start",
+                wire::MarkerKind::StepFinish => "step-finish",
+                wire::MarkerKind::Patch => "patch",
+                wire::MarkerKind::Subtask => "subtask",
+                wire::MarkerKind::Reset => "reset",
+            },
+            None,
+        ),
+        Part::Unknown(p) => return PartFacts::deserialize(&*p.raw).ok(),
+    })
 }
 
 /// `<host>:<sessionID>`, the identity every surface uses.
@@ -601,11 +574,11 @@ impl Model {
     /// a model that starts from what the store kept of needs, marks, clears and
     /// adopted threads.
     #[must_use]
-    pub fn restore(
+    pub fn restored(
         needs: Needs,
         reads: Reads,
         clears: Clears,
-        adopted: Vec<(String, Box<RawValue>)>,
+        adopted: Vec<(String, Option<ThreadFacts>)>,
     ) -> Self {
         Self {
             needs,
@@ -671,6 +644,11 @@ impl Model {
         vec![Change::Host { host: status }]
     }
 
+    /// a connection's status: for cmx2, the host contract 1 carries.
+    pub fn connection(&mut self, status: ConnectionStatus) -> Vec<Change> {
+        status.host.map_or_else(Vec::new, |host| self.host(*host))
+    }
+
     /// a host left the config: everything held for it goes.
     pub fn host_removed(&mut self, host: &str) -> Vec<Change> {
         self.hosts.retain(|h| h.name != host);
@@ -697,14 +675,17 @@ impl Model {
         changes
     }
 
-    /// the host was read afresh: its sessions, statuses and asks are replaced.
-    pub fn host_read(&mut self, read: HostRead) -> Vec<Change> {
-        let host = read.host.clone();
+    /// the agent was read afresh: its sessions, statuses and asks are replaced.
+    pub fn agent_read(&mut self, host: &str, read: Snapshot) -> Vec<Change> {
+        let host = host.to_owned();
         // seqs of another epoch line up with nothing: every tail is read again
-        let epoch_moved = self
-            .epochs
-            .insert(host.clone(), read.epoch.clone())
-            .is_some_and(|before| before != read.epoch);
+        let epoch_moved = match &read.epoch {
+            Some(epoch) => self
+                .epochs
+                .insert(host.clone(), epoch.clone())
+                .is_some_and(|before| before != *epoch),
+            None => false,
+        };
         // threads opened from history are not in the daemon's newest listing: they wait out the rebuild
         let carried = self.take_adopted(&host);
         let mut tails: HashMap<String, (Tail, Turn)> = self
@@ -724,60 +705,40 @@ impl Model {
         self.floors.insert(
             host.clone(),
             Floors {
-                sessions: read.sessions.seq,
-                statuses: read.statuses.seq,
-                permissions: read.permissions.seq,
-                questions: read.questions.seq,
+                sessions: read.floors.threads,
+                statuses: read.floors.activities,
+                permissions: read.floors.permissions,
+                questions: read.floors.questions,
             },
         );
 
-        let mut keys = Vec::with_capacity(read.sessions.data.len());
-        for info in read.sessions.data {
-            match cmx2::SessionInfo::deserialize(&*info) {
-                Ok(facts) => {
-                    // the daemon's listings leave archived sessions out; one that slips in is not held
-                    if facts.time.archived.is_some() {
-                        continue;
-                    }
-                    let key = session_key(&host, &facts.id);
-                    let carried = tails.remove(&key).unwrap_or_default();
-                    self.sessions
-                        .insert(key.clone(), session(&host, &facts, info, carried));
-                    keys.push(key);
-                }
-                Err(error) => {
-                    warn!(host, %error, "a session from the read does not decode; skipped");
-                }
+        let mut keys = Vec::with_capacity(read.threads.len());
+        for thread in read.threads {
+            // the daemon's listings leave archived sessions out; one that slips in is not held
+            if thread.archived {
+                continue;
             }
+            let key = session_key(&host, &thread.id);
+            let carried = tails.remove(&key).unwrap_or_default();
+            self.sessions
+                .insert(key.clone(), session(&host, thread, carried));
+            keys.push(key);
         }
         self.hold_adopted(&host, carried, epoch_moved, &mut keys);
-        for (id, status) in read.statuses.data {
-            let key = session_key(&host, &id);
-            match status_of(&status) {
-                Ok(Some(activity)) => {
-                    self.statuses.insert(
-                        key,
-                        Status {
-                            raw: status,
-                            activity,
-                        },
-                    );
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    warn!(host, session = id, %error, "a status from the read does not decode; skipped");
-                }
+        for held in read.activities {
+            let key = session_key(&host, &held.thread);
+            if let Some(activity) = activity(&held.activity) {
+                self.statuses.insert(
+                    key,
+                    Status {
+                        raw: held.raw,
+                        activity,
+                    },
+                );
             }
         }
-        for (kind, requests) in [
-            (AskKind::Permission, read.permissions.data),
-            (AskKind::Question, read.questions.data),
-        ] {
-            for request in requests {
-                if let Err(error) = self.add_ask(&host, kind, request) {
-                    warn!(host, %error, "an ask from the read does not decode; skipped");
-                }
-            }
+        for raised in read.asks {
+            self.add_ask(&host, raised.ask, raised.raw);
         }
         let mut evicted = Vec::new();
         self.evict(&mut evicted, None);
@@ -801,74 +762,80 @@ impl Model {
         changes
     }
 
-    /// one decoded daemon event. `payload` is the event as the daemon wrote
-    /// it, where daemon objects are taken from untouched.
+    /// one source event for `host` (the agent). `raw` is cmx2's whole event
+    /// payload, where contract 1's daemon objects are taken from untouched;
+    /// none for a source without one, whose events change no contract 1
+    /// object.
+    ///
+    /// the connection, snapshot and tail events have their own entries
+    /// (`connection`, `agent_read`, `tail`); here they change nothing.
     ///
     /// # Errors
-    /// the payload does not hold a field the decoded event had, which only a
-    /// decoder bug could cause; nothing was changed.
-    pub fn event(
+    /// the payload does not hold a field the event was translated from,
+    /// which only a decoder bug could cause; nothing was changed.
+    pub fn source(
         &mut self,
         host: &str,
         seq: Option<u64>,
-        directory: Option<&str>,
-        event: &Event,
-        payload: &RawValue,
+        event: SourceEvent,
+        raw: Option<&RawValue>,
     ) -> Result<Vec<Change>, serde_json::Error> {
-        let properties = || properties_of(payload);
+        let properties = || raw.map(properties_of).transpose();
         let mut changes = Vec::new();
         let moved_before = self.effects.len();
-        let status_before = status_session(event).map(|id| {
-            let key = session_key(host, id);
-            let before = self.statuses.get(&key).map(|s| s.activity);
-            (key, before)
-        });
-        match event {
-            Event::MessageUpdated(_)
-            | Event::MessagePartUpdated(_)
-            | Event::MessagePartDelta(_)
-            | Event::MessageRemoved(_) => {
-                self.transcript(host, seq, event, properties()?, &mut changes)?;
+        let status_before = match &event {
+            SourceEvent::Activity { thread, .. } | SourceEvent::TurnEnded { thread } => {
+                let key = session_key(host, thread);
+                let before = self.statuses.get(&key).map(|s| s.activity);
+                Some((key, before))
             }
-            Event::SessionCreated(e) => {
+            _ => None,
+        };
+        match event {
+            SourceEvent::Message { .. }
+            | SourceEvent::Part { .. }
+            | SourceEvent::Delta { .. }
+            | SourceEvent::MessageRemoved { .. } => {
+                self.transcript(host, seq, event, raw, &mut changes)?;
+            }
+            SourceEvent::Fault { .. }
+            | SourceEvent::Notice { .. }
+            | SourceEvent::ReviewSettled { .. } => {
+                self.notable(host, seq, event);
+            }
+            SourceEvent::Thread { thread, born } => {
                 if !self.stale(host, Domain::Sessions, seq) {
-                    let info = serde_json::from_str::<InfoField<'_>>(properties()?.get())?.info;
-                    let key = session_key(host, &e.properties.info.id);
-                    let born = !self.sessions.contains_key(&key);
-                    self.upsert_session(host, &e.properties.info, info, &mut changes);
+                    let key = session_key(host, &thread.id);
+                    let born = born && !self.sessions.contains_key(&key);
+                    self.upsert_session(host, *thread, &mut changes);
                     // seen from its birth: everything it says streams after this, so no read is needed
                     if born && let Some(session) = self.sessions.get_mut(&key) {
                         session.tail.hydration = Hydration::Read { floor: 0 };
                     }
                 }
             }
-            Event::SessionUpdated(e) => {
+            SourceEvent::ThreadRemoved { thread } => {
                 if !self.stale(host, Domain::Sessions, seq) {
-                    let info = serde_json::from_str::<InfoField<'_>>(properties()?.get())?.info;
-                    self.upsert_session(host, &e.properties.info, info, &mut changes);
+                    self.remove_session(&session_key(host, &thread), &mut changes);
                 }
             }
-            Event::SessionDeleted(e) => {
-                if !self.stale(host, Domain::Sessions, seq) {
-                    self.remove_session(&session_key(host, &e.properties.session_id), &mut changes);
-                }
-            }
-            Event::SessionStatus(e) => {
+            SourceEvent::Activity { thread, activity } => {
                 if !self.stale(host, Domain::Statuses, seq) {
-                    let status =
-                        serde_json::from_str::<StatusField<'_>>(properties()?.get())?.status;
-                    let activity = activity(&e.properties.status);
+                    let status = match properties()? {
+                        Some(p) => Some(serde_json::from_str::<StatusField<'_>>(p.get())?.status),
+                        None => None,
+                    };
                     self.set_status(
                         host,
-                        &e.properties.session_id,
-                        activity.map(|a| (status, a)),
+                        &thread,
+                        self::activity(&activity).map(|a| (status, a)),
                         &mut changes,
                     );
                 }
             }
-            Event::SessionIdle(e) => {
-                let key = session_key(host, &e.properties.session_id);
-                // idle ends a turn; a parked status that came with it stays
+            SourceEvent::TurnEnded { thread } => {
+                let key = session_key(host, &thread);
+                // a turn's end leaves idle; a parked status that came with it stays
                 let busy = matches!(
                     self.statuses.get(&key),
                     Some(Status {
@@ -877,27 +844,21 @@ impl Model {
                     })
                 );
                 if busy && !self.stale(host, Domain::Statuses, seq) {
-                    self.set_status(host, &e.properties.session_id, None, &mut changes);
+                    self.set_status(host, &thread, None, &mut changes);
                 }
             }
-            Event::PermissionAsked(_) => {
-                if !self.stale(host, Domain::Permissions, seq) {
-                    let request = properties()?;
-                    self.ask_arrived(host, AskKind::Permission, request, &mut changes)?;
-                }
+            SourceEvent::AskRaised { .. } | SourceEvent::AskSettled { .. } => {
+                self.asked(host, seq, event, raw, &mut changes)?;
             }
-            Event::QuestionAsked(_) => {
-                if !self.stale(host, Domain::Questions, seq) {
-                    let request = properties()?;
-                    self.ask_arrived(host, AskKind::Question, request, &mut changes)?;
-                }
-            }
-            Event::PermissionReplied(_)
-            | Event::QuestionReplied(_)
-            | Event::QuestionRejected(_) => {
-                self.replied(host, seq, event, properties()?, &mut changes)?;
-            }
-            _ => self.notable(host, seq, directory, event),
+            // contract 2's alone, or carried by their own entries
+            SourceEvent::Connection(_)
+            | SourceEvent::Agents(_)
+            | SourceEvent::Snapshot(_)
+            | SourceEvent::ThreadReset { .. }
+            | SourceEvent::Send { .. }
+            | SourceEvent::Reactions { .. }
+            | SourceEvent::TailRead(_)
+            | SourceEvent::TailUnread { .. } => {}
         }
         self.after_event(moved_before, status_before, &mut changes);
         self.journaled(&changes);
@@ -911,6 +872,210 @@ impl Model {
             .collect();
         self.want_tails(touched);
         Ok(changes)
+    }
+
+    /// an ask raised or settled, past its kind's floor.
+    fn asked(
+        &mut self,
+        host: &str,
+        seq: Option<u64>,
+        event: SourceEvent,
+        raw: Option<&RawValue>,
+        changes: &mut Vec<Change>,
+    ) -> Result<(), serde_json::Error> {
+        let properties = || raw.map(properties_of).transpose();
+        match event {
+            SourceEvent::AskRaised { ask } => {
+                let domain = match ask.kind {
+                    wire::AskKind::Permission => Domain::Permissions,
+                    wire::AskKind::Question => Domain::Questions,
+                };
+                if !self.stale(host, domain, seq) {
+                    let request = properties()?.map(ToOwned::to_owned);
+                    self.ask_arrived(host, *ask, request, changes);
+                }
+            }
+            SourceEvent::AskSettled { ask, kind, settled } => {
+                let domain = match kind {
+                    wire::AskKind::Permission => Domain::Permissions,
+                    wire::AskKind::Question => Domain::Questions,
+                };
+                if !self.stale(host, domain, seq) {
+                    self.settle(host, &ask, settled.by.as_ref(), changes);
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// a transcript event: journaled as it came, whatever the floors say (a
+    /// client filters it against its own transcript read); a part also
+    /// moves its thread's tail.
+    fn transcript(
+        &mut self,
+        host: &str,
+        seq: Option<u64>,
+        event: SourceEvent,
+        raw: Option<&RawValue>,
+        changes: &mut Vec<Change>,
+    ) -> Result<(), serde_json::Error> {
+        let properties = || raw.map(properties_of).transpose();
+        match event {
+            SourceEvent::Message { thread, message } => {
+                let info = match properties()? {
+                    Some(p) => Some(serde_json::from_str::<InfoField<'_>>(p.get())?.info),
+                    None => None,
+                };
+                self.said(host, seq, &thread, &message, info, changes);
+            }
+            SourceEvent::Part { thread, part } => {
+                let raw_part = match properties()? {
+                    Some(p) => Some(serde_json::from_str::<PartField<'_>>(p.get())?.part),
+                    None => None,
+                };
+                let key = session_key(host, &thread);
+                if let Some(raw_part) = raw_part {
+                    changes.push(Change::Part {
+                        key: key.clone(),
+                        upstream: seq,
+                        part: raw_part.to_owned(),
+                    });
+                }
+                if self.retail(&key, seq, &part) {
+                    changes.extend(self.entry(&key).map(|session| Change::Session { session }));
+                }
+            }
+            SourceEvent::Delta {
+                thread,
+                message,
+                part,
+                field,
+                delta,
+                offset,
+            } => {
+                let key = session_key(host, &thread);
+                let grew = field == "text"
+                    && self.sessions.get_mut(&key).is_some_and(|s| {
+                        s.tail.record_delta(&message, &part, &delta, offset);
+                        s.tail.stream(&message, &part, &delta, offset)
+                    });
+                changes.push(Change::Delta {
+                    key: key.clone(),
+                    message_id: message,
+                    part_id: part,
+                    field,
+                    delta,
+                    offset,
+                });
+                if grew {
+                    self.streamed(&key, changes);
+                }
+            }
+            SourceEvent::MessageRemoved { thread, message } => {
+                let key = session_key(host, &thread);
+                changes.push(Change::MessageRemoved {
+                    key: key.clone(),
+                    upstream: seq,
+                    message_id: message.clone(),
+                });
+                if let Some(session) = self.sessions.get_mut(&key)
+                    && !session.tail.holds(seq)
+                {
+                    session.tail.record(TailOp::Removed {
+                        seq,
+                        message: message.clone(),
+                    });
+                    let before = session.tail.items.len();
+                    session.tail.items.retain(|t| t.message_id != message);
+                    if session.tail.items.len() != before {
+                        changes.extend(self.entry(&key).map(|session| Change::Session { session }));
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// the events that raise or serve a need and change nothing else here:
+    /// a turn's fault, a checkout's review and its end, a job's notice.
+    fn notable(&mut self, host: &str, seq: Option<u64>, event: SourceEvent) {
+        match event {
+            SourceEvent::Fault { thread, words } => {
+                let fault = FaultFacts {
+                    id: seq.map_or_else(|| format!("t{}", self.now), |seq| seq.to_string()),
+                    reason: words,
+                };
+                self.fault(&session_key(host, &thread), &fault);
+            }
+            SourceEvent::Notice { thread, notice } => {
+                let event_id = seq.map_or_else(|| format!("t{}", self.now), |seq| seq.to_string());
+                let key = session_key(host, &thread);
+                match notice {
+                    SourceNotice::Review { checkout, words } => {
+                        self.review(&key, &checkout, &words, &event_id);
+                    }
+                    SourceNotice::Job {
+                        process,
+                        reason,
+                        title,
+                        detail,
+                    } => {
+                        let words = JobWords {
+                            id: format!("{process}:{reason}:{event_id}"),
+                            what: format!("{title} {}", job_verb(&reason)),
+                            detail,
+                        };
+                        self.job(&key, &words);
+                    }
+                }
+            }
+            SourceEvent::ReviewSettled {
+                worktree,
+                directory,
+            } => self.review_settled(host, &worktree, directory.as_deref()),
+            _ => {}
+        }
+    }
+
+    /// a message was created or changed: journaled as it came, whatever the
+    /// floors say (a client filters it against its own transcript read);
+    /// it moves the thread's turn and who its parts belong to.
+    fn said(
+        &mut self,
+        host: &str,
+        seq: Option<u64>,
+        thread: &str,
+        message: &wire::Message,
+        info: Option<&RawValue>,
+        changes: &mut Vec<Change>,
+    ) {
+        let key = session_key(host, thread);
+        if let Some(info) = info {
+            changes.push(Change::Message {
+                key: key.clone(),
+                upstream: seq,
+                info: info.to_owned(),
+            });
+        }
+        let facts = MessageFacts::of(message);
+        self.message(&key, &facts);
+        let retold = self.sessions.get_mut(&key).is_some_and(|s| {
+            if s.tail.holds(seq) {
+                return false;
+            }
+            s.tail.record(TailOp::Said {
+                seq,
+                id: facts.id.clone(),
+                role: TailRole::of(facts.role),
+                queued: facts.queued,
+            });
+            s.tail.said(&facts)
+        });
+        if retold {
+            changes.extend(self.entry(&key).map(|session| Change::Session { session }));
+        }
     }
 
     /// asks for the tail of each of `keys` that has a window and was never
@@ -961,14 +1126,15 @@ impl Model {
             || self.needs.lead(key).is_some()
     }
 
-    /// the daemon's read of a session's tail. the tail becomes the read,
+    /// the agent's read of a thread's tail. the tail becomes the read,
     /// with what changed while it was out replayed on top when newer.
-    pub fn tail_read(&mut self, read: TailRead) -> Vec<Change> {
+    pub fn tail(&mut self, host: &str, read: TailRead) -> Vec<Change> {
         let TailRead {
-            key,
-            cursor,
+            thread,
+            upstream,
             messages,
         } = read;
+        let key = session_key(host, &thread);
         let Some(session) = self.sessions.get_mut(&key) else {
             info!(
                 session = key,
@@ -980,9 +1146,10 @@ impl Model {
         the one before that (or after the daemon reset and before the watcher heard), and the read asked by
         the host read lines up instead */
         if let Some(epoch) = self.epochs.get(&session.host)
-            && *epoch != cursor.epoch
+            && let Some(upstream) = &upstream
+            && *epoch != upstream.epoch
         {
-            info!(session = key, read_epoch = cursor.epoch, host_epoch = %epoch, "a tail read from another epoch; dropped");
+            info!(session = key, read_epoch = upstream.epoch, host_epoch = %epoch, "a tail read from another epoch; dropped");
             return Vec::new();
         }
         let (since, attempts) = match std::mem::take(&mut session.tail.hydration) {
@@ -1016,15 +1183,15 @@ impl Model {
                 return Vec::new();
             }
         };
-        let floor = cursor.seq;
+        let floor = upstream.map_or(0, |upstream| upstream.seq);
         let mut fresh = Tail {
             sent: session.tail.sent,
             hydration: Hydration::Read { floor },
             ..Tail::default()
         };
         for message in messages {
-            fresh.said(&message.info);
-            for part in message.parts {
+            fresh.said(&MessageFacts::of(&message.info));
+            for part in message.parts.iter().filter_map(part_facts) {
                 if let Some(role) = fresh.role_of(&part.message_id)
                     && let Some(item) = tail_item(part, role)
                 {
@@ -1190,174 +1357,6 @@ impl Model {
         }
     }
 
-    /// an ask was answered or rejected, by a person or by the daemon.
-    fn replied(
-        &mut self,
-        host: &str,
-        seq: Option<u64>,
-        event: &Event,
-        properties: &RawValue,
-        changes: &mut Vec<Change>,
-    ) -> Result<(), serde_json::Error> {
-        let (domain, id) = match event {
-            Event::PermissionReplied(e) => (Domain::Permissions, &e.properties.request_id),
-            Event::QuestionReplied(e) => (Domain::Questions, &e.properties.request_id),
-            Event::QuestionRejected(e) => (Domain::Questions, &e.properties.request_id),
-            _ => return Ok(()),
-        };
-        if !self.stale(host, domain, seq) {
-            let by = serde_json::from_str::<SettledBy>(properties.get())?.by;
-            self.settle(host, id, by.as_deref(), changes);
-        }
-        Ok(())
-    }
-
-    /// the events that raise or serve a need and change nothing else here:
-    /// a turn's error, a checkout's review and its end, a job's notice.
-    fn notable(&mut self, host: &str, seq: Option<u64>, directory: Option<&str>, event: &Event) {
-        match event {
-            Event::SessionError(e) => {
-                if let Some(id) = &e.properties.session_id {
-                    let fault = FaultFacts {
-                        id: seq.map_or_else(|| format!("t{}", self.now), |seq| seq.to_string()),
-                        reason: e.properties.error.data.message.clone(),
-                    };
-                    self.fault(&session_key(host, id), &fault);
-                }
-            }
-            Event::WorktreeReviewRequested(e) => {
-                let p = &e.properties;
-                if let Some(id) = &p.session_id {
-                    let words = p.note.as_deref().or(p.branch.as_deref()).unwrap_or(&p.name);
-                    let request =
-                        seq.map_or_else(|| format!("t{}", self.now), |seq| seq.to_string());
-                    self.review(&session_key(host, id), &p.name, words, &request);
-                }
-            }
-            Event::WorktreeMerged(e) => self.review_settled(host, &e.properties.name, directory),
-            Event::WorktreeDiscarded(e) => {
-                self.review_settled(host, &e.properties.name, directory);
-            }
-            Event::ProcessNotify(e) => {
-                let p = &e.properties;
-                if let Some(id) = &p.process.session_id {
-                    let reason = p.reason.to_string();
-                    let event_id =
-                        seq.map_or_else(|| format!("t{}", self.now), |seq| seq.to_string());
-                    let words = JobWords {
-                        id: format!("{}:{reason}:{event_id}", p.process.id),
-                        what: format!("{} {}", p.process.title, job_verb(&reason)),
-                        detail: p.detail.clone(),
-                    };
-                    self.job(&session_key(host, id), &words);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// a transcript event: journaled as it came, whatever the floors say
-    /// (a client filters it against its own transcript read); a part also
-    /// moves its session's tail.
-    fn transcript(
-        &mut self,
-        host: &str,
-        seq: Option<u64>,
-        event: &Event,
-        properties: &RawValue,
-        changes: &mut Vec<Change>,
-    ) -> Result<(), serde_json::Error> {
-        match event {
-            Event::MessageUpdated(e) => {
-                let info = serde_json::from_str::<InfoField<'_>>(properties.get())?.info;
-                let key = session_key(host, &e.properties.session_id);
-                changes.push(Change::Message {
-                    key: key.clone(),
-                    upstream: seq,
-                    info: info.to_owned(),
-                });
-                if let Ok(facts) = MessageFacts::deserialize(info) {
-                    self.message(&key, &facts);
-                    let retold = self.sessions.get_mut(&key).is_some_and(|s| {
-                        if s.tail.holds(seq) {
-                            return false;
-                        }
-                        s.tail.record(TailOp::Said {
-                            seq,
-                            id: facts.id.clone(),
-                            role: TailRole::of(&facts.role),
-                            queued: facts.queued,
-                        });
-                        s.tail.said(&facts)
-                    });
-                    if retold {
-                        changes.extend(self.entry(&key).map(|session| Change::Session { session }));
-                    }
-                }
-            }
-            Event::MessagePartUpdated(e) => {
-                let part = serde_json::from_str::<PartField<'_>>(properties.get())?.part;
-                let key = session_key(host, &e.properties.session_id);
-                changes.push(Change::Part {
-                    key: key.clone(),
-                    upstream: seq,
-                    part: part.to_owned(),
-                });
-                if self.retail(&key, seq, part) {
-                    changes.extend(self.entry(&key).map(|session| Change::Session { session }));
-                }
-            }
-            Event::MessagePartDelta(e) => {
-                let p = &e.properties;
-                let key = session_key(host, &p.session_id);
-                let offset = u64::try_from(p.offset).unwrap_or(0);
-                changes.push(Change::Delta {
-                    key: key.clone(),
-                    message_id: p.message_id.clone(),
-                    part_id: p.part_id.clone(),
-                    field: p.field.clone(),
-                    delta: p.delta.clone(),
-                    offset,
-                });
-                let grew = p.field == "text"
-                    && self.sessions.get_mut(&key).is_some_and(|s| {
-                        s.tail
-                            .record_delta(&p.message_id, &p.part_id, &p.delta, offset);
-                        s.tail.stream(&p.message_id, &p.part_id, &p.delta, offset)
-                    });
-                if grew {
-                    self.streamed(&key, changes);
-                }
-            }
-            Event::MessageRemoved(e) => {
-                let key = session_key(host, &e.properties.session_id);
-                changes.push(Change::MessageRemoved {
-                    key: key.clone(),
-                    upstream: seq,
-                    message_id: e.properties.message_id.clone(),
-                });
-                if let Some(session) = self.sessions.get_mut(&key)
-                    && !session.tail.holds(seq)
-                {
-                    session.tail.record(TailOp::Removed {
-                        seq,
-                        message: e.properties.message_id.clone(),
-                    });
-                    let before = session.tail.items.len();
-                    session
-                        .tail
-                        .items
-                        .retain(|t| t.message_id != e.properties.message_id);
-                    if session.tail.items.len() != before {
-                        changes.extend(self.entry(&key).map(|session| Change::Session { session }));
-                    }
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
     fn stale(&self, host: &str, domain: Domain, seq: Option<u64>) -> bool {
         let Some(seq) = seq else { return false };
         let Some(floors) = self.floors.get(host) else {
@@ -1420,13 +1419,13 @@ impl Model {
             .into_iter()
             .partition(|(key, _)| key.starts_with(&prefix));
         self.restored = other;
-        for (key, info) in mine {
-            let Ok(facts) = cmx2::SessionInfo::deserialize(&*info) else {
+        for (key, thread) in mine {
+            let Some(thread) = thread else {
                 self.effects.push(Effect::Unadopted(key));
                 continue;
             };
-            if facts.time.archived.is_none() && !carried.iter().any(|(held, _)| *held == key) {
-                carried.push((key, session(host, &facts, info, Default::default())));
+            if !thread.archived && !carried.iter().any(|(held, _)| *held == key) {
+                carried.push((key, session(host, thread, Default::default())));
             } else {
                 self.effects.push(Effect::Unadopted(key));
             }
@@ -1453,16 +1452,10 @@ impl Model {
         }
     }
 
-    fn upsert_session(
-        &mut self,
-        host: &str,
-        facts: &cmx2::SessionInfo,
-        info: &RawValue,
-        changes: &mut Vec<Change>,
-    ) {
-        let key = session_key(host, &facts.id);
+    fn upsert_session(&mut self, host: &str, thread: ThreadFacts, changes: &mut Vec<Change>) {
+        let key = session_key(host, &thread.id);
         // archiving takes a thread out of every listing (cmx2: its history stays on disk), so it leaves the fleet
-        if facts.time.archived.is_some() {
+        if thread.archived {
             if self.sessions.contains_key(&key) {
                 self.remove_session(&key, changes);
             }
@@ -1474,7 +1467,7 @@ impl Model {
             .map(|s| (s.tail, s.turn))
             .unwrap_or_default();
         self.sessions
-            .insert(key.clone(), session(host, facts, info.to_owned(), carried));
+            .insert(key.clone(), session(host, thread, carried));
         changes.extend(self.entry(&key).map(|session| Change::Session { session }));
         self.evict(changes, Some(&key));
     }
@@ -1515,7 +1508,7 @@ impl Model {
         &mut self,
         host: &str,
         id: &str,
-        status: Option<(&RawValue, Activity)>,
+        status: Option<(Option<&RawValue>, Activity)>,
         changes: &mut Vec<Change>,
     ) {
         let key = session_key(host, id);
@@ -1524,7 +1517,7 @@ impl Model {
                 self.statuses.insert(
                     key.clone(),
                     Status {
-                        raw: raw.to_owned(),
+                        raw: raw.map(ToOwned::to_owned),
                         activity,
                     },
                 );
@@ -1545,45 +1538,49 @@ impl Model {
         }
     }
 
-    fn add_ask(
-        &mut self,
-        host: &str,
-        kind: AskKind,
-        request: Box<RawValue>,
-    ) -> Result<Ask, serde_json::Error> {
-        let facts = AskFacts::deserialize(&*request)?;
+    fn add_ask(&mut self, host: &str, neutral: wire::Ask, request: Option<Box<RawValue>>) -> Ask {
         let ask = Ask {
-            key: session_key(host, &facts.session_id),
+            key: neutral.key.clone(),
             host: host.to_owned(),
-            id: facts.id.clone(),
-            kind,
-            request,
+            id: neutral.id.clone(),
+            kind: match neutral.kind {
+                wire::AskKind::Permission => AskKind::Permission,
+                wire::AskKind::Question => AskKind::Question,
+            },
+            request: request.unwrap_or_else(null),
         };
         self.serial += 1;
         self.asks.insert(
-            (host.to_owned(), facts.id),
+            (host.to_owned(), neutral.id.clone()),
             Pending {
                 ask: ask.clone(),
+                neutral: Box::new(neutral),
                 serial: self.serial,
             },
         );
-        Ok(ask)
+        ask
     }
 
     fn ask_arrived(
         &mut self,
         host: &str,
-        kind: AskKind,
-        request: &RawValue,
+        neutral: wire::Ask,
+        request: Option<Box<RawValue>>,
         changes: &mut Vec<Change>,
-    ) -> Result<(), serde_json::Error> {
-        let ask = self.add_ask(host, kind, request.to_owned())?;
-        self.ask_need(&ask, false);
+    ) {
+        let words = need_words(&neutral);
+        let ask = self.add_ask(host, neutral, request);
+        self.ask_need(&ask, &words, false);
         changes.push(Change::Ask { ask });
-        Ok(())
     }
 
-    fn settle(&mut self, host: &str, id: &str, by: Option<&str>, changes: &mut Vec<Change>) {
+    fn settle(
+        &mut self,
+        host: &str,
+        id: &str,
+        by: Option<&wire::SettledBy>,
+        changes: &mut Vec<Change>,
+    ) {
         let answering = self
             .answering
             .remove(&(host.to_owned(), id.to_owned()))
@@ -1596,9 +1593,15 @@ impl Model {
                 },
                 How::Answered,
             ),
-            (None, Some(by)) if DAEMON_SETTLERS.contains(&by) => (By::Agent, How::Dropped),
-            (None, Some(by)) => (By::Elsewhere { who: by.to_owned() }, How::Answered),
-            (None, None) => (By::Agent, How::Dropped),
+            (
+                None,
+                Some(wire::SettledBy {
+                    kind: SettlerKind::Device | SettlerKind::Channel,
+                    name: Some(who),
+                    ..
+                }),
+            ) => (By::Elsewhere { who: who.clone() }, How::Answered),
+            (None, _) => (By::Agent, How::Dropped),
         };
         let now = self.now;
         let mut moved = Vec::new();
@@ -1618,14 +1621,14 @@ impl Model {
     }
 
     /// folds a part into its session's tail; true when the tail changed.
-    fn retail(&mut self, key: &str, seq: Option<u64>, part: &RawValue) -> bool {
+    fn retail(&mut self, key: &str, seq: Option<u64>, part: &Part) -> bool {
         let Some(session) = self.sessions.get_mut(key) else {
             return false;
         };
         if session.tail.holds(seq) {
             return false;
         }
-        let Ok(facts) = PartFacts::deserialize(part) else {
+        let Some(facts) = part_facts(part) else {
             return false;
         };
         let Some(role) = session.tail.role_of(&facts.message_id) else {
@@ -1671,7 +1674,12 @@ impl Model {
                         && !self.adopted.contains(*key)
                         && !self.on_a_stage(key)
                 })
-                .min_by(|a, b| a.1.updated.total_cmp(&b.1.updated))
+                // ties go by key, not by the map's order, so the same inputs evict the same session
+                .min_by(|a, b| {
+                    a.1.updated
+                        .total_cmp(&b.1.updated)
+                        .then_with(|| a.0.cmp(b.0))
+                })
                 .map(|(key, _)| key.clone());
             let Some(victim) = victim else { break };
             self.remove_session(&victim, changes);
@@ -1697,8 +1705,8 @@ impl Model {
             key: key.to_owned(),
             host: session.host.clone(),
             id: session.id.clone(),
-            info: session.info.clone(),
-            status: status.map(|s| s.raw.clone()),
+            info: session.info.clone()?,
+            status: status.and_then(|s| s.raw.clone()),
             agents: u32::try_from(agents).unwrap_or(u32::MAX),
             processes,
             tail: session.tail.items.clone(),
@@ -1892,13 +1900,13 @@ impl Model {
     ///
     /// # Errors
     /// `info` is not a session.
-    pub fn adopt(&mut self, host: &str, info: &RawValue) -> Result<Vec<Change>, serde_json::Error> {
-        let facts = cmx2::SessionInfo::deserialize(info)?;
-        let key = session_key(host, &facts.id);
+    pub fn adopt_thread(&mut self, host: &str, thread: ThreadFacts) -> Vec<Change> {
+        let key = session_key(host, &thread.id);
         let mut changes = Vec::new();
-        if facts.time.archived.is_some() {
-            return Ok(changes);
+        if thread.archived {
+            return changes;
         }
+        let info = thread.raw.clone();
         // the store's copy of it is superseded by this read
         self.restored.retain(|(kept, _)| *kept != key);
         if self.sessions.contains_key(&key) {
@@ -1906,26 +1914,27 @@ impl Model {
             if let Some(at) = self.adopted.iter().position(|k| *k == key) {
                 let key = self.adopted.remove(at);
                 self.adopted.push(key.clone());
-                self.upsert_session(host, &facts, info, &mut changes);
-                self.effects.push(Effect::Adopted {
-                    key,
-                    info: info.to_owned(),
-                });
+                self.upsert_session(host, thread, &mut changes);
+                if let Some(info) = info {
+                    self.effects.push(Effect::Adopted { key, info });
+                }
                 self.reorder(&mut changes);
                 self.journaled(&changes);
             }
-            return Ok(changes);
+            return changes;
         }
-        self.upsert_session(host, &facts, info, &mut changes);
+        self.upsert_session(host, thread, &mut changes);
         self.adopted.push(key.clone());
-        self.effects.push(Effect::Adopted {
-            key: key.clone(),
-            info: info.to_owned(),
-        });
+        if let Some(info) = info {
+            self.effects.push(Effect::Adopted {
+                key: key.clone(),
+                info,
+            });
+        }
         self.shed_adopted(&key, &mut changes);
         self.reorder(&mut changes);
         self.journaled(&changes);
-        Ok(changes)
+        changes
     }
 
     /// a device has `key` open on its stage now, as push last saw it.
@@ -2052,7 +2061,7 @@ impl Model {
             && let Some(oldest) = self
                 .arms
                 .iter()
-                .min_by_key(|(_, a)| a.at)
+                .min_by(|a, b| a.1.at.cmp(&b.1.at).then_with(|| a.0.cmp(b.0)))
                 .map(|(id, _)| id.clone())
         {
             self.arms.remove(&oldest);
@@ -2294,7 +2303,7 @@ impl Model {
             .arms
             .values()
             .filter(|a| a.key == key && self.now - a.at <= SEND_STARTS_WITHIN_MS)
-            .max_by_key(|a| a.at)
+            .max_by(|a, b| a.at.cmp(&b.at).then_with(|| a.device.id.cmp(&b.device.id)))
             .map(|a| a.device.clone());
         let Some(session) = self.sessions.get_mut(key) else {
             return;
@@ -2498,7 +2507,7 @@ impl Model {
     /// an ask's need. `reread`: the ask came back in a host read; one
     /// already raised is judged again as replayed, so the push funnel says
     /// so, and never buzzes twice.
-    fn ask_need(&mut self, ask: &Ask, reread: bool) {
+    fn ask_need(&mut self, ask: &Ask, body: &str, reread: bool) {
         let id = ask_need_id(&ask.host, &ask.id);
         let (kind, push_kind) = match ask.kind {
             AskKind::Permission => (NeedKind::Permission, PushAsk::Permission),
@@ -2523,15 +2532,7 @@ impl Model {
             .get(&ask.key)
             .map_or(ask.host.as_str(), |s| s.repo.as_str());
         let title = format!("{repo} wants you");
-        let body = match AskWords::deserialize(&*ask.request) {
-            Ok(words) => match (words.permission, words.questions.first()) {
-                (Some(permission), _) => permission_words(&permission, &words.patterns),
-                (None, Some(question)) => question.question.clone(),
-                (None, None) => "the agent is waiting for you".to_owned(),
-            },
-            Err(_) => "the agent is waiting for you".to_owned(),
-        };
-        let mut need = Need::new(id, kind, &ask.key, self.now, title, &body);
+        let mut need = Need::new(id, kind, &ask.key, self.now, title, body);
         need.ask = Some(ask.id.clone());
         self.raise(need, Some((about, Origin::default())));
     }
@@ -2541,9 +2542,12 @@ impl Model {
     fn reread_needs(&mut self, host: &str) {
         let mut asks: Vec<&Pending> = self.asks.values().filter(|p| p.ask.host == host).collect();
         asks.sort_by_key(|p| p.serial);
-        let asks: Vec<Ask> = asks.into_iter().map(|p| p.ask.clone()).collect();
-        for ask in &asks {
-            self.ask_need(ask, true);
+        let asks: Vec<(Ask, String)> = asks
+            .into_iter()
+            .map(|p| (p.ask.clone(), need_words(&p.neutral)))
+            .collect();
+        for (ask, words) in &asks {
+            self.ask_need(ask, words, true);
         }
         let prefix = format!("{host}:");
         let stale: Vec<(String, bool)> = self
@@ -2677,40 +2681,47 @@ fn properties_of(payload: &RawValue) -> Result<&RawValue, serde_json::Error> {
     serde_json::from_str::<Envelope<'_>>(payload.get()).map(|e| e.properties)
 }
 
-fn session(
-    host: &str,
-    facts: &cmx2::SessionInfo,
-    info: Box<RawValue>,
-    (tail, turn): (Tail, Turn),
-) -> Session {
-    let repo = facts
-        .project_id
-        .trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or(&facts.title)
-        .to_owned();
+fn session(host: &str, mut thread: ThreadFacts, (tail, turn): (Tail, Turn)) -> Session {
+    let info = thread.raw.take();
+    let (repo, directory, places) = match &thread.place {
+        Some(place) => (
+            place.name.clone(),
+            place.directory.clone(),
+            [place.root.clone(), place.directory.clone()],
+        ),
+        None => (thread.title.clone(), String::new(), Default::default()),
+    };
     Session {
         host: host.to_owned(),
-        id: facts.id.clone(),
+        id: thread.id.clone(),
         info,
-        updated: facts.time.updated,
-        parent: facts.parent_id.as_deref().map(|p| session_key(host, p)),
-        directory: facts.directory.clone(),
+        updated: thread.updated,
+        parent: thread.parent.as_deref().map(|p| session_key(host, p)),
+        directory,
         repo,
-        places: [facts.project_id.clone(), facts.directory.clone()],
+        places,
+        thread,
         tail,
         turn,
     }
 }
 
-/// the session a status event is about, so the turn it ends or starts can be judged.
-fn status_session(event: &Event) -> Option<&str> {
-    match event {
-        Event::SessionStatus(e) => Some(&e.properties.session_id),
-        Event::SessionIdle(e) => Some(&e.properties.session_id),
-        _ => None,
+/// a raw value of `null`: contract 1's request for an ask whose source
+/// sent none.
+fn null() -> Box<RawValue> {
+    serde_json::value::to_raw_value(&serde_json::Value::Null).unwrap_or_default()
+}
+
+/// an ask's need body: what the agent wants to do, the question it asks,
+/// or that it waits.
+fn need_words(ask: &wire::Ask) -> String {
+    match (
+        &ask.permission,
+        ask.questions.as_ref().and_then(|q| q.first()),
+    ) {
+        (Some(permission), _) => permission_words(&permission.title, &permission.patterns),
+        (None, Some(question)) => question.question.clone(),
+        (None, None) => "the agent is waiting for you".to_owned(),
     }
 }
 
@@ -2752,25 +2763,25 @@ struct JobWords {
     detail: String,
 }
 
-/// what a status means for the window: `None` is plain idle.
-fn activity(status: &cmx2::SessionStatus) -> Option<Activity> {
-    match status {
-        cmx2::SessionStatus::Busy(b) => Some(Activity::Busy {
-            since: b.since.unwrap_or(0.0),
+/// what an activity means for the window: `None` is plain idle. a retry
+/// ranks and turns as busy; a failed run is idle here.
+fn activity(activity: &wire::Activity) -> Option<Activity> {
+    match activity {
+        wire::Activity::Busy { since } => Some(Activity::Busy { since: *since }),
+        wire::Activity::Retry { since, .. } => Some(Activity::Busy {
+            since: since.unwrap_or(0.0),
         }),
-        cmx2::SessionStatus::Retry(r) => Some(Activity::Busy {
-            since: r.since.unwrap_or(0.0),
+        wire::Activity::Parked {
+            agents,
+            jobs,
+            since,
+        } => Some(Activity::Parked {
+            since: since.unwrap_or(0.0),
+            jobs: *jobs,
+            agents: *agents,
         }),
-        cmx2::SessionStatus::Idle(i) => i.parked.as_ref().map(|p| Activity::Parked {
-            since: i.since.unwrap_or(0.0),
-            jobs: u32::try_from(p.jobs).unwrap_or(0),
-            agents: u32::try_from(p.agents).unwrap_or(0),
-        }),
+        wire::Activity::Idle | wire::Activity::Failed { .. } => None,
     }
-}
-
-fn status_of(raw: &RawValue) -> Result<Option<Activity>, serde_json::Error> {
-    cmx2::SessionStatus::deserialize(raw).map(|s| activity(&s))
 }
 
 impl TailRole {
@@ -2905,7 +2916,7 @@ impl Tail {
     /// remembers who wrote a message; true when that moved a part already
     /// in the tail (it came before its message, or its prompt was queued).
     fn said(&mut self, facts: &MessageFacts) -> bool {
-        self.said_as(&facts.id, TailRole::of(&facts.role), facts.queued)
+        self.said_as(&facts.id, TailRole::of(facts.role), facts.queued)
     }
 
     fn said_as(&mut self, id: &str, role: TailRole, queued: bool) -> bool {
@@ -3079,7 +3090,77 @@ fn last_chars(text: &str, count: usize) -> String {
 mod tests {
     use super::*;
     use crate::cmx2::decode_frame;
+    use crate::journal::Cursor;
+    use crate::source::Stamp;
+    use crate::source::cmx2::translate;
+    use crate::upstream::reconcile::{HostRead, Stamped};
     use crate::upstream::{Connection, FrameCounts};
+
+    /// the reducer's tests are written as cmx2's frames and reads: each
+    /// goes through the cmx2 source's translation, as it does live.
+    trait ThroughCmx2 {
+        fn host_read(&mut self, read: HostRead) -> Vec<Change>;
+        fn tail_read(&mut self, read: (String, Cursor, String)) -> Vec<Change>;
+        fn adopt(&mut self, host: &str, info: &RawValue) -> Result<Vec<Change>, serde_json::Error>;
+        fn restore(
+            needs: Needs,
+            reads: Reads,
+            clears: Clears,
+            adopted: Vec<(String, Box<RawValue>)>,
+        ) -> Self;
+    }
+
+    impl ThroughCmx2 for Model {
+        fn host_read(&mut self, read: HostRead) -> Vec<Change> {
+            let host = read.host.clone();
+            self.agent_read(&host, translate::snapshot(read))
+        }
+
+        fn tail_read(&mut self, (key, cursor, body): (String, Cursor, String)) -> Vec<Change> {
+            let (host, thread) = key.split_once(':').unwrap();
+            let stamp = Stamp {
+                epoch: cursor.epoch,
+                seq: cursor.seq,
+            };
+            let read = translate::tail(thread.to_owned(), stamp, body.as_bytes()).unwrap();
+            self.tail(host, read)
+        }
+
+        fn adopt(&mut self, host: &str, info: &RawValue) -> Result<Vec<Change>, serde_json::Error> {
+            let thread = translate::thread_from_json(info.to_owned())?;
+            Ok(self.adopt_thread(host, thread))
+        }
+
+        fn restore(
+            needs: Needs,
+            reads: Reads,
+            clears: Clears,
+            adopted: Vec<(String, Box<RawValue>)>,
+        ) -> Self {
+            let adopted = adopted
+                .into_iter()
+                .map(|(key, info)| (key, translate::thread_from_json(info).ok()))
+                .collect();
+            Self::restored(needs, reads, clears, adopted)
+        }
+    }
+
+    /// one decoded frame, through the translation, into the reducer.
+    fn through(model: &mut Model, seq: Option<u64>, frame: &str) -> Vec<Change> {
+        let decoded = decode_frame(frame).unwrap();
+        let Some(event) = translate::event(
+            "desk",
+            decoded.directory.as_deref(),
+            &decoded.event,
+            &decoded.payload,
+        )
+        .unwrap() else {
+            return Vec::new();
+        };
+        model
+            .source("desk", seq, event, Some(&decoded.payload))
+            .unwrap()
+    }
 
     fn info(id: &str, updated: u64, parent: Option<&str>) -> String {
         let parent = parent.map_or(String::new(), |p| format!(r#""parentID":"{p}","#));
@@ -3089,16 +3170,7 @@ mod tests {
     }
 
     fn event(model: &mut Model, seq: Option<u64>, payload: &str) -> Vec<Change> {
-        let decoded = decode_frame(&format!(r#"{{"payload":{payload}}}"#)).unwrap();
-        model
-            .event(
-                "desk",
-                seq,
-                decoded.directory.as_deref(),
-                &decoded.event,
-                &decoded.payload,
-            )
-            .unwrap()
+        through(model, seq, &format!(r#"{{"payload":{payload}}}"#))
     }
 
     /// an event the daemon framed with a directory, as it does a worktree's.
@@ -3108,19 +3180,11 @@ mod tests {
         directory: &str,
         payload: &str,
     ) -> Vec<Change> {
-        let decoded = decode_frame(&format!(
-            r#"{{"directory":"{directory}","payload":{payload}}}"#
-        ))
-        .unwrap();
-        model
-            .event(
-                "desk",
-                seq,
-                decoded.directory.as_deref(),
-                &decoded.event,
-                &decoded.payload,
-            )
-            .unwrap()
+        through(
+            model,
+            seq,
+            &format!(r#"{{"directory":"{directory}","payload":{payload}}}"#),
+        )
     }
 
     /// a session event for a thread working in `directory`.
@@ -4577,6 +4641,37 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn an_ask_settle_is_judged_against_its_own_kinds_floor() {
+        let mut model = Model::new();
+        let mut read = empty_read(10);
+        read.questions.seq = 2;
+        model.host_read(read);
+        event(
+            &mut model,
+            Some(11),
+            r#"{"id":"e","type":"permission.asked","properties":{"id":"per_1","sessionID":"ses_1","permission":"read","patterns":[],"metadata":{},"always":[]}}"#,
+        );
+        event(
+            &mut model,
+            Some(12),
+            r#"{"id":"e","type":"question.asked","properties":{"id":"que_1","sessionID":"ses_1","questions":[{"question":"which?","header":"pick","options":[]}]}}"#,
+        );
+        // seq 5 is past the questions' floor (2) and inside the permissions' (10)
+        let question = event(
+            &mut model,
+            Some(5),
+            r#"{"id":"e","type":"question.replied","properties":{"sessionID":"ses_1","requestID":"que_1","answers":[]}}"#,
+        );
+        let permission = event(
+            &mut model,
+            Some(5),
+            r#"{"id":"e","type":"permission.replied","properties":{"sessionID":"ses_1","requestID":"per_1","reply":"once"}}"#,
+        );
+        assert!(kinds(&question).contains(&"ask.settled"));
+        assert!(!kinds(&permission).contains(&"ask.settled"));
+    }
+
     /// the host read afresh at `seq` in `epoch`, holding `sessions`.
     fn host_read_of(epoch: &str, seq: u64, sessions: &[String]) -> HostRead {
         let mut read = empty_read(seq);
@@ -4598,15 +4693,15 @@ mod tests {
         )
     }
 
-    fn tail_read_of(epoch: &str, seq: u64, messages: &[String]) -> TailRead {
-        TailRead {
-            key: "desk:ses_1".into(),
-            cursor: Cursor {
+    fn tail_read_of(epoch: &str, seq: u64, messages: &[String]) -> (String, Cursor, String) {
+        (
+            "desk:ses_1".into(),
+            Cursor {
                 epoch: epoch.into(),
                 seq,
             },
-            messages: ReadMessage::decode(format!("[{}]", messages.join(",")).as_bytes()).unwrap(),
-        }
+            format!("[{}]", messages.join(",")),
+        )
     }
 
     fn texts(model: &Model) -> Vec<String> {

@@ -1,0 +1,235 @@
+{
+  "sessionKey": "agent:main:dashboard:3ac0628a-47c8-4e84-803a-dbb5e72a3b9d",
+  "sessionId": "ce5c9f8d-87c7-4eb0-9f67-32638116b04f",
+  "messages": [
+    {
+      "role": "user",
+      "content": "show me a picture",
+      "timestamp": 1792054853690,
+      "idempotencyKey": "851795bd-e004-4d6a-8226-851ef7cd40f1:user",
+      "__openclaw": {
+        "senderIsOwner": true,
+        "transport": {
+          "clients": [
+            {
+              "id": "gateway-client",
+              "mode": "backend",
+              "displayName": "boxbox bench"
+            }
+          ]
+        },
+        "id": "4ec36d38-8958-4c95-885f-9a35b42174b9",
+        "idempotencyKey": "851795bd-e004-4d6a-8226-851ef7cd40f1:user",
+        "recordTimestampMs": 1792054854511,
+        "transcriptPosition": {
+          "source": "NwM2rRuopW-iHPqnhXPaK0N6yMdkVyjg-kqErvfK2V8",
+          "rawSeq": 1
+        },
+        "seq": 1
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "here is the picture."
+        },
+        {
+          "type": "image",
+          "artifactId": "artifact_managed_image_9f9bd825-a822-44ee-8523-b97616aed0ba",
+          "url": "/api/chat/media/outgoing/agent%3Amain%3Adashboard%3A3ac0628a-47c8-4e84-803a-dbb5e72a3b9d/9f9bd825-a822-44ee-8523-b97616aed0ba/full",
+          "openUrl": "/api/chat/media/outgoing/agent%3Amain%3Adashboard%3A3ac0628a-47c8-4e84-803a-dbb5e72a3b9d/9f9bd825-a822-44ee-8523-b97616aed0ba/full",
+          "alt": "dot.png",
+          "mimeType": "image/png",
+          "width": 4,
+          "height": 4,
+          "sizeBytes": 73
+        }
+      ],
+      "api": "openai-responses",
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "usage": {
+        "input": 11,
+        "output": 7,
+        "totalTokens": 18,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      },
+      "stopReason": "stop",
+      "timestamp": 1792054855167,
+      "responseId": "resp_e2e",
+      "diagnostics": [
+        {
+          "type": "openai_responses_terminal",
+          "timestamp": 1792054855181,
+          "details": {
+            "eventType": "response.completed",
+            "stopReason": "stop",
+            "endTurn": "absent"
+          }
+        }
+      ],
+      "__openclaw": {
+        "runId": "851795bd-e004-4d6a-8226-851ef7cd40f1",
+        "id": "5f92adc6-f0cf-4682-9e96-1ea1fd7001ec",
+        "recordTimestampMs": 1792054855184,
+        "transcriptPosition": {
+          "source": "NwM2rRuopW-iHPqnhXPaK0N6yMdkVyjg-kqErvfK2V8",
+          "rawSeq": 4
+        },
+        "seq": 2
+      }
+    }
+  ],
+  "hasMore": false,
+  "totalMessages": 2,
+  "pendingInputs": {
+    "items": [],
+    "total": 0,
+    "queuedCount": 0
+  },
+  "deltaCursor": "eyJhZ2VudElkIjoibWFpbiIsImdlbmVyYXRpb24iOiJjZGM5NTE2Nzk5ZTA0MDQ0YTdjODMyMzY0ZGUzMDdhMCIsImxhc3RTZXEiOjQsInNlc3Npb25JZCI6ImNlNWM5ZjhkLTg3YzctNGViMC05ZjY3LTMyNjM4MTE2YjA0ZiIsInZlcnNpb24iOjF9",
+  "defaults": {
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "contextTokens": 128000,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "modelSelectionTarget": "session"
+  },
+  "sessionInfo": {
+    "key": "agent:main:dashboard:3ac0628a-47c8-4e84-803a-dbb5e72a3b9d",
+    "visibility": "shared",
+    "permissionModePending": false,
+    "spawnDepth": 0,
+    "createdVia": "operator",
+    "participants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "expandedParticipants": [
+      {
+        "identity": {
+          "type": "observation",
+          "pluginId": null,
+          "accountId": null,
+          "senderKind": "unknown",
+          "id": "gateway-client"
+        }
+      }
+    ],
+    "participantCount": 1,
+    "createdAt": 1792054853632,
+    "kind": "direct",
+    "label": "record image 1792054853586",
+    "classification": "direct",
+    "agentId": "main",
+    "isMain": false,
+    "isBackground": false,
+    "displayName": "record image 1792054853586",
+    "chatType": "direct",
+    "updatedAt": 1792054855555,
+    "archived": false,
+    "pinned": false,
+    "unread": true,
+    "lastInteractionAt": 1792054853896,
+    "lastActivityAt": 1792054855236,
+    "sessionId": "ce5c9f8d-87c7-4eb0-9f67-32638116b04f",
+    "systemSent": true,
+    "abortedLastRun": false,
+    "effectiveFastMode": false,
+    "effectiveFastModeSource": "default",
+    "fastAutoOnSeconds": 60,
+    "inputTokens": 11,
+    "outputTokens": 7,
+    "totalTokens": 11,
+    "totalTokensFresh": true,
+    "estimatedCostUsd": 0,
+    "status": "done",
+    "startedAt": 1792054855156,
+    "endedAt": 1792054855236,
+    "runtimeMs": 80,
+    "lastRunId": "851795bd-e004-4d6a-8226-851ef7cd40f1",
+    "parentSessionKey": "agent:main:main",
+    "effectiveResponseUsage": "off",
+    "effectiveQueueMode": "steer",
+    "modelProvider": "mock-openai",
+    "model": "gpt-5.6-luna",
+    "modelOverrideSource": null,
+    "runtimeSelectionLocked": false,
+    "agentRuntime": {
+      "id": "openclaw",
+      "cloudPlacementSupported": true,
+      "cloudPlacementExecutionMode": "worker-turn",
+      "devicePlacement": {
+        "requiredNodeCommands": [],
+        "consumesWorkerSlot": true
+      },
+      "devicePlacementSupported": true,
+      "source": "model"
+    },
+    "contextTokens": 128000,
+    "contextBudgetStatus": {
+      "schemaVersion": 1,
+      "source": "pre-prompt-estimate",
+      "updatedAt": 1792054855143,
+      "provider": "mock-openai",
+      "model": "gpt-5.6-luna",
+      "route": "fits",
+      "shouldCompact": false,
+      "estimatedPromptTokens": 17917,
+      "contextTokenBudget": 128000,
+      "promptBudgetBeforeReserve": 108000,
+      "reserveTokens": 20000,
+      "effectiveReserveTokens": 20000,
+      "remainingPromptBudgetTokens": 90083,
+      "overflowTokens": 0,
+      "toolResultReducibleChars": 0,
+      "messageCount": 0,
+      "unwindowedMessageCount": 0,
+      "sessionId": "ce5c9f8d-87c7-4eb0-9f67-32638116b04f"
+    },
+    "snapshotAt": 1792054855797,
+    "placement": {
+      "state": "local",
+      "generation": 0,
+      "createdAtMs": 1792054854772,
+      "updatedAtMs": 1792054855232,
+      "stateChangedAtMs": 1792054854772
+    },
+    "activitySummary": {
+      "state": "unavailable",
+      "canEnsure": true
+    },
+    "sharingRole": "admin",
+    "sendDisabledReason": null,
+    "hasActiveRun": false,
+    "activeRunIds": [],
+    "activeLeafEntryId": "5f92adc6-f0cf-4682-9e96-1ea1fd7001ec"
+  }
+}

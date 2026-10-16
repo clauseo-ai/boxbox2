@@ -30,10 +30,13 @@ describe("what a turn is estimated at", () => {
     expect(more).toBe(six);
   });
 
-  test("a heavy turn carries room for its tape", () => {
-    const light = estimateHeight(turn({ items: Array.from({ length: 6 }, (_, i) => step(i)) }), 390);
-    const heavy = estimateHeight(turn({ items: Array.from({ length: 7 }, (_, i) => step(i)) }), 390);
-    expect(heavy - light).toBeGreaterThan(140);
+  test("a run of steps folds into one group row however many it holds; words between two runs make two", () => {
+    const shell = (i: number) => step(i, { family: "shell", tool: "shell" });
+    const few = estimateHeight(turn({ items: [shell(1), shell(2)] }), 390);
+    const many = estimateHeight(turn({ items: Array.from({ length: 40 }, (_, i) => shell(i)) }), 390);
+    const split = estimateHeight(turn({ items: [shell(1), say("s", 10), shell(2)] }), 390);
+    expect(many).toBe(few);
+    expect(split - few).toBeGreaterThan(80);
   });
 
   test("a compaction is a mark line, not a turn of rows", () => {

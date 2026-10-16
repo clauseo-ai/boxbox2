@@ -15,7 +15,6 @@ use std::time::Duration;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -23,20 +22,21 @@ use tracing::info;
 use utoipa::ToSchema;
 
 use super::AppState;
-use super::asks::{device_of, read_capped, segment};
+use super::agents;
+use super::asks::{device_of, segment};
 use super::error::{ApiError, ErrorBody};
-use crate::config::HostConfig;
 use crate::fleet::model::{ClearRefused, session_key};
 use crate::push::Thread;
-use crate::upstream::{plain, request};
+use crate::source::cmx2::translate;
+#[cfg(test)]
+use crate::source::cmx2::verbs::threads::{MAX_ANSWER, daemon};
+use crate::wire::Capability;
+#[cfg(test)]
+use {crate::config::HostConfig, reqwest::Method};
 
 /// threads one clear may name: more than a phone can show windows for
 /// (`fleet::model::MAX_ORDER`).
 const MAX_KEYS: usize = 300;
-/// how long the daemon may take to answer an archive or a read of one session.
-const DAEMON_TIMEOUT: Duration = Duration::from_secs(15);
-/// a session's info is a few kb; a daemon answering more is not one.
-const MAX_ANSWER: usize = 1024 * 1024;
 
 /// threads to clear off home, and from which control.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -215,7 +215,7 @@ async fn confirm_one(state: &AppState, key: String) {
     let Some((host, session)) = key.split_once(':') else {
         return;
     };
-    let Ok(route) = segment(session).map(|s| format!("/session/{s}")) else {
+    let Ok(id) = segment(session) else {
         return;
     };
     for attempt in 0..CONFIRM_TRIES {
@@ -225,12 +225,14 @@ async fn confirm_one(state: &AppState, key: String) {
                 () = state.shutdown.cancelled() => return,
             }
         }
-        let Ok(config) = host_config(state, host) else {
+        let Ok(source) = agents::cmx2(state, host, Some(Capability::History)) else {
             continue;
         };
-        match daemon(&state.client, &config, Method::GET, &route, None).await {
+        match source.session_info(id).await {
             Ok(info) if archived_at(&info).is_none() => {
-                let _ = state.fleet.adopt(host.to_owned(), info).await;
+                if let Ok(thread) = translate::thread_from_json(info) {
+                    let _ = state.fleet.adopt(host.to_owned(), thread).await;
+                }
                 return;
             }
             Ok(_) | Err(ApiError::Gone) => {
@@ -283,19 +285,19 @@ pub async fn archive(
     State(state): State<Arc<AppState>>,
     Path((host, session)): Path<(String, String)>,
 ) -> Result<Json<Archived>, ApiError> {
-    let route = format!("/session/{}", segment(&session)?);
-    let config = host_config(&state, &host)?;
+    let id = segment(&session)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::Archive))?;
     let key = session_key(&host, &session);
     #[allow(clippy::cast_precision_loss, reason = "ms stamps stay far below 2^52")]
     let asked = crate::now_ms() as f64;
-    let sent = json!({ "time": { "archived": asked } });
     // archiving stops the turn: a stop push for it would tell a device about what its owner just did
     state
         .fleet
         .own_action(key.clone())
         .await
         .map_err(|_| ApiError::Stopping)?;
-    let outcome = daemon(&state.client, &config, Method::PATCH, &route, Some(&sent))
+    let outcome = source
+        .archive_session(id, asked)
         .await
         .map_err(|error| match error {
             ApiError::Gone => ApiError::NoSuchSession(key.clone()),
@@ -335,101 +337,27 @@ pub async fn adopt(
     State(state): State<Arc<AppState>>,
     Path((host, session)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
-    let route = format!("/session/{}", segment(&session)?);
-    let config = host_config(&state, &host)?;
+    let id = segment(&session)?;
+    let source = agents::cmx2(&state, &host, Some(Capability::History))?;
     let key = format!("{host}:{session}");
-    let info = daemon(&state.client, &config, Method::GET, &route, None)
-        .await
-        .map_err(|error| match error {
-            ApiError::Gone => ApiError::NoSuchSession(key.clone()),
-            other => other,
-        })?;
+    let info = source.session_info(id).await.map_err(|error| match error {
+        ApiError::Gone => ApiError::NoSuchSession(key.clone()),
+        other => other,
+    })?;
     // an archived thread is in no listing: it is not opened from history, and the app is told so at once
     if archived_at(&info).is_some() {
         return Err(ApiError::NoSuchSession(key));
     }
+    let thread = translate::thread_from_json(info).map_err(|error| ApiError::HostFailed {
+        host: key.clone(),
+        detail: format!("its answer was not a session: {error}"),
+    })?;
     state
         .fleet
-        .adopt(host, info)
+        .adopt(host, thread)
         .await
-        .map_err(|_| ApiError::Stopping)?
-        .map_err(|error| ApiError::HostFailed {
-            host: key.clone(),
-            detail: format!("its answer was not a session: {error}"),
-        })?;
+        .map_err(|_| ApiError::Stopping)?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn host_config(state: &AppState, name: &str) -> Result<Arc<HostConfig>, ApiError> {
-    state
-        .upstreams
-        .hosts
-        .borrow()
-        .iter()
-        .find(|h| h.config.name == name)
-        .map(|h| Arc::clone(&h.config))
-        .ok_or_else(|| ApiError::UnknownHost(name.to_owned()))
-}
-
-/// one call to a daemon whose answer is a session, kept raw. its refusals
-/// become what they mean for a thread: gone, or the daemon's own words.
-async fn daemon(
-    client: &reqwest::Client,
-    host: &HostConfig,
-    method: Method,
-    route: &str,
-    sent: Option<&serde_json::Value>,
-) -> Result<Box<RawValue>, ApiError> {
-    let unreachable = |reason: String| ApiError::HostUnreachable {
-        host: host.name.clone(),
-        reason,
-    };
-    let mut call = request(client, host, method, route);
-    if let Some(sent) = sent {
-        call = call
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(sent.to_string());
-    }
-    let answer = tokio::time::timeout(DAEMON_TIMEOUT, call.send())
-        .await
-        .map_err(|_| unreachable(format!("no answer within {}s", DAEMON_TIMEOUT.as_secs())))?
-        .map_err(|e| unreachable(plain(&e)))?;
-    let status = answer.status().as_u16();
-    // read in chunks up to the cap: a host that sends more is a failure, never a buffer
-    let body = read_capped(answer, &host.name, DAEMON_TIMEOUT, MAX_ANSWER).await?;
-    match status {
-        200..=299 => {
-            RawValue::from_string(String::from_utf8_lossy(&body).into_owned()).map_err(|error| {
-                ApiError::HostFailed {
-                    host: host.name.clone(),
-                    detail: format!("its answer was not json: {error}"),
-                }
-            })
-        }
-        401 => Err(ApiError::HostRefused(host.name.clone())),
-        404 => Err(ApiError::Gone),
-        _ => {
-            let named: Option<DaemonError> = serde_json::from_slice(&body).ok();
-            Err(ApiError::HostSaid {
-                host: host.name.clone(),
-                status,
-                message: named
-                    .and_then(|e| e.data)
-                    .and_then(|d| d.message)
-                    .unwrap_or_else(|| format!("status {status}")),
-            })
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct DaemonError {
-    data: Option<DaemonErrorData>,
-}
-
-#[derive(Deserialize)]
-struct DaemonErrorData {
-    message: Option<String>,
 }
 
 #[cfg(test)]

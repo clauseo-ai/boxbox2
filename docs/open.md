@@ -227,15 +227,6 @@ it is verified`. closed items move to the bottom with the commit.
   loop. · tap "copy" on a code block over the tailnet's plain http on the
   phone, then paste.
 
-- [thread] an agent started after a turn's first frame grows the tape by
-  its lane (111.6 to 156.6 px), and a thread at its end follows the growth,
-  so the prompt moves 45 px up (129.7 to 84.7 at 390, 197.2 to 161.2 at
-  1512 on a wait turn), against "a running turn keeps one shape from its
-  first second". the window keeps its 340 px and its rows. a fix is a
-  design call in the agents' tape: room for a lane from the first frame,
-  or the lane drawn inside the tape's height. · `W=390 H=844 bun
-  .cmx2/scratch/verify/vagents.ts` (scratch, not committed), frames +88 to
-  +120 in its output; `[bench:agent N MS]` on a thread with no history.
 - [home] escape with the thread menu open closes the thread at 390:
   home's escape handler (home.tsx:742) runs before anything asks whether a
   menu or panel is open, or whether you are typing, so escape in the
@@ -279,7 +270,7 @@ it is verified`. closed items move to the bottom with the commit.
   390 reaches 107 thousandths. anchor it by transform. · perf.shift at 390
   under 25 on the device run.
 - [a11y] two threads with the same repo, title and state get the same
-  accessible name (AGENTS.md rule 5). add the session's short id or its
+  accessible name (AGENTS.md, accessibility). add the session's short id or its
   last-active time to the name. · the a11y tree in the drive shows two
   distinct names for two such threads.
 - [telemetry] perf observers start only with home: a page opened straight
@@ -332,6 +323,46 @@ it is verified`. closed items move to the bottom with the commit.
   in one second as a 2,000-word child finished; what the worker sent and
   why it did not batch is unread. · the rows for that second named.
 
+- [agents] the cmx2 source's contract 2 hydration (`transcript`, `message`,
+  `thread`) answers `VerbError::NotBuilt` until the journals lane lands it,
+  and `GET T/messages` has no contract 2 route yet: contract 1 reaches the
+  daemon through `Cmx2Raw` and is unaffected. every other verb has its
+  `/api/agents` route (verbs2 lane). `[[hermes]]` entries are read, checked
+  and reserve their names, and the supervisor says once per connection that
+  no source of their kind is built in yet (`[[openclaw]]` entries run, see
+  the occonn section). ·
+  `rg -n 'not_built\(' server/src/upstream/source.rs`.
+
+### left open by the verbs2 lane (2026-10-15)
+
+- [agents] contract 2's routes are not in the openapi document: their
+  `utoipa::path`s are written (`http/agents/routes.rs`) but not listed in
+  `http/openapi.rs`, since listing them pulls every contract 2 schema into
+  `app/src/api/boxbox.json` and that belongs with the neutral wire's types.
+  · `rg -n 'agents::routes' server/src/http/openapi.rs` finds nothing.
+- [agents] a new cmx2 thread through `POST /api/agents/{agent}/threads` is
+  armed for done after the source answers (birth and first prompt are one
+  trait call), where contract 1 arms between the two. a turn that ends before
+  the arm lands pushes no done to the device. · `http/agents/routes.rs`,
+  `start`.
+- [agents] the cmx2 source builds its `data:` urls under its own photo
+  budget (`upstream/source.rs`, `Shared`), the same size as contract 1's
+  route budget but not shared with it: while both contracts run, the peak is
+  twice the one budget. · `rg -n 'PHOTO_BUDGET_MIB' server/src`.
+- [agents] a config reload does not check its connection names against the
+  keys in `agents` (startup and pairing do): a reload that renames a
+  connection to an agent's key is taken. · `main.rs`, `refuse_agent_keys`.
+- [agents] a source that answers a send `checking` must settle it with
+  `Sends::resolve` (landed, cancelled, uncertain); none does yet, so such a
+  send ends uncertain after 30 minutes. cmx2 never answers `checking`. ·
+  `rg -n 'fn resolve' server/src/source/sends.rs`.
+- [agents] `ThreadIds`, `agent_keys::resolve` and `prune_thread_ids` have
+  no caller until the openclaw source uses them; the daily prune is the
+  source's to schedule. · `rg -n 'ThreadIds::new' server/src`.
+- [agents] not driven live against the dev daemon: `POST
+  /api/agents/{agent}/asks/{id}` and `POST T/compact` for cmx2 (unit
+  tested through the scripted source and the typed mapping only).
+
 ### found or left open by the colour, inspector and folds lane (2026-10-02)
 
 - [details] no processes in the details. cmx2 serves a session's
@@ -381,7 +412,7 @@ it is verified`. closed items move to the bottom with the commit.
   one element that scrolls; its scroll cost on an iphone is unmeasured
   (perf.longtask, perf.input on the device run).
 - [thread] the live turn is unproven in safari and on an iphone: the
-  sticky tape, the opaque card that stands in for its glass, and the
+  live step group (its strip's head, the run folding whole) and the
   follow. the streaming reply repaints its markdown once a frame; its cost
   on a long reply is unmeasured (perf.longtask on the device run). the
   "done just now, worked 1 min" line has no unit test (it lives in
@@ -389,16 +420,12 @@ it is verified`. closed items move to the bottom with the commit.
   `[bench:work]` turn on the installed unit at 390.
 - [thread] the faint ink (`--text-3`, 38%) is under 4.5:1 on the floods
   (2.5 to 2.7). every faint word that carries information moved to the
-  second ink (the clock, a row's directory, the gap line, the tape's scale
-  and lanes, the details' asides and times; `stage-flood.test.ts` holds
+  second ink (the clock, a row's directory, the gap line, a step group's
+  line, the details' asides and times; `stage-flood.test.ts` holds
   them). what stays faint is toned down on purpose by the law (a
   command's flags and pipes, a done plan item, a bed's cut and hunk lines,
   a stopped result); whether each of those is decoration or information is
   a design call, one at a time.
-- [stories] `stage--live-heavy-turn` came up once in about six runs with
-  the tape not stuck after the scroll; read as a race in the story's own
-  landing after its history swap, not seen in the product. · run it six
-  times at 390.
 
 - [icons] real favicons wait on cmx2 ask a28 (a file's bytes can be read).
   a28 has been in the pin since the move of 2026-10-03; what follows "when a28
@@ -522,6 +549,48 @@ it is verified`. closed items move to the bottom with the commit.
   return to the foreground were driven, the stream coming back was not.
   · cut boxbox's stream mid-session with the models route aborted.
 
+### the openclaw dev gateway (ocbench lane, 2026-10-15)
+
+- [openclaw] the bench boxbox configs get no `[[openclaw]]` entry yet: the
+  server's config is `deny_unknown_fields` and has no openclaw section, so
+  writing one would break `just dev`. `writeBoxboxConfigs` adds it when the
+  server reads `[[openclaw]]` (docs/openclaw.md, 11.6) · `just dev` starts
+  with the entry present.
+- [openclaw] webm and ogg voice notes heard by the agent: untested; the
+  bench has no transcription provider (the scripted model cannot hear), so
+  `openclaw_attachments`' "heard" half needs a real or scripted stt
+  provider · the request log shows a transcript of the note.
+- [openclaw] the chaos switches that need boxbox's debug hook (drop
+  boxbox's socket mid-turn, pause its reader) wait for the server's
+  openclaw client · `openclaw_gap_free` and `openclaw_slow_consumer` pass.
+- [openclaw] the reminder test scripts the `automations` call; it proves
+  the gateway runs the tool from a suppressed send and the job fires on
+  both benches, not that a model chooses the tool for "remind me in 2
+  minutes" · a real-model run on a test gateway.
+
+### the openclaw connection (occonn lane, 2026-10-15)
+
+- [openclaw] an `[[openclaw]]` entry runs (dials, pairs, keeps its device
+  token, reconnects) but publishes no agents, so nothing of it reaches the
+  fleet or the agents screen, and its verbs answer `NotBuilt`: agents (3.8),
+  snapshots and the verbs are the sync and verbs phases, after the `agents`
+  table lands · `[[openclaw]]` agents on the agents screen.
+- [openclaw] the openclaw module carries `allow(dead_code)` while parts of
+  its client api (`Frame::decode`, `Events::backlog`,
+  `ConnectionState::connection_status`) wait for those consumers ·
+  `rg -n 'mod openclaw' -B5 server/src/main.rs` shows no allow.
+- [openclaw] `[[openclaw]]` entries are started once at boot; a config
+  reload does not add, change or stop one (the supervisor's reload carries
+  hosts only) · editing an entry and reloading restarts its connection.
+- [openclaw] the last `bootId` is held in memory, so a gateway that
+  restarted while boxbox was down is not reported as restarted on boxbox's
+  first hello; persisting it is the sync engine's cursor row (5.2, 5.8) ·
+  `Hello::restarted` after a boxbox restart across a gateway restart.
+- [openclaw] a revoked device token falling back to the shared token and
+  asking for approval again (`AUTH_DEVICE_TOKEN_MISMATCH`, 3.4) is unit
+  tested, not driven live (`openclaw_pairing`'s last clause) · a live run
+  that revokes with `devices revoke` on the lan bench.
+
 ### housekeeping
 
 - the real drive makes one scratch haiku session per run on 4097 under
@@ -532,6 +601,12 @@ it is verified`. closed items move to the bottom with the commit.
   not a second download, in the first-load budget.
 
 ## closed
+
+- [openclaw] `SIGUSR2` and the `bootId`: settled by the occonn lane
+  (2026-10-15). with the dev gateway's supervisor, `kill -USR2` sends
+  `shutdown {restartExpectedMs: 1500}`, closes 1012, and the gateway that
+  comes back has a new `bootId` (`42a58b02...` to `05c8486e...`), which the
+  server's openclaw connection logged as `restarted=true` on its next hello.
 
 - [thread] the thread blanked when a reply ended, and stayed blank until a
   reload (reported on main of 2026-10-09 and deployed that day: the thread disappears and a
@@ -885,6 +960,11 @@ it is verified`. closed items move to the bottom with the commit.
   the foot and an empty band beside the window (reported 2026-10-05,
   with a screenshot); on a phone the card did not fit the screen. closed
   (2026-10-05): the window keeps its resting size at every width and shows
-  a preview and an "answer" pill; the card is the thread's, checked at 320,
+  its need in a tray that opens the answer sheet (since the needs-you
+  tray, docs/home.md); the card is the thread's, checked at 320,
   390, 820 and 1512 wide against a long ask and a two-question ask in
   the stories. not driven against a real daemon.
+
+
+(the last of 921 lines shown; full output at /Users/dev/.local/share/cmx2/tool-output/shell-mv9edi9w-ztlk.txt, read it with offset and limit)
+- [thread] closed 2026-10-16 by the step groups: an agent started after a turn's first frame grew the tape by its lane and moved the prompt 45 px; the tape is gone (thread.md, the step group), and a group is one line and a fixed strip. with it the story race where `stage--live-heavy-turn` came up with the tape not stuck.

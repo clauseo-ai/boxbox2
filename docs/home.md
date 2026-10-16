@@ -3,7 +3,7 @@
 home is the live windows (decision 12; `design.md`, the model: windows).
 this file says how it is built, what it decided where the law is silent,
 how it is verified, and what it still waits on. it extends `design.md` and
-is binding the same way (AGENTS.md, rule 6).
+is binding the same way (AGENTS.md, design law).
 
 ## where it lives
 
@@ -11,7 +11,7 @@ is binding the same way (AGENTS.md, rule 6).
 |---|---|
 | `app/src/motion/` | the motion law as code: the two springs sampled into `linear()` curves, the short curves, and `play`/`flip`/`settle`/`sweep`, the only way anything animates |
 | `app/src/ui/window/` | one window: the repo colours (`repo.ts`), the tail's grammar (`tail.ts`), the window's view of a session (`view.ts`), the component and its stylesheet |
-| `app/src/ui/home/` | home: membership (`membership.ts`), the arrangements, the order and its calm, the stage and its motion (`home.tsx`, `stage.tsx`), the folds at the rail (the folded column and its swatches `fold.tsx`, `swatch.ts`; the stage card's edge moving `edge.ts`, `glide.ts`; the choice kept on the device `remembered.ts`), the budgets (`perf.ts`), the fixtures and the stories |
+| `app/src/ui/home/` | home: membership (`membership.ts`), the arrangements, the order and its calm, the stage and its motion (`home.tsx`, `stage.tsx`), the folds at the rail and the strip (the fold and its swatches `fold.tsx`, `swatch.ts`, the windows toggle's words `windows.ts`; the stage card's edge moving `edge.ts`, `glide.ts`; the choice kept on the device `remembered.ts`), the budgets (`perf.ts`), the fixtures and the stories |
 | `bench/windows.ts` | the windows world: five threads across two repos on a real daemon, for the fixture capture and the budget run |
 | `bench/home.ts` | the budget run |
 
@@ -23,7 +23,7 @@ is binding the same way (AGENTS.md, rule 6).
   queued, or touched in the last 12 hours; subagents never get a window)
   and how a state reads: chip, clock, footer, accessible name.
 - **a window is an article with one stretched button**, its title, whose
-  hit area covers the window. the ask's "answer" pill is a button of its
+  hit area covers the window. the ask's tray is a button of its
   own, so nothing nests a button in a button, and every control has a
   unique name ("ledger: set the greeting in the notes. wants you", "answer
   ledger: which greeting should the notes use?").
@@ -52,6 +52,39 @@ is binding the same way (AGENTS.md, rule 6).
   an ask (`design.md`, one layout law). a
   thread opened from outside (a relaunch restoring the url, a push tap)
   paints in place.
+- **home's controls are liquid glass, its windows are not** (the native
+  app's decision 22). the bar's pills and rounds (new thread, clear N,
+  history, machines, the windows toggle), the fold's new-thread
+  disc, rounds and toggle, the dock and the capsule float over the windows
+  as the stage bar's rounds float over the log, so they are one family:
+  regular glass from `styles.css` (`.lg`'s tokens; `.home .pill` is
+  `all: unset` and reads them). the folded column's disc is the glass
+  tinted with the ink, the dock the glass tinted 50% (dark) or 60% (light)
+  with its repo's window material, its plus disc still the accent; the
+  capsule tinted 70% with the asking window's. a press swells the glass and
+  lights it under the finger. windows, swatches, the sheet, the stage's
+  card, the docked details and every chip inside a window keep their solid
+  materials, and so does the reload screen's one act. reduced
+  transparency, or a browser without backdrop-filter, gives every glass
+  control the solid fill in the same shape (the tinted ones keep their
+  tint over it), and a press dims it instead. the story
+  `home / home glass controls` lays them over live windows beside the solid
+  fallback.
+- **an agent's thread opens as a layer over its parent's**, even when
+  the fleet does not hold the agent's session (a spawn-only agent, or one
+  older than its host's newest threads): the layer draws the parent's repo
+  and colour under the agent's key, named by the row that opened it (its
+  session id when the row gave none), with none of the parent's state
+  (`strayView`, layers.ts, as the native app's `ThreadAgentStack.introduce`),
+  and the stage is told its parent (`parent`) and that name and repo
+  (`fallback`), so its title block names the agent and its parent's repo,
+  its back returns there, and it says the thread is not followed live. the
+  stage's doors (the agent row's, the details' agents) hand home the row's
+  name. `home / home spawn only agent` opens one through its door (its
+  shots' craft check flags the parent's open rows under the layer, 7.7 px
+  from their left edge, the thread's own padding). the effect that lets go of a
+  thread that left the fleet leaves it alone, and it is forgotten once its
+  layer is gone.
 - **the first frame is the cache.** the first windows (from the worker's
   indexeddb boot, or the first snapshot) paint at once, with no reorder
   wait and no motion.
@@ -103,12 +136,17 @@ is binding the same way (AGENTS.md, rule 6).
   the drive.
   every arrangement has the new thread entry, because the one it had was the
   phone's dock alone, and a repo or folder with no threads has no window to
-  start from. on the deck and the rail the bar is three rows by rule at any
-  count (the wordmark with where you go, then what you do, then the line),
-  because four pills and a wordmark do not fit one row at 390 with a two
-  digit "clear 23", and a pill that wraps by chance is left alone on a
-  row at some count or other (the first reviewer's "machines" alone on the
-  rail). the strip has the width for one row. `home--home-crowded-bar` holds
+  start from. on the rail the bar is three rows by rule at any count (the
+  wordmark with where you go, then what you do, then the line), because
+  four pills and a wordmark do not fit one row at 390 with a two digit
+  "clear 23", and a pill that wraps by chance is left alone on a row at
+  some count or other (the first reviewer's "machines" alone on the rail).
+  the phone's deck is two rows (the native app's stripchevron): the
+  wordmark with three round glass marks (history as a clock, machines, new
+  thread as a plus, each with its name), then the line with "clear N" at
+  its end; the line's flex basis is too wide to share the first row, so it
+  always starts the second, and it wraps inside its own box before the
+  clear pill gives up its word. the strip has the width for one row. `home--home-crowded-bar` holds
   24 done and "3 want you" at every width, and `home-shots.ts` fails a pill
   that leaves its group's row or the screen.
 - **the deck's page dots may not widen the deck.** two dozen windows made
@@ -158,11 +196,13 @@ is binding the same way (AGENTS.md, rule 6).
   on a phone it forced a sideways scroll because the question card did not
   fit the screen. a window keeps its
   resting size in the deck, the strip and the rail, and shows the ask's
-  header, its question (clamped: three lines, six on the deck), one quiet
-  line of what waits ("3 options", "2 questions") and an "answer" pill.
-  the pill and a tap on the window both open the thread with the ask in
-  front: home sets `state.focus` (`askFirst`, the same path a push tap
-  takes) and activates the window; the stage goes to the ask's row and
+  need in its accent tray (design.md, the inbox in the windows; clamped to
+  two lines on the strip and the rail, six on the deck). the tray opens the
+  answer sheet over home (`asks/sheet.tsx`, `askSheet` in home.tsx: a
+  sheet on the deck, a popover from the window on the strip and the rail,
+  home inert under it); a tap on the window and the sheet's "open the
+  thread" open the thread with the ask in front: home sets `state.focus`
+  (`askFirst`, the same path a push tap takes) and activates the window; the stage goes to the ask's row and
   focuses its card (`thread/stage.tsx`, `goToAsk`). the strip's room
   machinery (a taller row, a clip, the stage moved down by transform) and
   the window's own option buttons are gone; `ui/asks/` keeps the words
@@ -177,13 +217,13 @@ is binding the same way (AGENTS.md, rule 6).
   a window you are looking at: one sweep, the chip lit with "tests passed"
   and its tick, until the window's state changes.
 
-## the folds at the rail (2026-10-02)
+## the folds at the rail and the strip (2026-10-02, the strip 2026-10-16)
 
 design.md (the inspector and the folds) is the law; how it is built:
 
 - **the layout.** at the rail the stage card spans the whole grid and
   takes `margin: 14px var(--stage-right) 14px var(--stage-left)`;
-  `--stage-left` is 318 open or 76 folded, `--stage-right` 330 with the
+  `--stage-left` is 318 open, 76 folded or 14 with the windows away, `--stage-right` 330 with the
   inspector shown or 14 folded. the inspector is an absolute 330 px column
   under the card; the folded column sits above it. stacking: inspector 3,
   card 7, folded column 8 (its hover card must clear the stage).
@@ -203,12 +243,56 @@ design.md (the inspector and the folds) is the law; how it is built:
   exactly the frame before. a move is never started on another, and a
   resize across an arrangement or the 1400 line stops it and rebuilds the
   layout from the choice.
+- **the strip folds too** (the native app's stripux and stripchevron): its
+  row and bar give way to one bar as tall as the open bar (`--strip-bar`,
+  64 px, 74 on a touch screen) holding the new-thread disc, a swatch per
+  window scrolling across, history and machines, and the toggle at its end,
+  exactly where the open bar's toggle sits, so a fold and an unfold land on
+  one spot. folded, the card spans the grid from under that bar
+  (`data-strip`), and the open bar and row stay laid out beneath it, so the
+  fold only covers and uncovers them. the move is the card's top edge
+  (`edge.ts`, `moveTop`): the width never changes, so nothing reflows;
+  what hangs from the top (the stage's bar and what is pinned to it) is
+  carried, what stands on the foot (the composer) stays, and the scroller
+  keeps the words being read where they are by moving its scroll by the
+  room it gained or lost (one at its end is left to its pin). the scroller
+  is cut at the travelling bar's foot while it moves, since its dissolve
+  is its own mask and stays behind. `boxbox.strip` (open, folded) keeps
+  the choice; `[` is the toggle at the strip as at the rail.
+- **one windows toggle, in the layout's glyph** (the native app's
+  `HomeWindowsToggle`): a band across the top on the strip, the sidebar on
+  the rail, its pane filled while the windows are open; named for what a
+  tap does ("fold the windows" on the strip, "hide the windows" on the
+  rail, "show the windows" folded or away; windows.ts), its state in
+  `aria-expanded`. one is on the screen at a time (the open bar's, or the
+  fold's, the other inert; while the windows are away, a `round` at the
+  start of the stage's bar, passed as the layer's `barStart`).
+- **focus** (`data-windows`, `boxbox.focus`, `⇧⌘F`): the rail's open
+  toggle puts the windows away, so the rail folds only for the details
+  (above). the card takes the screen 14 px in; its edge on the windows'
+  side moves (`moving` is `windows`: left at the rail, top at the strip)
+  over the open windows or the fold, whichever showed; the details beside
+  the column get the width (`detailsPlace`'s `hidden`), and details that
+  would not fit beside the windows coming back close. a tap on the fold's ground, between its
+  swatches and buttons, unfolds it: folded is never a dead end.
+- **the details give way to the column** (the native app's ipadfit,
+  `windows.ts` `detailsPlace`): below the inspector's width the stage's
+  panel docks only where the column beside it keeps 704 px; home answers
+  for the top layer through `DetailsRoom` (`thread/inspector.ts`). at the
+  rail from 1136 to 1377 wide the open rail folds to its swatches while
+  the details are open (the person's choice stays as it was) and opens
+  when they close; the folded rail's toggle, `[` or a tap on its ground
+  close them. under 1136, and on a portrait ipad's strip, they are a sheet
+  no wider than 560 px. story `home--home-details-by-width` (shot by hand
+  at 1180 by 820 too, where the rail folds).
 - **the swatches join the order's flip**, so a reorder moves them on the
-  snap spring as it moves windows; a folded rail's windows are out of view,
-  so none of their tails count as watched.
+  snap spring as it moves windows; folded windows are out of view, so none
+  of their tails count as watched.
 - **the stories** carry a `memory` per story (`Home`'s prop), so one
-  story's fold never leaks into the next: `home--home-rail-folded`,
-  `-inspector-folded`, `-both-folded`, `-inspector-turns`, `-empty`.
+  story's fold never leaks into the next: `home--home-windows-hidden`,
+  `-inspector-folded`, `-windows-hidden-inspector-folded`,
+  `-inspector-turns`, `-empty`,
+  `-strip-folded` (the folded strip at the ipad width).
 
 ## clearing and history
 
@@ -273,6 +357,192 @@ window, and history.
   finished turn nobody has seen, idle one that was seen or never ran a turn;
   a thread with no turn is not "done"), and the pill says "clear 3", the two
   added (`doneKeys`), named "clear 3 threads that are done or idle".
+
+## assistants on home (2026-10-15)
+
+an assistant's threads are windows on the same deck, in the same order,
+under the same membership and calm laws as cmx's (`design.md`, agents:
+who a window belongs to). the approved screens change four things: the
+palette and the mark, the tail's lines, the footer, and the dock's words.
+on the web the window, the agents screen's card and the start something
+row and picker are built as standalone components with a story per state
+(`app/src/ui/assistant/home/`, ladle group `assistant-home`), waiting for
+contract 2's store.
+
+- **the window.** the assistant's palette is the material (`--p1..3`
+  from its slot; coral for the first). the header leads with the round
+  mark (22) and the name in the light tone, 15.5 px 500, where a repo's
+  square mark and name sit; nothing follows the name (an assistant is its
+  own identity). the chip, the title (22 px wide), the ask preview and
+  its "answer" pill are as built, in the palette. a cmx window's header
+  gains `cmx · vm-a` after the repo name, in the light tone at 60%, 14 px,
+  once more than one agent is paired.
+- **the tail's grammar**, beside the cmx rules (`design.md`, anatomy of
+  a window):
+  - **steps** between two pieces of prose fold into one mono line,
+    11.5 px, each step its verb dim and its thing lit, joined by a dim
+    " · ": "checked calendar · searched 2 sites". it never wraps: past
+    the width it says "and 2 more". a step that failed is its own line,
+    its verb in red.
+  - **a voice note** is one line: a 22 px disc (the light tone at 22%,
+    its play glyph in the light tone) and "voice note 0:22" in the
+    prose's colour, 15.5 px. yours sits on the right as your prompt does,
+    "voice note 0:14" in the bubble. the disc is not a control (the
+    window is one button); it shows pause while that note plays, so home
+    says what is playing.
+  - **a picture or a file** is one line: a 16 px glyph and its name
+    ("booking.pdf", or "image" for an unnamed generated one) in the
+    prose's colour.
+  - **a quote** in the tail is dropped (the window says what was said,
+    not to what); a reaction is never a tail line.
+- **the footer** says where the conversation is when it is somewhere
+  else: "via whatsapp" on the left (mono 11.5 px, the window's second
+  ink), where a cmx window has its diff counts, for a thread whose newest
+  message came in on a channel (`origin.kind: channel`); the state on the
+  right as today ("waiting", "working", "done 11:40"). a thread only ever
+  written to from boxbox has nothing on the left, or "3 steps" when its
+  last turn stepped.
+- **the bar's line** names the assistant as it names a repo: "<name>
+  wants you, 2 working, 1 done", the name in its light tone. the capsule
+  carries the round mark.
+- **the dock** reads "start something" over the place it starts in:
+  "with <name>" for an assistant, "in ledger" for cmx, "in ledger · cmx
+  · vm-a" once more than one agent is paired. its colour and key follow
+  the window in view, as today. for an agent without `threads` it reads
+  "message <name>" and opens that agent's one thread.
+
+### more than one thread with an assistant
+
+- an assistant has its **main thread** (the conversation its channels
+  land in) and the **topics** you start from boxbox with "start
+  something" (`threads`). each is its own window under the same
+  membership rule as any thread (working, wants you, done unseen, failed,
+  queued, touched in the last 12 hours), so a quiet day with an assistant
+  is one window, and a busy one a few. nothing pins the main thread: when
+  nothing happened in it for 12 hours it lives in history, as any thread.
+- windows of one assistant sit where the order puts them, like windows
+  of one repo; the order does not group them.
+- history lists them under the assistant (the machine chips become agent
+  chips, with the round marks), the main thread first among its rows
+  when the search is empty.
+
+### quieter runs: scheduled and heartbeat
+
+an assistant runs on its own: scheduled jobs and heartbeat checks
+(`origin.kind: scheduled`; a heartbeat is a scheduled run whose `name`
+is `heartbeat`, which `docs/openclaw.md` sets when the job has no label
+of its own). each run is a thread of its own (`docs/openclaw.md`, the
+mapping), and none of them gets a window of its own unless it asks. most
+have nothing to say, and a deck that grew a window for each would stop
+being an inbox. so:
+
+- **what wakes a window is `said`, not `updated`.** a thread's `said`
+  is the time of its last turn that wrote text for you or raised an ask
+  (`docs/agents.md`, the thread). a run moves `updated` every time it
+  runs; for an assistant's thread, membership, "done" and the return of a
+  cleared window read `said`, so a run that only checked something moves
+  nothing on home.
+- **a run that says nothing never shows.** a run that ends without a
+  message for you and without an ask gets no window, no count in the bar,
+  no push, and does not wake the window of the thread it ran in. it is in
+  history only, under the "runs" chip, and its thread shows its turn
+  behind the mark line ("heartbeat, 08:30").
+- **a run that asks is not quiet.** an ask from a run is a window like
+  any other, wants you, pushed, first in the order. needing you outranks
+  how the run began.
+- **a run that says something** is gathered into the assistant's one
+  **runs window** (the agent's `runs`, at the order key `<agent>:runs`;
+  `runs` is null, and the window gone, when no talking run is unseen): a
+  single window per assistant for every run with something unseen,
+  titled "<name>'s runs", its chip "3 runs" (`runs.unseen`, never
+  "done"), and its tail one line per item (at most 12, newest last): the
+  time in mono, the run's name and its preview ("08:00 morning check: two
+  meetings moved, nothing to do"). it ranks with the idle windows, below every done
+  thread, and the bar's line does not count it; "clear N" does, and
+  clearing it clears its runs. it is pushed only when you chose to hear
+  about runs (settings, what reaches this device: a fifth kind,
+  "scheduled runs", off by default).
+- **opening the runs window** opens the newest run's thread. its title
+  block says "morning check, 08:00 · 1 of 3 runs", the last part a button
+  that opens the runs in the turns list's place (each run by its time,
+  name and first words); a run opened there is seen, and the window drops
+  it. once every run in it is seen the window leaves the deck, and the
+  runs stay in history.
+- **a run that lands in the main thread** (a runtime that runs its jobs
+  there) follows the same rules by turn: a quiet turn leaves the window
+  alone (`said` does not move), a turn that says something marks the
+  thread done unseen with the mark line as the window's newest tail line
+  ("scheduled, 08:00"), and an ask is an ask.
+
+### when the gateway is away
+
+- the windows of an agent that is not answering, or refused, stay as
+  they were, painted from what boxbox last read, and are **stale**: the
+  footer's state word becomes "stale, 11:40" (the time of the last read)
+  in the second ink, the chip keeps its last state without a running
+  clock, and no verb is sent for them (clear waits, an answer waits).
+  they come back to life by themselves when the agent is connected
+  again.
+- history serves an assistant's rows from boxbox's read cache while its
+  gateway is unreachable (the answer says `x-boxbox-cache: stale`), each
+  marked "stale" after its minute, with one
+  line over the list: "vm-b is not answering, so <name>'s threads are as
+  boxbox last read them." a thread the cache never held is not listed
+  then, and the line says so: "threads boxbox has not read yet are
+  missing until vm-b answers."
+
+## the agents (formerly the machines, 2026-10-15)
+
+the machines screen (`design.md`, the machines) is **the agents**: the
+same screen, head, grid, cards and verbs, renamed, with an assistant's
+card among the machines'. the bar's pill keeps its mark (two stacked
+boxes) and is named "agents"; the title is "agents".
+
+- **a cmx card** is today's machine window, unchanged: the machine's
+  name, `cmx2 0.8.3 · up 3 h · paired` (uptime from the daemon's own
+  samples, as the law says; `connection.since` is when the state last
+  changed, not uptime), the three figures, terminals, the foot.
+- **an assistant's card** is the same window in the assistant's palette:
+  the round mark (22) beside the name (22 px, wide), the chip, the mono
+  line `openclaw 2026.10.1 · paired` (its runtime and version, then
+  "paired" when `connection.origin` is `paired`; a connection written in
+  `boxbox.toml` says nothing there), then the figures it can say:
+  **wants you** (in the accent when more than none), **threads** (its
+  threads boxbox holds), and **memory** only with `admin`. while `ready`
+  the mono line carries the uptime too (`openclaw 2026.10.1 · up 3 h ·
+  paired`, from `connection.since`, which is the uptime while ready). no
+  terminals (no `terminal`). the
+  foot holds **reload** and **restart** with `admin` (restart confirmed
+  in place as for a machine, "restart stops <name>'s running turns, then
+  its gateway starts fresh."), and **forget**.
+- **pairing states**, read from the agent's `status` (`pairing`,
+  `syncing`, `ready`, `connecting`, `down`, `refused`) and its
+  `connection` (`pinned`, `untested`, `protocol`, `refused`,
+  `lastError`). the handshake is `docs/openclaw.md`'s; these are the
+  words and the shapes, and this table is the one source of the copy:
+  `docs/openclaw.md` quotes it.
+
+| state | chip | the mono line | in the card |
+|---|---|---|---|
+| `pairing`: waiting for approval | "waiting", the dot ringed and empty, second ink | `openclaw 2026.10.1 · waiting for approval` | "approve boxbox on vm-b's gateway:" and the gateway's own words from `lastError` under it verbatim in a mono bed (they carry the approval command), with "copy the approval command" (it copies those words) and "check again" as quiet words. the card asks again every 5 s while the screen is open, and moves on to syncing by itself. no figures |
+| `syncing` | "syncing", the dot ringed and half filled, second ink | `openclaw 2026.10.1 · paired` | the figures as last said, in the second ink, and one line: "reading <name>'s threads." the threads open as they arrive |
+| `ready` | "connected" | `openclaw 2026.10.1 · up 3 h · paired` | the figures and the foot |
+| `ready`, `untested` | "connected" | `openclaw 2026.11.0 · untested`, the last word in the light tone | one line under it, second ink: "openclaw 2026.11.0 on vm-b is untested; boxbox is pinned to 2026.10.1. anything that does not work says so where it fails." (the versions are `version` and `pinned`). never red: nothing is wrong yet, and the agent syncs as any other |
+| `connecting` | "connecting", ringed dot | as last known | the figures as last said, in the second ink |
+| `down` | "not answering", the failure tone | as last known | why and since when in red, as for a machine; its threads stale |
+| `refused`, `refused: protocol` | "refused", the failure tone | `openclaw 2026.12.0 · protocol 5` | red: "vm-b speaks openclaw protocol 5; boxbox speaks 4. update boxbox, or run the openclaw it is pinned to (2026.10.1)." (`protocol`, `pinned`). figures absent; its threads stay on screen as they were, stale, and boxbox sends it nothing |
+| `refused`, `refused: methods` | the same | `openclaw 2026.10.1 · refused` | red: the gateway's words from `lastError` (the methods it would not grant), then "pair it again from add an agent." its threads stale |
+| `refused`, `refused: auth` | the same | `openclaw 2026.10.1 · not paired` | red: the gateway's words from `lastError`, then "pair it again from add an agent." with "forget" in the foot; its threads stale |
+| `refused`, `refused: key` | the same | `openclaw · vm-b` | red: "another agent already has the key <key>. pin a key for this one in boxbox.toml, then reload." its threads stale |
+
+- **add an agent** is the ghost after the cards: "add an agent" and one
+  line, "pair a machine's cmx, or an assistant's gateway." pressed, it
+  opens as today's deeper card with a segmented choice at its head,
+  **cmx** (today's form: "run `cmx2 pair` on it, then paste what it
+  prints.") and **an assistant** (the gateway's address and an optional
+  name; "pair" sends the request, the card closes, and the new card
+  arrives in its waiting for approval state). with no agents: "no agents
+  yet. pair one, or add one to boxbox.toml." and the ghost alone.
 
 ## the gaps, and who closes them
 

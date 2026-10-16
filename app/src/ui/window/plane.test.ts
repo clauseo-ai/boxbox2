@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Colour, declarations, evaluate, over, stripComments, toHex } from "./css-colour";
-import { contrast, REPO_COLOURS, type RepoColour } from "./repo";
+import { ALL_COLOURS, contrast, type RepoColour } from "./repo";
 
 /* the window plane (a window, the composer's window and what it raises, the capsule, a machine, a swatch) is made of
    its repo's colour in both appearances (design.md, the two appearances): the deep pair with the light tone's accents
@@ -32,7 +32,7 @@ const ratioOn = (ink: Colour, back: Colour) => contrast(toHex(over(ink, back)), 
 
 for (const [light, label] of [[0, "dark"], [1, "light"]] as const) {
   describe(`the ${label} window plane`, () => {
-    for (const colour of REPO_COLOURS) {
+    for (const colour of ALL_COLOURS) {
       const { get, evalIn } = tokens(colour, light);
       const ground = get("--ground");
       const material = [over(get("--win-1"), ground), over(get("--win-2"), ground)];
@@ -83,7 +83,6 @@ for (const [light, label] of [[0, "dark"], [1, "light"]] as const) {
             ["--win-2", colour.bottom],
             ["--accent", colour.light],
             ["--on-accent", colour.bottom],
-            ["--win-glow", "rgb(255 255 255 / 0.13)"],
             ["--win-fill", "rgb(255 255 255 / 0.1)"],
             ["--win-press", "rgb(0 0 0 / 0.28)"],
             ["--win-me", "rgb(255 255 255 / 0.14)"],
@@ -95,6 +94,10 @@ for (const [light, label] of [[0, "dark"], [1, "light"]] as const) {
             ["--del", "#ffa3a3"],
           ];
           for (const [name, old] of was) expect(same(get(name), evalIn(old)), `${name} is ${old} on dark`).toBe(true);
+        });
+        // the one deliberate change to the dark plane: its highlight is the repo's light tone at the strength the white had
+        test(`${colour.name}: the dark highlight is the light tone at 13%, not white`, () => {
+          expect(same(get("--win-glow"), evalIn(`color-mix(in srgb, ${colour.light} 13%, transparent)`))).toBe(true);
         });
       }
 

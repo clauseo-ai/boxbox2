@@ -1,0 +1,19 @@
+{
+  "golden": "review-merge-gone",
+  "proves": "the merged checkout's review again: the daemon no longer has it",
+  "request": {
+    "method": "GET",
+    "path": "/api/hosts/bench/sessions/<ses 1>/review",
+    "accept-encoding": "gzip"
+  },
+  "status": 404,
+  "headers": {
+    "content-type": "application/json"
+  },
+  "body": {
+    "error": {
+      "code": "no-such-checkout",
+      "message": "that checkout is not on bench any more. it may have been merged or discarded already"
+    }
+  }
+}

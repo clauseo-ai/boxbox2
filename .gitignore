@@ -23,3 +23,4 @@ app/.ladle/shots/
 
 # the gate drive's screenshots (bun bench/thread.ts): looked at, never committed
 bench/shots/
+.openclaw/
