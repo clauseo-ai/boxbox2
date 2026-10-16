@@ -24,7 +24,8 @@ import { FileBed, ShowAll, Slip } from "./code";
 import { type Group, type StripMark, currentOf, foldedOf, groupClock, groupLabel, groupLine, groupsOf, lineShown, nearestMark } from "./groups";
 import { StripLane } from "./strip";
 import { reportOf } from "./report";
-import { ReportGlyph, ReportSheet } from "./report-sheet";
+import { ReportSheet, warmOn, whenLoaded } from "../later";
+import { ReportGlyph } from "./report-glyph";
 import "./thread.css";
 
 /* ---------- answering in place ---------- */
@@ -856,7 +857,7 @@ export function ReportCard(props: { turn: Turn }) {
   };
   return (
     <>
-      <button ref={el} class="report" data-report={props.turn.from} data-turn={props.turn.id} aria-haspopup="dialog" aria-label={`${report().spoken}${ordinal()}`} title={`opens the ${report().note ? "note" : "report"}`} onClick={() => setReading(true)}>
+      <button ref={el} class="report" data-report={props.turn.from} data-turn={props.turn.id} aria-haspopup="dialog" aria-label={`${report().spoken}${ordinal()}`} title={`opens the ${report().note ? "note" : "report"}`} onPointerDown={warmOn("ReportSheet")} onClick={() => whenLoaded("ReportSheet", () => setReading(true))}>
         <ReportGlyph report={report()} size="chip" />
         <span class="rep-line"><b>{report().name}</b><Show when={report().gist}>{(g) => <span> · {g()}</span>}</Show></span>
         <i class="rep-chev" aria-hidden="true" />

@@ -28,6 +28,7 @@ import { reportPresence } from "../push/presence";
 import { refreshHosts, state } from "../store";
 import { emit, forgetSync, startSync } from "../sync/client";
 import { Home } from "../ui/home/home";
+import { warmLater } from "../ui/later";
 import { loadPrefs } from "../ui/settings/actions";
 import { SignIn } from "../ui/sign-in";
 import { createLayout } from "./form";
@@ -38,7 +39,7 @@ import { registerServiceWorker, takeWaitingBuild } from "./worker";
 import "./shell.css";
 
 /* the first load is what a cold launch paints: the gate, home and a thread on its stage. the machines, history, settings
-   and the terminal are split by route and loaded when first asked for (the service worker has them precached, so
+   and the terminal are split by route, the surfaces that open at a press are split in ui/later.ts, and loaded when first asked for (the service worker has them precached, so
    that is a read from disk), and warmed once the launch has painted and the page is idle */
 const loadMachines = () => import("../ui/machines");
 const loadHistory = () => import("../ui/history");
@@ -88,7 +89,7 @@ export function Shell() {
   });
   let idle: number | undefined;
   const warm = setTimeout(() => {
-    const load = () => void Promise.all([loadMachines(), loadHistory(), loadSettings(), loadTerminal()]).catch(() => undefined);
+    const load = () => void Promise.all([loadMachines(), loadHistory(), loadSettings(), loadTerminal(), warmLater()]).catch(() => undefined);
     // safari has no idle callback; by then the launch has long painted
     if ("requestIdleCallback" in window) idle = requestIdleCallback(load);
     else load();

@@ -10,25 +10,9 @@
 import { type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { CopyButton } from "./copy-button";
 import { reportLabel } from "./copy-names";
-import { type Outcome, type Report } from "./report";
+import { type Report } from "./report";
+import { ReportGlyph } from "./report-glyph";
 import { clock } from "./rows";
-
-/** the outcome's glyph on a disc of its colour, or the agent's letter in the light tone */
-export function ReportGlyph(props: { report: Report; size: "chip" | "sheet" | "tag" }) {
-  const path = (o: Outcome): string | undefined => (o === "ready" ? "M3.5 8.5l3 3 6-7" : o === "blocked" ? "M8 3.2v6" : o === "failed" ? "M4.5 4.5l7 7M11.5 4.5l-7 7" : undefined);
-  return (
-    <span class={`rep-glyph ${props.size}`} data-outcome={props.report.outcome} aria-hidden="true">
-      <Show when={path(props.report.outcome)} fallback={<b>{props.report.initial}</b>}>
-        {(d) => (
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d={d()} />
-            <Show when={props.report.outcome === "blocked"}><circle cx="8" cy="12.6" r="0.4" fill="currentColor" /></Show>
-          </svg>
-        )}
-      </Show>
-    </span>
-  );
-}
 
 /** how far up the sheet stands: half the screen, or nearly all of it */
 type Detent = "medium" | "large";

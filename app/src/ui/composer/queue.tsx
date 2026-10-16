@@ -8,9 +8,10 @@
 
    the strip keeps one height whatever waits (52 px, and the edges' room above it), so a second message moves nothing. */
 
-import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { play } from "../../motion/animate";
 import { ROLL_IN, SNAP } from "../../motion/springs";
+import { QueueList, warmOn, whenLoaded } from "../later";
 import { Icon } from "./icons";
 import { type Agent, type Card, type CardVerbs, cardVerbs, cardWhen, cardWords, leadOf, stripName, swipeUnsends, UNSEND_AT } from "./words";
 
@@ -58,7 +59,7 @@ const verbsWords: Array<[keyof Omit<CardVerbs, "apart">, string]> = [
 ];
 
 /** what each verb is called for a screen reader, with the message it acts on */
-function verbName(verb: QueueVerb, item: QueueItem): string {
+export function verbName(verb: QueueVerb, item: QueueItem): string {
   switch (verb) {
     case "retry":
       return `retry: ${item.text}`;
@@ -76,7 +77,7 @@ function verbName(verb: QueueVerb, item: QueueItem): string {
   }
 }
 
-const withPhotos = (item: QueueItem) => `${item.text}${item.photos ? `, ${item.photos} ${item.photos === 1 ? "photo" : "photos"}` : ""}`;
+export const withPhotos = (item: QueueItem) => `${item.text}${item.photos ? `, ${item.photos} ${item.photos === 1 ? "photo" : "photos"}` : ""}`;
 
 export function QueueStrip(props: QueueProps) {
   const wide = useWide();
@@ -160,7 +161,9 @@ export function QueueStrip(props: QueueProps) {
     return Boolean(now && cardVerbs(now.card, props.agent).unsend);
   };
   const [offset, setOffset] = createSignal(0);
+  const warmList = warmOn("QueueList");
   const onPointerDown = (event: PointerEvent) => {
+    warmList();
     if (event.button !== 0 || (event.target as Element).closest(".cz-strip-keys")) return;
     press = { id: event.pointerId, x: event.clientX, y: event.clientY, t: event.timeStamp, dx: 0, v: 0, swiping: false, held: false };
     clearTimeout(pressTimer);
@@ -209,7 +212,9 @@ export function QueueStrip(props: QueueProps) {
       swallowClick = false;
       return;
     }
-    setOpen(open() === "list" ? null : "list");
+    if (open() === "list") setOpen(null);
+    // the list's chunk (ui/later.ts) is in unless the tap beat the warming; then it opens when it lands, if the strip is still there
+    else whenLoaded("QueueList", () => lead() && setOpen("list"));
   };
   const onContextMenu = (event: MouseEvent) => {
     event.preventDefault();
@@ -319,63 +324,11 @@ export function QueueStrip(props: QueueProps) {
             </Show>
 
             <Show when={open() === "list"}>
-              <div class="cz-menu cz-queue-list" ref={listEl} role="dialog" aria-label="messages on their way" tabIndex={-1}>
-                <div class="cz-queue-head">
-                  <b>messages on their way</b>
-                  <span>{props.items.length}</span>
-                  <button class="cz-key close" type="button" aria-label="close the messages on their way" onClick={close}>
-                    <Icon name="close" />
-                  </button>
-                </div>
-                <div class="cz-queue" role="list">
-                  {/* by place, not by object: the list is built again at every step of a working turn, and a card made again would drop the
-                      focus a keyboard had in it */}
-                  <Index each={props.items}>{(each) => <QueueCard item={each()} agent={props.agent} draftEmpty={props.draftEmpty} unsending={props.unsending.has(each().id)} onVerb={act} />}</Index>
-                </div>
-              </div>
+              <QueueList items={props.items} agent={props.agent} draftEmpty={props.draftEmpty} unsending={props.unsending} onVerb={act} onClose={close} ref={(el) => (listEl = el)} />
             </Show>
           </div>
         );
       }}
     </Show>
-  );
-}
-
-/** one message in the list: what it is, why it waits and what sends it, and every verb it has */
-function QueueCard(props: { item: QueueItem; agent: Agent; draftEmpty: boolean; unsending: boolean; onVerb: (verb: QueueVerb, id: string) => void }) {
-  const words = () => cardWords(props.item.card, props.agent);
-  const verbs = () => cardVerbs(props.item.card, props.agent, props.draftEmpty);
-  const go = (verb: QueueVerb) => () => props.onVerb(verb, props.item.id);
-  return (
-    <div class="cz-card" role="listitem" data-state={props.item.card.state} data-unsending={props.unsending ? "" : undefined} data-verbs={verbs().apart ? "" : undefined}>
-      <div class="cz-card-text">
-        <small>{words().label}</small>
-        <p>{withPhotos(props.item)}</p>
-        <span class="cz-why">{words().why}</span>
-      </div>
-      <div class="cz-card-acts">
-        <Show when={verbs().retry}>
-          <button class="cz-pill on" type="button" aria-label={verbName("retry", props.item)} onClick={go("retry")}>retry</button>
-        </Show>
-        <Show when={verbs().edit}>
-          <button class="cz-pill" type="button" aria-label={verbName("edit", props.item)} onClick={go("edit")}>edit</button>
-        </Show>
-        <Show when={verbs().steerNow}>
-          <button class="cz-pill" type="button" aria-label={verbName("steerNow", props.item)} onClick={go("steerNow")}>steer now</button>
-        </Show>
-        <Show when={verbs().runNow}>
-          {/* the first waiting message runs the queue; a steer runs itself: it is the one that can sit for good behind a long command */}
-          <button class="cz-pill" type="button" aria-label={verbName("runNow", props.item)} onClick={go("runNow")}>run now</button>
-        </Show>
-        <Show when={verbs().editWaiting}>
-          <button class="cz-pill" type="button" aria-label={verbName("editWaiting", props.item)} onClick={go("editWaiting")}>edit</button>
-        </Show>
-        <Show when={verbs().unsend}>
-          <button class="cz-pill x" type="button" aria-label={verbName("unsend", props.item)} disabled={props.unsending} onClick={go("unsend")}>
-            <Icon name="close" />
-          </button>
-        </Show>
-      </div>
-    </div>
   );
 }

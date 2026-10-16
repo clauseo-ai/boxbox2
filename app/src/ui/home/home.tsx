@@ -42,14 +42,14 @@ import { repoRootOf } from "../composer/place";
 import { moveEdge } from "./edge";
 import { Folded, FoldToggle, WINDOWS_ID } from "./fold";
 import { strayView } from "./layers";
-import { AskSheet } from "../asks/sheet";
+import { AskSheet, NewThreadSheet, warmOn, whenLoaded } from "../later";
 import { arrive, leave, unveil, veil } from "./parts";
 import { doing, launchPainted, startPerf, tapped, watchTransition } from "./perf";
 import { type Beside, detailsPlace } from "./windows";
 import { type FocusState, type InspectorState, type RailState, readFocus, readInspector, readStrip, rememberFocus, rememberInspector, rememberStrip } from "./remembered";
 import { Layer } from "./stage";
 import { NewThreadDock } from "../composer/dock";
-import { NewThreadSheet } from "../composer/sheet";
+import "../asks/sheet.css";
 import "../window/window.css";
 import "./home.css";
 
@@ -260,7 +260,8 @@ export function Home(props: HomeProps) {
       setAway(false);
       return;
     }
-    setSheet(untrack(startPlace));
+    // the sheet's chunk (ui/later.ts) is in by now unless the press beat the warming; then it opens when it lands
+    whenLoaded("NewThreadSheet", () => setSheet(untrack(startPlace)));
   };
   const closeSheet = () => {
     setSheet(null);
@@ -1177,7 +1178,7 @@ export function Home(props: HomeProps) {
             machines, and clear N sits at the end of the line's row */}
         <div class="pills acts">
           <Show when={arrangement() !== "deck" && startPlace()}>
-            <button class="pill new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onClick={openSheet}>
+            <button class="pill new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onPointerDown={warmOn("NewThreadSheet")} onClick={openSheet}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               <span class="new-word" aria-hidden="true">new thread</span>
             </button>
@@ -1215,7 +1216,7 @@ export function Home(props: HomeProps) {
             </svg>
           </button>
           <Show when={arrangement() === "deck" && startPlace()}>
-            <button class="pill icon new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onClick={openSheet}>
+            <button class="pill icon new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onPointerDown={warmOn("NewThreadSheet")} onClick={openSheet}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
             </button>
           </Show>
@@ -1387,7 +1388,7 @@ export function Home(props: HomeProps) {
         showHost={hosts() > 1}
         now={now()}
         onOpen={(el, event) => activate(slot.key, el, event)}
-        onOpenAsk={(el) => setAskSheet({ key: slot.key, from: el })}
+        onOpenAsk={(el) => whenLoaded("AskSheet", () => setAskSheet({ key: slot.key, from: el }))}
         ref={(el) => {
           elements.set(slot.key, el);
           /* a thread opened from its url opens before its window is drawn, so the effect that hides the window under

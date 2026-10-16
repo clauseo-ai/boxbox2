@@ -8,6 +8,8 @@
 !rustfmt.toml
 !server/
 !vendor/cmx2/
+!vendor/openclaw/
+!openclaw.pin
 !telemetry/schema.json
 !app/dist/
 !ops/boxbox.service

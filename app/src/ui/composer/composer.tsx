@@ -29,18 +29,18 @@ import { deviceClass, deviceId } from "../../push/device";
 import { answerQuestion } from "../asks/answer";
 import { questionsOf } from "../asks/words";
 import { type RepoColour, colourOf, colourStyle, repoName } from "../window/repo";
-import { bytesOfUrl, megabytes, noRoomFor } from "./fit";
+import { bytesOfUrl, MAX_PHOTOS, megabytes, noRoomFor } from "./fit";
 import { isOriginal, kindOf } from "./heic";
-import { clampPhoto, MAX_PHOTOS } from "./photo";
+import type { Clamped } from "./photo";
 import { compactThread } from "./compact";
 import { ContextRing } from "./context";
-import { EffortDial, EffortMeter } from "./dial";
+import { EffortMeter } from "./dial";
 import { scaleOf } from "./effort";
 import { favorites, refreshFavorites, toggleFavorite } from "./favorites";
 import { Icon, type IconName } from "./icons";
 import { MarkGlyph } from "./mark";
 import { providerKey } from "./marks";
-import { ModelMenu } from "./model-menu";
+import { EffortDial, ModelMenu, warm, whenLoaded } from "../later";
 import { type CommandChoice, commands, ensureModels, files } from "./reads";
 import { modelName } from "../model-name";
 import { fileDrop, withMention, withWords } from "./drop";
@@ -549,6 +549,13 @@ export function Composer(props: ComposerProps) {
   };
 
   /* —— photos —— */
+  /* clamping is a chunk of its own (as copying is: thread/copy.ts), loaded at the first pick; a chunk that does not come
+     (a page from before a deploy) says so on the photo */
+  const clampPhoto = (file: File): Promise<Clamped> =>
+    import("./photo").then(
+      (photo) => photo.clampPhoto(file),
+      () => ({ ok: false, reason: `${file.name} could not be read here. reload the page and add it again` }),
+    );
   let picker: HTMLInputElement | undefined;
   const addPhotos = async (list: FileList | readonly File[] | null) => {
     if (!list) return;
@@ -1015,12 +1022,12 @@ export function Composer(props: ComposerProps) {
                   </Show>
                 </div>
                 </Show>
-                <button class="cz-key me cz-chip" type="button" aria-label={`model${ofThread()}: ${modelLabel()}${listWhy()}${waits() && draft().model ? ", waits for your next message" : ""}`} aria-expanded={menu() === "model" ? "true" : "false"} data-pending={waits() && draft().model ? "" : undefined} data-quiet={list() === "ready" ? undefined : ""} onPointerDown={(e) => e.preventDefault()} onClick={() => toggleMenu("model")}>
+                <button class="cz-key me cz-chip" type="button" aria-label={`model${ofThread()}: ${modelLabel()}${listWhy()}${waits() && draft().model ? ", waits for your next message" : ""}`} aria-expanded={menu() === "model" ? "true" : "false"} data-pending={waits() && draft().model ? "" : undefined} data-quiet={list() === "ready" ? undefined : ""} onPointerDown={(e) => (e.preventDefault(), void warm("ModelMenu").catch(() => undefined))} onClick={() => (menu() === "model" ? toggleMenu("model") : whenLoaded("ModelMenu", () => toggleMenu("model")))}>
                   <MarkGlyph provider={chosenProvider()} class="cz-chip-mark" />
                   <span class="cz-chip-label">{modelLabel()}</span>
                 </button>
                 <Show when={effortChip().show}>
-                  <button class="cz-key me cz-chip" type="button" aria-label={`effort${ofThread()}: ${chosenEffort() ?? "the model's own"}${list() === "ready" ? "" : ", the choices are not here"}${waits() && draft().effort ? ", waits for your next message" : ""}`} aria-expanded="false" data-pending={waits() && draft().effort ? "" : undefined} data-quiet={list() === "ready" ? undefined : ""} onPointerDown={(e) => e.preventDefault()} onClick={toggleDial}>
+                  <button class="cz-key me cz-chip" type="button" aria-label={`effort${ofThread()}: ${chosenEffort() ?? "the model's own"}${list() === "ready" ? "" : ", the choices are not here"}${waits() && draft().effort ? ", waits for your next message" : ""}`} aria-expanded="false" data-pending={waits() && draft().effort ? "" : undefined} data-quiet={list() === "ready" ? undefined : ""} onPointerDown={(e) => (e.preventDefault(), void warm("EffortDial").catch(() => undefined))} onClick={(event) => (dial() ? toggleDial(event) : whenLoaded("EffortDial", () => toggleDial(event)))}>
                     <EffortMeter levels={list() === "ready" ? scaleOf(efforts()).levels : []} effort={chosenEffort()} />
                     <em class="cz-chip-label">{effortChip().label}</em>
                   </button>

@@ -1388,7 +1388,13 @@ a url's `?thread=` naming a session the fleet does not hold (archived, another i
   helper are props), which keeps the hoisted chunk down to the solid
   runtime (the first load is then `index` plus a `web` chunk, 119.3 kb).
   the size is read from `bun scripts/compress.ts` after `vite build`,
-  never guessed, and `index.html`'s preloads say what it counted.
+  never guessed, and `index.html`'s preloads say what it counted. rule
+  since 2026-10-16: `vite.config.ts` puts every module the entry imports
+  statically into one chunk (a `codeSplitting` group on rolldown's
+  `$initial` tag), so a lazy chunk may import from the first load freely:
+  splitting the sheets of `ui/later.ts` off without it moved 9.8 kb into
+  lazy chunks and took 0.2 kb off the first load (it became seven
+  preloaded files); with it the first load is one file, 114.8 kb.
 - **tests are not in `tsc -p app`.** the root `tsc -p .` checks them: a
   signature change that only a test calls breaks `just check` while the
   app's own check passes.

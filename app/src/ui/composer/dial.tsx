@@ -2,12 +2,12 @@
    of the model's ladder, rising, the bars up to the chosen level lit. it is the chip's face in both mounts. the dial is the
    top row turned into a segmented control over the levels with a thumb that slides between them (thumbed.tsx), each segment
    its own bar glyph and name; a profile's named variants sit after the levels as plain pills. arrows move, return picks,
-   escape closes (the composer's top row hears it). */
+   escape closes (the composer's top row hears it). the dial opens at a press, so it is a chunk of its own (effort-dial.tsx,
+   ui/later.ts); the meter is on the chip at first paint and stays here. */
 
 import { createMemo, For, Show } from "solid-js";
 import { Icon } from "./icons";
-import { meterOf, type Scale } from "./effort";
-import { Thumbed } from "./thumbed";
+import { meterOf } from "./effort";
 
 const BAR_W = 3;
 const BAR_GAP = 2;
@@ -29,36 +29,4 @@ export function EffortMeter(props: { levels: readonly string[]; effort: string |
       </svg>
     </Show>
   );
-}
-
-type DialProps = {
-  scale: Scale;
-  /** the ladder the segments' glyphs are drawn on: the model's own levels, or with the list not here (a lone known effort) the standard five */
-  ladder?: readonly string[];
-  /** the effort in force: the draft's pick, or the thread's */
-  current: string | null;
-  /** the radiogroup's accessible name */
-  name: string;
-  /** opened from a keyboard: focus lands on the pick, so arrows work at once. a finger leaves focus where it was */
-  keyboard: boolean;
-  /** the pick, made at once */
-  onPick: (effort: string) => void;
-  /** the dial folds back into its chip, after the thumb has landed */
-  onClose: () => void;
-};
-
-export function EffortDial(props: DialProps) {
-  const segments = createMemo(() =>
-    props.scale.levels.map((effort) => ({
-      value: effort,
-      face: () => (
-        <>
-          <EffortMeter levels={props.ladder ?? props.scale.levels} effort={effort} />
-          <span class="cz-seg-name">{effort}</span>
-        </>
-      ),
-    })),
-  );
-  const pills = createMemo(() => props.scale.named.map((effort) => ({ value: effort, label: effort })));
-  return <Thumbed class="cz-dial" name={props.name} segments={segments()} pills={pills()} current={props.current} keyboard={props.keyboard} onPick={props.onPick} onClose={props.onClose} />;
 }

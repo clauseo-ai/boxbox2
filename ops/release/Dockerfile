@@ -20,6 +20,8 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml clippy.toml rustfmt.toml ./
 COPY server server
 COPY vendor/cmx2 vendor/cmx2
+COPY vendor/openclaw vendor/openclaw
+COPY openclaw.pin openclaw.pin
 COPY telemetry/schema.json telemetry/schema.json
 COPY app/dist app/dist
 # `boxbox service install` on linux installs the unit the tarball carries,

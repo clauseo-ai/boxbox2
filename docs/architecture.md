@@ -304,7 +304,16 @@ why solid:
 - **small**: the framework is about 7 kb. the whole app's first load
   budget is 120 kb of script, compressed, and `index.html` has 12 kb of its
   own, compressed (it carries the providers' marks as an inline sprite);
-  `scripts/compress.ts` gates both.
+  `scripts/compress.ts` gates both. the first load is what a cold launch
+  paints (the gate, home, a thread on its stage, the composer), as one
+  chunk; the rest are chunks loaded when asked for and warmed when the
+  page is idle after the launch: by route (machines, history, settings,
+  the terminal and its screen), by need (the review card, the markdown
+  and highlight engines, what follows a copy, a photo's clamping), and
+  the surfaces that open at a press (`app/src/ui/later.ts`: the
+  new-thread sheet, home's answer sheet, the model menu, the effort dial,
+  the queue's list, a report's sheet, the file reader), which open
+  through `whenLoaded` so none opens onto nothing.
 
 what it beat: react (virtual dom diffing on every delta, and v1's scar
 history), svelte 5 (a close second with similar fine-grained runes; solid

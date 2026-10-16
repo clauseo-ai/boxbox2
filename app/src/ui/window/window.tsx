@@ -16,6 +16,7 @@
    button is neither valid nor reachable. */
 
 import { shortWords } from "../asks/words";
+import { warmOn } from "../later";
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
 import { play, prefersReducedMotion, sweep } from "../../motion/animate";
 import { PING, PING_SCALE, SNAP, TICK_DRAW } from "../../motion/springs";
@@ -223,6 +224,7 @@ export function Window(props: WindowProps) {
             aria-label={`answer ${props.view.repo}: ${shortWords(need().line, 60)}`}
             aria-description={need().detail}
             aria-haspopup="dialog"
+            onPointerDown={warmOn("AskSheet")}
             onClick={(event) => props.onOpenAsk(root, event)}
           >
             <Show when={need().eyebrow}>{(eyebrow) => <span class="wask-label">{eyebrow()}</span>}</Show>

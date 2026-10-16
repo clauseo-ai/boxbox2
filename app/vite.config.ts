@@ -110,5 +110,9 @@ export default defineConfig({
     assetsDir: "assets",
     emptyOutDir: true,
     sourcemap: false,
+    /* everything the entry imports statically is one chunk: left alone, rolldown hoists a module the first load shares
+       with a lazy chunk into a preloaded chunk of its own, and the first load compressed as several files is kilobytes
+       larger than as one (gotchas.md, a lazy chunk that shares a module) */
+    rolldownOptions: { output: { codeSplitting: { groups: [{ name: "index", tags: ["$initial"] }] } } },
   },
 });

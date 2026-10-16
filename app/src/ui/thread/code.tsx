@@ -1,22 +1,23 @@
 /* what a tool row opens to when it holds a file or words (docs/thread.md, code and copying; the native client's toolrows): a read's lines
    in a bed with their numbers, its copy control and a door to the reader, the file full screen with its numbers, a wrap toggle and
-   copy; a long file's bed shows its opening lines under a fade and "show all 300 lines" opens it to every line; and the slip that
+   copy (reader.tsx, a chunk of its own: ui/later.ts); a long file's bed shows its opening lines under a fade and "show all 300 lines" opens it to every line; and the slip that
    holds words an agent wrote to another (a brief, a message), its copy control in its header, a long one faded under 44 px with
    "read all 30 lines". */
 
 import { For, type JSX, Show, createMemo, createSignal, onMount } from "solid-js";
 import { CopyButton } from "./copy-button";
 import type { CopyKind } from "./copy-names";
-import { type FileText, type ShownFile, fileFacts, readerEnd, showAllWords, wholeFile } from "./code-text";
+import { FileReader as LazyReader, warmOn, whenLoaded } from "../later";
+import { type FileText, fileFacts, showAllWords, wholeFile } from "./code-text";
 import { watchOverflow } from "./diff";
 import { CODE_PREVIEW, CODE_WHOLE } from "./evidence";
 import { plural } from "./rows";
 
 export { type FileText, fileFacts } from "./code-text";
 
-const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1) || path;
+export const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1) || path;
 
-function Numbered(props: { file: FileText; wrap?: boolean; /** the bed shows only its opening lines: they fade into the control that opens the rest */ faded?: boolean }) {
+export function Numbered(props: { file: FileText; wrap?: boolean; /** the bed shows only its opening lines: they fade into the control that opens the rest */ faded?: boolean }) {
   let el!: HTMLDivElement;
   onMount(() => watchOverflow(el));
   const digits = () => Math.max(2, String(props.file.from + props.file.lines.length - 1).length);
@@ -49,38 +50,13 @@ export function FileBed(props: { file: FileText; /** the row it is the body of, 
     <div class="bed-wrap file-bed">
       <div class="cblock-h">
         <span class="cblock-lang">{fileFacts(whole())}</span>
-        <button ref={door} class="file-open" aria-haspopup="dialog" aria-label={`open ${nameOf(props.file.path)} in the reader, ${props.row}`} onClick={() => setReading(true)}><i aria-hidden="true" />reader</button>
+        <button ref={door} class="file-open" aria-haspopup="dialog" aria-label={`open ${nameOf(props.file.path)} in the reader, ${props.row}`} onPointerDown={warmOn("FileReader")} onClick={() => whenLoaded("FileReader", () => setReading(true))}><i aria-hidden="true" />reader</button>
         <CopyButton kind="file" name={`copy the file, ${props.row}`} text={() => whole().lines.join("\n")} />
       </div>
       <Numbered file={shown()} faded={short()} />
       <Show when={short()}><ShowAll count={whole().lines.length} row={props.row} onShow={() => setAll(true)} /></Show>
-      <Show when={reading()}><FileReader file={whole()} onClose={() => { setReading(false); door.focus({ preventScroll: true }); }} /></Show>
+      <Show when={reading()}><LazyReader file={whole()} onClose={() => { setReading(false); door.focus({ preventScroll: true }); }} /></Show>
     </div>
-  );
-}
-
-/** the file full screen: its name, its facts, wrap, copy, close; its lines with their numbers, scrolling both ways unwrapped, and
-    under them what they are: the end of the read, where it stopped, or that the thread keeps only part of it */
-export function FileReader(props: { file: ShownFile; onClose: () => void }) {
-  let dialog!: HTMLDialogElement;
-  const [wrap, setWrap] = createSignal(false);
-  /* the reader itself takes focus, not its close control: a ring on close reads as a choice nobody made */
-  onMount(() => { dialog.showModal(); dialog.focus(); });
-  const name = () => nameOf(props.file.path);
-  const dir = () => props.file.path.slice(0, Math.max(0, props.file.path.lastIndexOf("/")));
-  return (
-    <dialog ref={dialog} class="reader" tabIndex={-1} aria-label={`${name()}, in the reader`} on:keydown={(e) => e.key === "Escape" && e.stopPropagation()} on:close={() => props.onClose()}>
-      <header class="reader-h">
-        <button class="reader-x" aria-label={`close ${name()}`} onClick={() => dialog.close()}><i /></button>
-        <div class="reader-name"><b>{name()}</b><span>{fileFacts(props.file)}<Show when={dir()}>{(d) => <>, in {d()}</>}</Show></span></div>
-        <button class="reader-wrap" aria-pressed={wrap() ? "true" : "false"} aria-label="wrap long lines" onClick={() => setWrap(!wrap())}>wrap</button>
-        <CopyButton kind="file" name={`copy the file, ${name()}`} text={() => props.file.lines.join("\n")} />
-      </header>
-      <div class="reader-body">
-        <Numbered file={props.file} wrap={wrap()} />
-        <p class="reader-end">{readerEnd(props.file)}</p>
-      </div>
-    </dialog>
   );
 }
 
