@@ -10,13 +10,14 @@
 import type { Family, Say, Step } from "./model";
 import type { Entry } from "./ledger";
 import { type Row, type RowCtx, clockDur, dur, isBad, isRunning, plural } from "./rows";
+import { A_SCRIPT } from "./script";
 import { base, shortCommand } from "./shell";
 
 /* ---------- the strip ---------- */
 
 export type StripKind = "read" | "search" | "edit" | "run" | "web" | "spawn" | "ask" | "other";
 const KIND: Partial<Record<Family, StripKind>> = { read: "read", search: "search", edit: "edit", shell: "run", web: "web", spawn: "spawn", ask: "ask" };
-export const stripKind = (s: Pick<Step, "family">): StripKind => KIND[s.family] ?? "other";
+export const stripKind = (s: Pick<Step, "family" | "script">): StripKind => KIND[s.family] ?? (s.script ? "run" : "other");
 
 /** one step on a strip: its kind and time, and where a tap on it lands (the row it sits in, and its part) */
 export type StripMark = { kind: StripKind; at: number; ms: number; running: boolean; bad: boolean; row: string; part: string };
@@ -185,6 +186,8 @@ export function doingOf(row: Row): string {
   if (row.k === "think") return "thinking";
   if (row.k === "fold") return row.family === "read" ? `read ${plural(row.steps.length, "file")}` : `${verbOf(row.family)} ${row.steps.length}`;
   const s = row.step;
+  /* a script is named by what it does (script.ts): its own words stand as the doing, else "running a script" */
+  if (s.script) return s.object === A_SCRIPT ? `${isRunning(s) ? "running" : "ran"} ${A_SCRIPT}` : short(s.object);
   const object = short(s.family === "read" || s.family === "edit" ? base(s.object) : s.family === "shell" ? shortCommand(s.object) : s.object.split("\n")[0] ?? "");
   const going = isRunning(s);
   const verbs: Partial<Record<Family, [string, string]>> = { read: ["reading", "read"], search: ["searching", "searched"], edit: ["editing", "edited"], shell: ["running", "ran"], web: ["fetching", "fetched"], spawn: ["starting", "started"], message: ["messaging", "messaged"], wait: ["waiting", "waited"] };
@@ -261,7 +264,7 @@ export function groupOf(run: ReadonlyArray<{ row: Row; entry: Entry }>, live: bo
     steps++;
     const bad = isBad(s);
     if (bad) failed++;
-    const verb = verbOf(s.family);
+    const verb = s.script ? "ran" : verbOf(s.family);
     if (!counts.has(verb)) order.push(verb);
     counts.set(verb, (counts.get(verb) ?? 0) + 1);
     marks.push({ kind: stripKind(s), at: s.at, ms: s.ms, running: isRunning(s), bad, row, part: s.id });

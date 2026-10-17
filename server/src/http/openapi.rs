@@ -33,7 +33,8 @@ use crate::prefs::{DevicePrefs, ModelPrefs, Motion, Prefs, RepoPrefs, Theme};
 use crate::pty::routes::{NewTerminal, TerminalChange, TerminalSize};
 use crate::push::Kind;
 use crate::push::presence::Report;
-use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory};
+use crate::upstream::system::{Cpu, Daemon, Disk, Machine, MemoryUse, Os};
+use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, System};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -164,6 +165,13 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory};
         HostModels,
         McpServer,
         Memory,
+        System,
+        Os,
+        Machine,
+        Cpu,
+        MemoryUse,
+        Disk,
+        Daemon,
         ModelChoice,
         Motion,
         Origin,

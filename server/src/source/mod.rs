@@ -630,6 +630,8 @@ pub trait AgentSource: std::marker::Send + Sync + 'static {
                 contract_matches: None,
                 frames: crate::upstream::FrameCounts::default(),
                 memory: None,
+                system: None,
+                reports_system: None,
                 cursor: None,
             },
             host: None,

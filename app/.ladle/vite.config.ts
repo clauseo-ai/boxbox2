@@ -14,5 +14,7 @@ export default defineConfig({
     solid({ include: [/src\/.*\.tsx$/], exclude: [/\.stories\.tsx$/] }),
     react({ include: [/\.stories\.tsx$/, /\.ladle\/.*\.tsx$/] }),
   ],
-  server: { host: "127.0.0.1", strictPort: true },
+  /* vite's hmr socket takes 24678 unless told otherwise, so two worktrees' ladles collide on it; LADLE_HMR_PORT gives a
+     lane its own (docs/gotchas.md, parallel lanes) */
+  server: { host: "127.0.0.1", strictPort: true, ...(process.env.LADLE_HMR_PORT ? { hmr: { port: Number(process.env.LADLE_HMR_PORT) } } : {}) },
 });

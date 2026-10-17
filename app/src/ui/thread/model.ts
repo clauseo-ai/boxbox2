@@ -3,6 +3,7 @@
    wire). pure; no dom. the rows fold from these in rows.ts. */
 
 import { type Evidence, type Hunk, type Span, cleanOutput, evidenceOf, headTail, hunksOf, spanOf } from "./evidence";
+import { scriptName } from "./script";
 import { base, firstLine, leadProgram, shortCommand } from "./shell";
 import { type MessageInfo, type ToolPart, type ToolStatus, type WireMessage, type WirePart, boolean, isToolPart, list, number, record, spanMs, string, strings, timeOf } from "./wire";
 
@@ -44,6 +45,8 @@ export interface Step {
   /** a write's whole content as the agent sent it (the same string): its diff keeps 80 lines, and "show the whole diff" opens
       the rest from this */
   wrote?: string;
+  /** a script (cmx2's `run`): `object` is its name in words (script.ts), not its code */
+  script?: true;
   /** the command as the agent sent it, whole (`object` has the leading `cd` taken off), what its copy control copies */
   command?: string;
   outputLines?: number;
@@ -122,7 +125,12 @@ export interface Turn {
   /** the photos the person sent with the message (its `file` parts a browser draws), drawn above its words; the same data url strings
       the store holds */
   photos?: Picture[];
+  /** the files the person sent with the message that are not photos (`sentFilesOf`), named above its words */
+  sentFiles?: SentFile[];
 }
+
+/** a file a person sent with a message that is not a photo: its name and its kind */
+export type SentFile = { filename: string; mime: string };
 
 const HOME = /^\/Users\/[^/]+|^\/home\/[^/]+/;
 /** the same two places inside a command, which names them anywhere in its words: the name ends where a word does in a shell (HOME is for a whole path, whose name ends only at its next slash), and the path starts a word, not the middle of another path */
@@ -212,6 +220,26 @@ export function photosOf(parts: readonly WirePart[]): Picture[] {
     const r = p as Record<string, unknown>;
     const mime = string(r["mime"]), url = string(r["url"]);
     return mime !== undefined && url !== undefined && DRAWABLE.test(mime) && DRAWABLE_URL.test(url) ? [{ mime, filename: string(r["filename"]) ?? "", url }] : [];
+  });
+}
+
+/** a text file the host put into a message whole (cmx2's parts.ts): `<file path="name">`, with no directory in the name, as an
+    upload has it and a path in the repo does not */
+const UPLOADED = /^<file path="([^"/\n]+)">\n/;
+
+/** the files a person sent with a message that are not photos (docs/composer.md, attachments: any file), in order: a pdf, which
+    comes back as its own `file` part, and a text or json file, which the host put into the message as a synthetic `<file`
+    block. a block a mention made is named in the words already (`@notes.md`), so it is left to them */
+export function sentFilesOf(parts: readonly WirePart[], prompt: string): SentFile[] {
+  return parts.flatMap((p): SentFile[] => {
+    const r = p as Record<string, unknown>;
+    if (p.type === "file") {
+      const mime = string(r["mime"]);
+      return mime !== undefined && !mime.startsWith("image/") ? [{ filename: string(r["filename"]) || "a file", mime }] : [];
+    }
+    if (p.type !== "text" || r["synthetic"] !== true) return [];
+    const name = UPLOADED.exec(string(r["text"]) ?? "")?.[1];
+    return name && !prompt.includes(`@${name}`) ? [{ filename: name, mime: "text/plain" }] : [];
   });
 }
 
@@ -378,13 +406,15 @@ function stepOf(part: ToolPart, root: string, messageAt: number): Base {
       step.object = string(input["name"]) ?? "";
       break;
     default: {
-      /* cmx2's `run` is a script of helper calls: the row shows the script's first line, and says when the script started
-         agents (`metadata.nested`, one entry per helper call; the entries carry no child ids, cmx2 ask a27) */
+      /* cmx2's `run` is a script of helper calls: the row names it by what it does (script.ts: its description, its leading
+         comment, else "a script"), never its first line of code, and says when the script started agents (`metadata.nested`,
+         one entry per helper call; the entries carry no child ids, cmx2 ask a27) */
       const command = string(input["command"]);
       const code = string(input["code"]);
       const spawned = list(meta["nested"]).filter((n) => string(record(n)?.["tool"]) === "spawn").length;
-      const scriptLine = code?.trim().split("\n").find((l) => l.trim() && !l.trim().startsWith("//"))?.trim() ?? "";
-      step.object = command ? shortCommand(command) : scriptLine ? (scriptLine.length > 72 ? `${scriptLine.slice(0, 71)}…` : scriptLine) : tool.replace(/_/g, " ");
+      if (command) step.object = shortCommand(command);
+      else if (code !== undefined) { step.object = scriptName(code, string(input["description"])); step.script = true; }
+      else step.object = tool.replace(/_/g, " ");
       if (spawned) step.result = `started ${spawned === 1 ? "an agent" : `${spawned} agents`}`;
     }
   }
@@ -432,6 +462,8 @@ function originOf(info: MessageInfo, parts: readonly WirePart[]): { by: Origin; 
 export type PartMemo = Map<string, Remembered>;
 type Remembered =
   | { k: "text"; item: Say | Think }
+  | { k: "photos"; photos: Picture[] }
+  | { k: "sent"; files: SentFile[] }
   | { k: "tool"; state: object; messageAt: number; root: string; base: Base; context: string; item: Step };
 
 /** the same value, by its json: a part the store replaced with an equal copy (a message's info changed) keeps its step */
@@ -445,6 +477,32 @@ function sameBase(a: Base, b: Base): boolean {
   if (x && y) for (let i = 0; i < x.length; i++) if (x[i]?.url !== y[i]?.url || x[i]?.mime !== y[i]?.mime || x[i]?.filename !== y[i]?.filename) return false;
   const bare = (v: Base): Base => { const step = { ...v.step }; delete step.images; return { ...v, step }; };
   return a === b || sameJson(bare(a), bare(b));
+}
+
+/** a user message's photos, the array from last pass when every photo in it is the same (its mime, its name, its url string): the
+    turn is built again at every delta of its reply, and a new array of new objects made the strip above the reply load and decode
+    its data urls again at every one (docs/gotchas.md, a sent photo flickering). remembered under the message's id */
+function photosIn(memo: PartMemo, seen: Set<string>, id: string, fresh: Picture[]): Picture[] {
+  if (!fresh.length) return fresh;
+  seen.add(id);
+  const held = memo.get(id);
+  const same = (x: Picture, y: Picture | undefined): boolean => y !== undefined && x.url === y.url && x.mime === y.mime && x.filename === y.filename;
+  if (held?.k === "photos" && held.photos.length === fresh.length && held.photos.every((x, i) => same(x, fresh[i]))) return held.photos;
+  memo.set(id, { k: "photos", photos: fresh });
+  return fresh;
+}
+
+/** a user message's files that are not photos, the array from last pass when every file in it is the same (its name and kind),
+    as `photosIn` keeps its photos: a new array at every delta of the reply would draw the row above the words again. remembered
+    under the message's id with `:files` after it, beside its photos */
+function sentFilesIn(memo: PartMemo, seen: Set<string>, id: string, fresh: SentFile[]): SentFile[] {
+  if (!fresh.length) return fresh;
+  const key = `${id}:files`;
+  seen.add(key);
+  const held = memo.get(key);
+  if (held?.k === "sent" && held.files.length === fresh.length && held.files.every((x, i) => x.filename === fresh[i]?.filename && x.mime === fresh[i]?.mime)) return held.files;
+  memo.set(key, { k: "sent", files: fresh });
+  return fresh;
 }
 
 /** a said or thought part's item, the one from last pass when nothing it shows changed */
@@ -509,8 +567,9 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
     if (info.role === "user") {
       const o = originOf(info, parts);
       const compacted = parts.some((p) => p.type === "compaction");
-      const photos = photosOf(parts);
-      cur = { id: info.id, by: compacted ? "compaction" : steered.has(info.id) ? "steer" : o.by, prompt: o.text, ...(o.from ? { from: o.from } : {}), ...(o.fromID ? { fromID: o.fromID } : {}), ...(o.note ? { note: true } : {}), at: info.time.created, end: info.time.created, items: [], status: "done", cost: 0, files: new Map(), compacted, unknownParts: 0, ...(photos.length ? { photos } : {}) };
+      const photos = photosIn(memo, seen, info.id, photosOf(parts));
+      const sentFiles = sentFilesIn(memo, seen, info.id, sentFilesOf(parts, o.text));
+      cur = { id: info.id, by: compacted ? "compaction" : steered.has(info.id) ? "steer" : o.by, prompt: o.text, ...(o.from ? { from: o.from } : {}), ...(o.fromID ? { fromID: o.fromID } : {}), ...(o.note ? { note: true } : {}), at: info.time.created, end: info.time.created, items: [], status: "done", cost: 0, files: new Map(), compacted, unknownParts: 0, ...(photos.length ? { photos } : {}), ...(sentFiles.length ? { sentFiles } : {}) };
       turns.push(cur);
       continue;
     }
@@ -531,8 +590,14 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
       cur.status = err["name"] === "MessageAbortedError" || extra["finish"] === "aborted" ? "aborted" : "failed";
       cur.error = string(record(err["data"])?.["message"]) ?? string(err["name"]) ?? "failed";
     } else if (extra["finish"] === "aborted") cur.status = "aborted";
+    /* a part with no start of its own (cmx2 leaves `time.start` null on native tool parts, gotchas.md) starts no earlier than the
+       part before it in the message: else a call made after the agent's words is dated to the message's creation, reads above
+       them in time (the words at 15:19, the call at 15:18) and its run's clock counts from before it began */
+    let floor = info.time.created;
     for (const p of parts) {
-      const at = timeOf((p as { time?: unknown }).time)?.start ?? info.time.created;
+      const pt = timeOf((p as { time?: unknown }).time);
+      const at = pt?.start ?? floor;
+      floor = Math.max(floor, pt?.start ?? 0, pt?.end ?? 0);
       const streaming = boolean((p as Record<string, unknown>)["streaming"]);
       if (p.type === "text") {
         /* a part announced and still empty is kept while it streams: its row opens at the announcement, with its caret */
@@ -542,7 +607,8 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
         if (!textOf(p).trim() && !streaming) continue;
         cur.items.push(textItem(memo, seen, { k: "think", id: string(p["id"]) ?? "", text: textOf(p), ms: spanMs(timeOf((p as { time?: unknown }).time)), at, streaming }));
       } else if (isToolPart(p)) {
-        const step = stepIn(p, info.time.created, ctx, memo, seen);
+        const step = stepIn(p, at, ctx, memo, seen);
+        floor = Math.max(floor, step.at);
         if (step.family === "edit" && step.status === "completed" && step.object) {
           const f = cur.files.get(step.object) ?? { add: 0, del: 0 };
           f.add += step.add; f.del += step.del;

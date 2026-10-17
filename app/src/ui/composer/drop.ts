@@ -1,27 +1,34 @@
-/* what lands when something is dropped on the composer or on the stage around it (docs/composer.md, attachments; the ios
-   app's composerdrop): each kind goes the way the composer already takes it. an image is a photo (the same clamp and the
-   same four as a picked one), any other file is mentioned after an `@` by its name (the host's file list finds it, as a
-   typed mention does), and words join the draft. the kinds are pure; `fileDrop` wires a drop target, and its owner's
-   cleanup takes its listeners away. */
+/* what lands when something is dropped or pasted on the composer or dropped on the stage around it (docs/composer.md,
+   attachments; the ios app's composerdrop): each kind goes the way the composer already takes it. an image is a photo (the
+   same clamp as a picked one), a pdf, text or json file is a file the agent reads (`files.ts`), both under the same four
+   on a message; any other file is mentioned after an `@` by its name (the host's file list finds it when it is in the
+   repo, as a typed mention does) and the composer says the agent does not take it; words join the draft. the kinds are
+   pure; `fileDrop` wires a drop target, and its owner's cleanup takes its listeners away. */
 
 import { onCleanup } from "solid-js";
+import { fileKind } from "./files";
 
-export type Dropped = { photos: File[]; mentions: string[]; words: string };
+/** what a drop brought: the photos and files the draft takes, in the order they came; the names of the files it does not;
+    and words */
+export type Dropped = { taken: File[]; others: string[]; words: string };
 
 /** the image types the composer takes as photos, as its picker does (`image/*`, and heic by its extension when the browser
     gives no type) */
-const isPhoto = (file: { type: string; name: string }) => file.type.startsWith("image/") || /\.(heic|heif)$/i.test(file.name);
+export const isPhoto = (file: { type: string; name: string }) => file.type.startsWith("image/") || /\.(heic|heif)$/i.test(file.name);
+
+/** a photo or a file the agent takes */
+export const takes = (file: { type: string; name: string }) => isPhoto(file) || fileKind(file) !== null;
 
 /** what a drop holds, sorted the way the composer takes it */
-export function sortDrop(files: readonly { type: string; name: string }[], words: string): { photos: number[]; mentions: string[]; words: string } {
-  const photos: number[] = [];
-  const mentions: string[] = [];
+export function sortDrop(files: readonly { type: string; name: string }[], words: string): { taken: number[]; others: string[]; words: string } {
+  const taken: number[] = [];
+  const others: string[] = [];
   files.forEach((file, at) => {
-    if (isPhoto(file)) photos.push(at);
-    else if (file.name) mentions.push(file.name);
+    if (takes(file)) taken.push(at);
+    else if (file.name) others.push(file.name);
   });
   // a drop that brought files brings their names as text too (a finder drag offers its paths): the files are what it means
-  return { photos, mentions, words: files.length ? "" : words.trim() };
+  return { taken, others, words: files.length ? "" : words.trim() };
 }
 
 const joined = (text: string, more: string) => (text === "" || /\s$/.test(text) ? text + more : `${text} ${more}`);
@@ -71,13 +78,14 @@ export function fileDrop(el: HTMLElement, over: (on: boolean) => void, take: (dr
   const drop = (event: DragEvent) => {
     const data = event.dataTransfer;
     if (!data || !carriesDrop([...data.types])) return;
+    // a drop on the composer inside a stage that is a target too is taken once, by the composer, which sees it first. the
+    // stage still hears it, to stop saying a drag is over it: a drag of files from outside the page ends with no dragend
+    if (event.defaultPrevented) return reset();
     event.preventDefault();
-    // a drop on the composer inside a stage that is a target too is taken once
-    event.stopPropagation();
     reset();
     const files = Array.from(data.files);
     const sorted = sortDrop(files, data.getData("text/plain"));
-    take({ photos: sorted.photos.map((at) => files[at] as File), mentions: sorted.mentions, words: sorted.words });
+    take({ taken: sorted.taken.map((at) => files[at] as File), others: sorted.others, words: sorted.words });
   };
   el.addEventListener("dragenter", enter);
   el.addEventListener("dragover", hover);

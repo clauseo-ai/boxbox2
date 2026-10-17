@@ -9,6 +9,7 @@
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon } from "../../composer/icons";
+import { Close } from "../../close";
 import { isHashName, timeOf } from "../words";
 import "./media.css";
 
@@ -222,9 +223,7 @@ export function Viewer(props: ViewerProps) {
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 7.5 12 3.5l4 4M7 11H6a1.5 1.5 0 0 0-1.5 1.5v6A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5v-6A1.5 1.5 0 0 0 18 11h-1" /></svg>
               </button>
             </Show>
-            <button type="button" class="viewer-close" aria-label={`close image ${title()}`} onClick={close}>
-              <Icon name="close" />
-            </button>
+            <Close class="viewer-close" label={`close image ${title()}`} onClick={close} />
           </span>
         </header>
         <div class="viewer-stage" ref={stage} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onWheel={onWheel} style={{ opacity: String(1 - Math.min(0.6, drag().y / 600)) }}>

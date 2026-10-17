@@ -5,7 +5,7 @@
    through the real store, so a story is the app in that state. */
 
 import type { components } from "../../../api/boxbox";
-import type { Draft, OutboxView, Target } from "../../../sync/outbox";
+import type { Draft, OutboxView, Photo, Target } from "../../../sync/outbox";
 import type { Ask, SessionEntry, TailItem } from "../../../sync/protocol";
 
 export const HOST = "desk";
@@ -169,6 +169,7 @@ export function sent(clientID: string, text: string, state: OutboxView["state"],
     key: KEY,
     text,
     photos: 0,
+    files: 0,
     photoBytes: 0,
     model: null,
     effort: null,
@@ -182,6 +183,21 @@ export function sent(clientID: string, text: string, state: OutboxView["state"],
     unsending: false,
     ...extra,
   };
+}
+
+/** a file in a draft (docs/composer.md, attachments: any file) of about `bytes`, as the composer holds one: its own bytes as a
+    data url of its kind, with no dimensions */
+export function fileOf(filename: string, mime: string, bytes: number): Photo {
+  return { mime, filename, url: `data:${mime};base64,${"A".repeat(Math.ceil(bytes / 3) * 4)}`, width: null, height: null };
+}
+
+/** what a story's drop brings: a spec and a pdf the agent takes, and an archive it does not */
+export function DROPPED(): File[] {
+  return [
+    new File(["# the spec"], "deploy spec.md", { type: "text/markdown" }),
+    new File(["%PDF-1.4\n%the brief\n"], "q3 brief.pdf", { type: "application/pdf" }),
+    new File(["PK"], "logs.zip", { type: "application/zip" }),
+  ];
 }
 
 /** a small jpeg, drawn on a canvas the way the composer clamps a picked photo */

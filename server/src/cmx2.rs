@@ -113,6 +113,24 @@ mod tests {
     }
 
     #[test]
+    fn an_older_daemons_compaction_without_cold_still_decodes() {
+        // cmx2 0.8.8 sends session.compacted without `cold`, which 0.8.13 added (build/cmx2.rs, ADDED_SINCE_OLDEST)
+        let props = r#""sessionID":"s","trigger":"auto","tokensBefore":9,"tokensAfter":3,"durationMs":1,"waitedMs":0,"summaryMs":1,"summaryChars":4,"prefire":false,"tailFrom":0,"cleared":0,"cacheRead":0,"cacheWrite":0,"input":0,"output":0,"cost":0,"cacheReadPct":0"#;
+        let old = format!(
+            r#"{{"payload":{{"id":"e","type":"session.compacted","properties":{{{props}}}}}}}"#
+        );
+        let Event::SessionCompacted(event) = decode_frame(&old).unwrap().event else {
+            panic!("wrong variant")
+        };
+        assert_eq!(event.properties.cold, None);
+        let new = old.replace(r#""prefire":false"#, r#""prefire":false,"cold":true"#);
+        let Event::SessionCompacted(event) = decode_frame(&new).unwrap().event else {
+            panic!("wrong variant")
+        };
+        assert_eq!(event.properties.cold, Some(true));
+    }
+
+    #[test]
     fn a_type_field_cannot_hold_another_variants_name() {
         // decoded as heartbeat by dispatch, the payload's own `type` must agree
         let lying = r#"{"payload":{"id":"e","type":"server.heartbeat","properties":{}}}"#;

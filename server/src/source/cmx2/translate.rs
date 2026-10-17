@@ -345,6 +345,8 @@ pub fn connection(status: HostStatus) -> ConnectionStatus {
         contract_matches: status.health.as_ref().map(|h| h.contract_matches),
         frames: status.frames,
         memory: status.memory,
+        system: status.system.clone(),
+        reports_system: status.reports_system,
         cursor: status.cursor.clone(),
     };
     ConnectionStatus {

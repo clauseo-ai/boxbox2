@@ -17,7 +17,8 @@ import { compactThread } from "../composer/compact";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { openReview, reviewLine } from "../review/open";
 import { ReviewSlot } from "../review/slot";
-import { type RepoColour, repoName } from "../window/repo";
+import type { RepoColour } from "../window/repo";
+import { placeName } from "./place";
 import { createKeyboardInset } from "../term/keyboard";
 import { holdChrome } from "../settings/appearance";
 import { floodTop } from "../settings/chrome";
@@ -28,7 +29,7 @@ import { askActions, replies, settled } from "./asks";
 import { type ThreadData, createThreadData, toneOfColour } from "./live";
 import { watchMeasure } from "./measure";
 import { createPin, endRoom } from "./pin";
-import { FootRoom } from "./foot";
+import { type Boxes, FootRoom, MOST_OF_VIEW, type Seen, roseSince, seenAt } from "./foot";
 import { CLEAR_OF_BAR, askLanding, layoutTop } from "./ask-landing";
 import { createLapse } from "./focus-lapse";
 import { createCaughtUp } from "../caught-up";
@@ -321,6 +322,16 @@ export function Stage(props: StageProps) {
      folding whole when the agent writes again leaves its open row's room under the end, the words rise into it, and growth fills it
      before anything above a pinned reader moves. it goes, unseen, once the end leaves the view */
   const foot = new FootRoom();
+  /* what the reader sees at the top of the view (foot.ts, `seenAt`): the room keeps it still and no more. read in layout px (offsets),
+     which the layer's arrival drawn smaller does not scale, and from the frame's own layout: at a scroll and at a resize report */
+  const boxes: Boxes<HTMLElement> = {
+    kids: (el) => Array.from(el.children).filter((c): c is HTMLElement => c instanceof HTMLElement),
+    top: (el) => layoutTop(el, scroller),
+    height: (el) => el.offsetHeight,
+    here: (el) => el.isConnected && el.offsetParent !== null && el.offsetHeight > 0,
+  };
+  let seen: Seen<HTMLElement> | null = null;
+  const look = (): Seen<HTMLElement> => seenAt<HTMLElement>(threadEl, scroller.scrollTop, boxes);
   /** where the transcript's content ends, px from the top of the scroller's content: not scrollHeight, which counts the end padding
       and, for a view shorter than its box, reports the box */
   const contentEnd = () => threadEl.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top + scroller.scrollTop;
@@ -340,7 +351,12 @@ export function Stage(props: StageProps) {
     else setHold(foot.letGo(end));
     setFar(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > scroller.clientHeight);
     /* the window keeps the reader's place and holds its fills above the view while the reader's own scroll runs (stage-window.ts) */
-    win.scrolled(pin.scrolled());
+    const reader = pin.scrolled();
+    win.scrolled(reader);
+    /* what is at the top of the view now, when the reader moved it or the end is not followed. a pinned view's other scrolls are the
+       echo of the stage's own write, or the browser clamping it to a change that has not been reported yet: what the resize report read
+       before that change stands (the report reads where the view would be once the end is followed) */
+    if (reader || !pin.pinned()) seen = look();
     if (performance.now() - touchedAt < 900) showRuler();
     placeChanged();
   };
@@ -353,14 +369,20 @@ export function Stage(props: StageProps) {
     begin() {
       const top = scroller.scrollTop;
       const atEnd = pin.pinned();
+      const before = atEnd ? look() : null;
       return () => {
         /* where the content now ends, not scrollHeight: a view that has become shorter than its box reports the box */
         const end = contentEnd();
-        const room = endRoom(top, scroller.clientHeight, end, basePad());
+        /* a reader at the end keeps what was at the top of their view still, not the view's place: what the settle gave back above it is
+           not room to keep, and what it took from under the top (the run's open row filling the view folds) leaves nothing to keep (foot.ts) */
+        const rose = atEnd ? roseSince(before, boxes) : 0;
+        const room = rose === null ? 0 : Math.min(endRoom(top - rose, scroller.clientHeight, end, basePad()), atEnd ? Math.floor(scroller.clientHeight * MOST_OF_VIEW) : Number.POSITIVE_INFINITY);
         foot.keep(end, room);
         setHold(room);
-        scroller.scrollTop = atEnd && room === 0 ? scroller.scrollHeight : top;
+        /* at the end the view is the end with its room under it, which is where what was at its top was (or as near as the room's bound lets) */
+        scroller.scrollTop = atEnd ? scroller.scrollHeight : top;
         pin.derive();
+        seen = look();
       };
     },
   };
@@ -373,11 +395,19 @@ export function Stage(props: StageProps) {
   onMount(() => {
     /* a change a row the reader toggled makes is theirs, and is not told to the pin as a size change (it is held, below) */
     const ro = new ResizeObserver(() => {
-      if (held) { foot.moved(contentEnd()); return; }
+      /* read from this frame's layout before anything is written: how far what was at the top of the view rose, and what is there now */
+      const rose = roseSince(seen, boxes);
+      const end = contentEnd();
+      if (held) { foot.moved(end); seen = look(); return; }
+      /* the end is on the screen with nothing scrolled to it (a thread shorter than its view): it keeps from now on */
+      if (scroller.scrollTop + scroller.clientHeight >= end - 1) foot.came();
       /* an ask the stage brought to the bar holds the view (win.hold): what the rows above it give back is not kept as room, which the
          ask would rise into, up under the bar; the end is followed instead, and that keeps the ask where it landed */
-      if (win.holding()) foot.moved(contentEnd());
-      else setHold(foot.read(contentEnd(), data.working(), scroller.clientHeight));
+      if (win.holding()) foot.moved(end);
+      else setHold(foot.read(end, data.working(), scroller.clientHeight, rose));
+      /* what will be at the top of the view once the end is followed, read from this layout: the room and the scroll move no box, only
+         the line, and the change that comes next can land before the scroll event of this frame's write is heard */
+      seen = seenAt<HTMLElement>(threadEl, pin.pinned() ? Math.max(0, end + basePad() + hold - scroller.clientHeight) : scroller.scrollTop, boxes);
       pin.resized();
       pin.follow();
     });
@@ -810,7 +840,7 @@ export function Stage(props: StageProps) {
     openAgent: (id, name) => openAgent(`${data.host()}:${id}`, name),
   };
   /* the repo's name, as the window says it: its project root's, never a worktree directory's */
-  const repoLabel = () => repoName(repoRoot()) || data.host();
+  const repoLabel = () => placeName(repoRoot(), data.host());
   /* the phone's sheet is headed by the thread, as the prototype's details sheet is */
   const sheetHeading = {
     get title() { return title(); },

@@ -77,8 +77,11 @@ fn cmx2_capabilities_are_everything_cmx2_does_today() {
         "reasoning": {"word": "effort", "levels": ["low", "medium", "high", "xhigh", "max"]},
         "approvals": true, "questions": true,
         "attachments": {
-            "kinds": ["image/png", "image/jpeg", "image/webp", "image/gif", "image/heic", "image/heif"],
-            "maxBytes": 25_165_824, "maxCount": 4
+            "kinds": [
+                "image/png", "image/jpeg", "image/webp", "image/gif", "image/heic", "image/heif",
+                "application/pdf", "text/*", "application/json"
+            ],
+            "maxBytes": 9_437_184, "maxCount": 4
         },
         "voice": {"notes": false, "replies": false},
         "quotes": false, "reactions": false, "threads": true, "archive": true,

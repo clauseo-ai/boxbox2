@@ -245,6 +245,54 @@
   opacity: 1;
 }
 
+/* the close (ui/close.tsx; design.md, the close): one for every surface. a 36 px round of the glass above with a drawn cross, about 12 px
+   corner to corner of two 1.75 px strokes with round caps, in the full ink (`--close-ink` where a surface is always dark). a pointer over it lifts
+   it a pixel and lights its fill; the press is the glass's own swell. on touch it is 44 px to the finger, the round unchanged */
+.close-round {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--close-ink, var(--text));
+  cursor: pointer;
+}
+
+.close-round svg {
+  display: block;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  overflow: visible;
+}
+
+.close-round:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .close-round:hover:not(:active) {
+    transform: translateY(-1px);
+    background: color-mix(in srgb, var(--lg-press-light) 40%, var(--lg-fill));
+  }
+}
+
+@media (pointer: coarse) {
+  .close-round::before {
+    content: "";
+    position: absolute;
+    inset: -4px;
+  }
+}
+
 /* the solid material: reduced transparency asks for it, and a browser without backdrop-filter could only draw a
    translucent fill over an unbent page. the tokens themselves turn solid, so a surface that reads them rather than
    wearing `.lg` falls back too. a solid lens cannot swell or light, so the press dims it as the system's solid buttons do */

@@ -4974,6 +4974,30 @@
           }
         }
       },
+      "Document": {
+        "type": "object",
+        "description": "a file on a message that is not a photo: a document the host reads to the model.",
+        "required": [
+          "mime",
+          "filename",
+          "url"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "the file's name as the person had it; the host labels the file with it."
+          },
+          "mime": {
+            "type": "string",
+            "description": "`application/pdf`, `application/json`, or any `text/*` (`text/plain`, `text/markdown`,\n`text/csv`)."
+          },
+          "url": {
+            "type": "string",
+            "description": "`data:<mime>;base64,...`: a pdf of at most 9 mb, a text or json file of at most 512 kb; with the\nphotos, at most 18 mb of files on one message."
+          }
+        },
+        "additionalProperties": false
+      },
       "Done": {
         "type": "object",
         "description": "the daemon took the verb.",
@@ -5384,14 +5408,240 @@
           "origin": {
             "$ref": "#/components/schemas/HostOrigin"
           },
+          "reportsSystem": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "whether the daemon answers `GET /global/system`: false for an older\ncmx2, absent until it was first asked."
+          },
           "since": {
             "type": "integer",
             "format": "int64",
             "description": "when `connection` last changed, ms since the epoch."
           },
+          "system": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HostSystem",
+                "description": "what the host is and how it is doing (`GET /global/system`), sampled\nevery 30 s while connected and kept while it is away; absent until the\nfirst sample, and for a daemon without the route."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "url": {
             "type": "string",
             "description": "the daemon's address (never its credential)."
+          }
+        }
+      },
+      "HostSystem": {
+        "type": "object",
+        "description": "one sample of the host's system, as the daemon said it, with the time\nboxbox read it.",
+        "required": [
+          "os",
+          "machine",
+          "cpu",
+          "memory",
+          "uptime",
+          "daemon",
+          "at",
+          "sampledAt"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when the daemon took the sample, ms since the epoch, in its clock."
+          },
+          "cpu": {
+            "$ref": "#/components/schemas/HostSystemCpu"
+          },
+          "daemon": {
+            "$ref": "#/components/schemas/HostSystemDaemon"
+          },
+          "disk": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HostSystemDisk",
+                "description": "the disk holding the daemon's data; none when the daemon could not\nread it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "machine": {
+            "$ref": "#/components/schemas/HostSystemMachine"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/HostSystemMemory"
+          },
+          "os": {
+            "$ref": "#/components/schemas/HostSystemOs"
+          },
+          "sampledAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when boxbox read it, ms since the epoch, in the server's clock."
+          },
+          "uptime": {
+            "type": "integer",
+            "format": "int64",
+            "description": "how long the host has been up, in seconds.",
+            "minimum": 0
+          }
+        }
+      },
+      "HostSystemCpu": {
+        "type": "object",
+        "required": [
+          "model",
+          "cores",
+          "load"
+        ],
+        "properties": {
+          "cores": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "load": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "description": "the load averages over 1, 5 and 15 minutes."
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "HostSystemDaemon": {
+        "type": "object",
+        "required": [
+          "rss",
+          "uptime"
+        ],
+        "properties": {
+          "rss": {
+            "type": "integer",
+            "format": "int64",
+            "description": "the daemon's resident set size, in bytes.",
+            "minimum": 0
+          },
+          "uptime": {
+            "type": "integer",
+            "format": "int64",
+            "description": "how long the daemon has been up, in seconds.",
+            "minimum": 0
+          }
+        }
+      },
+      "HostSystemDisk": {
+        "type": "object",
+        "required": [
+          "path",
+          "total",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "integer",
+            "format": "int64",
+            "description": "bytes free for the daemon's user.",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string",
+            "description": "the mount the numbers are for."
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "bytes.",
+            "minimum": 0
+          }
+        }
+      },
+      "HostSystemMachine": {
+        "type": "object",
+        "required": [
+          "virtual"
+        ],
+        "properties": {
+          "identifier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the vendor's model code: `Mac16,11`."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "what the hardware says it is: `Mac mini`, `Google Compute Engine`."
+          },
+          "virtual": {
+            "type": "boolean",
+            "description": "whether the host is a virtual machine."
+          }
+        }
+      },
+      "HostSystemMemory": {
+        "type": "object",
+        "required": [
+          "total",
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "integer",
+            "format": "int64",
+            "description": "bytes a new process could have without the host swapping.",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "bytes.",
+            "minimum": 0
+          }
+        }
+      },
+      "HostSystemOs": {
+        "type": "object",
+        "required": [
+          "platform",
+          "name",
+          "version",
+          "kernel",
+          "arch"
+        ],
+        "properties": {
+          "arch": {
+            "type": "string",
+            "description": "`arm64`, `x64`."
+          },
+          "kernel": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "the os as a person names it: `macOS`, `Ubuntu`, `Debian`."
+          },
+          "platform": {
+            "type": "string",
+            "description": "node's platform name: `darwin`, `linux`, `win32`, or another."
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -5791,6 +6041,12 @@
               "null"
             ]
           },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Document"
+            }
+          },
           "model": {
             "type": [
               "string",
@@ -6084,6 +6340,13 @@
               "null"
             ],
             "description": "one of the model's efforts; cmx2 makes it the thread's effort from\nthis message on."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Document"
+            },
+            "description": "files that are not photos (a pdf, text, json), as their own bytes in `data:` urls."
           },
           "model": {
             "type": [
@@ -6647,7 +6910,7 @@
       },
       "Steer": {
         "type": "object",
-        "description": "text with photos, steered into the running turn.",
+        "description": "text with photos and files, steered into the running turn.",
         "required": [
           "device",
           "deviceClass",
@@ -6663,6 +6926,12 @@
           },
           "deviceClass": {
             "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Document"
+            }
           },
           "photos": {
             "type": "array",

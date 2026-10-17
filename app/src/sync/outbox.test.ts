@@ -209,12 +209,16 @@ describe("an entry's photos", () => {
     const entry = entryOf({ clientID: "c1", verb: "prompt", target: thread, text: "", photos: [photo(100), photo(250)], model: null, effort: null, at: 1 }, true);
     const view = viewOfEntry(entry);
     expect(view.photos).toBe(2);
+    expect(view.files).toBe(0);
     expect(view.photoBytes).toBe(350);
+    // a file rides in the same list, and the view counts it apart for the card's words
+    const mixed = entryOf({ clientID: "c2", verb: "prompt", target: thread, text: "", photos: [photo(100), photo(30, "application/pdf")], model: null, effort: null, at: 1 }, true);
+    expect(viewOfEntry(mixed).files).toBe(1);
     expect(photoBytes(entry.photos)).toBe(350);
   });
 
   test("the outbox holds three messages at the server's limit for one, and no more", () => {
-    expect(OUTBOX_PHOTO_BYTES).toBe(3 * (24 * MB + 46));
+    expect(OUTBOX_PHOTO_BYTES).toBe(3 * (24 * MB + 56));
   });
 });
 
@@ -311,8 +315,8 @@ describe("what a message the person took back leaves in the draft it came from",
 
 describe("what is said of photos that did not fit the draft they came back to", () => {
   test("says how many, the most a message takes in the same units the composer uses, and that they must be picked again", () => {
-    expect(photosNotFitted(1)).toBe("1 photo did not fit the draft (a message takes at most 4 photos and 18 mb together) and boxbox no longer holds it. pick it again from your library for another message");
-    expect(photosNotFitted(3)).toBe("3 photos did not fit the draft (a message takes at most 4 photos and 18 mb together) and boxbox no longer holds them. pick them again from your library for another message");
+    expect(photosNotFitted(1)).toBe("1 photo did not fit the draft (a message takes at most 4 photos and files, 18 mb together) and boxbox no longer holds it. pick it again from your library for another message");
+    expect(photosNotFitted(3)).toBe("3 photos did not fit the draft (a message takes at most 4 photos and files, 18 mb together) and boxbox no longer holds them. pick them again from your library for another message");
   });
 });
 

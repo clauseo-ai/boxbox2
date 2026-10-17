@@ -138,6 +138,23 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/global/system": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** the machine the daemon runs on: os, model, cpu and live load, memory, the data volume's disk space and uptimes. static fields are read once; live ones on each request without spawning a process */
+        get: operations["system"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/project": {
         parameters: {
             query?: never;
@@ -1206,6 +1223,8 @@ export type components = {
             queued?: number;
             /** @description when the turn began (ms) */
             since?: number;
+            /** @description why the turn has not started yet, short and lowercase, shown as is: the session's directory has not answered (a macos privacy prompt, a hung mount) */
+            waiting?: string;
         };
         /** @description a turn is waiting out a transient provider failure */
         SessionStatusRetry: {
@@ -1569,6 +1588,8 @@ export type components = {
                 queued?: number;
                 /** @description when the turn began (ms) */
                 since?: number;
+                /** @description why the turn has not started yet, short and lowercase, shown as is: the session's directory has not answered (a macos privacy prompt, a hung mount) */
+                waiting?: string;
             } | {
                 /** @constant */
                 type: "retry";
@@ -1981,6 +2002,8 @@ export type components = {
                         queued?: number;
                         /** @description when the turn began (ms) */
                         since?: number;
+                        /** @description why the turn has not started yet, short and lowercase, shown as is: the session's directory has not answered (a macos privacy prompt, a hung mount) */
+                        waiting?: string;
                     } | {
                         /** @constant */
                         type: "retry";
@@ -2230,6 +2253,8 @@ export type components = {
                 summaryChars: number;
                 /** @description the summary was made in the background before the threshold */
                 prefire: boolean;
+                /** @description compacted under the threshold because the prompt cache had gone cold (past its ttl, or a model switch) and a background summary was ready */
+                cold: boolean;
                 tailFrom: number;
                 tailStartID?: string;
                 /** @description tool outputs the kept tail carries cleared (recall reads them) */
@@ -2263,6 +2288,8 @@ export type components = {
                 chars?: number;
                 message?: string;
                 cacheReadPct?: number;
+                /** @description a newer summary over the grown context, made while the ready one stays in use; stale here means a compaction or a revert came first and it was dropped */
+                refresh?: boolean;
             };
             /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
             seq?: number;
@@ -3728,6 +3755,103 @@ export interface operations {
             };
         };
     };
+    system: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ok */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        os: {
+                            /** @description process.platform: darwin, linux, win32, ... */
+                            platform: string;
+                            /** @description macOS, Ubuntu, Debian, ... */
+                            name: string;
+                            /** @description the os version (26.1, 24.04); empty when unknown */
+                            version: string;
+                            kernel: string;
+                            /** @description arm64, x64, ... */
+                            arch: string;
+                        };
+                        machine: {
+                            /** @description a mac's family (Mac mini, MacBook Pro), else the dmi product name (Google Compute Engine) */
+                            model: string | null;
+                            /** @description a mac's model identifier (Mac16,11); null elsewhere */
+                            identifier: string | null;
+                            /** @description a vm or cloud instance */
+                            virtual: boolean;
+                        };
+                        cpu: {
+                            model: string;
+                            /** @description logical cores */
+                            cores: number;
+                            /** @description load average over 1, 5 and 15 minutes */
+                            load: number[];
+                        };
+                        memory: {
+                            /** @description bytes */
+                            total: number;
+                            /** @description bytes usable without swapping: MemAvailable on linux; on macos physical memory less app, wired and compressed memory, as activity monitor counts it */
+                            available: number;
+                        };
+                        disk: {
+                            /** @description mount point of the volume holding the daemon's data */
+                            path: string;
+                            total: number;
+                            /** @description bytes free to an unprivileged user */
+                            available: number;
+                        } | null;
+                        /** @description host uptime in seconds */
+                        uptime: number;
+                        daemon: {
+                            /** @description bytes */
+                            rss: number;
+                            /** @description seconds */
+                            uptime: number;
+                        };
+                        /** @description epoch ms the live fields were read */
+                        at: number;
+                    };
+                };
+            };
+            /** @description error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     projects: {
         parameters: {
             query?: {
@@ -4421,6 +4545,8 @@ export interface operations {
                             queued?: number;
                             /** @description when the turn began (ms) */
                             since?: number;
+                            /** @description why the turn has not started yet, short and lowercase, shown as is: the session's directory has not answered (a macos privacy prompt, a hung mount) */
+                            waiting?: string;
                         } | {
                             /** @constant */
                             type: "retry";

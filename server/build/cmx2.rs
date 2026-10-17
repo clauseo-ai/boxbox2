@@ -44,6 +44,7 @@ pub fn generate(openapi: &str) -> String {
     let variants = event_variants(&event);
 
     let mut definitions = Value::Object(schemas);
+    relax_added_fields(&mut definitions);
     rewrite(&mut definitions);
     let root = serde_json::json!({
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -75,6 +76,32 @@ pub fn generate(openapi: &str) -> String {
         #union
         #envelope
     })
+}
+
+/// event fields a later cmx2 added as required to an event an older daemon
+/// of the same contract still sends without them: (schema, field). each is
+/// read as optional, so the older daemon's frames keep decoding instead of
+/// being counted undecodable. a row leaves when the oldest daemon boxbox
+/// supports sends the field; cmx2 declaring such additions optional, as it
+/// does `waiting` and `refresh`, would retire the table.
+const ADDED_SINCE_OLDEST: &[(&str, &str)] = &[
+    // cmx2 0.8.13 (compaction.cold); 0.8.8 and earlier send session.compacted without it
+    ("Event_session_compacted", "cold"),
+];
+
+fn relax_added_fields(definitions: &mut Value) {
+    for (schema, field) in ADDED_SINCE_OLDEST {
+        let required = definitions
+            .pointer_mut(&format!("/{schema}/properties/properties/required"))
+            .and_then(Value::as_array_mut)
+            .unwrap_or_else(|| panic!("{schema} has a properties object with required fields"));
+        let before = required.len();
+        required.retain(|name| name.as_str() != Some(field));
+        assert!(
+            required.len() < before,
+            "{schema}.{field} is no longer required; drop its ADDED_SINCE_OLDEST row"
+        );
+    }
 }
 
 /// one arm of the union: the wire name, the rust variant, the payload type.

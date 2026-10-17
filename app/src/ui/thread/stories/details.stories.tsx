@@ -67,13 +67,14 @@ const quietInfo = { id: "ses_y", cost: 0, tokens: { input: 0, output: 0, cache: 
 const quiet = { turns: [] as Turn[], agents: [] as AgentRow[], files: filesChanged([]), info: quietInfo, spend: spendOf([], quietInfo, [], []) };
 
 type Where = "inspector" | "docked" | "sheet";
-function story(name: string, where: Where, which: "details" | "turns", data: DetailsData): Story {
+function story(name: string, where: Where, which: "details" | "turns", data: DetailsData, press?: string): Story {
   const S: Story = () => {
     const ref = useRef<HTMLDivElement>(null);
     useEffect(() => {
       const el = ref.current;
       if (!el) return;
       const dispose = render(() => createComponent(Panel, { which, place: where === "inspector" ? "flat" : where, heading: { title: "add an annual toggle to the pricing page", sub: "ledger, on studio" }, palette: TONES.green, details: data, turns: turnsOfList, close: where === "inspector" && which === "details" ? undefined : { label: `close ${which}`, run: () => console.info("the story would close") } }), el);
+      if (press) el.querySelector<HTMLButtonElement>(press)?.click();
       el.dataset["ready"] = "1";
       return dispose;
     }, []);
@@ -94,3 +95,5 @@ export const DockedDetails = story("docked, details", "docked", "details", detai
 export const DockedTurns = story("docked, turns", "docked", "turns", detailsOf());
 export const SheetDetails = story("sheet, details", "sheet", "details", detailsOf());
 export const SheetTurns = story("sheet, turns", "sheet", "turns", detailsOf());
+/** what each part cost, its dialog open over the panel, with the one close (ui/close.tsx) */
+export const DockedSpendOpen = story("docked, details, the spend opened", "docked", "details", detailsOf(), ".dt-door");

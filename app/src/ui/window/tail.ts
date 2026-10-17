@@ -16,6 +16,7 @@
    pure, so tail.test.ts is the whole story. */
 
 import type { TailItem } from "../../sync/protocol";
+import { scriptTitle } from "../thread/script";
 
 export type ToolStatus = "running" | "done" | "failed";
 
@@ -39,6 +40,8 @@ const COMMAND_CHARS = 48;
 const READS = new Set(["read", "glob", "grep", "ls", "list"]);
 const EDITS = new Set(["edit", "write", "patch", "multiedit"]);
 const COMMANDS = new Set(["shell", "bash"]);
+/** cmx2's `run`, whose input is a javascript script */
+const SCRIPTS = new Set(["run"]);
 /** starting an agent: "agent" and its name when the title carries one (the pinned daemon titles it "spawn", ask a24) */
 const SPAWNS = new Set(["spawn", "spawn_agent", "spawn_pool"]);
 /** a wait: the daemon titles every one "wait for agents", whatever it waits on, and the tail has no more than the
@@ -96,6 +99,8 @@ function toolLine(id: string, tool: string, state: string, title: string): TailL
   if (COMMANDS.has(name)) return { kind: "tool", id, verb: "run", object: shortCommand(title), result, status };
   if (SPAWNS.has(name)) return { kind: "tool", id, verb: "agent", object: SPAWNS.has(title.toLowerCase()) ? "" : title, result, status };
   if (WAITS.has(name)) return { kind: "tool", id, verb: "wait", object: "", result, status };
+  /* cmx2's script: named by what it does, never its first line of code (thread/script.ts) */
+  if (SCRIPTS.has(name)) return { kind: "tool", id, verb: "run", object: scriptTitle(title), result, status };
   return { kind: "tool", id, verb: name || "tool", object: title, result, status };
 }
 

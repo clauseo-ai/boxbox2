@@ -21,6 +21,7 @@ import { type Target, targetKey } from "../../sync/outbox";
 import { createKeyboardInset } from "../term/keyboard";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { colourOf, colourStyle, repoName } from "../window/repo";
+import { Close } from "../close";
 import { Composer } from "./composer";
 import { Icon } from "./icons";
 import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentRepos, repoRootOf, restoredDraft, splitPath } from "./place";
@@ -393,10 +394,8 @@ export function NewThreadSheet(props: SheetProps) {
       >
         <div class="cz-sheet-head">
           <h2>start something</h2>
-          {/* the stage bar's own round of glass (styles.css, liquid glass) */}
-          <button type="button" class="cz-sheet-close" aria-label="close new thread" onClick={() => void close()}>
-            <Icon name="close" />
-          </button>
+          {/* the one close (ui/close.tsx): the stage bar's own round of glass */}
+          <Close class="cz-sheet-close" label="close new thread" onClick={() => void close()} />
         </div>
         <div class="cz-place-card" data-open={picking() ? "" : undefined}>
           <button

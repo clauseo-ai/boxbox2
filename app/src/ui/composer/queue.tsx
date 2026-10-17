@@ -16,7 +16,8 @@ import { Icon } from "./icons";
 import { type Agent, type Card, type CardVerbs, cardVerbs, cardWhen, cardWords, leadOf, stripName, swipeUnsends, UNSEND_AT } from "./words";
 
 /** a message on its way, as the strip and its list show it */
-export type QueueItem = { id: string; text: string; card: Card; photos: number };
+/** `photos` counts the photos and files on the message together, `files` the files among them */
+export type QueueItem = { id: string; text: string; card: Card; photos: number; files?: number };
 
 export type QueueVerb = "retry" | "edit" | "editWaiting" | "steerNow" | "runNow" | "unsend";
 
@@ -77,7 +78,12 @@ export function verbName(verb: QueueVerb, item: QueueItem): string {
   }
 }
 
-export const withPhotos = (item: QueueItem) => `${item.text}${item.photos ? `, ${item.photos} ${item.photos === 1 ? "photo" : "photos"}` : ""}`;
+const counted = (n: number, one: string) => (n ? [`${n} ${one}${n === 1 ? "" : "s"}`] : []);
+export const withPhotos = (item: QueueItem) => {
+  const files = item.files ?? 0;
+  const said = [...counted(item.photos - files, "photo"), ...counted(files, "file")];
+  return said.length ? `${item.text}, ${said.join(", ")}` : item.text;
+};
 
 export function QueueStrip(props: QueueProps) {
   const wide = useWide();

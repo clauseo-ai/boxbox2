@@ -614,7 +614,16 @@ utf-16 units, as cmx2 defines it.
   sessions untouched) and `POST /api/hosts/:host/restart` proxies
   `/global/restart` (the daemon aborts its turns and exits for its
   supervisor). each watcher also samples `/global/memory` as its
-  connection opens and each minute while it holds, on its own task.
+  connection opens and each minute while it holds, on its own task, and
+  `/global/system` (the os, machine, cpu load, memory and disk, and the
+  host's uptime; `upstream/system.rs`) as it opens and every 30 s, on
+  another. a daemon that answers 404 to either is an older cmx2 and is
+  asked again only on its next connection, the one a restart or an
+  upgrade makes. the last system sample stays while the host is away, so
+  the agents screen shows what it last said; `GET /api/hosts` carries it
+  as `system` (8 KiB read cap, text cut at 80 characters, a load or a
+  free figure no meter could draw refused) with `reportsSystem`, false
+  for a daemon without the route.
 - **clear, history, archive, adopt** (`http/threads.rs`, `http/history.rs`):
   - `POST /api/clear` takes `{device, deviceClass, keys, source: "window"|"done"}`
     and answers `Cleared` with the keys cleared and a `refused` list

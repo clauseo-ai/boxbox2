@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 use super::capabilities::Capabilities;
 use crate::config::Origin;
-use crate::upstream::{FrameCounts, Memory};
+use crate::upstream::{FrameCounts, Memory, System};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -146,6 +146,12 @@ pub struct AgentConnection {
     pub frames: FrameCounts,
     /// cmx2 only (the admin capability).
     pub memory: Option<Memory>,
+    /// what the machine is and how it is doing; cmx2 only (`/global/system`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<Box<System>>,
+    /// whether the runtime reports `system`: false when it cannot, absent until asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reports_system: Option<bool>,
     pub cursor: Option<String>,
 }
 

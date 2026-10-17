@@ -21,8 +21,9 @@ import { AGENT_TITLE, askWith, asking, fleetAsking, LONG_ASK, TWO_QUESTIONS, wit
 import { notesTranscript } from "../../ui/thread/stories/transcript";
 import { ShellView } from "../shell";
 import terminal from "./fixtures/terminal.json";
+import { bareLinux, cloudVm, macMini, strainedLaptop } from "../../ui/machines/fixtures";
 
-export type ShellStory = "home" | "thread" | "thread-ask-long" | "thread-ask-two" | "thread-ask-settles" | "thread-ask-under-agent" | "thread-ask-slow" | "thread-ask-cached" | "thread-ask-reset" | "thread-ask-unseen" | "thread-ask-gone" | "thread-review" | "thread-review-merged" | "thread-review-linked" | "thread-review-scrolled" | "machines" | "machines-many" | "settings" | "terminal" | "history" | "history-empty" | "history-unreached";
+export type ShellStory = "home" | "thread" | "thread-ask-long" | "thread-ask-two" | "thread-ask-settles" | "thread-ask-under-agent" | "thread-ask-slow" | "thread-ask-cached" | "thread-ask-reset" | "thread-ask-unseen" | "thread-ask-gone" | "thread-review" | "thread-review-merged" | "thread-review-linked" | "thread-review-scrolled" | "machines" | "machines-many" | "machines-stats" | "machines-strain" | "machines-pairing" | "settings" | "terminal" | "history" | "history-empty" | "history-unreached";
 
 const recorded = parseJournal(journal);
 const final = replay(recorded);
@@ -92,7 +93,9 @@ export function mountShell(el: HTMLElement, story: ShellStory): () => void {
     const replay = () => {
       if (recordedAsk) applyPatches([{ path: ["fleet", "asks", `${recordedAsk.host}:${recordedAsk.id}`], value: recordedAsk }]);
     };
-    if (story === "machines-many") answerHosts({ hosts: () => ({ status: 200, body: severalHosts() }), alias: { studio: RECORDED_HOST.name } });
+    if (story === "machines-many" || story === "machines-pairing") answerHosts({ hosts: () => ({ status: 200, body: severalHosts() }), alias: { studio: RECORDED_HOST.name } });
+    if (story === "machines-stats") answerHosts({ hosts: () => ({ status: 200, body: statHosts() }), alias: { studio: RECORDED_HOST.name, "vm-a": RECORDED_HOST.name, "vm-c": RECORDED_HOST.name } });
+    if (story === "machines-strain") answerHosts({ hosts: () => ({ status: 200, body: strainedHosts() }), alias: { laptop: RECORDED_HOST.name } });
     bootSync({ fleet: asks, threads, drafts: {}, outbox: [], stream: { state: "live", since: Date.now() - 60_000, lastEventAt: AT } });
     // the gate opens on the recorded host list
     await refreshHosts();
@@ -116,7 +119,7 @@ export function mountShell(el: HTMLElement, story: ShellStory): () => void {
       history.replaceState(null, "", url);
       restore = () => history.replaceState(null, "", was);
     }
-    if (story === "machines" || story === "machines-many" || story === "settings") setScreen(story === "settings" ? "settings" : "machines");
+    if (story.startsWith("machines") || story === "settings") setScreen(story === "settings" ? "settings" : "machines");
     if (story.startsWith("history")) {
       setScreen("history");
       answerHistory(historyFor(story));
@@ -145,14 +148,15 @@ export function mountShell(el: HTMLElement, story: ShellStory): () => void {
 /** the host the recording read, connected */
 const RECORDED_HOST = (api as unknown as { "GET /api/hosts": { body: HostStatus[] } })["GET /api/hosts"].body[0] as HostStatus;
 
-/** a person with four machines, each in another state: the recorded one; a paired one, up for days and busier; one that
-    stopped answering three hours ago, holding what it last said; and one never reached yet. the names are placeholders */
+/** a person with four machines, each in another state: the recorded one, an older cmx2 without a system report; a paired
+    mac, up for days and busier, with every stat; one that stopped answering three hours ago, holding what it last said;
+    and one never reached yet. the names are placeholders */
 function severalHosts(): HostStatus[] {
   const now = Date.now();
   const recorded = RECORDED_HOST;
   const sample = (rss: number, liveSessions: number, uptimeS: number, sampledAt = now) => ({ rss, liveSessions, uptimeS, sampledAt });
   return [
-    recorded,
+    { ...recorded, reportsSystem: false },
     {
       ...recorded,
       name: "studio",
@@ -160,6 +164,8 @@ function severalHosts(): HostStatus[] {
       origin: "paired",
       frames: { decoded: 18_402, undecodable: 0, duplicates: 0 },
       memory: sample(298_844_160, 2, 9 * 86_400 + 3_600),
+      system: macMini(now),
+      reportsSystem: true,
     },
     {
       ...recorded,
@@ -170,6 +176,8 @@ function severalHosts(): HostStatus[] {
       lastError: "cannot connect (connection refused)",
       frames: { decoded: 1_204, undecodable: 2, duplicates: 0 },
       memory: sample(100_663_296, 0, 4 * 86_400, now - 3 * 3_600_000),
+      system: cloudVm(now - 3 * 3_600_000 - 20_000),
+      reportsSystem: true,
     },
     {
       ...recorded,
@@ -183,6 +191,29 @@ function severalHosts(): HostStatus[] {
       frames: { decoded: 0, undecodable: 0, duplicates: 0 },
       memory: null,
     },
+  ];
+}
+
+/** every kind of machine the card describes, all connected: a desk mac with every stat, a cloud vm, a linux box that says
+    no model and has a distribution without a mark, and an older cmx2 that reports none */
+function statHosts(): HostStatus[] {
+  const now = Date.now();
+  const at = (name: string, extra: Partial<HostStatus>): HostStatus => ({ ...RECORDED_HOST, name, url: `http://${name}:4096/`, since: now - 3_600_000, reportsSystem: true, ...extra });
+  return [
+    at("studio", { origin: "paired", system: macMini(now) }),
+    at("vm-a", { system: cloudVm(now) }),
+    at("vm-c", { system: bareLinux(now) }),
+    { ...RECORDED_HOST, reportsSystem: false, system: null },
+  ];
+}
+
+/** a laptop under strain (load past its cores, memory and disk nearly gone), beside the recorded host gone quiet with
+    what it last said */
+function strainedHosts(): HostStatus[] {
+  const now = Date.now();
+  return [
+    { ...RECORDED_HOST, name: "laptop", url: "http://laptop:4096/", since: now - 3_600_000, system: strainedLaptop(now), reportsSystem: true },
+    { ...RECORDED_HOST, connection: "down", since: now - 40 * 60_000, lastError: "timed out", system: macMini(now - 41 * 60_000), reportsSystem: true },
   ];
 }
 
@@ -292,6 +323,16 @@ async function settled(el: HTMLElement, story: ShellStory, hooks: { review: () =
   }
   if (story === "thread-ask-unseen" || story === "thread-ask-gone") return focusLetGo(el, story, fail);
   if (story.startsWith("thread-ask")) return askLanded(el, story, fail);
+  if (story === "machines-pairing") {
+    // the ghost pressed: the pair sheet opens in its place with its fields
+    if (!(await until(() => !!el.querySelector(".host-add-open")))) return fail("the ghost never came");
+    el.querySelector<HTMLButtonElement>(".host-add-open")?.click();
+    return until(() => !!el.querySelector(".pair-sheet input")).then((up) => up || fail("the pair sheet never opened"));
+  }
+  if (story === "machines-stats" || story === "machines-strain" || story === "machines-many") {
+    // the meters are the point: ready once each machine with a sample has drawn them
+    return until(() => el.querySelectorAll(".host-gauges").length >= (story === "machines-stats" ? 3 : 2)).then((up) => up || fail("the meters never drew"));
+  }
   if (story.startsWith("history")) return until(() => !!el.querySelector(".history-list, .history .empty:not(:empty)")).then(() => true);
   if (story !== "terminal") return true;
   await until(() => !!el.querySelector(".xterm-rows")?.textContent?.trim());

@@ -1617,3 +1617,66 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   down a second time (`cannot read properties of null` inside `cleanNode`). either error left home half torn down and
   the story never reported. a view reads what its cleanup needs when it is made (a cache key, a slot's id) or keeps it
   as last seen from a computation (`Ledger`, `seen`), and the cleanup reads only those.
+
+## a drop target inside a drop target (fix-files)
+
+- **a drag of files from outside the page ends with no `dragend`.** the composer is a drop target inside the thread's
+  stage, which is one too; each counts the drag's enters and leaves. the composer used to stop the drop's propagation so
+  it was taken once, and the stage, which had counted the enter, never heard the drop and stayed lit ("drop a photo..."
+  under a draft that already held the files) until the next drag. the stage now hears the drop, sees it was taken
+  (`defaultPrevented`) and only resets (`drop.ts`, `fileDrop`).
+- **a browser's word for a file's kind is not to be trusted.** chrome calls a `.ts` file `video/mp2t`, and a markdown
+  file is `text/markdown` on a mac and nothing on another system: the composer goes by the name's extension first
+  (`files.ts`, `fileKind`).
+
+## a sent photo flickering while the reply streams (stage--photo-above-live)
+
+- **a turn's derived objects are rebuilt at every delta of its reply, and the person's message is in that turn.** the
+  sent photos above the bubble were `photosOf(parts)` inside `turnsOf`, so every rebuild of the live turn handed the
+  bubble a new array of new `Picture` objects, and the strip (`<For>` over `[{ pics }]`, keyed by object) took every
+  thumbnail out and made a new img: a fresh load and decode of a data url of a phone photo's size, a blank box for a
+  frame, at every delta. measured on the story over the heavy turn's first 12 messages (22.8 s): 267 imgs made and 243
+  loaded before, 0 and 0 after; the turns above the live one lost no node either way (their memos never woke). the
+  fix keeps the photos like any part, in the part memo under the message's id (`model.ts`, `photosIn`), and the strip
+  lists its groups by place (`Index`) and only its thumbnails by picture, so a caller's fresh group object costs
+  nothing. any value a turn builds from the person's message (or from a part that did not change) needs the same
+  care, or a keyed list under it remounts at stream rate.
+
+## a pin move can make an older daemon's frames undecodable (the system pin)
+
+- **an event field cmx2 adds as required breaks every daemon older than it.** the move from 0bf2ba2 to abfde5b kept
+  contract 7, yet `session.compacted` gained a required `cold` (cmx2 0.8.13); a 0.8.8 daemon sends the event without
+  it, so each of its compactions would have been an undecodable frame and a red line on its card. the generator reads
+  such a field as optional (`server/build/cmx2.rs`, `ADDED_SINCE_OLDEST`), and a test decodes the frame both ways
+  (`cmx2.rs`, `an_older_daemons_compaction_without_cold_still_decodes`). on the next pin move, read the manifest's
+  diff for a new field without `Type.Optional` on an existing event.
+- **a new field on a host's status changes the fleet goldens.** `HostStatus` rides the fleet's journal, so a field
+  serialized as `null` changes every replay golden byte for byte. a field that is absent until it is known
+  (`system`, `reportsSystem`) is skipped while `None`.
+
+## ladle in parallel lanes (the machines lane)
+
+- **two ladles share vite's hmr port.** ladle's vite opens its hot-reload socket on 24678 whatever `--port` says, so a
+  second worktree's `shots` run fails while another lane's ladle is up. `LADLE_HMR_PORT=<port>` gives a run its own
+  (`app/.ladle/vite.config.ts`), from the lane's port range.
+
+## the foot room left a pinned reader a screen of nothing (fix-blank)
+
+- **room kept for what the reader no longer sees is a blank stage.** the foot room (`foot.ts`) kept whatever the
+  transcript gave back above its end while a turn played, up to the whole view. a working thread whose newest step is a
+  read shows its body open, most of a screen, and the body closes to its opening lines once the step ends: the foot kept
+  680 px of a 712 px view, the end was followed into the room, and the stage showed its condensed bar over nothing until
+  the person scrolled (`stage--open-live`, 106 blank frames at the phone's width and 107 at the ipad's in the second
+  after the thread opened). the check of `stage--foot-room` counted only the turn moving down, so it passed through the
+  blank. the room now keeps the box at the top of the view still and no more (`seenAt`, `roseSince`): what is given
+  back above the view (a fill shorter than its guess) is followed, a box under the top that lost what the reader saw of
+  it lets the room go, and the room never takes more than half the view. nothing is kept until the stage has seen the
+  end on screen, so a thread opening at its top does not bank room before it lands at the end.
+- **a pinned view's scroll event can come after a change and before its resize report.** a script's layout read
+  after a patch clamps the scroll, and its event is dispatched in the next frame's scroll steps, ahead of the resize
+  observer. what is at the top of the view is read in the resize report (where the view will be once the end is
+  followed, from that layout, since the room and the scroll move no box) and at the reader's own scrolls, never at a
+  pinned view's other scroll events, or the "before" is read from the layout after.
+- **measure the blank, not a proxy.** both checks now count frames a pinned stage shows next to none of its thread
+  under its bar (`data-empties`, `data-blank`), and the foot-room story's drop is of the first box whose top was in
+  view, which is what the reader sees move (with no foot room at all it still counts 10 drops).

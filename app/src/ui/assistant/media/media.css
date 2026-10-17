@@ -61,11 +61,13 @@
 .viewer-title b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .viewer-title span { font-size: 12.5px; color: rgb(244 244 246 / 0.62); font-variant-numeric: tabular-nums; }
 .viewer-acts { flex: none; display: flex; gap: 4px; }
-.viewer button { min-height: 0; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: inherit; background: rgb(255 255 255 / 0.08); cursor: pointer; }
+/* the viewer is dark in either appearance: the close's glass (ui/close.tsx) takes the dark flood's tokens here, and its ink the viewer's */
+.viewer { --close-ink: #f4f4f6; --lg-fill: rgb(38 40 48 / 0.46); --lg-press-light: rgb(255 255 255 / 0.16); --lg-rim: inset 0 1px 0 rgb(255 255 255 / 0.22), inset 0 -1px 0 rgb(255 255 255 / 0.08), inset 0 0 0 0.5px rgb(255 255 255 / 0.14); }
+.viewer button:not(.close-round) { min-height: 0; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: inherit; background: rgb(255 255 255 / 0.08); cursor: pointer; }
 .viewer button:disabled { opacity: 0.35; cursor: default; }
-.viewer button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.viewer button:not(.close-round) svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .viewer button:focus-visible { outline: 2px solid #b7abff; outline-offset: 2px; }
-@media (hover: hover) { .viewer button:not(:disabled):hover { background: rgb(255 255 255 / 0.14); } }
+@media (hover: hover) { .viewer button:not(:disabled, .close-round):hover { background: rgb(255 255 255 / 0.14); } }
 @media (max-width: 520px) { .viewer-acts button:is([aria-label="zoom in"], [aria-label="zoom out"], [aria-label="fit the image"]) { display: none; } }
 .viewer-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
 .viewer-page { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 12px 12px max(env(safe-area-inset-bottom), 24px); }

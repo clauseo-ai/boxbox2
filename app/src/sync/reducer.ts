@@ -289,10 +289,10 @@ export function reduce(state: SyncState, action: Action): Result {
       next = restored(work, state, action);
       break;
     case "hydrated":
-      next = hydrated(work, state, action);
+      next = hydrated(work, state, { ...action, messages: action.messages.map(slimMessage) });
       break;
     case "refetched":
-      next = refetched(work, state, action);
+      next = refetched(work, state, { ...action, message: action.message && slimMessage(action.message) });
       break;
     case "read-failed":
       next = readFailed(work, state, action);
@@ -582,10 +582,24 @@ function removeMessage(work: Work, thread: Thread, id: string): Thread {
   return grown({ ...thread, messages, refetching }, gone ? -messageBytes(gone) : 0);
 }
 
+/** a file part that is not an image, held without its bytes (docs/composer.md, attachments: any file): a pdf a person sent
+    comes back whole from the daemon, up to 12 mb of data url, and the thread draws only its name and kind (model.ts,
+    `sentFilesOf`), so the url is emptied and the file's size kept. an image keeps its url: the thread draws it, and an
+    original it cannot draw (a heic) is left as it came, as before */
+export function slimPart(part: Part): Part {
+  if (part.type !== "file" || part.mime.startsWith("image/") || !part.url.startsWith("data:")) return part;
+  const data = part.url.length - part.url.indexOf(",") - 1;
+  const size = typeof part["size"] === "number" ? part["size"] : Math.floor((data * 3) / 4);
+  return { ...part, url: "", size };
+}
+
+const slimMessage = (message: Message): Message => (message.parts.some((p) => p.type === "file") ? { info: message.info, parts: message.parts.map(slimPart) } : message);
+
 /** a part sets its place by its id (order.ts); one that was streaming when the server's upstream stream resumed
     (`resumed`: cmx2 sends it once, whole, with no seq) replaces what is held unless it would shorten text
     already applied, which only a snapshot taken before a later hydration could do */
-function applyPart(work: Work, thread: Thread, part: Part, resumed: boolean): Thread {
+function applyPart(work: Work, thread: Thread, sent: Part, resumed: boolean): Thread {
+  const part = slimPart(sent);
   const entry: Held = { kind: "part", part, resumed };
   if (holding(thread, part.messageID)) return hold(thread, part.messageID, entry);
   const at = messageIndex(thread, part.messageID);

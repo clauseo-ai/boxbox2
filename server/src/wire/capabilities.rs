@@ -7,16 +7,24 @@ use utoipa::ToSchema;
 
 /// the efforts cmx2 takes (`http/compose.rs`, `EFFORTS`).
 const CMX2_EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-/// what a cmx2 prompt may attach: the photo kinds its composer clamps.
-const CMX2_ATTACHMENT_KINDS: [&str; 6] = [
+/// what a cmx2 prompt may attach: the photo kinds its composer clamps, and
+/// the files cmx2 reads to the model (a pdf, any text, json; `http/compose.rs`,
+/// `DOCUMENT_KINDS`).
+const CMX2_ATTACHMENT_KINDS: [&str; 9] = [
     "image/png",
     "image/jpeg",
     "image/webp",
     "image/gif",
     "image/heic",
     "image/heif",
+    "application/pdf",
+    "text/*",
+    "application/json",
 ];
-const CMX2_ATTACHMENT_BYTES: u64 = 24 * 1024 * 1024;
+/// the most one attachment may be: a pdf, or a heic original, at its limit (`http/compose.rs`, `MAX_PDF_FILE` and
+/// `MAX_HEIC_FILE`). a client that holds a file to this is never refused for its size alone; a text file (512 KiB) and a
+/// photo that is not resized (1.5 MiB) have smaller limits of their own, which the send says in words.
+const CMX2_ATTACHMENT_BYTES: u64 = 9 * 1024 * 1024;
 const CMX2_ATTACHMENT_COUNT: u32 = 4;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

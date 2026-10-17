@@ -4,7 +4,8 @@
    windows beneath it); the whole body otherwise. */
 (() => {
   const MIN_INSET = 8, MIN_GAP = 6, MIN_EDGE = 12;
-  const skip = ".mk, .marks i, .ph, .fb, .fb i, .meter, .meter b, .segs i, .scale i, .head, .playhead, .ruler, .ruler *, .rcard, .cap, .chev, .tick, .dot, .send, .round, .demo, .demo *, .strip.sw, .sw, .lbg, .scrim, .stage, #app, .tok, .hash, code, mark, .ins, .sh, .gh, .tkh, .ci, .mini, .mini *, .bed span, .clamp";
+  /* marks of a chart sit side by side, not stacked: a step strip's two command bars (`.strip-mk`) read as touching surfaces */
+  const skip = ".mk, .marks i, .strip-mk, .ph, .fb, .fb i, .meter, .meter b, .segs i, .scale i, .head, .playhead, .ruler, .ruler *, .rcard, .cap, .chev, .tick, .dot, .send, .round, .demo, .demo *, .strip.sw, .sw, .lbg, .scrim, .stage, #app, .tok, .hash, code, mark, .ins, .sh, .gh, .tkh, .ci, .mini, .mini *, .bed span, .clamp";
   const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   /* a gradient or a shadow paints only if one of its colours is not fully transparent. a surface drawn in one appearance and
      left clear in the other (a card of paper in light whose colours are all alpha 0 in dark, its padding 0) is not a surface

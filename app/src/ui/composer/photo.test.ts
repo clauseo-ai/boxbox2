@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { HOST_ACCEPT_BASE_MS, HOST_ACCEPT_BYTES_PER_SECOND, HOST_ACCEPT_PER_CONVERTED_MS, MAX_MESSAGE_FILE, OUTBOX_PHOTO_BYTES, PHOTO_WAIT_MS } from "../../sync/outbox";
+import { HOST_ACCEPT_BASE_MS, HOST_ACCEPT_BYTES_PER_SECOND, HOST_ACCEPT_PER_CONVERTED_MS, HOST_ACCEPT_PER_PDF_MS, hostAcceptMs, MAX_MESSAGE_FILE, OUTBOX_PHOTO_BYTES, PHOTO_WAIT_MS } from "../../sync/outbox";
 import { bytesOfUrl, dataUrlLength, fit, LONG_SIDE, MAX_HEIC_URL, MAX_HELD_URL, MAX_MESSAGE_URL, MAX_URL, maxHeifBytes, megabytes, noRoomFor } from "./fit";
 
 describe("a photo is fitted on the device", () => {
@@ -48,12 +48,12 @@ describe("a message and the device have room for photos only so far", () => {
   test("two heics at the limit fit one message, a third does not and says what to do", () => {
     expect(noRoomFor("a.heic", MAX_HEIC_URL, MAX_HEIC_URL, MAX_HEIC_URL)).toBeNull();
     const why = noRoomFor("c.heic", 1, MAX_MESSAGE_URL, MAX_MESSAGE_URL);
-    expect(why).toBe("c.heic would take the photos on this message past 18 mb. send it in a message of its own, or remove one first");
+    expect(why).toBe("c.heic would take the photos and files on this message past 18 mb. send it in a message of its own, or remove one first");
   });
 
   test("a device holding 72 mb of photos that have not gone refuses more, with the size it holds", () => {
     expect(noRoomFor("b.heic", 4 * mb, 0, MAX_HELD_URL - 4 * mb)).toBeNull();
-    expect(noRoomFor("b.heic", 4 * mb, 0, MAX_HELD_URL - 3 * mb)).toMatch(/^this device is holding 51\.\d mb of photos that have not gone yet\. send or remove some, then add b\.heic again$/);
+    expect(noRoomFor("b.heic", 4 * mb, 0, MAX_HELD_URL - 3 * mb)).toMatch(/^this device is holding 51\.\d mb of photos and files that have not gone yet\. send or remove some, then add b\.heic again$/);
   });
 });
 
@@ -71,7 +71,7 @@ describe("the device and the server hold the same limits", () => {
     expect(MAX_URL).toBe(await rust("compose.rs", "MAX_PHOTO"));
     expect(MAX_HEIC_URL).toBe(await rust("compose.rs", "MAX_HEIC"));
     expect(maxHeifBytes()).toBe(await rust("compose.rs", "MAX_HEIC_FILE"));
-    expect(MAX_MESSAGE_URL).toBe(await rust("compose.rs", "MAX_PHOTOS_TOTAL"));
+    expect(MAX_MESSAGE_URL).toBe(await rust("compose.rs", "MAX_ATTACHMENTS_TOTAL"));
   });
 
   /** a `const NAME: Duration = Duration::from_secs(120);` in a rust file, in ms */
@@ -85,13 +85,20 @@ describe("the device and the server hold the same limits", () => {
   test("what the device gives a post to wait for is what the server waits for", async () => {
     expect(HOST_ACCEPT_BASE_MS).toBe(await rustSeconds("compose.rs", "ACCEPT_BASE"));
     expect(HOST_ACCEPT_PER_CONVERTED_MS).toBe(await rustSeconds("compose.rs", "ACCEPT_PER_CONVERTED"));
+    expect(HOST_ACCEPT_PER_PDF_MS).toBe(await rustSeconds("compose.rs", "ACCEPT_PER_PDF"));
+    // a pdf is given its reading on top of its crossing; a text file only its crossing
+    const pdf = { mime: "application/pdf", filename: "a.pdf", url: "data:application/pdf;base64,AAAA", width: null, height: null };
+    expect(hostAcceptMs([pdf])).toBe(HOST_ACCEPT_BASE_MS + HOST_ACCEPT_PER_PDF_MS);
+    expect(hostAcceptMs([{ ...pdf, mime: "text/plain" }])).toBe(HOST_ACCEPT_BASE_MS);
     expect(HOST_ACCEPT_BYTES_PER_SECOND).toBe(await rust("compose.rs", "ACCEPT_BYTES_PER_SECOND"));
     expect(PHOTO_WAIT_MS).toBe(await rustSeconds("mod.rs", "PHOTO_WAIT"));
   });
 
-  test("the most a message carries is two heics at the limit, in files as in data urls", () => {
+  test("the most a message carries is two heics or two pdfs at the limit, in files as in data urls", () => {
     expect(MAX_MESSAGE_FILE).toBe(2 * maxHeifBytes());
-    expect(MAX_MESSAGE_URL).toBe(2 * MAX_HEIC_URL);
+    // a pdf's head is five characters longer than a heic's, so two pdfs at the limit are the total
+    expect(MAX_MESSAGE_URL).toBe(2 * dataUrlLength(maxHeifBytes(), "application/pdf"));
+    expect(MAX_MESSAGE_URL).toBeGreaterThan(2 * MAX_HEIC_URL);
   });
 
   test("the routes take a body that holds a message at the total with its text, and the device holds three of them", async () => {

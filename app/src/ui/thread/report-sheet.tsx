@@ -8,6 +8,7 @@
    a drag down close it, and focus goes back to the chip. */
 
 import { type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { Close } from "../close";
 import { CopyButton } from "./copy-button";
 import { reportLabel } from "./copy-names";
 import { type Report } from "./report";
@@ -52,7 +53,7 @@ export function ReportSheet(props: { report: Report; onClose: () => void; /** th
           <span>{props.report.verb} at {clock(props.report.at)}</span>
         </div>
         <CopyButton kind="report" name={reportLabel(props.report.name, props.report.note)} text={() => props.report.text} />
-        <button class="rep-sheet-x" aria-label="close" onClick={() => dialog.close()}><i /></button>
+        <Close label="close" onClick={() => dialog.close()} />
       </header>
       <div class="rep-sheet-body">
         <Show when={props.report.outcome !== "none"}><span class="rep-tag" data-outcome={props.report.outcome}><ReportGlyph report={props.report} size="tag" />{props.report.outcome}</span></Show>

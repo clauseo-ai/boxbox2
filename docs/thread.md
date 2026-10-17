@@ -277,7 +277,7 @@ row, and a story:
 | tool | running | the row with a live clock; a shell's last 2 kb of output in the open body, following the newest line; on its group's strip a running step grows to the head |
 | tool | completed | the row with its result |
 | tool | error | red kind and result, open, the error in a red bed; "stopped" and faint when the error is an interrupt (`MessageAbortedError`, `interrupted`) |
-| file | | on your message, a photo (an image a browser draws: png, jpeg, gif, webp, by mime and data url) stands above its words as a thumbnail of the tool pictures' box (76 px, 96 on the wide stages, 8 px apart), flush right, 4 px over the bubble, each opening full size in the picture viewer (the native client's sentphotos); a photo sent alone has no words, and its bubble keeps its time. any other file: a thumbnail row, the file name and its size, opening the document's first page (not built) |
+| file | | on your message, a photo (an image a browser draws: png, jpeg, gif, webp, by mime and data url) stands above its words as a thumbnail of the tool pictures' box (76 px, 96 on the wide stages, 8 px apart), flush right, 4 px over the bubble, each opening full size in the picture viewer (the native client's sentphotos); a photo sent alone has no words, and its bubble keeps its time. a file sent with it that is not a photo (a pdf, which comes back as its own `file` part, or a text or json file the host put in the message as `<file path="name">`, a name with no directory; one a mention made is named in the words already) is a quiet capsule between the photos and the words, flush right: its kind in mono in a small well and its name cut in its middle (`sentFilesOf`, `.you-files`). a thumbnail row of the document's first page and its size, opening it, is not built |
 | tool | completed, with images (`state.attachments`) | a read of an image says `1 image` in place of its lines and opens to thumbnails under its file's line, each opening full size; a fold of reads groups them by file; a command's or a script's open body draws them too. at most eight, then "and 3 more images" (design.md, pictures a tool returned) |
 
 the turn's own states, from `MessageInfo` (`time.completed`, `error`,
@@ -879,7 +879,23 @@ lanes live on, scaled down, as each group's strip. the model is
   messaging, waiting, writing, thinking. the line is the second ink closed
   and the full ink open. the result column holds the clock: how long the run
   took ("1 min", nothing under a second), live its clock from the first
-  step in the light tone (mono 11.5 px, tabular).
+  step in the light tone (mono 11.5 px, tabular). the group's time column
+  is its first row's start, so it reads in order with the rows above: a
+  part with no start of its own (cmx2 leaves `time.start` null on native
+  tool parts) starts no earlier than the part before it in its message
+  (`model.ts`, `turnsOf`), never at the message's creation, which put a
+  call made after the agent's words above them in time and its clock
+  minutes early. while the live run is one step, its row under the line
+  shows neither time nor clock: the line already says both.
+- **a script** (cmx2's `run`, whose input is a javascript script) is named
+  by what it does, never its first line of code (`script.ts`): the call's
+  `description` when it has one, else the script's leading comment (a
+  `//` run or a block comment before any code), else "a script". its row
+  says "run" in the kind column and the name; the line says "running a
+  script" (a named script's own words stand as what it is doing) and counts
+  it under "ran"; on the strip it is a command, a bar from 1.2 s. a home
+  window's tail line, which has only the daemon's title, says "run a
+  script" for a title that reads as code (`window/tail.ts`).
 - **the strip**, under the line in the words' column, 4 px below it and 8
   px above the row's end, 16 px tall wherever it is drawn: the thinking
   track (3 px, ink at 6%) with a span in the light tone at 85% for each
@@ -894,6 +910,11 @@ lanes live on, scaled down, as each group's strip. the model is
   now, the bed washes in the light tone at 10% up to a 1 px head at now,
   and the running step grows to it. drawn in order (a home window, whose
   tail has no clock) its marks stand evenly apart and there is no head.
+  the lane clips (`overflow: clip`), and a mark's modifiers carry the
+  `mk-` prefix (`mk-bar`, `mk-running`): a bare `bar` took home's
+  `.home .bar` (relative, padded, raised), and on a desktop home the
+  running bar drew as a 40 px block over the next row. `.ladle/shots.ts`
+  checks every lane is 16 px and every mark inside it.
 - **open.** a press on the line (or on the kind column beside the strip)
   opens the group: its strip stays, and every row of the run follows it,
   only the latest one open; the older ones are one line each, opened by a
@@ -979,16 +1000,34 @@ growing at its end, and the run going on now is at the live edge:
   run's open row had is kept under the end (the foot room, `foot.ts`, the
   native client's `ThreadFootRoom`), the words that follow rise into it,
   and growth fills it before the end moves again. it is kept only while a
-  turn plays (and for the change that ends it) and while the end is on
-  screen; it goes, unseen, once the end leaves the view, and room larger
-  than the view is content that went out of sight, not room to keep. the
+  turn plays (and for the change that ends it) and once the stage has
+  seen the end on screen (a thread opening at its top banks nothing on
+  its way to the end); it goes, unseen, once the end leaves the view, and
+  room larger than the view is content that went out of sight, not room
+  to keep. it keeps what the reader sees still and no more: the box at
+  the top of the view (`seenAt`, read at each resize report where the
+  view will be once the end is followed, and at the reader's own
+  scrolls) holds its place. what is given back above it (a turn the
+  window fills shorter than its guess) is followed, not kept; a box at
+  the top that lost what the reader saw of it (the read's open body that
+  filled the view closing to its opening lines) leaves nothing to keep,
+  and the view follows the end; and the room never takes more than half
+  the view (`MOST_OF_VIEW`), so a fold that big brings what was above it
+  down rather than leave a pinned reader a screen of nothing. before,
+  the room went up to the whole view, and a working thread opened just
+  before its read closed showed its condensed bar over an empty stage
+  until the person scrolled (docs/gotchas.md, the foot room). the
   room is a spacer under the transcript (`.stage-room`, its height
   `--hold`), not the scroller's padding: padding is the scroller's box,
   so writing it from the resize observer came back to every observer of
   the scroller in the same delivery ("resizeobserver loop completed"). the
   story `stage--foot-room` plays the heavy turn's opening to its first
-  words and fails if the turn moves down under a pinned reader (15 times,
-  up to 681 px, before the foot room). no room is kept while an ask the
+  words and fails if what the reader sees (the first box whose top is in
+  view) moves down under a pinned reader (15 times, up to 681 px, before
+  the foot room) or the view shows next to none of the thread; the story
+  `stage--open-live` opens the working thread from home (cold, another
+  thread, then back from its cache) and fails on any frame a pinned stage
+  shows next to none of its thread (107 at the ipad's width before). no room is kept while an ask the
   stage brought to the bar holds the view (`win.hold`, `holding`): the
   ask would rise into it, up under the bar (the shell story
   `thread-ask-slow` at the ipad's width, 31 px under it two runs in
@@ -1037,7 +1076,9 @@ growing at its end, and the run going on now is at the live edge:
   transcript) is kept as the foot room's, filled by what grows next rather
   than given up when the next message comes, and bounded (`endRoom`,
   `pin.ts`): room that would fill the view is not kept, the view goes to the
-  new end. the hold was once the scroller's padding, and a flex item is never
+  new end. for a reader at the end it is measured from where the box at the
+  top of their view went (`roseSince`), at most half the view, as the foot
+  room's is. the hold was once the scroller's padding, and a flex item is never
   smaller than its padding: a hold of 100,787 px (the settle read the list at 65 turns and laid
   it out at 8, see the shown list above) made the scroller 100,827 px tall in a
   917 px stage with the view in the padding, and the release (it reads the
@@ -1465,9 +1506,13 @@ every class is scoped to its element and nothing reuses a generic word:
 `row`, `row-h`, `row-t`, `row-k`, `row-c`, `row-r`, `row-b`; `group`
 (a row that is a step group, `shown` while open), `group-chev`,
 `group-doing`, `group-band`, `group-gutter`, `strip`, `strip-lane`,
-`strip-track`, `strip-bed`, `strip-wash`, `strip-think`, `strip-mk`,
-`strip-head`;
-`tail`; `bar`, `bar-title`, `title-block`, `tb-repo`, `tb-h1`,
+`strip-track`, `strip-bed`, `strip-wash`, `strip-think`, `strip-mk` (its
+kind and state as `mk-run`, `mk-bar`, `mk-running`, `mk-bad`: a bare `bar`
+once took home's `.home .bar`), `strip-head`;
+`tail`; `bar`, `bar-title`, `title-block`, `tb-repo` (the place line: the
+repo's name beside its mark; a thread in the disk's root says the machine's
+name and one in a home folder says "home", `place.ts`, never a lone "/"),
+`tb-h1`,
 `tb-status`; `you`, `report` (the chip), `rep-line`, `rep-chev`, `rep-glyph`, `rep-sheet`, `rep-grab`, `rep-sheet-h`, `rep-sheet-body`, `rep-tag`, `rep-b`, `mark`,
 `sumcard`; `bed`, `fl`, `fb`, `hits`, `todo`, `facts`, `gap`, `dir`, `fn`;
 `cblock`, `cblock-h`, `cblock-lang` (a code block, its header and its
@@ -1575,7 +1620,14 @@ rebuilt whole: `turnsOf` keeps what each part became (the part memo, by
 part id, one per turn) and reads a part again only when its text grew or
 the store replaced its tool state; a message whose info changed comes
 back with copies of its parts, and a step read again equal to the last
-keeps its object. a poll's command and a file's length, which come from
+keeps its object. the photos the person sent are kept the same way, under
+the user message's id: the turn is built again at every delta of its
+reply, and the same array of the same pictures is what keeps the strip
+above it from loading and decoding its data urls again at each one
+(`photosIn`; the strip lists its groups by place and its thumbnails by
+picture, so a new group object from a row's build makes no img again;
+story `stage--photo-above-live` counts the imgs made while the reply
+streams, which must stay 0). a poll's command and a file's length, which come from
 earlier parts, are placed afterwards, so a step is a new object only when
 they changed. the views (`ledger.ts`, pure) remember each row's model by
 what it reads (its items, its pending ask, the clock while it runs, an

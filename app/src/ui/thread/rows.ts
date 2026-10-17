@@ -93,7 +93,7 @@ export function kindOf(s: Step): Kind {
     case "ask": return "ask";
     case "plan": return "plan";
     case "skill": return "skill";
-    default: return "tool";
+    default: return s.script ? "run" : "tool";
   }
 }
 

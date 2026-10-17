@@ -164,7 +164,7 @@ export function swipeUnsends(offset: number, velocity: number, flingMs = 180): b
 }
 
 /** the line while a drag the composer can take is over it */
-export const DROP_LINE = "drop a photo to add it, or a file to mention it";
+export const DROP_LINE = "drop a photo or a file to add it";
 
 /** what a composer says while this device has no room to keep drafts: what is written stays only while the page is open */
 export const DRAFTS_FULL = "this device has no room left to keep drafts, so what you write here stays only while this page is open. free some space and it saves again";

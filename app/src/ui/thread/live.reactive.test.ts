@@ -62,6 +62,26 @@ describe.skipIf(!reactive)("turns", () => {
     t.dispose();
   });
 
+  test("a delta to a reply keeps the photos and files its turn's person sent: the same arrays, so the strip and the files row are not made again", () => {
+    const messages = thread(3);
+    const url = `data:image/jpeg;base64,${"A".repeat(4096)}`;
+    const u2 = messages[4] as Message;
+    messages[4] = { ...u2, parts: [...u2.parts, { id: "prt_f2", type: "file", mime: "image/jpeg", filename: "board.jpg", url }, { id: "prt_d2", type: "file", mime: "application/pdf", filename: "brief.pdf", url: "" }] } as unknown as Message;
+    const t = open(messages, "desk:photos");
+    const before = t.turns()[2]?.photos;
+    const files = t.turns()[2]?.sentFiles;
+    expect(before?.map((p) => p.filename)).toEqual(["board.jpg"]);
+    expect(files?.map((f) => f.filename)).toEqual(["brief.pdf"]);
+    for (const n of [1, 2, 3]) {
+      t.setStore("messages", 5, "parts", 1, "text", `said 2${", and more".repeat(n)}`);
+      const after = t.turns()[2];
+      expect(after?.answer?.text.endsWith(", and more")).toBe(true);
+      expect(after?.photos).toBe(before);
+      expect(after?.sentFiles).toBe(files);
+    }
+    t.dispose();
+  });
+
   test("a turn that arrives is the only one built: the turn before it is not read again", () => {
     const t = open(thread(40), "desk:arrive");
     const before = t.turns();

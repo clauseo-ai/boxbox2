@@ -56,10 +56,17 @@ under a thread the composer is clear liquid glass (`.lg` tokens in
 bar's rounds do, so the transcript moves under it, brightened and barely
 blurred, lit along the rim, with the clear lens's short drop in place of the
 window's long shadow. its words stay legible the way the system keeps them
-on clear glass: a pool of shade inside the pane behind them (8 px in from the
-rim, its radius 20, the window's lit top colour on light, its deep colour
-most of the way to black on dark, feathered by a 10 px blur), and a brighter
-ink for what send will do and the placeholder. the plus, send, the chips, the
+on clear glass: a pool of shade behind them (the window's lit top colour on
+light, its deep colour most of the way to black on dark, 80% at its heart).
+the pool fills the pane and is feathered by a mask of two crossed ramps, 40%
+at the rim and whole 32 px in, so it has no edge anywhere and never leaves
+the pane; it only thins toward the rim and most at the corners, where the
+lens catches the light. (a blurred box 8 px in, the first port of the native
+pool, spilled past the rim as a dark halo and left a bright ring inside it:
+the pane read as a smudge in a frame.) the words taking focus light the rim:
+a hairline of the accent and a brighter top, by opacity alone, so the lens at
+rest is quiet and a typing one is awake, as a native field of glass is. a
+brighter ink serves what send will do and the placeholder. the plus, send, the chips, the
 dial's close and the problem's dismiss are drops of glass over a breath of
 ink (8% black on light, 10% white on dark; clear glass inside glass draws
 white on light), with no pressed-in edge; on (send ready, a menu open, a
@@ -171,15 +178,17 @@ before m3's gate, and appears in all three prototypes.
 | photo uploading | a determinate ring (resized on the client; a heic goes as its original bytes where the browser cannot decode it, and the host converts it to jpeg, a30) |
 | photo refused | the thumbnail with a red edge and why ("too large", "not an image the model can read") |
 | heic refused | the words say the size and what to do: "<file> is 11.2 mb, over the 9 mb a heic goes at. export it as a jpeg, or shoot it at a lower resolution, and add it again" |
+| file ready | a tile beside the photos, as tall: its type tile (the page glyph in the accent over its kind, "pdf", "md", "csv"), its name cut in the middle ("bookin…al.pdf") over its size, with remove. its name is "<file>, 1.2 mb" (`FileTile`, `files.ts`) |
+| file refused | the problem line, before a byte is read, in cmx2's own numbers: "<file> is 31 mb. cmx on <host> takes pdfs up to 9 mb.", "export.csv is 625 kb. cmx on <host> takes text files up to 512 kb.", "<file> is not text. cmx on <host> reads pdfs, text and json.", "<file> is not utf-8 text. save it as utf-8 and add it again.", "<file> has a quote in its name. rename it and add it again.", "<file> is empty. add a file with something in it.", past the count "cmx on <host> takes 4 photos and files on a message. <file> did not fit." |
 | file mentioned (`@`) | the path inline as written; the host inlines the file on send |
-| dragged over the composer or its stage | the window's edge lights in the accent and the line says "drop a photo to add it, or a file to mention it" |
-| dropped | an image joins the photos (the same clamp and the same four as a picked one); any other file is mentioned after an `@` by its name, its spaces gone (the host's file list finds it, as a typed mention does); dropped words join the draft (`drop.ts`) |
+| dragged over the composer or its stage | the window's edge lights in the accent and the line says "drop a photo or a file to add it" |
+| dropped or pasted | an image joins the photos (the same clamp as a picked one); a pdf, text or json file joins them as a file (below); both count to the same four. any other file is mentioned after an `@` by its name, its spaces gone (the host's file list finds it when it is in the repo, as a typed mention does), and the problem line says so: "cmx on <host> does not take .zip files, so logs.zip is mentioned by its name instead." dropped words join the draft (`drop.ts`) |
 
 the drop target is the composer and, where its mount passes one (`dropZone`),
 the stage around it: a drop anywhere on an open thread lands in its composer.
 the browser hands a dropped file over without its path on the host, so a file
-that is not an image is named, never sent (until the agent takes `attachments`,
-below).
+the agent reads goes as its bytes, with the message, and one it does not is
+named (`attachments: any file`, below).
 
 ### menus
 
@@ -188,7 +197,7 @@ below).
 | commands | `/` first, or the `/` glyph | `GET /command`, filtered by prefix; name, description, argument hint. under a thread boxbox adds its own `/compact` (it runs at once, and a typed `/compact` sent with return does the same) |
 | files | `@` after a space, or the `@` glyph | `GET /find/file?query=`, fuzzy; name lit, directory dim, line count |
 | shell | `!` first | not a list: one line saying where it runs and what the agent sees |
-| tools | the plus key left of the words (in the sheet it is the photo key) | each row has its icon in a quiet tile: add a photo, commands, mention a file, run in the shell, compact (under a thread: summarises the thread so far to free the context, with a ring and how full the context is), agents (under a thread: "agents, 2", opens the agents panel), write on the full stage; the first three put their glyph in the words and open their own menu. opened from the keyboard it lands on its first row: arrows walk the rows, return takes one, escape closes and returns to the plus key |
+| tools | the plus key left of the words (in the sheet it is the photo key) | each row has its icon in a quiet tile: add a photo, add a file (the file picker, "pdf, text or json"; a page glyph with its lines), commands, mention a file ("mention", "a file on <host>"; the plain page glyph), run in the shell, compact (under a thread: summarises the thread so far to free the context, with a ring and how full the context is), agents (under a thread: "agents, 2", opens the agents panel), write on the full stage; the first three put their glyph in the words and open their own menu. opened from the keyboard it lands on its first row: arrows walk the rows, return takes one, escape closes and returns to the plus key |
 | model | the model chip (its provider's mark and its name), always in the top row | `GET /config/providers`; models only. it opens on the starred models and the one in use, with a quiet "all models · N" row under them; a star on every row keeps a model on the short list; with nothing starred it opens on every model under provider headers with one line about starring; typing searches every model, the starred first. the thread's model carries a check. "the thread's model, changes from this message on". it opens scrolled to the model in use, and tapping the chip never focuses the words |
 | effort | the effort chip beside it (a signal-strength meter and the word) | not a menu: the top row turns into a dial of the efforts the chosen model accepts, a segmented control with a thumb that slides between the levels, each with its bars and name, a profile's named variants after them as pills (one tap picks, one tap on the cross closes), so it is never clipped: a row that cannot fit scrolls. the thread's effort is marked, none when the daemon will choose |
 
@@ -914,8 +923,36 @@ when contract 2 is wired.
   files.", "<name> takes <maxCount> files on a message. this one did
   not fit.". uploading, a determinate ring; failed, a red edge and "the
   upload stopped. tap to try again." (`thread.md`, pictures and files).
-- cmx keeps photos alone: its `attachments.kinds` are images, so "add a
-  file" is not offered there.
+- **cmx2** takes files: its `attachments.kinds` add `application/pdf`,
+  `text/*` and `application/json` to the photo kinds (`wire/capabilities.rs`),
+  which is what cmx2 reads from a file part's bytes (its `parts.ts`): a pdf
+  whole for a model that reads documents and as its extracted text for the
+  rest, a text or json file put into the message whole as `<file
+  path=...>`. a file goes beside the photos on the same routes, as
+  `files: [{mime, filename, url}]` (`http/compose.rs`, `Document`), and the
+  server holds it to the same numbers as the composer: a pdf at most 9 mb
+  (under the 20 mb cmx2 hands a model whole, and two fit the message), a text
+  or json file at most 512 kb (cmx2 puts all of it in the message, so this
+  keeps one file from filling the model's context, about 130,000 tokens),
+  photos and files 4 on a message and 18 mb together. the kind goes by the
+  name's extension first (a mac calls markdown `text/markdown` and another
+  system calls it nothing; a browser calls `.ts` a video), then by the
+  browser's type; a `.env` or `.env.*` is never one, whatever kind the
+  browser gives it, so a secret is not sent by a stray drop. a text file
+  whose first 8 kb holds a zero byte is a binary file with a text file's
+  name, and refused, as is one that is not utf-8 (cmx2 decodes it as
+  utf-8; the server checks it too). a file goes by its name after the last
+  slash or backslash, at most 255 characters, with no quote, angle bracket,
+  control or format character: cmx2 writes the name into `<file
+  path="...">` unescaped, and a bidi override would hide what it says. the
+  composer refuses such a name before a byte is read, and the server
+  refuses it again. the daemon echoes a sent pdf whole (up to 12 mb of data
+  url), so the worker keeps a non-image file part's name, kind and size and
+  lets its url go (`reducer.ts`, `slimPart`); images keep theirs. in the draft and the outbox a
+  file rides in the photos' list as its own bytes with no dimensions (one
+  cap, one record, one hand back), and the request splits it out by kind.
+  uploading and failed are the message's, on its card, as a photo's are; the
+  card counts them apart ("2 photos, 1 file").
 
 ### start something with an agent
 

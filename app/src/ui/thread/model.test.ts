@@ -157,6 +157,21 @@ describe("photos a person sent (docs/thread.md, every state: file)", () => {
     expect(turn?.prompt).toBe("look");
   });
 
+  test("a pdf and a text file the host put in the message are files sent with it; a mention's file is left to the words", () => {
+    const parts = [
+      { id: "t", type: "text", text: "read these and @src/a.ts and @notes.md" },
+      { id: "f1", type: "file", mime: "application/pdf", filename: "brief.pdf", url: "data:application/pdf;base64,AA" },
+      { id: "s1", type: "text", synthetic: true, text: '<file path="plan.md">\n# plan\n</file>' },
+      { id: "s2", type: "text", synthetic: true, text: '<file path="src/a.ts">\nexport {}\n</file>' },
+      { id: "s3", type: "text", synthetic: true, text: '<file path="notes.md">\nhi\n</file>' },
+      { id: "s4", type: "text", synthetic: true, text: "turn context: cwd: /repo" },
+      { id: "f2", type: "file", mime: "image/heic", filename: "b.heic", url: "data:image/heic;base64,AA" },
+    ] as unknown as WirePart[];
+    const [turn] = turnsOf([user("u", parts)], "/");
+    expect(turn?.sentFiles).toEqual([{ filename: "brief.pdf", mime: "application/pdf" }, { filename: "plan.md", mime: "text/plain" }]);
+    expect(turn?.prompt).toBe("read these and @src/a.ts and @notes.md");
+  });
+
   test("a photo sent alone is a turn with no words", () => {
     const [turn] = turnsOf([user("u", [{ id: "f1", type: "file", mime: "image/jpeg", filename: "", url: "data:image/jpeg;base64,AA" } as unknown as WirePart])], "/");
     expect(turn?.photos).toHaveLength(1);

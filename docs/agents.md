@@ -74,6 +74,8 @@ Agent {
     contractMatches: boolean | null,
     frames: FrameCounts,
     memory: Memory | null,          // cmx2 only (admin capability)
+    system?: HostSystem,            // cmx2 only: os, machine, cpu load, memory, disk (architecture.md, the daemon verbs)
+    reportsSystem?: boolean,        // false when the runtime has no system report; absent until asked
     cursor: string | null
   },
   capabilities: Capabilities,       // section 5
@@ -935,7 +937,7 @@ whole, headers and caps included:
 | `compose::shell` | `shell` | shell |
 | `compose::commands`, `compose::command` | `commands`, `command` | commands |
 | `review::show`, `review::merge`, `review::discard` | `review`, `merge`, `discard` | review |
-| `hosts::reload`, `hosts::restart`, `upstream/memory.rs` | `reload`, `restart`, `memory` | admin |
+| `hosts::reload`, `hosts::restart`, `upstream/memory.rs`, `upstream/system.rs` | `reload`, `restart`, `memory`, `system` | admin |
 | `pty::*` | `terminal()` | terminal |
 | `repo_icon::repo_icon` | (the icons task, as today) | places |
 | `hosts::pair` | per source pairing (`POST /api/connections/pair` with `source`) | n/a |
@@ -1028,7 +1030,7 @@ true, and the server refuses the verb when it is not (section 4).
 | `reasoning` | `{word, levels}`: the chip's word and its levels | the effort or thinking chip | `{effort, [low, medium, high, xhigh, max]}` (`compose.rs:72-73`) | `{thinking, levels from the gateway}` | `{effort, levels from its config}` |
 | `approvals` | permission asks | ask card, push, board pit digits | yes | yes | yes |
 | `questions` | question asks | ask card, push | yes | yes | yes |
-| `attachments` | `{kinds, maxBytes, maxCount}` | the composer's attach and photo keys, upload checks | `{[png, jpeg, webp, gif, heic, heif], 24 MiB, 4}` (`compose.rs:35,51,56-63`) | `{[image/*, audio/*, video/*, application/pdf, text/*], hello-ok.policy.attachments.maxBytes (20 MiB when absent), 8}`; the count is boxbox's own limit, since the gateway names none (`openclaw.md`, media) | `{[png, jpeg, webp, gif], from its config, 4}` |
+| `attachments` | `{kinds, maxBytes, maxCount}` | the composer's attach and photo keys, upload checks | `{[png, jpeg, webp, gif, heic, heif, application/pdf, text/*, application/json], 9 MiB, 4}` (`wire/capabilities.rs`: 9 MiB is the largest one file may be, a pdf or a heic original; `http/compose.rs` holds a text or json file to 512 KiB and a photo that was not resized to 1.5 MiB, refused at send in words, and every attachment of a message to 18 MiB together; `composer.md`, attachments: any file) | `{[image/*, audio/*, video/*, application/pdf, text/*], hello-ok.policy.attachments.maxBytes (20 MiB when absent), 8}`; the count is boxbox's own limit, since the gateway names none (`openclaw.md`, media) | `{[png, jpeg, webp, gif], from its config, 4}` |
 | `voice` | `{notes, replies}`: `notes`, you can record a voice note and the agent hears it; `replies`, the agent may answer with audio | `notes` gates the mic key and recording; `replies` gates nothing (an audio part is drawn whenever one arrives) and is there so a client can say the agent speaks | `{no, no}` | `{yes, yes}` | `{no, no}` |
 | `quotes` | a message can quote another | swipe to reply, the reply strip, quote rows | no | yes | no |
 | `reactions` | emoji reactions on messages | the reaction picker and row | no | yes | no |
@@ -1474,6 +1476,3 @@ session did not start (AGENTS.md, the live fleet).
    contract 2 snapshot under 256 kb for 300 threads; first byte of the
    media route; an upload at the body limit with the server's memory
    printed; the soak in `m9` with zero reloads.
-
-
-(the last of 1438 lines shown; full output at /Users/dev/.local/share/cmx2/tool-output/shell-mv9edvqr-wgc4.txt, read it with offset and limit)

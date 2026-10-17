@@ -19,7 +19,9 @@ use utoipa::ToSchema;
 
 use super::AppState;
 use super::agents;
-use super::compose::{Message, Photo, accept_timeout, content, message_body, model_and_effort};
+use super::compose::{
+    Document, Message, Photo, accept_timeout, content, message_body, model_and_effort,
+};
 use super::error::{ApiError, ErrorBody};
 #[cfg(test)]
 use crate::config::HostConfig;
@@ -90,6 +92,9 @@ pub struct Prompt {
     /// photos, resized on the device, as `data:` urls.
     #[serde(default)]
     pub photos: Vec<Photo>,
+    /// files that are not photos (a pdf, text, json), as their own bytes in `data:` urls.
+    #[serde(default)]
+    pub files: Vec<Document>,
     /// `provider/model`, from `/api/hosts/{host}/models`; cmx2 makes it the
     /// thread's model from this message on.
     pub model: Option<String>,
@@ -222,8 +227,12 @@ pub async fn prompt(
 ) -> Result<Response, ApiError> {
     let device = device_of(&body.device, &body.device_class)?;
     let client_id = client_id(&body.client_id)?.to_owned();
-    let limit = accept_timeout(&body.photos);
-    let parts = content(&body.text, std::mem::take(&mut body.photos))?;
+    let limit = accept_timeout(&body.photos, &body.files);
+    let parts = content(
+        &body.text,
+        std::mem::take(&mut body.photos),
+        std::mem::take(&mut body.files),
+    )?;
     let id = segment(&session)?;
     let key = session_key(&host, &session);
     state

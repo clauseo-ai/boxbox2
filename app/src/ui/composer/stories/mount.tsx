@@ -15,11 +15,11 @@ import type { StreamStatus } from "../../../sync/messages";
 import type { Draft, OutboxView } from "../../../sync/outbox";
 import { EMPTY_FLEET } from "../../../sync/reducer";
 import type { Ask, SessionEntry } from "../../../sync/protocol";
-import { colourOf, colourStyle } from "../../window/repo";
+import { colourOf, colourStyle, REPO_COLOURS } from "../../window/repo";
 import { Composer } from "../composer";
 import { NewThreadDock } from "../dock";
 import { NewThreadSheet } from "../sheet";
-import { AT, browse, COMMANDS, DIRECTORY, draft, FAVORITES, FILES, HOST, IDLE, IDLE_NEARLY_FULL, IDLE_ON_OPUS, IDLE_WITH_CONTEXT, KEY, MODELS, MODELS_MANY, OTHER, PROMPTS, photoUrl, QUESTION, SESSION, sent, TARGET, WORKING, WORKING_MARKDOWN, WORKING_WITH_CONTEXT } from "./fixtures";
+import { AT, browse, COMMANDS, DIRECTORY, DROPPED, draft, FAVORITES, FILES, fileOf, HOST, IDLE, IDLE_NEARLY_FULL, IDLE_ON_OPUS, IDLE_WITH_CONTEXT, KEY, MODELS, MODELS_MANY, OTHER, PROMPTS, photoUrl, QUESTION, SESSION, sent, TARGET, WORKING, WORKING_MARKDOWN, WORKING_WITH_CONTEXT } from "./fixtures";
 
 export type ComposerStory =
   | "empty-done"
@@ -33,6 +33,9 @@ export type ComposerStory =
   | "shell"
   | "photo"
   | "photo-heic"
+  | "file"
+  | "file-long"
+  | "file-refused"
   | "sending"
   | "queued"
   | "steer"
@@ -48,6 +51,11 @@ export type ComposerStory =
   | "glass"
   | "glass-queue"
   | "glass-shell"
+  | "glass-rest"
+  | "glass-rest-focus"
+  | "glass-rest-line"
+  | "glass-rest-empty"
+  | "glass-rest-working"
   | "dropped"
   | "model"
   | "slash"
@@ -106,8 +114,8 @@ type Drive = {
   later: (ms: number, then: () => void) => void;
   /** a long press or a right click on what the selector finds */
   menu: (selector: string) => void;
-  /** a drag of two files (a spec and a log) entering, or dropped on, what the selector finds */
-  drag: (type: "dragenter" | "drop", selector: string) => void;
+  /** a drag of files entering, or dropped on, what the selector finds: a spec, a pdf and an archive unless `files` says */
+  drag: (type: "dragenter" | "drop", selector: string, files?: File[]) => void;
 };
 
 /** a steer, then two waiting for the turn to end */
@@ -140,6 +148,8 @@ type Setup = {
   keyboard?: boolean;
   /** the log runs on under the bar, as a long thread does, so the glass has something to bend */
   under?: boolean;
+  /** the repo palette by its name (repo.ts), where the story is about how the glass sits on one hue; the fixture's own otherwise */
+  palette?: string;
 };
 
 const LIVE: StreamStatus = { state: "live", since: AT - 600_000, lastEventAt: AT };
@@ -157,6 +167,37 @@ const SETUPS: Record<Exclude<ComposerStory, HomeStory>, () => Setup> = {
   full: () => ({ entry: WORKING, draft: draft(PROMPTS.long), focus: true, full: true }),
   shell: () => ({ entry: IDLE, draft: draft(""), type: "!git log --oneline -5" }),
   photo: () => ({ entry: IDLE, draft: draft("see the gap right?", { photos: [{ mime: "image/jpeg", filename: "gap.jpg", url: photoUrl(), width: 240, height: 520 }] }), focus: true }),
+  // files beside a photo (docs/composer.md, attachments: any file): each a type tile, its name and its size, with remove
+  file: () => ({
+    entry: IDLE,
+    draft: draft("check the dates against the plan", {
+      photos: [
+        { mime: "image/jpeg", filename: "gap.jpg", url: photoUrl(), width: 240, height: 520 },
+        fileOf("booking.pdf", "application/pdf", 1_240_000),
+        fileOf("plan.md", "text/markdown", 6_100),
+      ],
+    }),
+    focus: true,
+  }),
+  // four files with long names: each cut in its middle so its kind still shows, and the tray wraps rather than run off a phone
+  "file-long": () => ({
+    entry: IDLE,
+    draft: draft("", {
+      photos: [
+        fileOf("booking-confirmation-lisbon-final.pdf", "application/pdf", 8_900_000),
+        fileOf("quarterly-numbers-by-region.csv", "text/csv", 212_000),
+        fileOf("openapi.json", "application/json", 48_000),
+        fileOf("notes from the planning call.txt", "text/plain", 900),
+      ],
+    }),
+    focus: true,
+  }),
+  // a text file past what one may be, dropped: refused before it goes, in the agent's own numbers
+  "file-refused": () => ({
+    entry: IDLE,
+    draft: draft("summarise this", { photos: [fileOf("plan.md", "text/markdown", 6_100)] }),
+    drive: (go) => go.drag("drop", ".cz-story-stage", [new File(["a,b\n".repeat(160_000)], "export.csv", { type: "text/csv" })]),
+  }),
   // a heic the browser could not draw, beside a photo it could: the tile reads as a heic photo and not as a broken image
   "photo-heic": () => ({
     entry: IDLE,
@@ -188,9 +229,17 @@ const SETUPS: Record<Exclude<ComposerStory, HomeStory>, () => Setup> = {
   glass: () => ({ entry: WORKING, draft: draft("and the readme too"), focus: true, under: true }),
   "glass-queue": () => ({ entry: WORKING, outbox: three(), under: true }),
   "glass-shell": () => ({ entry: IDLE, draft: draft(""), type: "!git log --oneline -5", under: true }),
+  // the glass at rest, the words not focused, in a few hues: a two-line draft on violet (the state the owner saw), the
+  // same draft focused, one line on gold, nothing on teal, and the agent working with nothing typed on rose
+  "glass-rest": () => ({ entry: IDLE, draft: draft(PROMPTS.perf), under: true, palette: "violet" }),
+  "glass-rest-focus": () => ({ entry: IDLE, draft: draft(PROMPTS.perf), focus: true, under: true, palette: "violet" }),
+  "glass-rest-line": () => ({ entry: IDLE, draft: draft("ship it"), under: true, palette: "gold" }),
+  "glass-rest-empty": () => ({ entry: IDLE, draft: draft(""), under: true, palette: "teal" }),
+  "glass-rest-working": () => ({ entry: WORKING, draft: draft(""), under: true, palette: "rose" }),
   // a file dragged over the stage: the composer's edge lights and its line says what a drop does
   "drop-over": () => ({ entry: IDLE, draft: draft(""), drive: (go) => go.drag("dragenter", ".cz-story-stage") }),
-  // a spec and a log dropped on the stage: each mentioned by its name after what the draft held
+  // a spec, a pdf and an archive dropped on the stage: the spec and the pdf join the draft as files, the archive is mentioned
+  // by its name after what the draft held, and the line says the agent does not take it
   "dropped": () => ({ entry: IDLE, draft: draft("compare these"), drive: (go) => go.drag("drop", ".cz-story-stage") }),
   offline: () => ({ entry: WORKING, stream: "down", outbox: [sent("c5", PROMPTS.push, "waiting", { attempts: 0 })] }),
   model: () => ({ entry: IDLE_ON_OPUS, draft: draft(PROMPTS.perf), focus: true, type: "", favorites: FAVORITES.slice(0, 2), drive: (go) => go.press("model") }),
@@ -288,10 +337,9 @@ function driving(el: HTMLElement): Drive {
     },
     later: (ms, then) => void setTimeout(then, ms),
     menu: (selector) => el.querySelector(selector)?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 })),
-    drag: (type, selector) => {
+    drag: (type, selector, files) => {
       const data = new DataTransfer();
-      data.items.add(new File(["# the spec"], "deploy spec.md", { type: "text/markdown" }));
-      data.items.add(new File(["ok"], "health.log", { type: "text/plain" }));
+      for (const file of files ?? DROPPED()) data.items.add(file);
       el.querySelector(selector)?.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data }));
     },
   };
@@ -314,7 +362,7 @@ export function mountComposer(el: HTMLElement, story: ComposerStory): () => void
   const restore = answerReads(setup.models, setup.compact, setup.many ?? false, setup.starsRefused, setup.none);
   installMotionProperties();
   boot(setup);
-  const colour = colourStyle(colourOf({ host: HOST, root: DIRECTORY }));
+  const colour = colourStyle(REPO_COLOURS.find((c) => c.name === setup.palette) ?? colourOf({ host: HOST, root: DIRECTORY }));
   const dispose = render(
     () => (
       <div class="cz-story" data-keyboard={setup.keyboard ? "" : undefined} data-under={setup.under ? "" : undefined} style={colour}>
@@ -323,6 +371,7 @@ export function mountComposer(el: HTMLElement, story: ComposerStory): () => void
             <p class="cz-story-you" data-message="msg_you">{PROMPTS.first}</p>
             <p class="cz-story-say">four files changed, the tests pass, and the deploy script now waits for the health check before it moves on.</p>
             {setup.under ? <p class="cz-story-say">the rollback keeps the last two builds on each machine, and the health check reads the same endpoint the load balancer does, so a build that passes here passes there. the logs for the run are in the deploy folder, one file per machine, and the summary at the top says which steps were skipped and why.</p> : null}
+            {setup.under ? <p class="cz-story-say"><b>what changed:</b> the deploy waits for <code>/healthz</code> on every machine, <b>retries twice</b> with a backoff, and stops the rollout at the first machine that never answers.</p> : null}
           </div>
           <Composer target={TARGET} mount="bar" title="deploy across the machines" agents={{ count: 2, open: () => undefined }} dropZone={() => el.querySelector<HTMLElement>(".cz-story-stage")} />
         </div>

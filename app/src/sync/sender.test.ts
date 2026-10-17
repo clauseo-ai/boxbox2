@@ -477,6 +477,32 @@ describe("a post the network never answers", () => {
   });
 });
 
+describe("photos and files on the wire", () => {
+  const pdf: Photo = { mime: "application/pdf", filename: "brief.pdf", url: "data:application/pdf;base64,JVBERg==", width: null, height: null };
+  const jpeg: Photo = { mime: "image/jpeg", filename: "gap.jpg", url: "data:image/jpeg;base64,AAAA", width: 2, height: 2 };
+
+  test("one list in the outbox goes as the photos and the files the route takes, each with its kind, name and bytes", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    await withAnswers(
+      (_, init) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return json(202, { messageID: "msg_1" });
+      },
+      async () => {
+        const { sender } = offline();
+        sender.stream("live");
+        sender.send({ ...outgoing, photos: [jpeg, pdf] });
+        sender.send({ ...outgoing, clientID: "c2" });
+        await Bun.sleep(10);
+      },
+    );
+    expect(bodies[0]?.["photos"]).toEqual([{ mime: "image/jpeg", filename: "gap.jpg", url: jpeg.url }]);
+    expect(bodies[0]?.["files"]).toEqual([{ mime: "application/pdf", filename: "brief.pdf", url: pdf.url }]);
+    // words alone carry no files at all, as they always went
+    expect(bodies[1]).not.toHaveProperty("files");
+  });
+});
+
 describe("a new thread's first send", () => {
   const start = { clientID: "n1", verb: "start" as const, target: { kind: "new" as const, host: "desk", directory: "/repo", place: "checkout" as const }, text: "hello", photos: [], model: null, effort: null, at: Date.now() };
   const withPosts = () => {

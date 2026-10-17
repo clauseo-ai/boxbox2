@@ -1,5 +1,5 @@
 # written by `just vendor`: the pinned commit, then one line per file:
 # <git blob id at the pin>  <path in cmx2>  <path here>
-0bf2ba214b35e3facdb9c0ee62c743b7b0be7cfe
-3176f70a8d2392293cb8521e7b1cd17f7f4a4431  packages/client/openapi.json  vendor/cmx2/openapi.json
-e42b948e4affb7267f70f2c7594399065391c6e8  packages/contract/src/manifest.ts  vendor/cmx2/manifest.ts
+05e029c977778ac8b84e6ee0db2358a4c75c7aff
+44871162ab17d030d33bb0888f55be4469e29570  packages/client/openapi.json  vendor/cmx2/openapi.json
+2090345b5bb9ec2cb92da2d493108cc78269ad5b  packages/contract/src/manifest.ts  vendor/cmx2/manifest.ts

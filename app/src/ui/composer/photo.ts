@@ -10,8 +10,6 @@ import type { Photo } from "../../sync/outbox";
 import { dataUrlLength, fit, MAX_URL, maxHeifBytes, megabytes } from "./fit";
 import { type HeifKind, heifKindOfFile, kindOf } from "./heic";
 
-export { MAX_PHOTOS } from "./fit";
-
 /** jpeg qualities tried in turn until the photo fits */
 const QUALITIES = [0.86, 0.76, 0.64, 0.5] as const;
 

@@ -102,12 +102,90 @@
   padding-bottom: 18px;
 }
 
+/* the head: the os's tile, the name with what the machine is under it, the chip. the tile and the chip hang from the
+   top, so a long model wrapping under the name never moves either */
 .host-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "tile name chip"
+    "tile what what";
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  column-gap: 12px;
   min-height: 34px;
+}
+
+/* the name and what the machine is sit in the head's grid themselves, so the line under the name runs under the chip
+   too and a long model has the window's width, not what the chip leaves */
+.host-title {
+  display: contents;
+}
+
+.host-head .host-name {
+  grid-area: name;
+}
+
+.host-head .host-what {
+  grid-area: what;
+  align-self: start;
+}
+
+.host-head .host-chip {
+  grid-area: chip;
+}
+
+/* the os's mark in a lit tile: a squircle of the window's accent at low strength with the window's lit top edge and
+   rim, the glyph in the ink. it is identity, not state: it never changes with the connection (design.md, the machines:
+   what a machine is) */
+.host-tile {
+  grid-area: tile;
+  align-self: start;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 90% at 30% 0%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%),
+    color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow:
+    var(--win-lit),
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text);
+}
+
+.os-mark {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.os-mark circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* what the machine is, in its own words: the window's prose voice under the name, a size under it */
+.host-what {
+  margin: 1px 0 0;
+  overflow: hidden;
+  font-size: var(--meta);
+  font-weight: 550;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--text) 86%, transparent);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* an older cmx2 says so, quietly, and draws no meters */
+.host-what[data-quiet] {
+  font-weight: 500;
+  color: var(--text-2);
+  white-space: normal;
 }
 
 .host-name {
@@ -169,7 +247,7 @@
 }
 
 .host-meta {
-  margin: 2px 0 0;
+  margin: 4px 0 0;
   font-family: var(--mono);
   font-stretch: 90%;
   font-size: var(--chip);
@@ -259,6 +337,157 @@
    past and still hold their contrast */
 .host-figures[data-stale] dd {
   color: var(--text-2);
+}
+
+/* —— how the machine is doing —— */
+
+/* three meters pressed into the window as an ask is, over the spec line. the warning tone is the machines' own amber,
+   a strain and not a failure (red stays a failure's): 4.5:1 or more on the bed in both appearances */
+.host-gauges {
+  --gauge-warn: color-mix(in srgb, #8a4b00 calc(var(--L) * 100%), #ffc266);
+  display: grid;
+  gap: 13px;
+  margin: 20px 0 0;
+  padding: 14px 14px 12px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--win-press) calc(var(--L) * 100%), rgb(0 0 0 / 0.22));
+  box-shadow: var(--win-press-edge);
+  animation: machines-fade var(--fade-t) both;
+}
+
+/* the name, its words, its figure on one line; the track under them across the row */
+.gauge {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 8px;
+  row-gap: 7px;
+}
+
+.gauge-name {
+  font-size: 12.5px;
+  font-weight: 620;
+  color: var(--text-2);
+}
+
+.gauge-detail {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* the figure: mono and tabular, so a new sample changes its digits and never its place */
+.gauge-value {
+  min-width: 4ch;
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text);
+}
+
+/* the track: a channel cut into the bed, and in it a lit tube of the accent, brightest at its leading end, with a
+   highlight along its top and a short glow, slid in from the left by what is in use */
+.gauge-track {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, color-mix(in srgb, var(--p1) 10%, transparent) calc(var(--L) * 100%), rgb(255 255 255 / 0.07));
+  box-shadow: inset 0 1px 1px color-mix(in srgb, color-mix(in srgb, var(--p2) 14%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.35));
+}
+
+/* the tube clips the fill to the channel's rounded ends; the marks stand outside it, past the channel's edges */
+.gauge-tube {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+.gauge-fill {
+  --tube: var(--accent);
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tube) 45%, transparent), var(--tube));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.32),
+    0 0 8px color-mix(in srgb, var(--tube) 50%, transparent);
+  transition: transform var(--sheet-t);
+  animation: gauge-in var(--sheet-t) both;
+}
+
+/* the cpu's load over 5 and 15 minutes: two notches across the track, the older one fainter, so the last quarter hour's
+   direction reads at a glance (a fill ahead of its notches is load rising) */
+/* the marks stand 3 px past the channel above and below; slid along it, they are clipped at its ends so none ever
+   reaches past the window */
+.gauge-marks {
+  position: absolute;
+  inset: -3px 0;
+  overflow-x: clip;
+}
+
+.gauge-mark {
+  position: absolute;
+  inset: 0;
+  transition: transform var(--sheet-t);
+}
+
+.gauge-mark::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--text);
+  opacity: 0.7;
+}
+
+.gauge-mark[data-span="15"]::before {
+  opacity: 0.38;
+}
+
+.gauge[data-warn] .gauge-fill {
+  --tube: var(--gauge-warn);
+}
+
+.gauge[data-warn] :is(.gauge-value, .gauge-detail) {
+  color: var(--gauge-warn);
+}
+
+/* the last the machine said, while it says nothing: the tubes unlit in the second ink and the figures with them, as
+   the figures read while a machine is away */
+.host-gauges[data-stale] .gauge-fill {
+  --tube: var(--text-3);
+  box-shadow: none;
+}
+
+.host-gauges[data-stale] :is(.gauge-value, .gauge-detail) {
+  color: var(--text-2);
+}
+
+/* what the machine is made of and how long it has been up, as uname would say it, quiet under the meters */
+.host-spec {
+  margin: 1px 0 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-stretch: 90%;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* the foot: the verbs, quiet words that take a fill under a pointer */
@@ -524,12 +753,29 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion="full"]) :is(.host-note, .host-error, .host-confirm, .host-add-note, .pair-sheet) {
-    animation-duration: 120ms;
+/* the screen opening fills each tube once from empty; later samples move it by its transition */
+@keyframes gauge-in {
+  from {
+    transform: translateX(-100%);
   }
 }
 
-:root[data-motion="reduced"] :is(.host-note, .host-error, .host-confirm, .host-add-note, .pair-sheet) {
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) :is(.host-note, .host-error, .host-confirm, .host-add-note, .pair-sheet, .host-gauges) {
+    animation-duration: 120ms;
+  }
+
+  :root:not([data-motion="full"]) :is(.gauge-fill, .gauge-mark) {
+    animation: none;
+    transition: none;
+  }
+}
+
+:root[data-motion="reduced"] :is(.host-note, .host-error, .host-confirm, .host-add-note, .pair-sheet, .host-gauges) {
   animation-duration: 120ms;
+}
+
+:root[data-motion="reduced"] :is(.gauge-fill, .gauge-mark) {
+  animation: none;
+  transition: none;
 }

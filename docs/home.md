@@ -498,10 +498,13 @@ same screen, head, grid, cards and verbs, renamed, with an assistant's
 card among the machines'. the bar's pill keeps its mark (two stacked
 boxes) and is named "agents"; the title is "agents".
 
-- **a cmx card** is today's machine window, unchanged: the machine's
-  name, `cmx2 0.8.3 · up 3 h · paired` (uptime from the daemon's own
-  samples, as the law says; `connection.since` is when the state last
-  changed, not uptime), the three figures, terminals, the foot.
+- **a cmx card** is today's machine window: the os's tile, the machine's
+  name and what it is (`Mac mini · macOS 26.1`), `cmx2 0.8.3 · up 3 h ·
+  paired` (uptime from the daemon's own samples, as the law says;
+  `connection.since` is when the state last changed, not uptime), the
+  three figures, the meters (cpu, memory, disk) over the spec line,
+  terminals, the foot (`design.md`, the machines: what a machine is, and
+  how it is doing).
 - **an assistant's card** is the same window in the assistant's palette:
   the round mark (22) beside the name (22 px, wide), the chip, the mono
   line `openclaw 2026.10.1 · paired` (its runtime and version, then

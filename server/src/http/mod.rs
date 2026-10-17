@@ -83,9 +83,9 @@ pub struct RequestId(pub Arc<str>);
 const SMALL_BODY: usize = 64 * 1024;
 /// 500 events of a few hundred bytes each, with room to spare.
 const TELEMETRY_BODY: usize = 1024 * 1024;
-/// a message of 100,000 characters, most of them multibyte, in json (under 1 MiB), with the photos of
-/// one message as data urls: at most 24 MiB together (`compose::MAX_PHOTOS_TOTAL`: four resized jpegs,
-/// or two heic originals at the limit).
+/// a message of 100,000 characters, most of them multibyte, in json (under 1 MiB), with the photos and
+/// files of one message as data urls: at most 24 MiB together (`compose::MAX_ATTACHMENTS_TOTAL`: four
+/// resized jpegs, or two heic originals or two pdfs at the limit).
 const PROMPT_BODY: usize = 25 * 1024 * 1024;
 const MIB: usize = 1024 * 1024;
 /// the memory, in MiB, the routes may use for photos at once: two messages at the body limit, each counted twice

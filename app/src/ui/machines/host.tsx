@@ -1,19 +1,24 @@
 /* one machine: a window in the violet pair (design.md, the machines). its
-   head is the name and the connection in home's chip; a mono line says
-   which cmx2 it runs and for how long; three figures say what is on it
-   now (threads that want you, threads working, the daemon's memory); its
+   head is the os's mark in a lit tile, the name and the connection in
+   home's chip, the line that says what the machine is ("Mac mini · macOS
+   26.1"), and a mono line that says which cmx2 it runs and for how long;
+   three figures say what is on it now (threads that want you, threads
+   working, the daemon's memory); three meters pressed into it say how the
+   machine is doing (cpu load, memory, disk) over a spec line; its
    terminals sit pressed into it; its verbs sit at its foot. reload is
    safe and fires at once. restart and forget are
    confirmed in place: the foot turns into the consequence in words and two
    choices, the verb itself and the way out, and the verb carries itself by
    its word, never by red (design.md, the terminal's kill). */
 
-import { createEffect, createMemo, createSignal, createUniqueId, Match, onCleanup, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createSignal, createUniqueId, Index, Match, onCleanup, Show, Switch } from "solid-js";
 import type { HostStatus } from "../../api/client";
 import { refreshHosts, state } from "../../store";
 import { HostTerminals } from "../term/terminals";
 import { stateOf } from "../window/view";
 import { forgetMachine, reloadMachine, restartMachine } from "./actions";
+import { OsMark } from "./marks";
+import { duration, identity, type Meter, meters, osMark, spec } from "./system";
 
 const numbers = new Intl.NumberFormat("en");
 const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -23,6 +28,8 @@ const WATCH_FOR_MS = 60_000;
 /** the daemon's memory, uptime with it, is sampled this often while connected (server/src/upstream/memory.rs), with a
     few seconds for the read that carried it */
 const SAMPLE_EVERY_MS = 65_000;
+/** the machine's system is sampled every 30 s (server/src/upstream/system.rs), with a few seconds for the read */
+const SYSTEM_EVERY_MS = 35_000;
 
 type Arming = "idle" | "restart" | "forget";
 type Note = { text: string; failed: boolean } | null;
@@ -63,9 +70,36 @@ export function Host(props: { host: HostStatus }) {
       device's, so the time since is held to the minute between samples and a skewed clock cannot run it on */
   const upFor = () => {
     const memory = props.host.memory;
-    if (!memory || !connected() || memory.sampledAt < props.host.since) return null;
-    const since = Math.min(SAMPLE_EVERY_MS, Math.max(0, (state.hostsAt ?? memory.sampledAt) - memory.sampledAt));
-    return duration(memory.uptimeS + since / 1000);
+    const daemon = system();
+    // the newer of the two samples that carry it: the system's comes every 30 s, memory's every minute
+    const sample =
+      daemon && (!memory || daemon.sampledAt > memory.sampledAt)
+        ? { at: daemon.sampledAt, uptime: daemon.daemon.uptime, every: SYSTEM_EVERY_MS }
+        : memory
+          ? { at: memory.sampledAt, uptime: memory.uptimeS, every: SAMPLE_EVERY_MS }
+          : null;
+    return sample ? liveSpan(sample) : null;
+  };
+  /** a count of seconds as of a sample, run on by the time since it, only while this connection took it */
+  const liveSpan = (sample: { at: number; uptime: number; every: number }) => {
+    if (!connected() || sample.at < props.host.since) return null;
+    const since = Math.min(sample.every, Math.max(0, (state.hostsAt ?? sample.at) - sample.at));
+    return duration(sample.uptime + since / 1000);
+  };
+  /* what the machine is and how it is doing: the last sample, kept while the host is away (the meters then read as
+     past, as the figures do); none from an older cmx2, which says so in one line instead of drawing empty meters */
+  const system = () => props.host.system ?? null;
+  const mark = () => osMark(system());
+  const hostUp = () => {
+    const s = system();
+    return s ? liveSpan({ at: s.sampledAt, uptime: s.uptime, every: SYSTEM_EVERY_MS }) : null;
+  };
+  /** the daemon's own memory, from whichever of its two reports is newer */
+  const rss = () => {
+    const memory = props.host.memory;
+    const daemon = system();
+    if (daemon && (!memory || daemon.sampledAt > memory.sampledAt)) return daemon.daemon.rss;
+    return memory?.rss ?? null;
   };
   const titleId = createUniqueId();
   const [arming, setArming] = createSignal<Arming>("idle");
@@ -173,9 +207,26 @@ export function Host(props: { host: HostStatus }) {
     <li class="host" aria-labelledby={titleId} data-connection={props.host.connection}>
       <div class="host-main">
         <div class="host-head">
-          <h2 class="host-name" id={titleId}>
-            {name()}
-          </h2>
+          <span class="host-tile" data-mark={mark()}>
+            <OsMark mark={mark()} />
+          </span>
+          <div class="host-title">
+            <h2 class="host-name" id={titleId}>
+              {name()}
+            </h2>
+            <Show
+              when={system()}
+              fallback={
+                <Show when={props.host.reportsSystem === false}>
+                  <p class="host-what" data-quiet="">
+                    update cmx2 to see this machine's stats.
+                  </p>
+                </Show>
+              }
+            >
+              {(s) => <p class="host-what">{identity(s())}</p>}
+            </Show>
+          </div>
           <span class="host-chip">
             <i aria-hidden="true" />
             {chip()}
@@ -222,18 +273,28 @@ export function Host(props: { host: HostStatus }) {
               <dt>working</dt>
               <dd>{numbers.format(counts().working)}</dd>
             </div>
-            <Show when={props.host.memory}>
-              {(memory) => (
+            <Show when={rss()}>
+              {(bytes) => (
                 <div class="host-figure">
-                  <dt>memory</dt>
+                  <dt>cmx2 memory</dt>
                   <dd>
-                    {numbers.format(Math.round(memory().rss / 1_048_576))}
+                    {numbers.format(Math.round(bytes() / 1_048_576))}
                     <small> mb</small>
                   </dd>
                 </div>
               )}
             </Show>
           </dl>
+        </Show>
+        {/* how the machine is doing, pressed into the window as the terminals are. the meters are kept by place (Index),
+            so a new sample moves each fill and mark by transform and nothing around them moves */}
+        <Show when={system()}>
+          {(s) => (
+            <section class="host-gauges" aria-label={`how ${name()} is doing`} data-stale={connected() ? undefined : ""}>
+              <Index each={meters(s())}>{(meter) => <Gauge meter={meter()} />}</Index>
+              <p class="host-spec">{spec(s(), hostUp(), connected() ? null : clock.format(s().sampledAt))}</p>
+            </section>
+          )}
         </Show>
         <HostTerminals host={name()} reachable={connected()} />
       </div>
@@ -296,11 +357,35 @@ export function Host(props: { host: HostStatus }) {
   );
 }
 
-/** a span of time in the largest unit that fits it, whole: "12 s", "4 min", "3 h", "2 days" */
-function duration(seconds: number): string {
-  if (seconds < 60) return `${Math.floor(seconds)} s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3600)} h`;
-  const days = Math.floor(seconds / 86_400);
-  return `${days} ${days === 1 ? "day" : "days"}`;
+/** one meter: its name, its words and its figure on one line, the track under them. the fill is a full-width bar slid
+    left by what is not used, and the cpu's marks (its load over 5 and 15 minutes) full-width layers slid right, so a new
+    sample moves them by transform alone and the track's rounded end clips the fill (design.md, motion) */
+function Gauge(props: { meter: Meter }) {
+  const percent = () => Math.round(props.meter.fill * 100);
+  return (
+    <div class="gauge" data-kind={props.meter.kind} data-warn={props.meter.warn ? "" : undefined} role="meter" aria-label={props.meter.kind} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent()} aria-valuetext={props.meter.label}>
+      <span class="gauge-name" aria-hidden="true">
+        {props.meter.kind}
+      </span>
+      <span class="gauge-detail" aria-hidden="true">
+        {props.meter.detail}
+      </span>
+      <span class="gauge-value" aria-hidden="true">
+        {props.meter.value}
+      </span>
+      <span class="gauge-track" aria-hidden="true">
+        <span class="gauge-tube">
+          <span class="gauge-fill" style={{ transform: `translateX(${(props.meter.fill - 1) * 100}%)` }} />
+        </span>
+        <Show when={props.meter.marks}>
+          {(marks) => (
+            <span class="gauge-marks">
+              <span class="gauge-mark" data-span="5" style={{ transform: `translateX(${marks()[0] * 100}%)` }} />
+              <span class="gauge-mark" data-span="15" style={{ transform: `translateX(${marks()[1] * 100}%)` }} />
+            </span>
+          )}
+        </Show>
+      </span>
+    </div>
+  );
 }

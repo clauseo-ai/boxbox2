@@ -157,6 +157,19 @@
 .cz-photo button svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 /* the mark is 22 px; the finger gets the photo's whole corner */
 .cz-photo button::after { content: ""; position: absolute; inset: -10px; }
+/* a file (docs/composer.md, attachments: any file): as tall as a photo and on the same quiet track as a heic's tile, wider
+   for its words: the type tile (the page glyph in the accent over its kind in mono, in a well like the plus menu's tiles),
+   then its name cut in the middle (files.ts, cutMiddle; never an ellipsis at the end, which would hide the kind) over its
+   size. the remove mark keeps its corner, so the words stop short of it. two always fit a row, and a tray of more wraps to
+   a second row rather than run off a phone */
+.cz-tray:has(.cz-file) { flex-wrap: wrap; }
+.cz-file { width: auto; max-width: calc(50% - 4px); box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 30px 0 7px; background: var(--cz-fill-track); }
+.cz-file-type { flex: none; width: 34px; height: 44px; border-radius: 10px; display: grid; place-content: center; justify-items: center; gap: 2px; color: var(--accent); background: var(--cz-fill-well); box-shadow: var(--cz-edge-well); }
+.cz-file-type .cz-i { width: 18px; height: 18px; }
+.cz-file-type b { font-family: var(--mono); font-stretch: 90%; font-size: 9.5px; font-weight: 500; letter-spacing: 0.02em; line-height: 1; color: var(--cz-ink-2); }
+.cz-file-words { display: grid; gap: 4px; min-width: 0; }
+.cz-file-words b { font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--cz-text); white-space: nowrap; overflow: hidden; }
+.cz-file-words em { font-style: normal; font-size: 11px; line-height: 1.2; color: var(--cz-ink-2); font-variant-numeric: tabular-nums; }
 
 /* the words and their keys (docs/composer.md, the layout). the words always take the body's full width; on one line the plus and
    send sit over its ends and the words are inset clear of them (52 px for the plus, send's own width beside it); from a
@@ -570,7 +583,8 @@
    under a thread the composer floats over the log as the stage bar's rounds do, so it is the clear lens: the transcript
    moves under it, brightened and barely blurred, lit along the rim. the words stay legible the way the system does it on
    clear glass: a soft pool of shade inside the pane behind them (the window's lit top colour on light, its deep colour
-   most of the way to black on dark, 70% at its heart, feathered out before the rim). the keys are drops of glass over a
+   most of the way to black on dark, 80% at its heart, masked to thin toward the rim, never blurred past it). the words
+   taking focus light the rim. the keys are drops of glass over a
    breath of ink (glass inside glass would draw white on light), and on is the glass tinted with the accent. the sheet and
    the full stage keep the repo material (they sit on grounds of their own), as do the menus, the list and the edges
    behind the strip. under reduced transparency, or without backdrop-filter, none of this applies and the recipes above
@@ -587,31 +601,46 @@
       backdrop-filter: var(--lg-clear-filter);
       box-shadow: var(--lg-rim), var(--lg-drop);
     }
+    /* the pool fills the pane and is feathered by a mask, never by a blur: a blurred inset box spilled past the rim as a dark
+       halo and left a bright ring inside it, so the pane read as a smudge in a frame. the mask is two ramps crossed (each 40%
+       at the rim, whole 32 px in), so the shade has no edge anywhere and only thins toward the rim and most at the corners,
+       where the lens catches the light; it never leaves the pane */
     .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip)::before {
+      --cz-feather: rgb(0 0 0 / 0.4), rgb(0 0 0 / 0.72) 10px, rgb(0 0 0 / 0.92) 20px, #000 32px, #000 calc(100% - 32px), rgb(0 0 0 / 0.92) calc(100% - 20px), rgb(0 0 0 / 0.72) calc(100% - 10px), rgb(0 0 0 / 0.4);
       content: "";
       position: absolute;
-      inset: 8px;
+      inset: 0;
       z-index: -1;
-      border-radius: 20px;
+      border-radius: inherit;
       pointer-events: none;
       background: var(--cz-scrim);
-      /* the native pool is 70% at its heart and rasterised; a css blur feathers into the fill as well as out of it, so its
-         heart is held by a stronger fill */
       opacity: 0.8;
-      filter: blur(10px);
+      -webkit-mask: linear-gradient(90deg, var(--cz-feather)), linear-gradient(180deg, var(--cz-feather));
+      -webkit-mask-composite: source-in;
+      mask: linear-gradient(90deg, var(--cz-feather)), linear-gradient(180deg, var(--cz-feather));
+      mask-composite: intersect;
     }
-    .composer[data-mount="bar"]:not([data-full]) .cz-strip::before { border-radius: 14px; }
-    /* the lens casts its own short drop; the window's long shadow belongs to the material */
-    .composer[data-mount="bar"]:not([data-full]) .cz-window::after { display: none; }
+    /* the window's long shadow belongs to the material, and the lens casts its own short drop, so its ::after is the rim's
+       light instead: the words taking focus light the rim in the accent and brighten its top, as a native field of glass
+       wakes under the finger; at rest the lens is quiet. opacity alone moves */
+    .composer[data-mount="bar"]:not([data-full]) .cz-window::after {
+      z-index: -1;
+      box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.6) calc(var(--L) * 100%), rgb(255 255 255 / 0.2)), inset 0 0 0 1px color-mix(in srgb, var(--accent) calc(60% - var(--L) * 15%), transparent);
+      opacity: 0;
+      transform: none;
+      transition: opacity var(--fade-t, 0ms linear);
+    }
+    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-focus]::after { opacity: 1; }
     /* a shell line tints the glass with its dark bed (a cool paper on light), so it is never taken for a message */
     .composer[data-mount="bar"]:not([data-full]) .cz-window[data-shell] { background: color-mix(in srgb, color-mix(in srgb, #eceef2 calc(var(--L) * 100%), #08090b) 70%, transparent); }
     .composer[data-mount="bar"]:not([data-full]) .cz-window[data-bad],
     .composer[data-mount="bar"]:not([data-full]) .cz-strip[data-state="failed"] { box-shadow: var(--lg-rim), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 70%, transparent), var(--lg-drop); }
     .composer[data-mount="bar"]:not([data-full]) .cz-window[data-drop] { box-shadow: var(--lg-rim), inset 0 0 0 2px var(--accent), var(--lg-drop); }
-    /* what send will do and the placeholder take the brighter ink clear glass needs */
+    /* what send will do and the placeholder take the brighter ink clear glass needs (the placeholder a step more on light,
+       where 62% measured 4.46:1 over the pale pool) */
     .composer[data-mount="bar"]:not([data-full]) .cz-t,
     .composer[data-mount="bar"]:not([data-full]) .cz-t[data-prose] { color: color-mix(in srgb, var(--cz-text) 90%, transparent); }
-    .composer[data-mount="bar"]:not([data-full]) .cz-body textarea::placeholder { color: color-mix(in srgb, var(--cz-text) 62%, transparent); }
+    .composer[data-mount="bar"]:not([data-full]) .cz-body textarea::placeholder { color: color-mix(in srgb, var(--cz-text) calc(62% + var(--L) * 8%), transparent); }
     /* the keys: drops of glass over the wash, a rim and no pressed-in edge; on, the accent's glass */
     .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key, .cz-pill, .cz-count, .cz-problem button) { background: var(--cz-wash); box-shadow: var(--lg-rim); }
     .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key[aria-expanded="true"], .cz-pill.on) { background: color-mix(in srgb, var(--accent) 82%, transparent); box-shadow: var(--lg-rim), var(--lg-drop); }
@@ -665,16 +694,7 @@
   .cz-sheet { left: 50%; right: auto; width: 600px; margin-left: -300px; bottom: auto; top: 12vh; }
 }
 .cz-sheet-head { display: flex; align-items: center; gap: 12px; margin-top: -6px; }
-/* the close is the stage bar's round of liquid glass (styles.css): a control over the sheet, not a key pressed into it */
-.cz-sheet .cz-sheet-close { position: relative; flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: var(--cz-text); background: var(--lg-fill); -webkit-backdrop-filter: var(--lg-filter); backdrop-filter: var(--lg-filter); box-shadow: var(--lg-rim), var(--lg-drop); transition: transform var(--press-t), opacity var(--fade-t); }
-.cz-sheet .cz-sheet-close:active { transform: scale(var(--lg-press-scale)); opacity: var(--lg-press-dim, 1); }
-.cz-sheet-close .cz-i { width: 16px; height: 16px; }
-@media (hover: hover) and (pointer: fine) {
-  .cz-sheet .cz-sheet-close:hover { background: color-mix(in srgb, var(--lg-press-light) 40%, var(--lg-fill)); }
-}
-@media (pointer: coarse) {
-  .cz-sheet .cz-sheet-close { width: 44px; height: 44px; }
-}
+/* the close is the one close (ui/close.tsx, styles.css `.close-round`): the stage bar's round of liquid glass */
 .cz-sheet h2 { flex: 1; min-width: 0; padding: 0 10px; font-size: 22px; font-weight: 680; font-stretch: 116%; letter-spacing: -0.035em; }
 /* the place: one line as tall as a field, the repo's mark in it, that opens in place into the pickers. its card is pressed
    into the sheet on dark and a sheet of light over it on light, the line's corner the card's so it opens without changing

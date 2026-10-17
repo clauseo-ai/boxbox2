@@ -92,6 +92,8 @@ impl ConnectionState {
             contract_matches: None,
             frames,
             memory: None,
+            system: None,
+            reports_system: None,
             cursor: None,
         }
     }

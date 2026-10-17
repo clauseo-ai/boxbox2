@@ -185,7 +185,7 @@ for (const [light, label] of [[0, "dark"], [1, "light"]] as const) {
       // a step group's strip draws its marks in ink, --text at the alphas the dark flood always had, which reads the appearance,
       // so the strip holds on the light flood as on the deep one; only the light tone, the add green and red are colours
       test(`${colour.name}: the strip's marks and lanes are ink that reads the appearance`, () => {
-        for (const rule of [".strip-track {", ".strip-bed {", ".strip-mk {", ".strip-mk.spawn {"]) expect(declarations(THREAD, rule).get("background"), rule).toMatch(/var\(--text\)/);
+        for (const rule of [".strip-track {", ".strip-bed {", ".strip-mk {", ".strip-mk.mk-spawn {"]) expect(declarations(THREAD, rule).get("background"), rule).toMatch(/var\(--text\)/);
       });
 
       // dark is what it always was: every base token the stage declares again is the page's own value at --L: 0

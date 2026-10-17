@@ -2,7 +2,7 @@
    attachments), and the fitting itself, apart from the canvas so it is
    tested without a browser */
 
-import { MAX_MESSAGE_FILE, MAX_MESSAGE_URL, MAX_PHOTOS } from "../../sync/outbox";
+import { MAX_ATTACHMENTS, MAX_MESSAGE_FILE, MAX_MESSAGE_URL } from "../../sync/outbox";
 
 /** the long side a photo is fitted to: the size the models read best */
 export const LONG_SIDE = 1568;
@@ -14,10 +14,10 @@ export const MAX_HEIC_FILE = 9 * 1024 * 1024;
 /** that file as a data url, which the server refuses a heic or heif above (MAX_HEIC): the head, then four characters for
     every three bytes. both kinds' heads are 23 characters */
 export const MAX_HEIC_URL = 12 * 1024 * 1024 + 23;
-/** the photos this device holds that have not gone: every draft's and every unsent message's. three messages
+/** the photos and files this device holds that have not gone: every draft's and every unsent message's. three messages
     at the limit; past it the person is asked to send or remove some first (AGENTS.md, memory and latency) */
 export const MAX_HELD_URL = 3 * MAX_MESSAGE_URL;
-export { MAX_MESSAGE_URL, MAX_PHOTOS };
+export { MAX_ATTACHMENTS, MAX_MESSAGE_URL };
 
 const MIB = 1024 * 1024;
 
@@ -42,12 +42,12 @@ export function megabytes(bytes: number): string {
   return tenths % 10 === 0 ? String(tenths / 10) : `${Math.floor(tenths / 10)}.${tenths % 10}`;
 }
 
-/** why one more photo of `added` characters cannot join a message already holding `inMessage`, or when the device already
-    holds `onDevice` of photos that have not gone; null when it fits */
+/** why one more photo or file of `added` characters cannot join a message already holding `inMessage`, or when the device
+    already holds `onDevice` of photos and files that have not gone; null when it fits */
 export function noRoomFor(name: string, added: number, inMessage: number, onDevice: number): string | null {
-  if (inMessage + added > MAX_MESSAGE_URL) return `${name} would take the photos on this message past ${MAX_MESSAGE_FILE / MIB} mb. send it in a message of its own, or remove one first`;
+  if (inMessage + added > MAX_MESSAGE_URL) return `${name} would take the photos and files on this message past ${MAX_MESSAGE_FILE / MIB} mb. send it in a message of its own, or remove one first`;
   // the person has files, not data urls: the size is said as they would see it
-  if (onDevice + added > MAX_HELD_URL) return `this device is holding ${megabytes((onDevice * 3) / 4)} mb of photos that have not gone yet. send or remove some, then add ${name} again`;
+  if (onDevice + added > MAX_HELD_URL) return `this device is holding ${megabytes((onDevice * 3) / 4)} mb of photos and files that have not gone yet. send or remove some, then add ${name} again`;
   return null;
 }
 

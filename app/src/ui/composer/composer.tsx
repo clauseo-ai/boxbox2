@@ -29,9 +29,11 @@ import { deviceClass, deviceId } from "../../push/device";
 import { answerQuestion } from "../asks/answer";
 import { questionsOf } from "../asks/words";
 import { type RepoColour, colourOf, colourStyle, repoName } from "../window/repo";
-import { bytesOfUrl, MAX_PHOTOS, megabytes, noRoomFor } from "./fit";
+import { bytesOfUrl, MAX_ATTACHMENTS, megabytes, noRoomFor } from "./fit";
+import { cutMiddle, FILE_ACCEPT, fileKind, isPhotoKind, noRoomLeft, notTaken, sizeOf, typeWord } from "./files";
 import { isOriginal, kindOf } from "./heic";
 import type { Clamped } from "./photo";
+import type { Read } from "./read-file";
 import { compactThread } from "./compact";
 import { ContextRing } from "./context";
 import { EffortMeter } from "./dial";
@@ -43,7 +45,7 @@ import { providerKey } from "./marks";
 import { EffortDial, ModelMenu, warm, whenLoaded } from "../later";
 import { type CommandChoice, commands, ensureModels, files } from "./reads";
 import { modelName } from "../model-name";
-import { fileDrop, withMention, withWords } from "./drop";
+import { type Dropped, fileDrop, isPhoto, sortDrop, withMention, withWords } from "./drop";
 import { inlineRuns } from "./inline";
 import { QueueStrip, type QueueVerb } from "./queue";
 import { type Agent, type Card, compactionWords, compactMeta, contextFill, DRAFTS_FULL, DROP_LINE, effortChoices, fateLine, type ListState, liveLine, menuOf, menuQuery, type Mount, placeholder, sendWord, tailPrint, typedAnswers, withFile } from "./words";
@@ -165,7 +167,7 @@ export function Composer(props: ComposerProps) {
     }
   });
   onCleanup(() => { for (const t of graceTimers.values()) clearTimeout(t); });
-  type Shown = { id: string; text: string; card: Card; entry: OutboxView | null; messageID: string | null; photos: number };
+  type Shown = { id: string; text: string; card: Card; entry: OutboxView | null; messageID: string | null; photos: number; files: number };
   const cards = createMemo<Shown[]>(() => {
     const shown: Shown[] = [];
     let place = 0;
@@ -173,11 +175,11 @@ export function Composer(props: ComposerProps) {
       if (e.verb === "start" || e.target.kind === "new") continue;
       const stands = e.state === "queued" ? (e.verb === "steer" ? "steer" : "queued") : e.state === "landed" ? "sending" : e.state;
       if (stands === "sending" && !graced().has(e.clientID) && Date.now() - e.at < SENDING_GRACE_MS) continue;
-      shown.push({ id: e.clientID, text: e.verb === "shell" ? `!${e.text}` : e.text, card: { state: stands, place: stands === "queued" ? place++ : 0, error: e.error, photos: e.photos, ...(e.photosReturned ? { photosReturned: e.photosReturned } : {}) }, entry: e, messageID: e.provisional, photos: e.photos });
+      shown.push({ id: e.clientID, text: e.verb === "shell" ? `!${e.text}` : e.text, card: { state: stands, place: stands === "queued" ? place++ : 0, error: e.error, photos: e.photos, ...(e.photosReturned ? { photosReturned: e.photosReturned } : {}) }, entry: e, messageID: e.provisional, photos: e.photos, files: e.files });
     }
     for (const m of foreign()) {
       const text = m.parts.map((p) => (p.type === "text" ? p.text : "")).join("").trim() || "a message from another device";
-      shown.push({ id: m.info.id, text, card: { state: "queued", place: place++ }, entry: null, messageID: m.info.id, photos: 0 });
+      shown.push({ id: m.info.id, text, card: { state: "queued", place: place++ }, entry: null, messageID: m.info.id, photos: 0, files: 0 });
     }
     return shown;
   });
@@ -556,41 +558,75 @@ export function Composer(props: ComposerProps) {
       (photo) => photo.clampPhoto(file),
       () => ({ ok: false, reason: `${file.name} could not be read here. reload the page and add it again` }),
     );
+  /* a file that is not a photo is read as its own bytes, in a chunk of its own as well (read-file.ts) */
+  const readFile = (file: File, mime: string): Promise<Read> =>
+    import("./read-file").then(
+      (read) => read.readFile(file, mime, agentName()),
+      () => ({ ok: false, reason: `${file.name} could not be read here. reload the page and add it again` }),
+    );
+  /** who the words of a refusal name: this machine's cmx, as the agent picker does */
+  const agentName = () => `cmx on ${host()}`;
   let picker: HTMLInputElement | undefined;
-  const addPhotos = async (list: FileList | readonly File[] | null) => {
+  let filePicker: HTMLInputElement | undefined;
+  /** photos and files picked, dropped or pasted, into the draft they were added to: a photo clamped, a pdf, text or json file
+      as its own bytes (docs/composer.md, attachments: any file), under one count and one byte cap. what is neither the caller
+      has already sorted away (`sortDrop`) */
+  const addAttachments = async (list: FileList | readonly File[] | null) => {
     if (!list) return;
-    // the draft the photos were picked for: clamping awaits, and the person may have moved to another thread meanwhile
+    // the draft they were picked for: reading awaits, and the person may have moved to another thread meanwhile
     const at = key();
     const held = (): Draft => state.composer.drafts[at] ?? EMPTY;
     const say = (words: string) => key() === at && setProblem(words);
-    const room = MAX_PHOTOS - held().photos.length;
-    const picked = [...list].slice(0, Math.max(0, room));
-    if (list.length > room) say(`${MAX_PHOTOS} photos is the most one message carries`);
+    const all = [...list];
+    const room = Math.max(0, MAX_ATTACHMENTS - held().photos.length);
+    const first = all[room];
+    if (first) say(noRoomLeft(agentName(), MAX_ATTACHMENTS, first.name));
     const added: Photo[] = [];
-    // what the device holds that has not gone: every draft's photos and every unsent message's (one cap; AGENTS.md, memory and latency)
+    // what the device holds that has not gone: every draft's photos and files and every unsent message's (one cap; AGENTS.md, memory and latency)
     const onDevice = () => Object.values(state.composer.drafts).reduce((sum, d) => sum + photoBytes(d.photos), 0) + state.composer.outbox.reduce((sum, e) => sum + e.photoBytes, 0);
-    for (const file of picked) {
-      const clamped = await clampPhoto(file);
-      if (!clamped.ok) {
-        say(clamped.reason);
+    for (const file of all.slice(0, room)) {
+      const kind = isPhoto(file) ? null : fileKind(file);
+      const read = kind ? await readFile(file, kind) : await clampPhoto(file);
+      if (!read.ok) {
+        say(read.reason);
         continue;
       }
       const taken = photoBytes(added);
-      const why = noRoomFor(clamped.photo.filename, clamped.photo.url.length, photoBytes(held().photos) + taken, onDevice() + taken);
+      const why = noRoomFor(read.photo.filename, read.photo.url.length, photoBytes(held().photos) + taken, onDevice() + taken);
       if (why) say(why);
-      else added.push(clamped.photo);
+      else added.push(read.photo);
     }
-    // to the draft they were picked for, as it stands now (words typed while the photos were read are kept)
-    if (added.length) saveDraft(at, { ...held(), photos: [...held().photos, ...added], at: Date.now() }, false, "changed");
+    // to the draft they were picked for, as it stands now (words typed while they were read are kept). a second drop read at
+    // the same time may have filled it meanwhile, so the count and the bytes are held again here, where they join it
+    const kept: Photo[] = [];
+    for (const photo of added) {
+      const now = [...held().photos, ...kept];
+      const why = now.length >= MAX_ATTACHMENTS ? noRoomLeft(agentName(), MAX_ATTACHMENTS, photo.filename) : noRoomFor(photo.filename, photo.url.length, photoBytes(now), onDevice() + photoBytes(kept));
+      if (why) {
+        say(why);
+        break;
+      }
+      kept.push(photo);
+    }
+    if (kept.length) saveDraft(at, { ...held(), photos: [...held().photos, ...kept], at: Date.now() }, false, "changed");
   };
 
-  /* —— drops (docs/composer.md, attachments): a photo joins the photos, any other file is mentioned by its name, words join the
-     draft; on the composer, and on the stage around it when its mount offers one —— */
-  const takeDrop = (dropped: { photos: File[]; mentions: string[]; words: string }) => {
-    if (dropped.photos.length) void addPhotos(dropped.photos);
-    if (!dropped.mentions.length && !dropped.words) return;
-    const text = dropped.mentions.reduce(withMention, withWords(draft().text, dropped.words));
+  /* —— drops, pastes and the file picker (docs/composer.md, attachments): a photo or a file the agent takes joins the draft,
+     any other file is mentioned by its name and the line says the agent does not take it, words join the draft; on the
+     composer, and on the stage around it when its mount offers one —— */
+  const takeDrop = (dropped: Dropped) => {
+    if (dropped.taken.length) void addAttachments(dropped.taken);
+    const [other] = dropped.others;
+    if (other) setProblem(notTaken(agentName(), other));
+    if (!dropped.others.length && !dropped.words) return;
+    const text = dropped.others.reduce(withMention, withWords(draft().text, dropped.words));
     setText(text);
+  };
+  /** files from a paste or the file picker, which bring no words */
+  const takeFiles = (list: FileList | null | undefined) => {
+    const files = [...(list ?? [])];
+    const sorted = sortDrop(files, "");
+    takeDrop({ taken: sorted.taken.map((at) => files[at] as File), others: sorted.others, words: "" });
   };
   onMount(() => {
     if (rootEl) fileDrop(rootEl, setOverSelf, takeDrop);
@@ -928,7 +964,12 @@ export function Composer(props: ComposerProps) {
             <button type="button" class="cz-option tool" role="menuitem" aria-label="add a photo" onPointerDown={(e) => e.preventDefault()} onClick={() => { setMenu(null); picker?.click(); }}>
               <ToolTile icon="photo" />
               <b>photo</b>
-              <em>{MAX_PHOTOS} at most</em>
+              <em>{MAX_ATTACHMENTS} at most</em>
+            </button>
+            <button type="button" class="cz-option tool" role="menuitem" aria-label="add a file" onPointerDown={(e) => e.preventDefault()} onClick={() => { setMenu(null); filePicker?.click(); }}>
+              <ToolTile icon="doc" />
+              <b>file</b>
+              <em>pdf, text or json</em>
             </button>
             <button type="button" class="cz-option tool" role="menuitem" aria-label="commands" onPointerDown={(e) => e.preventDefault()} onClick={() => { setText(`/${draft().text.replace(/^[/!]/, "")}`); setMenu("/"); }}>
               <ToolTile icon="command" />
@@ -937,8 +978,8 @@ export function Composer(props: ComposerProps) {
             </button>
             <button type="button" class="cz-option tool" role="menuitem" aria-label="mention a file" onPointerDown={(e) => e.preventDefault()} onClick={() => { const t = `${draft().text}${draft().text && !draft().text.endsWith(" ") ? " " : ""}@`; setText(t); setMenu("@"); readFiles(t); }}>
               <ToolTile icon="file" />
-              <b>a file</b>
-              <em>the agent reads it</em>
+              <b>mention</b>
+              <em>a file on {host()}</em>
             </button>
             <button type="button" class="cz-option tool" role="menuitem" aria-label="run in the shell" onPointerDown={(e) => e.preventDefault()} onClick={() => { setText(`!${draft().text.replace(/^[/!]/, "")}`); setMenu("!"); }}>
               <ToolTile icon="terminal" />
@@ -1052,9 +1093,10 @@ export function Composer(props: ComposerProps) {
           <p class="cz-dial-note">from your next message, when the agent is done</p>
         </Show>
         <Show when={draft().photos.length > 0}>
-          <div class="cz-tray" role="list" aria-label="photos">
+          <div class="cz-tray" role="list" aria-label={draft().photos.some((p) => !isPhotoKind(p.mime)) ? "photos and files" : "photos"}>
             <For each={draft().photos}>
               {(photo, index) => (
+                <Show when={isPhotoKind(photo.mime)} fallback={<FileTile file={photo} onRemove={() => write({ photos: draft().photos.filter((_, i) => i !== index()) })} />}>
                 <div class="cz-photo" role="listitem">
                   {/* an original the browser could not draw has nothing to show: a tile that says what it is, in the same box */}
                   <Show when={isOriginal(photo.mime)} fallback={<img src={photo.url} alt={photo.filename} width={60} height={60} />}>
@@ -1067,6 +1109,7 @@ export function Composer(props: ComposerProps) {
                     <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" /></svg>
                   </button>
                 </div>
+                </Show>
               )}
             </For>
           </div>
@@ -1099,11 +1142,10 @@ export function Composer(props: ComposerProps) {
             onFocus={() => setFocused(true)}
             onBlur={() => setTimeout(() => setFocused(document.activeElement === editor), 120)}
             onPaste={(event) => {
-              const photos = event.clipboardData?.files;
-              if (photos?.length) {
-                event.preventDefault();
-                void addPhotos(photos);
-              }
+              // a paste of files is what a drop of them is; the words a copy of files brings (their names) are not wanted
+              if (!event.clipboardData?.files.length) return;
+              event.preventDefault();
+              takeFiles(event.clipboardData.files);
             }}
           />
           {/* send never moves: it is here whether the words have focus or not */}
@@ -1120,8 +1162,30 @@ export function Composer(props: ComposerProps) {
             </p>
           )}
         </Show>
-        <input ref={picker} class="cz-picker" type="file" accept="image/*,.heic,.heif" multiple tabIndex={-1} aria-hidden="true" onChange={(event) => { void addPhotos(event.currentTarget.files); event.currentTarget.value = ""; }} />
+        <input ref={picker} class="cz-picker" type="file" accept="image/*,.heic,.heif" multiple tabIndex={-1} aria-hidden="true" onChange={(event) => { void addAttachments(event.currentTarget.files); event.currentTarget.value = ""; }} />
+        <input ref={filePicker} class="cz-picker" type="file" accept={FILE_ACCEPT} multiple tabIndex={-1} aria-hidden="true" onChange={(event) => { takeFiles(event.currentTarget.files); event.currentTarget.value = ""; }} />
       </div>
+    </div>
+  );
+}
+
+/** a file in the draft (docs/composer.md, attachments: any file): its type tile, its name cut in the middle and its size,
+    with remove, beside the photos' thumbnails and as tall as they are */
+function FileTile(props: { file: Photo; onRemove: () => void }) {
+  const size = () => sizeOf(bytesOfUrl(props.file.url));
+  return (
+    <div class="cz-photo cz-file" role="listitem" aria-label={`${props.file.filename}, ${size()}`} title={props.file.filename}>
+      <span class="cz-file-type" aria-hidden="true">
+        <Icon name="doc" />
+        <b>{typeWord(props.file.filename, props.file.mime)}</b>
+      </span>
+      <span class="cz-file-words" aria-hidden="true">
+        <b>{cutMiddle(props.file.filename)}</b>
+        <em>{size()}</em>
+      </span>
+      <button type="button" aria-label={`remove ${props.file.filename}`} onClick={() => props.onRemove()}>
+        <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" /></svg>
+      </button>
     </div>
   );
 }

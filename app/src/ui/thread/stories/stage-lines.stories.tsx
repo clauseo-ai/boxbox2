@@ -31,6 +31,19 @@ export const FreshNotFollowed = (): ReactElement => {
   return createElement("div", { ref, className: "shell-story" });
 };
 
+/** the place line of a thread whose folder is the disk's root, or a home folder: a word (the machine, "home"), never a lone "/".
+    its first turn alone, so the title block above it is in view */
+const inFolder = (directory: string) => (): ReactElement => {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => (ref.current ? mountStageAlone(ref.current, { followed: true, shape: (fleet, thread, key) => {
+    const s = fleet.sessions[key];
+    return { fleet: s ? { ...fleet, sessions: { ...fleet.sessions, [key]: { ...s, info: { ...s.info, directory, projectID: directory } } } } : fleet, thread: { ...thread, messages: thread.messages.slice(0, 2) } };
+  } }) : undefined), []);
+  return createElement("div", { ref, className: "shell-story" });
+};
+export const PlaceRoot = inFolder("/");
+export const PlaceHome = inFolder("/Users/rohan");
+
 /** an agent's thread the fleet does not hold, opened over its parent by its key: back and the title block name the parent */
 export const AgentNotInFleet = (): ReactElement => {
   const ref = useRef<HTMLDivElement>(null);

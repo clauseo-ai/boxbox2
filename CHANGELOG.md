@@ -6,6 +6,24 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **what each machine is, and how it is doing.** the agents screen's machine
+  card shows the os (a drawn mark), the machine's model and os version, cpu
+  load, memory and disk as meters, and the host's uptime beside the daemon's.
+  the cmx2 pin moves from 0bf2ba2 (the pre-public line) to 05e029c (cmx2
+  0.8.14 on its public line, the first with `GET /global/system`; the
+  vendored files are those of abfde5b, where the move was made, byte for byte). what changed in the
+  contract, all additive, contract 7 still: the new route `GET /global/system`
+  (`SystemResponse`: os, machine, cpu with its three load averages, memory,
+  the data volume's disk or null, host uptime, the daemon's rss and uptime);
+  `waiting` on a busy session status (why a turn has not started: a directory
+  that does not answer); `cold` on `session.compacted` (required there; boxbox
+  reads it as optional so a 0.8.8 daemon's compactions still decode, see
+  `docs/gotchas.md`) and `refresh` on `compaction.prefire`. the server samples
+  the route every 30 s while a host
+  is connected and carries it on `GET /api/hosts` as `system`, with
+  `reportsSystem` false for an older cmx2, whose card shows what it can
+  without meters.
+
 - **the openclaw dev gateway.** `openclaw.pin` pins openclaw e178c39 (2026.10.1,
   protocol 4), `vendor/openclaw/protocol.schema.json` is vendored from the
   published `@openclaw/gateway-protocol@2026.10.1` and held by `just check`,

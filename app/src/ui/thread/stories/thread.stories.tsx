@@ -4,9 +4,10 @@
    because the project's jsx is solid's. */
 
 import { type ReactElement, createElement, useEffect, useRef, useState } from "react";
-import { type JSX as SolidJSX, createComponent, createSignal, onMount } from "solid-js";
+import { type JSX as SolidJSX, createComponent, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
-import type { Item, Say, Step, Turn } from "../model";
+import { type Item, type Say, type Step, type Turn, turnsOf } from "../model";
+import type { WireMessage } from "../wire";
 import { type Child, type FoldRow, type Row, type RowCtx, type RowModel, clock, endRows, foldModel, kindOf, modelOf, rowsOf, stepModel } from "../rows";
 import { watchMeasure } from "../measure";
 import { isChain } from "../shell";
@@ -18,7 +19,7 @@ import type { AskReply } from "../../../sync/replies";
 import { type Loaded, type Tone, loadImported, loadNative, stepsOf } from "./fixtures";
 import { ANSWER_WITH_CODE, FENCES_OF_ALL_SHAPES, GITHUB_READING, HOSTILE_MARKUP, REPLY_IN_A_FENCE, REPLY_IN_A_LIST, REPORT_WITH_CODE } from "./code-sample";
 import { type Question as Asked, LONG_ASK, TWO_QUESTIONS } from "./asks";
-import { Host, TurnFrame } from "./host";
+import { HomeFrame, Host, TurnFrame } from "./host";
 import { picture } from "./pictures";
 import { CodeReplay, LiveReplay } from "./replay";
 import "./stories.css";
@@ -115,6 +116,8 @@ export const TurnTestsMany = story("turn: 109 steps, twelve test runs, one faile
 
 export const YouTyped = story("text, user, typed: your message", async () => { const l = await cmx(); return inHost(l, () => createComponent(YouBubble, { turn: turnAt(l, 1) })); });
 export const YouPhotos = story("text and file, user: photos sent above your words, each opening full size", async () => { const l = await cmx(); const t: Turn = { ...turnAt(l, 1), prompt: "the strip looks off on the ipad, see these", photos: [picture("ipad-strip.png", 210), picture("ipad-strip-dark.png", 250, 400, 640), picture("phone.jpg", 30, 640, 400, "image/jpeg")] }; return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(YouBubble, { turn: t }); } })); });
+export const YouFiles = story("text and file, user: a photo, a pdf and a text file sent with your words, the files named above them", async () => { const l = await cmx(); const t: Turn = { ...turnAt(l, 1), prompt: "check the dates against the plan", photos: [picture("ipad-strip.png", 210)], sentFiles: [{ filename: "booking-confirmation-lisbon-final.pdf", mime: "application/pdf" }, { filename: "plan.md", mime: "text/plain" }] }; return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(YouBubble, { turn: t }); } })); });
+export const YouPhotoOpen = story("file, user: a photo opened full size, its name and the one close over it", async () => { const l = await cmx(); const t: Turn = { ...turnAt(l, 1), prompt: "the strip looks off on the ipad, see these", photos: [picture("ipad-strip-dark-from-the-review.png", 250, 400, 640)] }; return inHost(l, () => createComponent(Pressed, { press: ".pv-t", get children() { return createComponent(TurnFrame, { get children() { return createComponent(YouBubble, { turn: t }); } }); } })); });
 export const YouPhotoAlone = story("file, user: a photo sent alone, its bubble keeps its time", async () => { const l = await cmx(); const t: Turn = { ...turnAt(l, 1), prompt: "", photos: [picture("whiteboard.png", 120, 640, 480)] }; return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(YouBubble, { turn: t }); } })); });
 export const ReportFromAgent = story("text, user, mail: an agent's report", async () => { const l = await northstar(); return inHost(l, () => createComponent(ReportCard, { turn: turnAt(l, 2) })); });
 export const NoticeFromRuntime = story("text, user, notice: a runtime notice", async () => { const l = await notes(); const t = l.turns.find((x) => x.by === "notice"); if (!t) throw new Error("no notice in the fixture"); return inHost(l, () => createComponent(MarkLine, { turn: t })); });
@@ -414,6 +417,66 @@ export const GapLive = story("live: a quiet stretch inside a running turn keeps 
   }
   throw new Error("no gap in the fixture");
 });
+
+/* ---------- a script step in a run (the owner's screenshot): cmx2's run tool, whose input is a javascript script ---------- */
+
+const SCRIPT = "const cmds = {\n  status: 'git status --short',\n  log: 'git log --oneline -5',\n};\nconst out = {};\nfor (const [k, c] of Object.entries(cmds)) out[k] = (await shell.exec({ command: c })).output;\nreturn out;";
+const S0 = 1_791_200_280_000;
+type Part = WireMessage["parts"][number];
+const runTool = (id: string, code: string, at: number | undefined, ms: number | undefined): Part =>
+  ({ id, type: "tool", callID: `c_${id}`, tool: "run", state: ms === undefined
+    ? { status: "running", input: { code }, metadata: {}, ...(at !== undefined ? { time: { start: at } } : {}) }
+    : { status: "completed", input: { code }, output: "{}", metadata: {}, time: { start: at, end: (at ?? 0) + ms } } }) as unknown as Part;
+const shellTool = (id: string, command: string, at: number): Part => ({ id, type: "tool", callID: `c_${id}`, tool: "shell", state: { status: "completed", input: { command }, output: "ok", metadata: { exit_code: 0 }, time: { start: at, end: at + 1400 } } }) as unknown as Part;
+const readTool = (id: string, path: string, at: number): Part => ({ id, type: "tool", callID: `c_${id}`, tool: "read", state: { status: "completed", input: { filePath: `/w/boxbox2/${path}` }, output: "x", metadata: {}, time: { start: at, end: at + 300 } } }) as unknown as Part;
+/** a turn as the daemon sends it: you asked, the agent thought, said it would look, then ran: one running script with no start of
+    its own (cmx2 leaves it null), a settled one, a run of several steps, or a one-line script */
+function scriptTurn(shape: "running" | "settled" | "several" | "one-line"): { turn: Turn; ctx: RowCtx; now: number } {
+  const said = 64_000;
+  const steps: Part[] = shape === "several"
+    ? [readTool("r1", "app/src/ui/thread/groups.ts", S0 + 66_000), readTool("r2", "app/src/ui/thread/strip.tsx", S0 + 67_000), shellTool("s1", "bun test groups", S0 + 70_000), runTool("x1", `// read the open lanes' logs\n${SCRIPT}`, S0 + 75_000, 9_000), runTool("x2", SCRIPT, S0 + 90_000, 2_000)]
+    : shape === "settled" ? [runTool("x1", SCRIPT, S0 + said + 1000, 41_000)]
+    : shape === "one-line" ? [runTool("x1", "return (await shell.exec({ command: 'git status --short' })).output", S0 + said + 1000, 900)]
+    : [runTool("x1", SCRIPT, undefined, undefined)];
+  const done = shape !== "running";
+  const messages: WireMessage[] = [
+    { info: { id: "u_s", role: "user", time: { created: S0 } }, parts: [{ id: "u_s_p", type: "text", text: "why does the group look broken on the mac?" }] } as unknown as WireMessage,
+    { info: { id: "a_s", role: "assistant", time: { created: S0 + 1500, ...(done ? { completed: S0 + 200_000 } : {}) } }, parts: [
+      { id: "t_s", type: "reasoning", text: "the strip is drawn in groups.ts and strip.tsx; a look at both and at the logs first.", time: { start: S0 + 2000, end: S0 + 30_000 } },
+      { id: "w_s", type: "text", text: "I'll take a quick read-only look first, then say what i find.", time: { start: S0 + said - 2000, end: S0 + said } },
+      ...steps,
+      ...(done ? [{ id: "w_e", type: "text", text: "found it: the strip's running bar took the home bar's styles.", time: { start: S0 + 199_000, end: S0 + 200_000 } }] : []),
+    ] } as unknown as WireMessage,
+  ];
+  const turns = turnsOf(messages, "/w/boxbox2");
+  const turn = turns[0];
+  if (!turn) throw new Error("no turn");
+  return { turn, ctx: { turns, children: new Map(), thinking: "rows" }, now: S0 + said + 309_000 };
+}
+/** a running turn with its clock going, a second at a time from `from` */
+function Ticking(props: { turn: Turn; ctx: RowCtx; from: number }) {
+  const [now, setNow] = createSignal(props.from);
+  const timer = setInterval(() => setNow((n) => n + 1000), 1000);
+  onCleanup(() => clearInterval(timer));
+  return createComponent(TurnView, { turn: props.turn, ctx: props.ctx, live: true, get now() { return now(); } });
+}
+/** the run as it sat on a desktop home (rail): inside .home, whose stylesheet styles a `.bar` of its own */
+const OnHome = (props: { children: SolidJSX.Element }) => createComponent(HomeFrame, { get children() { return props.children; } });
+function scriptStory(name: string, shape: Parameters<typeof scriptTurn>[0], onHome = false): Story {
+  return story(name, async () => {
+    const l = await cmx();
+    const { turn, ctx, now } = scriptTurn(shape);
+    const t = shape === "running" ? running(turn, turn.items) : turn;
+    const view = () => (shape === "running" ? createComponent(Ticking, { turn: t, ctx, from: now }) : createComponent(TurnView, { turn: t, ctx }));
+    return inHost(l, () => (onHome ? createComponent(OnHome, { get children() { return view(); } }) : view()), false);
+  });
+}
+export const ScriptGroupLive = scriptStory("step group, live: one script running five minutes, after a thought and words", "running");
+export const ScriptGroupLiveOnHome = scriptStory("step group, live, on a desktop home: the running script's bar stays in its 16 px lane", "running", true);
+export const ScriptGroupSettled = scriptStory("step group, settled: the script's run folded whole, named by what it did", "settled");
+export const ScriptGroupSettledOnHome = scriptStory("step group, settled, on a desktop home: a long script's bar stays in its lane", "settled", true);
+export const ScriptGroupSeveral = scriptStory("step group, settled: reads, a command and two scripts, one named by its comment", "several", true);
+export const ScriptGroupOneLine = scriptStory("step group, settled: a one-line script, still named in words", "one-line");
 
 /* ---------- coverage: which kinds and states the fixtures really hold ---------- */
 

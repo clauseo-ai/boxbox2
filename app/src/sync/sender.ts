@@ -6,7 +6,7 @@
 
 import { Backoff } from "./backoff";
 import type { FromWorker, Outgoing, StreamState } from "./messages";
-import { type Answer, answered, DRAFT_TROUBLE_AFTER, type Draft, type DraftMessage, draftRetryMs, echoed, entryOf, nextWaiting, OUTBOX_CAP, OUTBOX_PHOTO_BYTES, type OutboxEntry, orphaned, overdue, type Photo, perfVerb, photoBytes, postBudgetMs, REISSUE_MS, removed, splitDraft, viewOfEntry, wasQueued } from "./outbox";
+import { type Answer, answered, DRAFT_TROUBLE_AFTER, type Draft, type DraftMessage, draftRetryMs, echoed, entryOf, nextWaiting, OUTBOX_CAP, OUTBOX_PHOTO_BYTES, isPhotoKind, type OutboxEntry, orphaned, overdue, type Photo, perfVerb, photoBytes, postBudgetMs, REISSUE_MS, removed, splitDraft, viewOfEntry, wasQueued } from "./outbox";
 import type { Frame, Message } from "./protocol";
 import type { Telemetry } from "./telemetry";
 
@@ -380,18 +380,21 @@ export class Sender {
   /** the route and body a send goes to */
   private request(entry: OutboxEntry): [string, Record<string, unknown>] {
     const host = encodeURIComponent(entry.target.host);
-    const photos = entry.photos.map(({ mime, filename, url }) => ({ mime, filename, url }));
+    // one list in the outbox, two on the wire: a photo the server clamps to its photo limits, a file to its file limits
+    const photos = entry.photos.filter((p) => isPhotoKind(p.mime)).map(({ mime, filename, url }) => ({ mime, filename, url }));
+    const files = entry.photos.filter((p) => !isPhotoKind(p.mime)).map(({ mime, filename, url }) => ({ mime, filename, url }));
+    const attached = files.length ? { photos, files } : { photos };
     const choice = { ...(entry.model ? { model: entry.model } : {}), ...(entry.effort ? { effort: entry.effort } : {}) };
     if (entry.target.kind === "new") {
-      return [`/api/hosts/${host}/sessions`, { clientID: entry.clientID, directory: entry.target.directory, place: entry.target.place, text: entry.text, photos, ...choice }];
+      return [`/api/hosts/${host}/sessions`, { clientID: entry.clientID, directory: entry.target.directory, place: entry.target.place, text: entry.text, ...attached, ...choice }];
     }
     const at = `/api/hosts/${host}/sessions/${encodeURIComponent(entry.target.session)}`;
     switch (entry.verb) {
       case "prompt":
       case "start":
-        return [`${at}/prompt`, { clientID: entry.clientID, text: entry.text, photos, ...choice }];
+        return [`${at}/prompt`, { clientID: entry.clientID, text: entry.text, ...attached, ...choice }];
       case "steer":
-        return [`${at}/steer`, { clientID: entry.clientID, text: entry.text, photos }];
+        return [`${at}/steer`, { clientID: entry.clientID, text: entry.text, ...attached }];
       case "shell":
         return [`${at}/shell`, { clientID: entry.clientID, command: entry.text }];
       case "command": {

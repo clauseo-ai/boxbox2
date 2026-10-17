@@ -413,8 +413,10 @@ showing the tail of what you just did.
   the rest as "and 3 more images" in the quiet tone (the count includes what
   the daemon dropped past its own cap). a press opens the picture in a modal
   card of glass in the top layer over a dimmed page, as the spend's card is:
-  the image fits the card, whole, under a header with its file name and a
-  round close control; a press on the image shows it at its own size,
+  the image fits the card (12 px from the screen's edges), whole, under a
+  header with its file name (sans 14 px, 600, the full ink, one line cut at
+  its end) and the close (the close, below) 10 px in from the card's
+  corner, on one middle line; a press on the image shows it at its own size,
   scrolling inside the card, and a press again fits it. escape, the close
   control and a press outside close it, escape goes no further than the card
   (it is not the stage's back), and focus returns to the thumbnail. only
@@ -512,7 +514,7 @@ about a thread is on its resting screen, and the long tail lives behind
   its held messages once the fleet has let it go. with agents the tile is
   a button ("$0.40 by 3 agents" under the figure) that opens **the spend**:
   a modal card of the sheet's glass in the top layer over a dimmed page
-  (escape, its ×, or a press outside it closes it; focus returns to the
+  (escape, its close, or a press outside it closes it; focus returns to the
   tile). it holds the total, then this thread's own spend, then every
   agent, each under the agent that started it (14 px in a level), the
   dearest first among siblings, with its share of the total; a row is the
@@ -1570,6 +1572,19 @@ clear liquid glass with a pool of shade behind their words; in the sheet and on
 the full stage, and under reduced transparency, the composer is a window
 (`composer.md`, the glass).
 
+**the close.** every surface that closes (a photo full size, a report's
+sheet, the details panel and the spend, the assistant's image viewer, the
+new-thread sheet) closes with one control, `Close` (`app/src/ui/close.tsx`,
+the look `.close-round` in `styles.css`): a 36 px round of liquid glass
+(`.lg .lg-press`, the stage bar's and the sheet's rounds) with a drawn
+cross, about 12 px corner to corner, two 1.75 px strokes with round caps in
+the full ink. a drawn cross sits at the round's centre whatever the face; a
+typographic "×" sat low, thin and grey. a pointer over it lifts it 1 px and
+lights its fill; the press is the glass's swell; on touch its hit area is
+44 px, the round unchanged. a surface that is dark in either appearance
+(the image viewer) sets the dark glass tokens and `--close-ink` on itself.
+a surface places it and never restyles it.
+
 - **the stage's bar is not glass.** frosted glass over a scrolling log
   smeared a white bubble into a grey blob under the title. the bar sits
   on the flood, and the log dissolves under it: the scroller's top edge
@@ -1852,7 +1867,7 @@ what can I do.
   the connection in home's window chip, a 34 px capsule with a dot of the
   accent ("connected"; "connecting" rings the dot and leaves it empty, in
   the second ink; "not answering" in the chip's failure tone). nothing
-  pulses. under the name one mono line: `cmx2 0.8.3 · up 3 h · paired`
+  pulses. under the head one mono line: `cmx2 0.8.3 · up 3 h · paired`
   (uptime is the daemon's own count at its last sample plus the time since,
   said only while connected and from a sample of this connection, so a
   machine that is down or just restarted never claims one;
@@ -1867,10 +1882,59 @@ what can I do.
   parted by hairlines of the window's ink: **wants you** ("want you" for
   any other count; the threads there that want you, in the accent when
   more than none), **working** (the threads there working, as home's bar
-  counts them: an ask outranks a running turn), **memory** (the daemon's
-  rss, absent for a daemon that does not report it). while the machine is
+  counts them: an ask outranks a running turn), **cmx2 memory** (the
+  daemon's rss from the newer of its memory and system reports, absent for
+  a daemon that reports neither; named for cmx2 since the meters below
+  hold the machine's own memory). while the machine is
   not connected they are the last it said, the numbers in the second ink;
   a machine never reached shows none.
+- **what a machine is** (2026-10-17), from the host's `system` (cmx2's
+  `GET /global/system`, sampled every 30 s: architecture.md, the daemon
+  verbs). the head leads with the os's mark in a 44 px tile, a squircle
+  of the window's accent at 12% with a glow of it from the top left, the
+  window's lit edge and a ring of the accent at 22%, the glyph in the ink
+  (`ui/machines/marks.tsx`: an apple for darwin, four panes for windows,
+  ubuntu's circle of friends, debian's swirl, a penguin for any other
+  linux, a plain screen where the os is not known). the marks are drawn
+  in the app's icon line (24 grid, 1.6 stroke, round), never a vendor's
+  logo file, and are identity only: aria-hidden, unchanged by the
+  connection. beside the tile, the name and the chip on one row and under
+  them, across the chip's column too, what the machine is in its own
+  words: `Mac mini · macOS 26.1`, `Google Compute Engine · Ubuntu
+  24.04`, `virtual machine · Ubuntu 24.04` for a vm without a model, the
+  os alone (`Arch Linux`) for a box that names none. an older cmx2
+  (`reportsSystem` false) says "update cmx2 to see this machine's stats."
+  there, in the second ink, with the plain screen in its tile, and draws
+  no meters; a host not yet sampled or never reached says nothing there.
+- **how it is doing.** under the figures, one bed pressed into the window
+  (the ask's press) holds three meters: **cpu** (`load 2.41 · 14
+  cores`, the figure the 1 minute load as a share of the cores, past
+  100% when saturated), **memory** (`41 of 64 gb`, in the binary units
+  memory is sold in; used is total less available, as activity monitor
+  counts it), **disk** (`213 gb free`, in the drive's decimal units; the
+  meter is absent when the daemon could not read its disk). each is a
+  row of name, mono words and a tabular mono figure, over a 6 px channel
+  holding a lit tube of the accent (brightest at its leading end, a
+  highlight along its top, a short glow). the cpu's channel carries two
+  notches, its load over 5 and 15 minutes (the older fainter), so the
+  quarter hour's direction reads at a glance. under the meters a quiet
+  mono spec line: the cpu's model, the architecture and `up 9 days`
+  (the host's uptime, said only while connected and from a sample of this
+  connection, as the daemon's), or `as of 14:02` while the machine is
+  away. **strain** is the machines' amber (`#8a4b00` on light, `#ffc266`
+  on dark), never red, which stays a failure's: the cpu at or past its
+  cores, memory under a tenth free, a disk under a tenth or 5 gb free;
+  the tube and the figure take it, the cpu's figure is then past 100%,
+  and memory and disk say `1.2 gb free · low` in words too. while the
+  machine is not connected the meters are its last sample, the tubes
+  unlit in the third ink and the words in the second. **motion:** the
+  meters are kept by place, so a new sample slides each fill (a
+  full-width bar moved left by what is unused, clipped by the channel)
+  and each notch by transform on the sheet curve, and nothing around them
+  moves; opening the screen fills each tube once from empty; reduce
+  motion places them still. each meter is a `meter` to a screen reader,
+  its `aria-valuetext` the whole reading ("cpu: load 2.41 on 14 cores,
+  1.98 over 5 minutes, 1.70 over 15").
 - **terminals.** a small word, then one surface pressed into the window
   holding the open terminals as rows (name in mono, the place, a chevron)
   and, as its last row, **new terminal** in the accent with a drawn plus

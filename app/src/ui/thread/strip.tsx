@@ -6,7 +6,10 @@
    the running step grows to it. ordered (a home window, whose tail has no
    clock), the marks stand evenly apart and there is no head. one height
    everywhere it is drawn, so a group's row and a home window read the same.
-   the geometry is groups.ts's; this only places it. */
+   the geometry is groups.ts's; this only places it. a mark's modifiers carry
+   the mk- prefix: a bare "bar" picked up home.css's `.home .bar` (the home
+   bar: relative, padded, raised), and the running bar drew as a tall block
+   over the rows on a desktop home. */
 
 import { For, Show, createMemo } from "solid-js";
 import { type Strip, stripShapes } from "./groups";
@@ -23,7 +26,7 @@ export function StripLane(props: { strip: Strip; now?: number | undefined }) {
       <For each={shapes().tracks}>{(t) => <><i class="strip-track" style={track(t.left, t.width)} /><i class="strip-bed" style={track(t.left, t.width)} /></>}</For>
       <Show when={shapes().wash}>{(w) => <i class="strip-wash" style={at(0, w())} />}</Show>
       <For each={shapes().thoughts}>{(t) => <i class="strip-think" style={at(t.left, t.width)} />}</For>
-      <For each={shapes().marks}>{(m) => <i class={`strip-mk ${m.kind}${m.bar ? " bar" : ""}${m.running ? " running" : ""}${m.bad ? " bad" : ""}`} style={at(m.left, m.width)} />}</For>
+      <For each={shapes().marks}>{(m) => <i class={`strip-mk mk-${m.kind}${m.bar ? " mk-bar" : ""}${m.running ? " mk-running" : ""}${m.bad ? " mk-bad" : ""}`} style={at(m.left, m.width)} />}</For>
       <Show when={shapes().head !== undefined}><i class="strip-head" style={at(shapes().head ?? 0)} /></Show>
     </div>
   );

@@ -16,7 +16,9 @@ use base64ct::{Base64, Encoding};
 use serde_json::{Value, json};
 use tokio::sync::Semaphore;
 
-use crate::http::compose::{Photo, accept_timeout, content, message_body, model_and_effort};
+use crate::http::compose::{
+    Document, Photo, accept_timeout, content, message_body, model_and_effort,
+};
 use crate::http::error::ApiError;
 use crate::media::{Lookup, Media};
 use crate::source::cmx2::Cmx2Source;
@@ -61,10 +63,12 @@ fn session(thread: &ThreadRef) -> Result<&str, VerbError> {
     crate::http::asks::segment(&thread.id).map_err(verb_error)
 }
 
-/// a send's attachments read from the store, each as the photo contract 1
-/// takes, with the room they hold in the photo budget until dropped.
+/// a send's attachments read from the store, each as the photo or the file
+/// contract 1 takes (an image is a photo, anything else a file), with the
+/// room they hold in the photo budget until dropped.
 struct Read {
     photos: Vec<Photo>,
+    files: Vec<Document>,
     _room: Option<tokio::sync::OwnedSemaphorePermit>,
 }
 
@@ -76,6 +80,7 @@ async fn read_attachments(
     if send.attachments.is_empty() {
         return Ok(Read {
             photos: Vec::new(),
+            files: Vec::new(),
             _room: None,
         });
     }
@@ -109,6 +114,7 @@ async fn read_attachments(
     .map_err(|_| VerbError::Busy)?
     .map_err(|_| VerbError::Busy)?;
     let mut photos = Vec::with_capacity(objects.len());
+    let mut files = Vec::new();
     for object in objects {
         let Some(path) = media.path_of(&object.id) else {
             return Err(VerbError::Bad("that is not a media id".into()));
@@ -121,22 +127,48 @@ async fn read_attachments(
         let mut url = format!("data:{};base64,", object.mime);
         url.push_str(&Base64::encode_string(&bytes));
         drop(bytes);
-        photos.push(Photo {
-            mime: object.mime,
-            filename: object.filename,
-            url,
-        });
+        match attached(object.mime, object.filename, url) {
+            Attached::Photo(photo) => photos.push(photo),
+            Attached::File(file) => files.push(file),
+        }
     }
     Ok(Read {
         photos,
+        files,
         _room: Some(room),
     })
 }
 
+/// a stored attachment as contract 1 takes it: an image is a photo, anything else a file, which needs a name.
+enum Attached {
+    Photo(Photo),
+    File(Document),
+}
+
+fn attached(mime: String, filename: Option<String>, url: String) -> Attached {
+    if mime.starts_with("image/") {
+        Attached::Photo(Photo {
+            mime,
+            filename,
+            url,
+        })
+    } else {
+        Attached::File(Document {
+            mime,
+            filename: filename.unwrap_or_else(|| "attachment".into()),
+            url,
+        })
+    }
+}
+
 /// the daemon's body for a send, with how long it may take to take it.
-fn body(send: &Send, photos: Vec<Photo>) -> Result<(Value, Duration), VerbError> {
-    let limit = accept_timeout(&photos);
-    let parts = content(&send.text, photos).map_err(verb_error)?;
+fn body(
+    send: &Send,
+    photos: Vec<Photo>,
+    files: Vec<Document>,
+) -> Result<(Value, Duration), VerbError> {
+    let limit = accept_timeout(&photos, &files);
+    let parts = content(&send.text, photos, files).map_err(verb_error)?;
     let mut payload = message_body(parts, &send.client_id);
     model_and_effort(&mut payload, send.model.as_deref(), send.effort.as_deref())
         .map_err(verb_error)?;
@@ -185,7 +217,7 @@ impl Cmx2Source {
     ) -> Result<Accepted, VerbError> {
         let id = session(thread)?;
         let read = read_attachments(&self.media, &self.photos, &send).await?;
-        let (payload, limit) = body(&send, read.photos)?;
+        let (payload, limit) = body(&send, read.photos, read.files)?;
         let done = self.prompt(id, payload, limit).await.map_err(verb_error)?;
         Ok(accepted(&done.answer))
     }
@@ -197,7 +229,7 @@ impl Cmx2Source {
     ) -> Result<Accepted, VerbError> {
         let id = session(thread)?;
         let read = read_attachments(&self.media, &self.photos, &send).await?;
-        let (payload, limit) = body(&send, read.photos)?;
+        let (payload, limit) = body(&send, read.photos, read.files)?;
         let done = self.steer(id, payload, limit).await.map_err(verb_error)?;
         Ok(accepted(&done.answer))
     }
@@ -209,7 +241,7 @@ impl Cmx2Source {
     ) -> Result<Accepted, VerbError> {
         let id = session(thread)?;
         let read = read_attachments(&self.media, &self.photos, &send).await?;
-        let (payload, _) = body(&send, read.photos)?;
+        let (payload, _) = body(&send, read.photos, read.files)?;
         let bytes = serde_json::to_vec(&payload).map_err(|e| VerbError::Bad(e.to_string()))?;
         drop(payload);
         let answer = self.queue_raw(id, bytes).await.map_err(verb_error)?;
@@ -349,7 +381,7 @@ impl Cmx2Source {
             ));
         }
         let read = read_attachments(&self.media, &self.photos, &start.send).await?;
-        let (prompt, limit) = body(&start.send, read.photos)?;
+        let (prompt, limit) = body(&start.send, read.photos, read.files)?;
         let directory = if start.worktree {
             self.fresh_worktree(&place).await.map_err(verb_error)?
         } else {
@@ -379,6 +411,29 @@ impl Cmx2Source {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_stored_image_is_a_photo_and_anything_else_a_named_file() {
+        let url = || "data:x;base64,AAAA".to_owned();
+        let Attached::Photo(photo) = attached("image/heic".into(), None, url()) else {
+            panic!("a heic went as a file");
+        };
+        assert_eq!((photo.mime.as_str(), photo.filename), ("image/heic", None));
+        let Attached::File(pdf) =
+            attached("application/pdf".into(), Some("brief.pdf".into()), url())
+        else {
+            panic!("a pdf went as a photo");
+        };
+        assert_eq!(
+            (pdf.mime.as_str(), pdf.filename.as_str()),
+            ("application/pdf", "brief.pdf")
+        );
+        // a file with no name still goes by one, which cmx2 labels it with
+        let Attached::File(unnamed) = attached("text/plain".into(), None, url()) else {
+            panic!("a text file went as a photo");
+        };
+        assert_eq!(unnamed.filename, "attachment");
+    }
 
     #[test]
     fn a_daemons_refusals_keep_their_meaning_and_words() {
@@ -421,11 +476,11 @@ mod tests {
             effort: Some("high".into()),
             generation: None,
         };
-        let (payload, limit) = body(&send, Vec::new()).unwrap();
+        let (payload, limit) = body(&send, Vec::new(), Vec::new()).unwrap();
         assert_eq!(payload["clientID"], "c-1");
         assert_eq!(payload["parts"][0]["text"], "hello");
         assert_eq!(payload["model"]["providerID"], "bench");
         assert_eq!(payload["effort"], "high");
-        assert_eq!(limit, accept_timeout(&[]));
+        assert_eq!(limit, accept_timeout(&[], &[]));
     }
 }

@@ -42,10 +42,6 @@
 /* the heading takes focus when the panel opens, so a keyboard person lands in it; it is not a control and wears no ring */
 .dt-hd h2:focus { outline: none; }
 .dt-hd h2 small { display: block; font-weight: 450; color: var(--text-2); letter-spacing: 0; font-stretch: 100%; }
-.details .cx { position: relative; width: 32px; height: 32px; min-height: 0; padding: 0; border-radius: 50%; display: grid; place-items: center; background: var(--pill); color: var(--text-2); font-size: 18px; line-height: 1; flex: none; }
-.details .cx:focus-visible { outline-color: var(--accent); }
-@media (hover: hover) { .details .cx:hover { color: var(--text); } }
-@media (pointer: coarse) { .details .cx::after { content: ""; position: absolute; inset: -6px; } }
 
 /* docked beside the log where the column beside it keeps 704 px (inspector.ts, docksBeside), a well pressed into the stage's flood (light: a lit card of the stage's
    colour, as an open row is); elsewhere a sheet of glass that rises from the bottom over a scrim, no wider than 560 px on a wide stage */
@@ -72,7 +68,6 @@
 .details.flat .dt-hd h2 { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 620; color: var(--text-2); }
 .details.flat .dt-hd h2 small { font-size: 12px; font-weight: 450; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .details.flat .dt-hd { margin-bottom: 10px; }
-.details.flat .dt-hd .cx { width: 28px; height: 28px; font-size: 16px; }
 
 /* ---------- the details ---------- */
 

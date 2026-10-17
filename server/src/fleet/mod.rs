@@ -1121,6 +1121,8 @@ mod tests {
             url: "http://127.0.0.1:4840/".into(),
             origin: crate::config::Origin::Config,
             memory: None,
+            system: None,
+            reports_system: None,
             connection: Connection::Connected,
             since: 0,
             health: None,

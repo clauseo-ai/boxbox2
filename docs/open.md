@@ -965,6 +965,4 @@ it is verified`. closed items move to the bottom with the commit.
   390, 820 and 1512 wide against a long ask and a two-question ask in
   the stories. not driven against a real daemon.
 
-
-(the last of 921 lines shown; full output at /Users/dev/.local/share/cmx2/tool-output/shell-mv9edi9w-ztlk.txt, read it with offset and limit)
 - [thread] closed 2026-10-16 by the step groups: an agent started after a turn's first frame grew the tape by its lane and moved the prompt 45 px; the tape is gone (thread.md, the step group), and a group is one line and a fixed strip. with it the story race where `stage--live-heavy-turn` came up with the tape not stuck.

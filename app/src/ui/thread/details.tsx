@@ -9,6 +9,7 @@ import type { SessionInfo } from "../../sync/protocol";
 import { type AgentRow, type FactLine, type Spend, agentState, cachedShare, contextOf, figure, type filesChanged, modelsOf, percentWords, ranOf, spend, switches, tokensIn } from "./details-model";
 import type { Turn } from "./model";
 import { clock, clockDur, dur, isBad, n, plural } from "./rows";
+import { Close } from "../close";
 import "./details.css";
 
 /** the repo's palette, set inline on what sits outside the stage (the inspector) so its accents are the thread's */
@@ -74,7 +75,7 @@ export function Panel(props: PanelProps) {
           {sheetTitle()?.title ?? props.which}
           <Show when={sub()}><small>{sub()}</small></Show>
         </h2>
-        <Show when={props.close}>{(close) => <button class="cx" aria-label={close().label} onClick={() => close().run()}>×</button>}</Show>
+        <Show when={props.close}>{(close) => <Close label={close().label} onClick={() => close().run()} />}</Show>
       </header>
       <div class="dt-body">
         <Show when={props.which === "details"} fallback={<TurnsList {...props.turns} />}>
@@ -132,7 +133,7 @@ function SpendDialog(props: { spend: Spend; openAgent: (id: string) => void; ref
         <div class="sp-card">
           <header class="sp-hd">
             <h2 id={titleId}>spend<small>this thread and every agent under it</small></h2>
-            <button class="cx" aria-label="close spend" onClick={close}>×</button>
+            <Close label="close spend" onClick={close} />
           </header>
           <div class="sp-body">
             <p class="sp-total"><b>{spend(s().total)}</b><span>{s().unknown ? `without ${plural(s().unknown, "agent")} whose spend is not known` : "in all"}</span></p>

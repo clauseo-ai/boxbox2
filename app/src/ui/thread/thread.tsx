@@ -4,6 +4,7 @@
    here; everything about the turn comes from the model. */
 
 import { type Accessor, For, Index, type JSX, Show, createComputed, createContext, createEffect, createMemo, createRenderEffect, createSignal, on, onCleanup, onMount, untrack, useContext } from "solid-js";
+import { cutMiddle, typeWord } from "../composer/files";
 import { type Copying, CopyButton } from "./copy-button";
 import { commandLabel, outputLabel, replyLabel } from "./copy-names";
 import { boundedPlain, newestOf, openLabel } from "./big-text";
@@ -26,6 +27,7 @@ import { StripLane } from "./strip";
 import { reportOf } from "./report";
 import { ReportSheet, warmOn, whenLoaded } from "../later";
 import { ReportGlyph } from "./report-glyph";
+import { Close } from "../close";
 import "./thread.css";
 
 /* ---------- answering in place ---------- */
@@ -128,8 +130,8 @@ const TICK = () => (
   <svg class="tick" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>
 );
 
-function ResultView(props: { r: Result; now?: number | undefined }) {
-  const text = () => (props.r.clockFrom !== undefined && props.now !== undefined ? clockDur(Math.max(0, props.now - props.r.clockFrom)) : props.r.text);
+function ResultView(props: { r: Result; now?: number | undefined; clockless?: boolean }) {
+  const text = () => (props.r.clockFrom !== undefined && props.clockless ? "" : props.r.clockFrom !== undefined && props.now !== undefined ? clockDur(Math.max(0, props.now - props.r.clockFrom)) : props.r.text);
   return (
     <span class={`row-r ${props.r.tone}`}>
       <Show when={props.r.meter}>{(m) => { const tot = () => m().passed + m().failed || 1; return <span class="meter"><b style={{ width: `${(m().passed / tot()) * 100}%` }} /><b style={{ width: `${(m().failed / tot()) * 100}%` }} /></span>; }}</Show>
@@ -350,13 +352,15 @@ function Pictures(props: { groups: readonly PictureGroup[]; more?: number | unde
   const starts = createMemo(() => { let at = 0; return props.groups.map((g) => { const from = at; at += g.pics.length; return from; }); });
   return (
     <>
-      <For each={props.groups}>{(g, gi) => (
+      {/* the groups by place and the thumbnails by picture: callers hand a new group object at every build of their row, and a list
+          keyed by it made every img again, a fresh load and decode of its data url (docs/gotchas.md, a sent photo flickering) */}
+      <Index each={props.groups}>{(g, gi) => (
         <>
-          {g.head?.()}
-          <Show when={g.pics.length}>
+          {g().head?.()}
+          <Show when={g().pics.length}>
             <div class="pv-strip">
-              <For each={g.pics}>{(pic, i) => {
-                const name = () => names()[(starts()[gi()] ?? 0) + i()] ?? "image";
+              <For each={g().pics}>{(pic, i) => {
+                const name = () => names()[(starts()[gi] ?? 0) + i()] ?? "image";
                 return (
                   <button class="pv-t" aria-haspopup="dialog" aria-label={name()} onClick={() => setViewing({ pic, name: name() })}>
                     <img src={pic.url} alt="" loading="lazy" decoding="async" draggable={false} />
@@ -366,7 +370,7 @@ function Pictures(props: { groups: readonly PictureGroup[]; more?: number | unde
             </div>
           </Show>
         </>
-      )}</For>
+      )}</Index>
       <Show when={props.more}>{(more) => <div class="pv-more">and {plural(more(), "more image")}</div>}</Show>
       <Show when={viewing()}>{(v) => <PictureViewer pic={v().pic} name={v().name} onClose={() => setViewing(null)} />}</Show>
     </>
@@ -384,7 +388,7 @@ function PictureViewer(props: { pic: Picture; name: string; onClose: () => void 
       <div class="pv-card">
         <header class="pv-hd">
           <span class="pv-name">{props.pic.filename || props.pic.mime}</span>
-          <button class="pv-x" aria-label={`close ${props.name}`} onClick={() => dialog.close()}>×</button>
+          <Close label={`close ${props.name}`} onClick={() => dialog.close()} />
         </header>
         <div class="pv-view">
           <button class="pv-zoom" aria-pressed={actual() ? "true" : "false"} aria-label={`${props.name} at its own size`} onClick={() => setActual(!actual())}>
@@ -446,7 +450,7 @@ export function light(el: HTMLElement, within?: HTMLElement): void {
   setTimeout(() => el.classList.remove("lit"), 1600);
 }
 
-export function RowView(props: { m: RowModel; time: string; now?: number | undefined; /** the newest row of a running turn: open with what it is doing */ cur?: boolean; live?: Live | undefined; /** a row arriving while the reader watches rises in */ enter?: boolean; /** the name the page tells it apart by, when a row above shares its label */ name?: string | undefined; /** it opens when first painted: the latest step of a group the reader opened */ opened?: boolean }) {
+export function RowView(props: { m: RowModel; time: string; now?: number | undefined; /** the newest row of a running turn: open with what it is doing */ cur?: boolean; live?: Live | undefined; /** a row arriving while the reader watches rises in */ enter?: boolean; /** the name the page tells it apart by, when a row above shares its label */ name?: string | undefined; /** its running clock is the group line's, shown there */ clockless?: boolean; /** it opens when first painted: the latest step of a group the reader opened */ opened?: boolean }) {
   const [open, setOpen] = createSignal(props.m.open || props.opened === true);
   /* the newest row of a running turn is open on its own; a reader who closes it keeps it closed */
   const [shut, setShut] = createSignal(false);
@@ -524,7 +528,7 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
         <span class="teaser"><For each={props.m.content}>{(p) => <InlineView piece={p} />}</For></span>
         <Show when={props.m.opened}><span class="opened lead">{props.m.opened}</span></Show>
       </span>
-      <Show when={props.m.link} fallback={<ResultView r={props.m.result} now={props.now} />}>
+      <Show when={props.m.link} fallback={<ResultView r={props.m.result} now={props.now} clockless={props.clockless === true} />}>
         <span class="row-r quiet"><button class="row-link" aria-label={`the report ${props.m.link?.report} sent`} onClick={toReport}>{props.m.result.text}</button></span>
       </Show>
     </>
@@ -619,7 +623,7 @@ export function SayRow(props: { say: Say; time: string; enter?: boolean }) {
 
 /** one place the ledger paints: an entry, or a run's group. an entry in an opened group that is the run's latest step opens with it
     (`opened`), and the first of them leaves its quiet-stretch line to the group, which shows it */
-type Place = { k: "entry"; entry: Entry; opened?: boolean; gapless?: boolean } | { k: "group"; group: Group; open: boolean };
+type Place = { k: "entry"; entry: Entry; opened?: boolean; gapless?: boolean; /** the live row under a line that already dates and clocks it */ twin?: boolean } | { k: "group"; group: Group; open: boolean };
 
 /** what a step on the strip is, in a word, where its row has no label */
 const KIND_WORD: Record<StripMark["kind"], string> = { read: "read", search: "searched", edit: "edited", run: "ran", web: "fetched", spawn: "started an agent", ask: "asked", other: "step" };
@@ -727,12 +731,12 @@ export function Ledger(props: { turn: Turn; ctx: RowCtx; live?: boolean; /** row
   /* a place is the same object while what it shows is: an entry's by the entry, a group's by the group and whether it is open */
   const entryPlaces = new WeakMap<Entry, Map<string, Place>>();
   const groupPlaces = new WeakMap<Group, Place[]>();
-  const entryPlace = (entry: Entry, opened = false, gapless = false): Place => {
-    const flavour = `${opened ? 1 : 0}${gapless ? 1 : 0}`;
+  const entryPlace = (entry: Entry, opened = false, gapless = false, twin = false): Place => {
+    const flavour = `${opened ? 1 : 0}${gapless ? 1 : 0}${twin ? 1 : 0}`;
     let held = entryPlaces.get(entry);
     if (!held) { held = new Map(); entryPlaces.set(entry, held); }
     let place = held.get(flavour);
-    if (!place) { place = { k: "entry", entry, ...(opened ? { opened } : {}), ...(gapless ? { gapless } : {}) }; held.set(flavour, place); }
+    if (!place) { place = { k: "entry", entry, ...(opened ? { opened } : {}), ...(gapless ? { gapless } : {}), ...(twin ? { twin } : {}) }; held.set(flavour, place); }
     return place;
   };
   const groupPlace = (group: Group, open: boolean): Place => {
@@ -752,7 +756,8 @@ export function Ledger(props: { turn: Turn; ctx: RowCtx; live?: boolean; /** row
       } else {
         if (lineShown(g)) out.push(groupPlace(g, false));
         const cur = currentOf(g);
-        if (cur) out.push(entryPlace(cur, false, lineShown(g)));
+        /* a run of one live step: the line above already says when it started and how long it has run, so its row repeats neither */
+        if (cur) out.push(entryPlace(cur, false, lineShown(g), lineShown(g) && g.entries[0] === cur));
       }
     }
     return out;
@@ -790,7 +795,7 @@ export function Ledger(props: { turn: Turn; ctx: RowCtx; live?: boolean; /** row
             return (
               <>
                 <Show when={!(p() as Extract<Place, { k: "entry" }>).gapless && e().gap}><div class="gap">{e().gap}</div></Show>
-                <Show when={e().model} fallback={<Show when={e().say}>{(say) => <SayRow say={say()} time={e().time} enter={props.enter === true && !toggling()} />}</Show>}>{(m) => <RowView m={m()} time={e().time} now={props.ctx.now} cur={e().cur === true} live={e().live} enter={props.enter === true && !toggling()} name={names()[offsets()[i] ?? 0]} opened={(p() as Extract<Place, { k: "entry" }>).opened === true} />}</Show>
+                <Show when={e().model} fallback={<Show when={e().say}>{(say) => <SayRow say={say()} time={e().time} enter={props.enter === true && !toggling()} />}</Show>}>{(m) => <RowView m={m()} time={(p() as Extract<Place, { k: "entry" }>).twin ? "" : e().time} clockless={(p() as Extract<Place, { k: "entry" }>).twin === true} now={props.ctx.now} cur={e().cur === true} live={e().live} enter={props.enter === true && !toggling()} name={names()[offsets()[i] ?? 0]} opened={(p() as Extract<Place, { k: "entry" }>).opened === true} />}</Show>
               </>
             );
           })()}>{(gp) => (
@@ -824,6 +829,21 @@ export function YouBubble(props: { turn: Turn }) {
     {/* the photos sent with it stand above its words, thumbnails of one box that open full size (the native client's sentphotos); a photo
         sent alone has no words, and its bubble keeps its time */}
     <Show when={props.turn.photos?.length ? props.turn.photos : undefined}>{(photos) => <div class="you-photos"><Pictures groups={[{ pics: photos() }]} suffix={`, sent${ordinal()}`} /></div>}</Show>
+    {/* the files sent with it (a pdf, a text file), each named by its kind and its name, between the photos and the words */}
+    <Show when={props.turn.sentFiles?.length ? props.turn.sentFiles : undefined}>
+      {(files) => (
+        <ul class="you-files" aria-label={`files sent${ordinal()}`}>
+          <For each={files()}>
+            {(file) => (
+              <li aria-label={file.filename}>
+                <b aria-hidden="true">{typeWord(file.filename, file.mime)}</b>
+                <span aria-hidden="true">{cutMiddle(file.filename, 28)}</span>
+              </li>
+            )}
+          </For>
+        </ul>
+      )}
+    </Show>
     <div ref={el} class="you">
       <Show when={long() && !all()} fallback={boundedPlain(props.turn.prompt).shown}>
         <span class="clamp">{props.turn.prompt.slice(0, CLAMPED_CHARS)}</span>

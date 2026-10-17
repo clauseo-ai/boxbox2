@@ -48,6 +48,12 @@
 /* the photos sent with a message: thumbnails of the tool pictures' box (76 px, 96 wide), flush right above the bubble, 4 px over it */
 .you-photos { align-self: flex-end; max-width: 86%; margin-bottom: calc(4px - var(--s4)); }
 .you-photos .pv-strip { justify-content: flex-end; padding: 0; }
+/* the files sent with a message (docs/thread.md, your message): one quiet capsule each, flush right above the bubble as the photos
+   are, 4 px over it: the kind in mono in a small well, then the name cut in its middle so its kind still shows */
+.you-files { align-self: flex-end; max-width: 86%; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin: 0 0 calc(4px - var(--s4)); padding: 0; list-style: none; }
+.you-files li { display: flex; align-items: center; gap: 8px; min-width: 0; height: 36px; padding: 0 12px 0 6px; border-radius: 12px; background: color-mix(in srgb, var(--text) 6%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent); font-size: 13px; color: var(--text); white-space: nowrap; }
+.you-files b { display: grid; place-items: center; min-width: 30px; height: 24px; padding: 0 5px; box-sizing: border-box; border-radius: 8px; background: color-mix(in srgb, var(--text) 8%, transparent); font-family: var(--mono); font-stretch: 90%; font-size: 10px; font-weight: 500; color: var(--text-2); }
+.you-files span { overflow: hidden; }
 .you .clamp { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
 /* "show all" is a control, so it holds 4.5:1 on both bubbles (the ink at 74%); the time line, with its queued or steer label, is read at 68% */
 .you .all { display: block; margin-top: var(--s1); font-size: 13px; font-weight: 620; color: color-mix(in srgb, var(--you-ink) 74%, transparent); }
@@ -93,10 +99,6 @@
 .rep-sheet-name { text-align: left; min-width: 0; }
 .rep-sheet-who span { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .rep-sheet-h .copy-btn { font-family: var(--sans); font-stretch: 100%; font-size: 12.5px; }
-.rep-sheet .rep-sheet-x { position: relative; flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--pill); }
-.rep-sheet-x i::before, .rep-sheet-x i::after { content: ""; position: absolute; left: 9px; top: 14px; width: 12px; height: 1.6px; border-radius: 1px; background: var(--text-2); transform: rotate(45deg); }
-.rep-sheet-x i::after { transform: rotate(-45deg); }
-@media (pointer: coarse) { .rep-sheet-x::after { content: ""; position: absolute; inset: -7px; } }
 .rep-sheet-body { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 14px; padding: 4px 22px 36px; }
 .rep-sheet-body > * { min-width: 0; }
 .rep-tag { --tint: var(--accent); justify-self: start; display: inline-flex; align-items: center; gap: 5px; padding: 10px 13px; border-radius: 999px; font-size: 12.5px; line-height: 14px; font-weight: 600; color: var(--tint); background: color-mix(in srgb, var(--tint) 14%, transparent); }
@@ -142,19 +144,20 @@
 /* the strip's lanes: thinking a 3 px track on top, the tools' bed from 6 px to the foot. marks are ink at the alphas the dark flood
    always had and --text reads the appearance, so the strip holds on both floods; the light tone is for thinking, the running step,
    a long command and now */
-.strip-lane { position: relative; height: 16px; pointer-events: none; }
+/* the lane clips: nothing drawn on it ever leaves its 16 px, whatever a stylesheet elsewhere says of a mark */
+.strip-lane { position: relative; height: 16px; overflow: clip; pointer-events: none; }
 .strip-lane > * { position: absolute; }
 .strip-track { top: 0; height: 3px; border-radius: 1.5px; background: color-mix(in srgb, var(--text) 6%, transparent); }
 .strip-bed { top: 6px; bottom: 0; border-radius: 3px; background: color-mix(in srgb, var(--text) 4%, transparent); }
 .strip-wash { top: 6px; bottom: 0; border-radius: 3px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .strip-think { top: 0; height: 3px; min-width: 1.5px; border-radius: 1.5px; background: color-mix(in srgb, var(--accent) 85%, transparent); }
 .strip-mk { top: 9px; height: 4px; width: 1.5px; margin-left: -0.75px; border-radius: 0.5px; background: color-mix(in srgb, var(--text) 42%, transparent); }
-.strip-mk.edit { top: 7px; height: 8px; background: var(--add); }
-.strip-mk.spawn { top: 6px; height: 10px; background: color-mix(in srgb, var(--text) 90%, transparent); }
-.strip-mk.ask { top: 8.5px; width: 5px; height: 5px; margin-left: -2.5px; background: var(--text); }
-.strip-mk.running { top: 6px; height: 10px; background: var(--accent); }
-.strip-mk.bar { top: 8px; height: 6px; min-width: 1.5px; margin-left: 0; border-radius: 2px; background: var(--accent); }
-.strip-mk.bad { background: var(--red); }
+.strip-mk.mk-edit { top: 7px; height: 8px; background: var(--add); }
+.strip-mk.mk-spawn { top: 6px; height: 10px; background: color-mix(in srgb, var(--text) 90%, transparent); }
+.strip-mk.mk-ask { top: 8.5px; width: 5px; height: 5px; margin-left: -2.5px; background: var(--text); }
+.strip-mk.mk-running { top: 6px; height: 10px; background: var(--accent); }
+.strip-mk.mk-bar { top: 8px; height: 6px; min-width: 1.5px; margin-left: 0; border-radius: 2px; background: var(--accent); }
+.strip-mk.mk-bad { background: var(--red); }
 .strip-head { top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--accent); }
 /* a message that waits is the composer's queue's (docs/composer.md): its turn takes no room until it lands */
 .turn[data-waits] { display: none; }
@@ -287,15 +290,14 @@ button.fl { border-radius: 8px; }
 .pv-more { font-size: 12px; color: var(--text-3); }
 /* the image full size: a card of glass in the top layer over a dimmed page, as the spend's is (details.css). the image fits the
    card, whole; a press on it shows it at its own size, scrolling inside the card */
-.pv { width: min(960px, calc(100vw - 16px)); max-width: none; max-height: calc(100dvh - 16px); padding: 0; border: none; border-radius: 22px; overflow: hidden; background: var(--glass-deep); -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5); box-shadow: var(--glass-edge), var(--lift); color: var(--text); font-size: 14px; line-height: 1.35; }
+.pv { width: min(960px, calc(100vw - 24px)); max-width: none; max-height: calc(100dvh - 24px); padding: 0; border: none; border-radius: 22px; overflow: hidden; background: var(--glass-deep); -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5); box-shadow: var(--glass-edge), var(--lift); color: var(--text); font-size: 14px; line-height: 1.35; }
 .pv::backdrop { background: color-mix(in srgb, color-mix(in srgb, var(--window-bottom, #101114) 20%, transparent) calc(var(--L, 0) * 100%), rgb(0 0 0 / 0.5)); }
 .pv[open] { display: flex; }
 .pv-card { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.pv-hd { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s3) var(--s2) var(--s4); }
-.pv-name { flex: 1; min-width: 0; font-family: var(--mono); font-stretch: 90%; font-size: 12px; color: var(--text-2); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.pv-x { position: relative; flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--pill); color: var(--text-2); font-size: 18px; line-height: 1; }
-@media (hover: hover) { .pv-x:hover { color: var(--text); } }
-@media (pointer: coarse) { .pv-x::after { content: ""; position: absolute; inset: -6px; } }
+/* its head: the name as a title, sans in the full ink on the close's middle line, and the close (ui/close.tsx) 10 px in from the
+   card's corner, the card's 22 px radius less the round's own */
+.pv-hd { display: flex; align-items: center; gap: var(--s3); min-height: 56px; padding: 10px 10px 6px 20px; }
+.pv-name { flex: 1; min-width: 0; font-family: var(--sans); font-size: 14px; font-weight: 600; line-height: 20px; color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .pv-view { flex: 1; min-height: 0; display: flex; overflow: auto; padding: 0 var(--s3) var(--s3); }
 .pv-zoom { margin: auto; max-width: 100%; border-radius: 12px; overflow: hidden; cursor: zoom-in; }
 .pv-zoom[aria-pressed="true"] { max-width: none; cursor: zoom-out; }

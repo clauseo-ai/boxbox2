@@ -13,22 +13,30 @@ import type { MessageInfo } from "./protocol";
 /** what the composer asked for. `prompt` becomes a queued card when the daemon queues it */
 export type Verb = "prompt" | "steer" | "shell" | "command" | "start";
 
-/** photos on one message */
-export const MAX_PHOTOS = 4;
-/** all of one message's photos together, in data url characters (server/src/http/compose.rs, MAX_PHOTOS_TOTAL); it bounds the body the routes take */
-export const MAX_MESSAGE_URL = 24 * 1024 * 1024 + 46;
-/** the same, as the person's files: two heics at the limit */
+/** photos and files on one message together (server/src/http/compose.rs, MAX_ATTACHMENTS) */
+export const MAX_ATTACHMENTS = 4;
+/** all of one message's photos and files together, in data url characters (server/src/http/compose.rs, MAX_ATTACHMENTS_TOTAL); it
+    bounds the body the routes take */
+export const MAX_MESSAGE_URL = 24 * 1024 * 1024 + 56;
+/** the same, as the person's files: two heics, or two pdfs, at the limit */
 export const MAX_MESSAGE_FILE = 18 * 1024 * 1024;
 
 /** a photo on a message: a jpeg or other image clamped on the device (a data url of at most 1.5 mb), or the original
     of a heic or heif this browser could not decode (a file of at most 9 mb; the host converts it). `width` and `height` are what
-    the clamp measured, and null for an original, whose size only the host finds out; nothing in the app reads them. */
+    the clamp measured, and null for an original, whose size only the host finds out; nothing in the app reads them.
+
+    a file that is not a photo (a pdf, text, json; docs/composer.md, attachments: any file) rides in the same list as its own
+    bytes, with no dimensions: its kind says which it is (`isPhotoKind`), the request splits them into the `photos` and the
+    `files` the routes take, and every cap, record and hand back below holds both alike. */
 export type Photo = { mime: string; filename: string; url: string; width: number | null; height: number | null };
+
+/** a photo, not a file: everything the composer clamps, and every heic original, is an image */
+export const isPhotoKind = (mime: string) => mime.startsWith("image/");
 
 /** what is said when photos handed back to a draft did not all fit it: they are not held anywhere now, so they are picked again */
 export function photosNotFitted(lost: number): string {
   const [some, them] = lost === 1 ? ["1 photo", "it"] : [`${lost} photos`, "them"];
-  return `${some} did not fit the draft (a message takes at most ${MAX_PHOTOS} photos and ${MAX_MESSAGE_FILE / (1024 * 1024)} mb together) and boxbox no longer holds ${them}. pick ${them} again from your library for another message`;
+  return `${some} did not fit the draft (a message takes at most ${MAX_ATTACHMENTS} photos and files, ${MAX_MESSAGE_FILE / (1024 * 1024)} mb together) and boxbox no longer holds ${them}. pick ${them} again from your library for another message`;
 }
 
 /** photos handed back to a draft that already holds some: what it held stays first, then the returned ones in order while
@@ -38,7 +46,7 @@ export function mergePhotos(held: readonly Photo[], back: readonly Photo[]): { p
   let bytes = photoBytes(photos);
   let lost = 0;
   for (const photo of back) {
-    if (photos.length >= MAX_PHOTOS || bytes + photo.url.length > MAX_MESSAGE_URL) lost += 1;
+    if (photos.length >= MAX_ATTACHMENTS || bytes + photo.url.length > MAX_MESSAGE_URL) lost += 1;
     else {
       photos.push(photo);
       bytes += photo.url.length;
@@ -142,6 +150,8 @@ export const OUTBOX_PHOTO_BYTES = 3 * MAX_MESSAGE_URL;
     answers (cmx2 gives a conversion 60 s in all, and the rest is margin). a test holds each to the server's own */
 export const HOST_ACCEPT_BASE_MS = 15_000;
 export const HOST_ACCEPT_PER_CONVERTED_MS = 75_000;
+/** cmx2 reads a pdf's text before it answers (`ACCEPT_PER_PDF`) */
+export const HOST_ACCEPT_PER_PDF_MS = 35_000;
 export const HOST_ACCEPT_BYTES_PER_SECOND = 256 * 1024;
 /** how long the server lets a message with photos wait for room in its photo budget before it turns it away
     (server/src/http/mod.rs, `PHOTO_WAIT`). nothing of the message is read while it waits */
@@ -152,6 +162,7 @@ export function hostAcceptMs(photos: readonly Photo[]): number {
   for (const photo of photos) {
     ms += Math.floor(photo.url.length / HOST_ACCEPT_BYTES_PER_SECOND) * 1000;
     if (photo.mime === "image/heic" || photo.mime === "image/heif") ms += HOST_ACCEPT_PER_CONVERTED_MS;
+    if (photo.mime === "application/pdf") ms += HOST_ACCEPT_PER_PDF_MS;
   }
   return ms;
 }
@@ -286,9 +297,10 @@ export function nextWaiting(entries: readonly OutboxEntry[]): OutboxEntry | null
   return oldest;
 }
 
-/** what the ui renders of an entry: everything but the photos' bytes, which never cross to the ui again */
-export type OutboxView = Omit<OutboxEntry, "photos"> & { photos: number; photoBytes: number };
+/** what the ui renders of an entry: everything but the photos' bytes, which never cross to the ui again. `photos` counts the
+    photos and files together, `files` the files among them */
+export type OutboxView = Omit<OutboxEntry, "photos"> & { photos: number; files: number; photoBytes: number };
 
 export function viewOfEntry(entry: OutboxEntry): OutboxView {
-  return { ...entry, photos: entry.photos.length, photoBytes: photoBytes(entry.photos) };
+  return { ...entry, photos: entry.photos.length, files: entry.photos.filter((p) => !isPhotoKind(p.mime)).length, photoBytes: photoBytes(entry.photos) };
 }

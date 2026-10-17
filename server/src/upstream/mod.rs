@@ -15,6 +15,7 @@ pub mod paired;
 pub mod reconcile;
 pub mod source;
 pub mod sse;
+pub mod system;
 mod tails;
 mod watcher;
 
@@ -34,6 +35,7 @@ use crate::fleet::Upstream;
 use crate::fleet::model::TailRequest;
 use crate::source::{AgentSource, ConnectionConfig, Exit, SourceSender};
 pub use memory::Memory;
+pub use system::System;
 
 /// what `GET /api/hosts` says about one host.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -58,6 +60,15 @@ pub struct HostStatus {
     /// the daemon's own memory report, sampled while connected; null until
     /// the first sample, and for a daemon that does not report it.
     pub memory: Option<Memory>,
+    /// what the host is and how it is doing (`GET /global/system`), sampled
+    /// every 30 s while connected and kept while it is away; absent until the
+    /// first sample, and for a daemon without the route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<Box<System>>,
+    /// whether the daemon answers `GET /global/system`: false for an older
+    /// cmx2, absent until it was first asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reports_system: Option<bool>,
     /// the watcher's cursor, `<epoch>:<seq>`, as of the last connection
     /// change: where that connection resumed from, or where the one before
     /// it stopped. null before the host was first read.
@@ -118,6 +129,7 @@ pub struct HostView {
     pub source: Arc<source::Cmx2Source>,
     status: watch::Receiver<HostStatus>,
     memory: watch::Receiver<Option<Memory>>,
+    system: watch::Receiver<system::Report>,
     counters: Arc<Counters>,
 }
 
@@ -126,6 +138,9 @@ impl HostView {
     pub fn snapshot(&self) -> HostStatus {
         let mut status = self.status.borrow().clone();
         status.memory = *self.memory.borrow();
+        let report = self.system.borrow().clone();
+        status.system = report.system;
+        status.reports_system = report.reports;
         status.frames = FrameCounts {
             decoded: self.counters.decoded.load(Ordering::Relaxed),
             undecodable: self.counters.undecodable.load(Ordering::Relaxed),
@@ -153,6 +168,8 @@ impl HostView {
             connects: 0,
             frames: FrameCounts::default(),
             memory: None,
+            system: None,
+            reports_system: None,
             cursor: None,
         });
         let counters = Arc::new(Counters::default());
@@ -171,6 +188,7 @@ impl HostView {
             source,
             status,
             memory: watch::channel(None).1,
+            system: watch::channel(system::Report::default()).1,
             counters,
         }
     }
@@ -527,6 +545,8 @@ impl Supervisor {
             connects: 0,
             frames: FrameCounts::default(),
             memory: None,
+            system: None,
+            reports_system: None,
             cursor: None,
         });
         let stop = self.shutdown.child_token();
@@ -536,6 +556,14 @@ impl Supervisor {
             self.client.clone(),
             status.clone(),
             memory_sender,
+            stop.clone(),
+        ));
+        let (system_sender, system) = watch::channel(system::Report::default());
+        tokio::spawn(system::sample(
+            Arc::clone(&config),
+            self.client.clone(),
+            status.clone(),
+            system_sender,
             stop.clone(),
         ));
         let source = Arc::new(source::Cmx2Source::new(
@@ -557,6 +585,7 @@ impl Supervisor {
                 source,
                 status,
                 memory,
+                system,
                 counters,
             },
             stop,

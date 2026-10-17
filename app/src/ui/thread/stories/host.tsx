@@ -5,6 +5,7 @@
 
 import { type JSX, onCleanup, onMount } from "solid-js";
 import { OpenAgentContext } from "../thread";
+import "../../home/home.css";
 
 export function Host(props: { wide: boolean; ledger?: boolean; /** pinned to the end of the sample while it grows */ end?: boolean; children: JSX.Element }) {
   let el!: HTMLDivElement;
@@ -22,6 +23,12 @@ export function Host(props: { wide: boolean; ledger?: boolean; /** pinned to the
       </div>
     </OpenAgentContext.Provider>
   );
+}
+
+/** a desktop home around the rows (the rail), for a story of what home's stylesheet does to them: `.home`'s own placing (fixed,
+    a grid) is set aside, so only what its rules say of what is inside it applies */
+export function HomeFrame(props: { children: JSX.Element }) {
+  return <div class="home" data-arrangement="rail" style={{ position: "static", display: "block", overflow: "visible" }}>{props.children}</div>;
 }
 
 /** a turn's own column (the rows' 16 px gap and no more), for a story that shows what a turn puts beside the answer */

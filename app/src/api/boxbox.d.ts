@@ -1257,6 +1257,21 @@ export type components = {
             /** @default system */
             theme: components["schemas"]["Theme"];
         };
+        /** @description a file on a message that is not a photo: a document the host reads to the model. */
+        Document: {
+            /** @description the file's name as the person had it; the host labels the file with it. */
+            filename: string;
+            /**
+             * @description `application/pdf`, `application/json`, or any `text/*` (`text/plain`, `text/markdown`,
+             *     `text/csv`).
+             */
+            mime: string;
+            /**
+             * @description `data:<mime>;base64,...`: a pdf of at most 9 mb, a text or json file of at most 512 kb; with the
+             *     photos, at most 18 mb of files on one message.
+             */
+            url: string;
+        };
         /** @description the daemon took the verb. */
         Done: {
             /** @description the daemon's answer, as it wrote it. */
@@ -1434,12 +1449,108 @@ export type components = {
             name: string;
             origin: components["schemas"]["HostOrigin"];
             /**
+             * @description whether the daemon answers `GET /global/system`: false for an older
+             *     cmx2, absent until it was first asked.
+             */
+            reportsSystem?: boolean | null;
+            /**
              * Format: int64
              * @description when `connection` last changed, ms since the epoch.
              */
             since: number;
+            system?: components["schemas"]["HostSystem"] | null;
             /** @description the daemon's address (never its credential). */
             url: string;
+        };
+        /**
+         * @description one sample of the host's system, as the daemon said it, with the time
+         *     boxbox read it.
+         */
+        HostSystem: {
+            /**
+             * Format: int64
+             * @description when the daemon took the sample, ms since the epoch, in its clock.
+             */
+            at: number;
+            cpu: components["schemas"]["HostSystemCpu"];
+            daemon: components["schemas"]["HostSystemDaemon"];
+            disk?: components["schemas"]["HostSystemDisk"] | null;
+            machine: components["schemas"]["HostSystemMachine"];
+            memory: components["schemas"]["HostSystemMemory"];
+            os: components["schemas"]["HostSystemOs"];
+            /**
+             * Format: int64
+             * @description when boxbox read it, ms since the epoch, in the server's clock.
+             */
+            sampledAt: number;
+            /**
+             * Format: int64
+             * @description how long the host has been up, in seconds.
+             */
+            uptime: number;
+        };
+        HostSystemCpu: {
+            /** Format: int32 */
+            cores: number;
+            /** @description the load averages over 1, 5 and 15 minutes. */
+            load: number[];
+            model: string;
+        };
+        HostSystemDaemon: {
+            /**
+             * Format: int64
+             * @description the daemon's resident set size, in bytes.
+             */
+            rss: number;
+            /**
+             * Format: int64
+             * @description how long the daemon has been up, in seconds.
+             */
+            uptime: number;
+        };
+        HostSystemDisk: {
+            /**
+             * Format: int64
+             * @description bytes free for the daemon's user.
+             */
+            available: number;
+            /** @description the mount the numbers are for. */
+            path: string;
+            /**
+             * Format: int64
+             * @description bytes.
+             */
+            total: number;
+        };
+        HostSystemMachine: {
+            /** @description the vendor's model code: `Mac16,11`. */
+            identifier?: string | null;
+            /** @description what the hardware says it is: `Mac mini`, `Google Compute Engine`. */
+            model?: string | null;
+            /** @description whether the host is a virtual machine. */
+            virtual: boolean;
+        };
+        HostSystemMemory: {
+            /**
+             * Format: int64
+             * @description bytes a new process could have without the host swapping.
+             */
+            available: number;
+            /**
+             * Format: int64
+             * @description bytes.
+             */
+            total: number;
+        };
+        HostSystemOs: {
+            /** @description `arm64`, `x64`. */
+            arch: string;
+            kernel: string;
+            /** @description the os as a person names it: `macOS`, `Ubuntu`, `Debian`. */
+            name: string;
+            /** @description node's platform name: `darwin`, `linux`, `win32`, or another. */
+            platform: string;
+            version: string;
         };
         /**
          * @description how a need was served. the names are telemetry values.
@@ -1589,6 +1700,7 @@ export type components = {
             /** @description the repo's directory on the host. */
             directory: string;
             effort?: string | null;
+            files?: components["schemas"]["Document"][];
             model?: string | null;
             photos?: components["schemas"]["Photo"][];
             place: components["schemas"]["Place"];
@@ -1693,6 +1805,8 @@ export type components = {
              *     this message on.
              */
             effort?: string | null;
+            /** @description files that are not photos (a pdf, text, json), as their own bytes in `data:` urls. */
+            files?: components["schemas"]["Document"][];
             /**
              * @description `provider/model`, from `/api/hosts/{host}/models`; cmx2 makes it the
              *     thread's model from this message on.
@@ -1910,11 +2024,12 @@ export type components = {
             device: string;
             deviceClass: string;
         };
-        /** @description text with photos, steered into the running turn. */
+        /** @description text with photos and files, steered into the running turn. */
         Steer: {
             clientID: string;
             device: string;
             deviceClass: string;
+            files?: components["schemas"]["Document"][];
             photos?: components["schemas"]["Photo"][];
             text: string;
         };
