@@ -62,7 +62,7 @@
 .viewer-title span { font-size: 12.5px; color: rgb(244 244 246 / 0.62); font-variant-numeric: tabular-nums; }
 .viewer-acts { flex: none; display: flex; gap: 4px; }
 /* the viewer is dark in either appearance: the close's glass (ui/close.tsx) takes the dark flood's tokens here, and its ink the viewer's */
-.viewer { --close-ink: #f4f4f6; --lg-fill: rgb(38 40 48 / 0.46); --lg-press-light: rgb(255 255 255 / 0.16); --lg-rim: inset 0 1px 0 rgb(255 255 255 / 0.22), inset 0 -1px 0 rgb(255 255 255 / 0.08), inset 0 0 0 0.5px rgb(255 255 255 / 0.14); }
+.viewer { --close-ink: #f4f4f6; --lg-fill: rgb(38 40 48 / 0.46); --lg-press-light: rgb(255 255 255 / 0.16); --lg-rim: inset 0 1px 0 rgb(255 255 255 / 0.22), inset 0 0 0 0.5px rgb(255 255 255 / 0.14); }
 .viewer button:not(.close-round) { min-height: 0; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: inherit; background: rgb(255 255 255 / 0.08); cursor: pointer; }
 .viewer button:disabled { opacity: 0.35; cursor: default; }
 .viewer button:not(.close-round) svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

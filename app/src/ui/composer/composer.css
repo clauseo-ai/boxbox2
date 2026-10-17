@@ -92,9 +92,11 @@
 }
 /* the light falling from the top left, as on every window */
 .cz-window::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: radial-gradient(90% 70% at 16% 0%, var(--win-glow), transparent 62%); }
-/* the long shadow, on its own layer so focus deepens it by opacity alone */
-.cz-window::after { content: ""; position: absolute; inset: 0; z-index: -2; border-radius: inherit; pointer-events: none; box-shadow: 0 34px 64px -18px color-mix(in srgb, var(--cast-ink) calc(92% - var(--L) * 46%), transparent), 0 3px 8px -2px color-mix(in srgb, var(--cast-ink) calc(40% - var(--L) * 10%), transparent); opacity: 0.8; transform: translateY(-6px) scale(0.975); transition: opacity var(--fade-t, 0ms linear), transform var(--snap-t, 0ms linear); }
-.cz-window[data-focus]::after { opacity: 1; transform: none; }
+/* the long shadow, on its own layer so focus deepens it by opacity alone. the layer is the window's own size: a negative
+   layer of an isolated window paints over the window's fill, so a shadow layer drawn smaller (it was lifted 6 px and
+   scaled to 97.5% at rest) cast its shadow onto the window's foot as a dark ring inside the edge */
+.cz-window::after { content: ""; position: absolute; inset: 0; z-index: -2; border-radius: inherit; pointer-events: none; box-shadow: 0 34px 64px -18px color-mix(in srgb, var(--cast-ink) calc(92% - var(--L) * 46%), transparent), 0 3px 8px -2px color-mix(in srgb, var(--cast-ink) calc(40% - var(--L) * 10%), transparent); opacity: 0.8; transition: opacity var(--fade-t, 0ms linear); }
+.cz-window[data-focus]::after { opacity: 1; }
 /* a shell line is the machine's, not the repo's: charcoal on dark, a cool paper on light, so it is never taken for a message */
 .cz-window[data-shell] { background: linear-gradient(172deg, color-mix(in srgb, #f7f8fa calc(var(--L) * 100%), #15171c), color-mix(in srgb, #eceef2 calc(var(--L) * 100%), #08090b)); }
 .cz-window[data-bad] { box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.18)), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 70%, transparent); }
@@ -587,74 +589,73 @@
    taking focus light the rim. the keys are drops of glass over a
    breath of ink (glass inside glass would draw white on light), and on is the glass tinted with the accent. the sheet and
    the full stage keep the repo material (they sit on grounds of their own), as do the menus, the list and the edges
-   behind the strip. under reduced transparency, or without backdrop-filter, none of this applies and the recipes above
-   stand: the repo material and the pressed fills */
-@media not (prefers-reduced-transparency: reduce) {
-  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
-    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) {
-      /* the pool of shade behind the words (from the surface's own palette), and what lies under an off key */
-      --cz-scrim: color-mix(in srgb, var(--win-1) calc(var(--L) * 100%), color-mix(in srgb, var(--win-2) 45%, #050608));
-      --cz-wash: color-mix(in srgb, rgb(0 0 0 / 0.08) calc(var(--L) * 100%), rgb(255 255 255 / 0.1));
-      isolation: isolate;
-      background: var(--lg-clear-fill);
-      -webkit-backdrop-filter: var(--lg-clear-filter);
-      backdrop-filter: var(--lg-clear-filter);
-      box-shadow: var(--lg-rim), var(--lg-drop);
-    }
-    /* the pool fills the pane and is feathered by a mask, never by a blur: a blurred inset box spilled past the rim as a dark
-       halo and left a bright ring inside it, so the pane read as a smudge in a frame. the mask is two ramps crossed (each 40%
-       at the rim, whole 32 px in), so the shade has no edge anywhere and only thins toward the rim and most at the corners,
-       where the lens catches the light; it never leaves the pane */
-    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip)::before {
-      --cz-feather: rgb(0 0 0 / 0.4), rgb(0 0 0 / 0.72) 10px, rgb(0 0 0 / 0.92) 20px, #000 32px, #000 calc(100% - 32px), rgb(0 0 0 / 0.92) calc(100% - 20px), rgb(0 0 0 / 0.72) calc(100% - 10px), rgb(0 0 0 / 0.4);
-      content: "";
-      position: absolute;
-      inset: 0;
-      z-index: -1;
-      border-radius: inherit;
-      pointer-events: none;
-      background: var(--cz-scrim);
-      opacity: 0.8;
-      -webkit-mask: linear-gradient(90deg, var(--cz-feather)), linear-gradient(180deg, var(--cz-feather));
-      -webkit-mask-composite: source-in;
-      mask: linear-gradient(90deg, var(--cz-feather)), linear-gradient(180deg, var(--cz-feather));
-      mask-composite: intersect;
-    }
-    /* the window's long shadow belongs to the material, and the lens casts its own short drop, so its ::after is the rim's
-       light instead: the words taking focus light the rim in the accent and brighten its top, as a native field of glass
-       wakes under the finger; at rest the lens is quiet. opacity alone moves */
-    .composer[data-mount="bar"]:not([data-full]) .cz-window::after {
-      z-index: -1;
-      box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.6) calc(var(--L) * 100%), rgb(255 255 255 / 0.2)), inset 0 0 0 1px color-mix(in srgb, var(--accent) calc(60% - var(--L) * 15%), transparent);
-      opacity: 0;
-      transform: none;
-      transition: opacity var(--fade-t, 0ms linear);
-    }
-    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-focus]::after { opacity: 1; }
-    /* a shell line tints the glass with its dark bed (a cool paper on light), so it is never taken for a message */
-    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-shell] { background: color-mix(in srgb, color-mix(in srgb, #eceef2 calc(var(--L) * 100%), #08090b) 70%, transparent); }
-    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-bad],
-    .composer[data-mount="bar"]:not([data-full]) .cz-strip[data-state="failed"] { box-shadow: var(--lg-rim), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 70%, transparent), var(--lg-drop); }
-    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-drop] { box-shadow: var(--lg-rim), inset 0 0 0 2px var(--accent), var(--lg-drop); }
-    /* what send will do and the placeholder take the brighter ink clear glass needs (the placeholder a step more on light,
-       where 62% measured 4.46:1 over the pale pool) */
-    .composer[data-mount="bar"]:not([data-full]) .cz-t,
-    .composer[data-mount="bar"]:not([data-full]) .cz-t[data-prose] { color: color-mix(in srgb, var(--cz-text) 90%, transparent); }
-    .composer[data-mount="bar"]:not([data-full]) .cz-body textarea::placeholder { color: color-mix(in srgb, var(--cz-text) calc(62% + var(--L) * 8%), transparent); }
-    /* the keys: drops of glass over the wash, a rim and no pressed-in edge; on, the accent's glass */
-    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key, .cz-pill, .cz-count, .cz-problem button) { background: var(--cz-wash); box-shadow: var(--lg-rim); }
-    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key[aria-expanded="true"], .cz-pill.on) { background: color-mix(in srgb, var(--accent) 82%, transparent); box-shadow: var(--lg-rim), var(--lg-drop); }
-    .composer[data-mount="bar"]:not([data-full]) .cz-send:not(:disabled) .cz-face { background: color-mix(in srgb, var(--accent) 86%, transparent); box-shadow: var(--lg-rim), var(--lg-drop); }
-    .composer[data-mount="bar"]:not([data-full]) .cz-send:disabled .cz-face { background: var(--cz-wash); box-shadow: var(--lg-rim); }
-    .composer[data-mount="bar"]:not([data-full]) .cz-send[data-steering] .cz-face { background: color-mix(in srgb, var(--cz-text) calc(var(--L) * 100%), #fff); }
-    .composer[data-mount="bar"]:not([data-full]) .cz-window[data-shell] .cz-send:not(:disabled) .cz-face { background: var(--cz-text); }
-    @media (hover: hover) and (pointer: fine) {
-      .composer[data-mount="bar"]:not([data-full]) .cz-window .cz-key:not([aria-expanded="true"]):hover { background: color-mix(in srgb, var(--cz-wash), var(--cz-text) 6%); }
-    }
-    /* the glass's own press: the lens swells, never a second dim */
-    .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key, .cz-pill):not(:disabled):active,
-    .composer[data-mount="bar"]:not([data-full]) .cz-send:not(:disabled):active .cz-face { transform: scale(var(--lg-press-scale)); }
+   behind the strip. without backdrop-filter none of this applies and the recipes above stand: the repo material and the
+   pressed fills. reduced transparency keeps the lens's shape and turns its tokens solid (styles.css), as every other
+   lens does. (this was once gated on `not (prefers-reduced-transparency: reduce)`, which safari, knowing no such
+   feature, reads as false: the bar wore the repo material there, its shadow drawn as a dark ring inside its edge) */
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) {
+    /* the pool of shade behind the words (from the surface's own palette), and what lies under an off key */
+    --cz-scrim: color-mix(in srgb, var(--win-1) calc(var(--L) * 100%), color-mix(in srgb, var(--win-2) 45%, #050608));
+    --cz-wash: color-mix(in srgb, rgb(0 0 0 / 0.08) calc(var(--L) * 100%), rgb(255 255 255 / 0.1));
+    isolation: isolate;
+    background: var(--lg-clear-fill);
+    -webkit-backdrop-filter: var(--lg-clear-filter);
+    backdrop-filter: var(--lg-clear-filter);
+    box-shadow: var(--lg-rim), var(--lg-drop);
   }
+  /* the pool fills the pane and is feathered by a mask, never by a blur: a blurred inset box spilled past the rim as a dark
+     halo and left a bright ring inside it, so the pane read as a smudge in a frame. the mask is two ramps crossed (each 40%
+     at the rim, whole 32 px in), so the shade has no edge anywhere and only thins toward the rim and most at the corners,
+     where the lens catches the light; it never leaves the pane */
+  .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip)::before {
+    --cz-feather: rgb(0 0 0 / 0.4), rgb(0 0 0 / 0.72) 10px, rgb(0 0 0 / 0.92) 20px, #000 32px, #000 calc(100% - 32px), rgb(0 0 0 / 0.92) calc(100% - 20px), rgb(0 0 0 / 0.72) calc(100% - 10px), rgb(0 0 0 / 0.4);
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: var(--cz-scrim);
+    opacity: 0.8;
+    -webkit-mask: linear-gradient(90deg, var(--cz-feather)), linear-gradient(180deg, var(--cz-feather));
+    -webkit-mask-composite: source-in;
+    mask: linear-gradient(90deg, var(--cz-feather)), linear-gradient(180deg, var(--cz-feather));
+    mask-composite: intersect;
+  }
+  /* the window's long shadow belongs to the material, and the lens casts its own short drop, so its ::after is the rim's
+     light instead: the words taking focus light the rim in the accent and brighten its top, as a native field of glass
+     wakes under the finger; at rest the lens is quiet. opacity alone moves */
+  .composer[data-mount="bar"]:not([data-full]) .cz-window::after {
+    z-index: -1;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.6) calc(var(--L) * 100%), rgb(255 255 255 / 0.2)), inset 0 0 0 1px color-mix(in srgb, var(--accent) calc(60% - var(--L) * 15%), transparent);
+    opacity: 0;
+    transition: opacity var(--fade-t, 0ms linear);
+  }
+  .composer[data-mount="bar"]:not([data-full]) .cz-window[data-focus]::after { opacity: 1; }
+  /* a shell line tints the glass with its dark bed (a cool paper on light), so it is never taken for a message */
+  .composer[data-mount="bar"]:not([data-full]) .cz-window[data-shell] { background: color-mix(in srgb, color-mix(in srgb, #eceef2 calc(var(--L) * 100%), #08090b) 70%, transparent); }
+  .composer[data-mount="bar"]:not([data-full]) .cz-window[data-bad],
+  .composer[data-mount="bar"]:not([data-full]) .cz-strip[data-state="failed"] { box-shadow: var(--lg-rim), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 70%, transparent), var(--lg-drop); }
+  .composer[data-mount="bar"]:not([data-full]) .cz-window[data-drop] { box-shadow: var(--lg-rim), inset 0 0 0 2px var(--accent), var(--lg-drop); }
+  /* what send will do and the placeholder take the brighter ink clear glass needs (the placeholder a step more on light,
+     where 62% measured 4.46:1 over the pale pool) */
+  .composer[data-mount="bar"]:not([data-full]) .cz-t,
+  .composer[data-mount="bar"]:not([data-full]) .cz-t[data-prose] { color: color-mix(in srgb, var(--cz-text) 90%, transparent); }
+  .composer[data-mount="bar"]:not([data-full]) .cz-body textarea::placeholder { color: color-mix(in srgb, var(--cz-text) calc(62% + var(--L) * 8%), transparent); }
+  /* the keys: drops of glass over the wash, a rim and no pressed-in edge; on, the accent's glass */
+  .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key, .cz-pill, .cz-count, .cz-problem button) { background: var(--cz-wash); box-shadow: var(--lg-rim); }
+  .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key[aria-expanded="true"], .cz-pill.on) { background: color-mix(in srgb, var(--accent) 82%, transparent); box-shadow: var(--lg-rim), var(--lg-drop); }
+  .composer[data-mount="bar"]:not([data-full]) .cz-send:not(:disabled) .cz-face { background: color-mix(in srgb, var(--accent) 86%, transparent); box-shadow: var(--lg-rim), var(--lg-drop); }
+  .composer[data-mount="bar"]:not([data-full]) .cz-send:disabled .cz-face { background: var(--cz-wash); box-shadow: var(--lg-rim); }
+  .composer[data-mount="bar"]:not([data-full]) .cz-send[data-steering] .cz-face { background: color-mix(in srgb, var(--cz-text) calc(var(--L) * 100%), #fff); }
+  .composer[data-mount="bar"]:not([data-full]) .cz-window[data-shell] .cz-send:not(:disabled) .cz-face { background: var(--cz-text); }
+  @media (hover: hover) and (pointer: fine) {
+    .composer[data-mount="bar"]:not([data-full]) .cz-window .cz-key:not([aria-expanded="true"]):hover { background: color-mix(in srgb, var(--cz-wash), var(--cz-text) 6%); }
+  }
+  /* the glass's own press: the lens swells, never a second dim */
+  .composer[data-mount="bar"]:not([data-full]) :is(.cz-window, .cz-strip) :is(.cz-key, .cz-pill):not(:disabled):active,
+  .composer[data-mount="bar"]:not([data-full]) .cz-send:not(:disabled):active .cz-face { transform: scale(var(--lg-press-scale)); }
 }
 
 /* ---------- the full stage: the window becomes the page ---------- */

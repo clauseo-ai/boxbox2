@@ -56,6 +56,10 @@ export type ComposerStory =
   | "glass-rest-line"
   | "glass-rest-empty"
   | "glass-rest-working"
+  | "glass-rest-violet"
+  | "glass-rest-violet-focus"
+  | "glass-rest-violet-line"
+  | "glass-rest-olive"
   | "dropped"
   | "model"
   | "slash"
@@ -236,6 +240,11 @@ const SETUPS: Record<Exclude<ComposerStory, HomeStory>, () => Setup> = {
   "glass-rest-line": () => ({ entry: IDLE, draft: draft("ship it"), under: true, palette: "gold" }),
   "glass-rest-empty": () => ({ entry: IDLE, draft: draft(""), under: true, palette: "teal" }),
   "glass-rest-working": () => ({ entry: WORKING, draft: draft(""), under: true, palette: "rose" }),
+  // the rim at rest, the state the owner saw next: nothing typed, unfocused, on violet; then focused, one line, and on olive
+  "glass-rest-violet": () => ({ entry: IDLE, draft: draft(""), under: true, palette: "violet" }),
+  "glass-rest-violet-focus": () => ({ entry: IDLE, draft: draft(""), focus: true, under: true, palette: "violet" }),
+  "glass-rest-violet-line": () => ({ entry: IDLE, draft: draft("ship it"), under: true, palette: "violet" }),
+  "glass-rest-olive": () => ({ entry: IDLE, draft: draft(""), under: true, palette: "olive" }),
   // a file dragged over the stage: the composer's edge lights and its line says what a drop does
   "drop-over": () => ({ entry: IDLE, draft: draft(""), drive: (go) => go.drag("dragenter", ".cz-story-stage") }),
   // a spec, a pdf and an archive dropped on the stage: the spec and the pdf join the draft as files, the archive is mentioned

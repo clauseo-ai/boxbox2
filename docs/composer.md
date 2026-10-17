@@ -75,8 +75,20 @@ than shrinking the key. a shell line tints the glass with its dark bed. the
 queue's strip is a drop of the same glass with its own pool; the edges
 behind it, its list, the menus, the sheet and the full stage keep the repo
 material, since they sit on grounds of their own or would stack glass on
-glass. under reduced transparency, or without backdrop-filter, none of it
-applies and the window and its pressed keys stand as above.
+glass. without backdrop-filter none of it applies and the window and its
+pressed keys stand as above; under reduced transparency the lens keeps its
+shape and its tokens turn solid, as every lens does (`styles.css`). the
+glass was once gated on `not (prefers-reduced-transparency: reduce)`, which
+safari reads as false since it knows no such feature, so on a mac or an
+iphone the bar wore the repo material instead, and the material's long
+shadow, on a layer lifted 6 px and scaled to 97.5% at rest, cast onto the
+window's own foot (a negative layer of an isolated box paints over its fill):
+a dark ring inside the edge, heaviest at the foot, under a light hairline.
+the shadow's layer is now the window's own size at rest and at focus, only
+its opacity moving. the rim at rest is one even hairline brighter along the
+top, the drop soft below with no contact shadow; crops of each layer toggled
+are how the ring was named (the shots' `glass-rest-*` stories, in webkit as
+well as chrome, since the two disagree on that media query).
 
 ### what it beat, and why
 

@@ -179,9 +179,10 @@
    controls, the dock, the composer, the jump to the latest. not windows, sheets or menus, which keep their materials.
    two variants, as the system's: regular, a lens that frosts what is under it enough to read a control on any ground;
    clear, a thin lens that bends and brightens what is under it and leaves it legible (the composer over the log, which
-   lays its own shade behind its words). each is a fill, a backdrop filter, a rim (a specular top, a lit foot where the
-   lens gathers light, a hairline that holds the shape) and a short drop. a surface takes `.lg` (and `.clear`), or reads
-   the tokens itself; `--lg-tint` with `--lg-tint-mix` washes a colour into the fill (the dock's repo, the capsule's
+   lays its own shade behind its words). each is a fill, a backdrop filter, a rim (one even hairline that holds the
+   shape, brighter along the top where the lens catches the light) and a soft drop that falls away below. no lit foot and
+   no tight contact shadow: the foot's line and a 1 px dark blur under the hairline read as a bevel, a dark outline
+   hugging a light one. a surface takes `.lg` (and `.clear`), or reads the tokens itself; `--lg-tint` with `--lg-tint-mix` washes a colour into the fill (the dock's repo, the capsule's
    asking window). under reduced transparency or without backdrop-filter the glass is the solid material it stands in
    for (`--lg-solid`), the same shape, as the native app's BoxboxGlass falls back */
 :root {
@@ -190,10 +191,8 @@
   --lg-clear-fill: color-mix(in srgb, rgb(255 255 255 / 0.14) calc(var(--L) * 100%), rgb(255 255 255 / 0.05));
   --lg-clear-filter: blur(3px) saturate(1.6) brightness(calc(1.06 - var(--L) * 0.02));
   --lg-rim: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.22)),
-    inset 0 -1px 0 color-mix(in srgb, rgb(255 255 255 / 0.5) calc(var(--L) * 100%), rgb(255 255 255 / 0.08)),
     inset 0 0 0 0.5px color-mix(in srgb, rgb(16 17 20 / 0.1) calc(var(--L) * 100%), rgb(255 255 255 / 0.14));
-  --lg-drop: 0 8px 22px -10px color-mix(in srgb, rgb(16 17 20 / 0.28) calc(var(--L) * 100%), rgb(0 0 0 / 0.6)),
-    0 1px 2px color-mix(in srgb, rgb(16 17 20 / 0.08) calc(var(--L) * 100%), rgb(0 0 0 / 0.3));
+  --lg-drop: 0 10px 24px -12px color-mix(in srgb, rgb(16 17 20 / 0.26) calc(var(--L) * 100%), rgb(0 0 0 / 0.55));
   /* the press: the lens swells and a light gathers under the finger */
   --lg-press-scale: 1.06;
   --lg-press-light: color-mix(in srgb, rgb(255 255 255 / 0.55) calc(var(--L) * 100%), rgb(255 255 255 / 0.16));
