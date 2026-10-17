@@ -57,7 +57,10 @@ bar's rounds do, so the transcript moves under it, brightened and barely
 blurred, lit along the rim, with the clear lens's short drop in place of the
 window's long shadow. its words stay legible the way the system keeps them
 on clear glass: a pool of shade behind them (the window's lit top colour on
-light, its deep colour most of the way to black on dark, 80% at its heart).
+light, its deep colour most of the way to black on dark, half at its heart:
+at 80% it hid the transcript passing under the glass, which read as an
+opaque pane; at half the placeholder measures 5.5:1 on dark and 6:1 on light
+over the log, the draft 10.6:1 and 12.6:1).
 the pool fills the pane and is feathered by a mask of two crossed ramps, 40%
 at the rim and whole 32 px in, so it has no edge anywhere and never leaves
 the pane; it only thins toward the rim and most at the corners, where the

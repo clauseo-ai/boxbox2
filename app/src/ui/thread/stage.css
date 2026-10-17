@@ -84,13 +84,14 @@
    a rule of its own, since every part of it is about the same box */
 .stage-scroll {
   --bar: 60px;
-  /* its end padding is the foot: the 14 px fade below and 26 px of air, where the last row rests when the reader is at the end */
+  /* its end padding is the foot: 40 px of air over the dock's room, where the last row rests above the composer when the reader
+     is at the end */
   --foot: 40px;
   /* the log dissolves into the flood under the bar the way an ios scroll edge does: clear just above the bar's bottom,
      whole 40 px lower, on an ease-in ramp (3, 12, 33 and 66% at each fifth of the band), so the edge of a bubble or a bed
      passing through the first half is barely there and nothing shows as a sliver under the bar. the big title's resting
-     top (the bar plus 38 px) is below the band. the foot fades over the last 14 px, which is padding at rest, so a row leaves
-     above the composer instead of being cut at its edge */
+     top (the bar plus 38 px) is below the band. the foot fades over the last 14 px, the stage's own foot under the dock, so a
+     row that has passed under the composer's glass leaves the screen softly instead of being cut at its edge */
   --band: 40px;
   --dissolve-from: calc(var(--bar) + env(safe-area-inset-top) - 4px);
   --dissolve-foot: #000 calc(100% - 14px), transparent;
@@ -122,6 +123,9 @@
 .stage-scroll::-webkit-scrollbar { display: none; }
 /* the room kept under the transcript's end (stage.tsx, `--hold`; foot.ts) */
 .stage-room { height: var(--hold, 0px); }
+/* the dock's room under the end (stage.tsx, `--dock`; view.ts): the dock floats over the scroller's foot, so the end is scrolled
+   clear above it, and the foot's air is above the glass */
+.stage-dock-room { height: var(--dock, 0px); }
 .thread-stage.wide .stage-scroll { --bar: 64px; }
 .stage-scroll > .thread { display: flex; flex-direction: column; gap: var(--s4); }
 /* the end marker takes back the gap above it, so the foot alone says where the last row rests */
@@ -163,7 +167,12 @@
 /* what came below: an 18 px capsule in the accent, its digits 5 px from its ends, hung 6 px past the circle's corner */
 .jump-n { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; animation: jump-n-in var(--snap-t) both; }
 @keyframes jump-n-in { from { opacity: 0; transform: scale(0.4); } }
-.stage-dock { position: relative; z-index: 4; flex: none; }
+/* the dock floats over the foot of the scroller, as the ios app's composer does (its decision 16): the transcript runs on under
+   the composer's clear glass to the stage's foot, and the scroller keeps the dock's height as room under its end (`--dock`), so
+   the last row still comes to rest clear above it. the dock's own box passes the pointer through to the words beside and
+   under the composer; what is in it takes it back */
+.stage-dock { position: absolute; z-index: 4; left: 0; right: 0; bottom: 0; pointer-events: none; }
+.stage-dock > * { pointer-events: auto; }
 /* with the pinned ask on screen too, the jump rides above it: the ask is 44 px tall and sits 10 px over the dock */
 .jump:has(~ .pinned) { bottom: calc(100% + 64px); }
 /* the ask the thread is waiting on, carried above the dock while its row is out of view */

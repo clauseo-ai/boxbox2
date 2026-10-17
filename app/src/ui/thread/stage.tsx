@@ -29,6 +29,7 @@ import { askActions, replies, settled } from "./asks";
 import { type ThreadData, createThreadData, toneOfColour } from "./live";
 import { watchMeasure } from "./measure";
 import { createPin, endRoom } from "./pin";
+import { viewOf } from "./view";
 import { type Boxes, FootRoom, MOST_OF_VIEW, type Seen, roseSince, seenAt } from "./foot";
 import { CLEAR_OF_BAR, askLanding, layoutTop } from "./ask-landing";
 import { createLapse } from "./focus-lapse";
@@ -120,8 +121,13 @@ export function Stage(props: StageProps) {
   let stageEl!: HTMLElement;
   let barEl!: HTMLElement;
   let threadEl!: HTMLDivElement;
+  let dockEl!: HTMLDivElement;
   /* whether the stage follows the end, and the reader's hand on the scroller (pin.ts): only their scroll lets go of the end */
-  const pin = createPin({ get scrollTop() { return scroller.scrollTop; }, set scrollTop(v) { scroller.scrollTop = v; }, get scrollHeight() { return scroller.scrollHeight; }, get clientHeight() { return scroller.clientHeight; } });
+  /* the dock floats over the scroller's foot, and the transcript runs on under its glass: the view the scroll law reads is the box
+     above it (view.ts), measured from the dock's own height (below, `--dock`) */
+  let dock = 0;
+  const view = viewOf(() => scroller, () => dock);
+  const pin = createPin(view);
   const [condensed, setCondensed] = createSignal(false);
   /* the bar takes its state without a transition until the opened thread has landed and been seen (docs/thread.md): a
      thread opened with history lands at its end, the title has gone by, and the bar's own title would fade in */
@@ -347,9 +353,9 @@ export function Stage(props: StageProps) {
   const onScroll = () => {
     /* the room goes once the view no longer shows the end, and nothing is kept until it is back */
     const end = contentEnd();
-    if (scroller.scrollTop + scroller.clientHeight >= end - 1) foot.came();
+    if (scroller.scrollTop + view.clientHeight >= end - 1) foot.came();
     else setHold(foot.letGo(end));
-    setFar(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight > scroller.clientHeight);
+    setFar(view.scrollHeight - scroller.scrollTop - view.clientHeight > view.clientHeight);
     /* the window keeps the reader's place and holds its fills above the view while the reader's own scroll runs (stage-window.ts) */
     const reader = pin.scrolled();
     win.scrolled(reader);
@@ -376,11 +382,11 @@ export function Stage(props: StageProps) {
         /* a reader at the end keeps what was at the top of their view still, not the view's place: what the settle gave back above it is
            not room to keep, and what it took from under the top (the run's open row filling the view folds) leaves nothing to keep (foot.ts) */
         const rose = atEnd ? roseSince(before, boxes) : 0;
-        const room = rose === null ? 0 : Math.min(endRoom(top - rose, scroller.clientHeight, end, basePad()), atEnd ? Math.floor(scroller.clientHeight * MOST_OF_VIEW) : Number.POSITIVE_INFINITY);
+        const room = rose === null ? 0 : Math.min(endRoom(top - rose, view.clientHeight, end, basePad()), atEnd ? Math.floor(view.clientHeight * MOST_OF_VIEW) : Number.POSITIVE_INFINITY);
         foot.keep(end, room);
         setHold(room);
         /* at the end the view is the end with its room under it, which is where what was at its top was (or as near as the room's bound lets) */
-        scroller.scrollTop = atEnd ? scroller.scrollHeight : top;
+        scroller.scrollTop = atEnd ? view.scrollHeight : top;
         pin.derive();
         seen = look();
       };
@@ -394,26 +400,38 @@ export function Stage(props: StageProps) {
   let held = false;
   onMount(() => {
     /* a change a row the reader toggled makes is theirs, and is not told to the pin as a size change (it is held, below) */
-    const ro = new ResizeObserver(() => {
+    const resized = () => {
       /* read from this frame's layout before anything is written: how far what was at the top of the view rose, and what is there now */
       const rose = roseSince(seen, boxes);
       const end = contentEnd();
       if (held) { foot.moved(end); seen = look(); return; }
       /* the end is on the screen with nothing scrolled to it (a thread shorter than its view): it keeps from now on */
-      if (scroller.scrollTop + scroller.clientHeight >= end - 1) foot.came();
+      if (scroller.scrollTop + view.clientHeight >= end - 1) foot.came();
       /* an ask the stage brought to the bar holds the view (win.hold): what the rows above it give back is not kept as room, which the
          ask would rise into, up under the bar; the end is followed instead, and that keeps the ask where it landed */
       if (win.holding()) foot.moved(end);
-      else setHold(foot.read(end, data.working(), scroller.clientHeight, rose));
+      else setHold(foot.read(end, data.working(), view.clientHeight, rose));
       /* what will be at the top of the view once the end is followed, read from this layout: the room and the scroll move no box, only
          the line, and the change that comes next can land before the scroll event of this frame's write is heard */
-      seen = seenAt<HTMLElement>(threadEl, pin.pinned() ? Math.max(0, end + basePad() + hold - scroller.clientHeight) : scroller.scrollTop, boxes);
+      seen = seenAt<HTMLElement>(threadEl, pin.pinned() ? Math.max(0, end + basePad() + hold - view.clientHeight) : scroller.scrollTop, boxes);
       pin.resized();
       pin.follow();
-    });
+    };
+    const ro = new ResizeObserver(resized);
     ro.observe(threadEl);
     ro.observe(scroller);
-    onCleanup(() => ro.disconnect());
+    /* the dock's height is the room under the transcript and the part of the scroller the view leaves out (view.ts): the queue's
+       strip, a line more of words, a card over it. its room is a spacer, so its change resizes nothing the observer above watches,
+       and is told as a size change here, in the same frame: a pinned end is followed up clear of the taller dock */
+    const dockRo = new ResizeObserver(([entry]) => {
+      const h = Math.round(entry?.borderBoxSize[0]?.blockSize ?? dockEl.offsetHeight);
+      if (h === dock) return;
+      dock = h;
+      scroller.style.setProperty("--dock", `${h}px`);
+      resized();
+    });
+    dockRo.observe(dockEl);
+    onCleanup(() => { ro.disconnect(); dockRo.disconnect(); });
     onCleanup(watchMeasure(scroller));
     /* the reader's hand, wherever focus is. a finger is down from its first touch to its last lift, however long it rests before
        it drags; its target may be a row that is replaced under it, so these listen on the document. the scroll keys are the
@@ -463,10 +481,10 @@ export function Stage(props: StageProps) {
      app does, so a long way is not a fly-past; reduced motion lands at once */
   const toBottom = () => {
     pin.input();
-    const end = () => scroller.scrollHeight - scroller.clientHeight;
+    const end = () => view.scrollHeight - view.clientHeight;
     if (reducedMotion()) scroller.scrollTo({ top: end(), behavior: "auto" });
     else {
-      if (end() - scroller.scrollTop > 2 * scroller.clientHeight) scroller.scrollTop = end() - scroller.clientHeight;
+      if (end() - scroller.scrollTop > 2 * view.clientHeight) scroller.scrollTop = end() - view.clientHeight;
       win.travel(end);
     }
     setNewBelow(0);
@@ -557,7 +575,7 @@ export function Stage(props: StageProps) {
        bar's own height, laid out (a thread arriving is drawn smaller and each of its parts moves on its own), not the scroller's top, which the bar covers. an ask near the end of the thread
        cannot reach that high, and sits lower, whole, where the end stops it */
     const below = barEl.offsetTop + barEl.offsetHeight - scroller.offsetTop + CLEAR_OF_BAR;
-    const landing = askLanding(layoutTop(row, scroller), below, scroller.scrollHeight - scroller.clientHeight);
+    const landing = askLanding(layoutTop(row, scroller), below, view.scrollHeight - view.clientHeight);
     // a row that nearly fills the room: the end gains what keeps the pin from dragging it up under the bar (ask-landing.ts)
     if (landing.pad > 0) {
       askPad += landing.pad;
@@ -1091,6 +1109,9 @@ export function Stage(props: StageProps) {
                 scroller's padding: padding is the scroller's box, so its change came back to every observer of the scroller inside
                 the resize observer's own callback, and a flex item is never smaller than its padding */}
             <div class="stage-room" aria-hidden="true" />
+            {/* the dock's room (`--dock`, view.ts): the transcript runs on under the composer's glass, and the end can still be scrolled
+                clear above it */}
+            <div class="stage-dock-room" aria-hidden="true" />
           </div>
           <div ref={rulerEl} class="ruler" classList={{ show: rulerShown(), drag: rulerDrag() !== null }} role="slider" aria-label="jump to a turn" aria-valuemin={1} aria-valuemax={prompts().length} aria-valuenow={cur() + 1} tabIndex={0} onPointerDown={rulerDown} onPointerMove={rulerMove} onPointerUp={rulerUp} onPointerCancel={rulerUp} style={{ "--gap": `${Math.max(4, Math.min(9, (scroller?.clientHeight ?? 600) / Math.max(1, prompts().length) - 0.5))}px` }}>
             <For each={prompts()}>{(t, j) => <b classList={{ "k-cur": j() === cur(), "k-ask": t.items.some((x) => x.k === "step" && x.family === "ask") }} />}</For>
@@ -1102,7 +1123,7 @@ export function Stage(props: StageProps) {
               <em>{c().steps || c().t.answer ? `${c().steps ? `${plural(c().steps, "step")}, ${dur(c().t.end - c().t.at)}` : ""}${c().t.answer ? `${c().steps ? ", " : ""}answered` : ""}` : "no reply"}</em>
             </div>
           )}</Show>
-          <div class="stage-dock" data-slot="composer">
+          <div ref={dockEl} class="stage-dock" data-slot="composer">
             {/* one control, not two: the round glass jump, with what came below as its count. it stays in the dom so it comes and goes by
                 opacity and scale and nothing under it moves */}
             <button class="jump lg lg-press" classList={{ on: jumpShown() }} inert={!jumpShown()} aria-hidden={jumpShown() ? undefined : "true"} aria-label={newBelow() > 0 ? `jump to the latest, ${plural(newBelow(), "new message")} below` : "jump to the latest"} aria-keyshortcuts={`${mod}+ArrowDown`} onClick={toBottom}>

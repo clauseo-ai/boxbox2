@@ -585,7 +585,8 @@
    under a thread the composer floats over the log as the stage bar's rounds do, so it is the clear lens: the transcript
    moves under it, brightened and barely blurred, lit along the rim. the words stay legible the way the system does it on
    clear glass: a soft pool of shade inside the pane behind them (the window's lit top colour on light, its deep colour
-   most of the way to black on dark, 80% at its heart, masked to thin toward the rim, never blurred past it). the words
+   most of the way to black on dark, half at its heart, masked to thin toward the rim, never blurred past it; at 80% it
+   hid the transcript passing under the glass, and the pane read as opaque). the words
    taking focus light the rim. the keys are drops of glass over a
    breath of ink (glass inside glass would draw white on light), and on is the glass tinted with the accent. the sheet and
    the full stage keep the repo material (they sit on grounds of their own), as do the menus, the list and the edges
@@ -617,7 +618,7 @@
     border-radius: inherit;
     pointer-events: none;
     background: var(--cz-scrim);
-    opacity: 0.8;
+    opacity: 0.5;
     -webkit-mask: linear-gradient(90deg, var(--cz-feather)), linear-gradient(180deg, var(--cz-feather));
     -webkit-mask-composite: source-in;
     mask: linear-gradient(90deg, var(--cz-feather)), linear-gradient(180deg, var(--cz-feather));

@@ -1033,9 +1033,20 @@ growing at its end, and the run going on now is at the live edge:
   `thread-ask-slow` at the ipad's width, 31 px under it two runs in
   three); the end is followed instead, which keeps the ask where it
   landed.
+- **the transcript runs under the composer** (the ios app's decision 16): the
+  dock floats over the scroller's foot, so what is under the composer's
+  clear glass is the thread itself, bent and softly blurred, and the
+  scroller keeps the dock's height as room under its end (`--dock`,
+  `.stage-dock-room`), so the last row still comes to rest clear above the
+  glass. the scroll law reads the view above the dock, never the
+  scroller's raw heights (`view.ts`, `viewOf`): "the end is in view" means
+  the last row stands clear of the glass. (the dock was a flex row below the
+  scroller until 2026-10-17, so nothing could pass under the glass and the
+  pane read as opaque.)
 - **the stage follows the end** while the reader is pinned to it: any growth
-  of the transcript, and any change of the scroller's own box (the dock
-  taller, the keyboard up), is scrolled to in the frame that paints it, so a
+  of the transcript, and any change of the scroller's own box or of the dock
+  (taller by a line or the queue's strip, the keyboard up), is scrolled to in
+  the frame that paints it, so a
   new row is never painted below the fold first. being pinned is a latch
   (`pin.ts`): only the reader's own scroll lets go of it (a wheel, a touch, a
   pointer, a key, a finger that went down on the scroller from its first
