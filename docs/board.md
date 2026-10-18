@@ -256,8 +256,8 @@ shuts it at once (a blocking client's body reader cannot be closed from
 another thread): `: hb` every 15 s, 45 s without a byte is a dead stream,
 redialled after 0.5 s doubling to 30 s, back to 0.5 s once the server took a stream (its 200), however it ended. `replaced` ends it until the next
 plug. tls on both is the system's (native-tls, security framework: its roots
-and its verifier), which keeps the binary at 1.7 mib stripped with no tls
-stack or root store in it. login posts `password_file`'s contents to
+and its verifier), which keeps the binary at 1.9 mib stripped with no tls
+stack in it (ureq's native-tls feature brings webpki's roots, unused). login posts `password_file`'s contents to
 `/api/login` and keeps whatever cookie `Set-Cookie` names, 0600 in the
 state dir; any 401 logs in again once.
 
@@ -338,7 +338,7 @@ type code signing. no hardened runtime, which would also need the
 v1's bun daemon, measured on a mac: 34 mib resident, 0.95% of a core
 averaged over 12 hours, most of them with no board plugged in.
 
-boxbox-board, measured on a mac (release, stripped, 1.7 mib), 10 minutes
+boxbox-board, measured on a mac (release, stripped, 1.7 mib then; 1.9 mib since the tls fix), 10 minutes
 each with `ps -o rss=,cputime=` at both ends:
 
 - a fake board on the socket seam idling in the drive bank, against a fake

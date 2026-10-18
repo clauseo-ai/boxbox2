@@ -55,8 +55,9 @@ linux builds only the first four. release builds compile `-p boxbox` alone.
 | async-hid (macos) | the keypad: macos's hid add and remove notifications on a dispatch queue (no polling), and a non-exclusive open split into a reader thread and the main loop's writer. hidapi offers no hotplug, and its device cannot be read on one thread while written on another | MIT |
 | futures-lite (macos) | `block_on` for async-hid's futures on plain threads, so the daemon has no async runtime | Apache-2.0 OR MIT |
 | cpal (macos) | the mic meter's input through coreaudio, opened only while talking | Apache-2.0 |
-| ureq (macos, native-tls, no default features) | the posts (acts, login, telemetry), pooled and blocking, on the system's tls | MIT OR Apache-2.0 |
-| native-tls (macos) | tls for the stream, through security framework: the system's roots and verifier, no tls stack or root store compiled in (a 1.7 mib stripped binary) | MIT OR Apache-2.0 |
+| ureq (macos, native-tls only) | the posts (acts, login, telemetry), pooled and blocking, on the system's tls. its full `native-tls` feature, since 3.4 compiles its tls connector only under it | MIT OR Apache-2.0 |
+| webpki-root-certs (macos, through ureq's native-tls feature) | compiled in by that feature and unused: the daemon asks for the platform's roots | CDLA-Permissive-2.0 |
+| native-tls (macos) | tls for the stream, through security framework: the system's roots and verifier, no tls stack compiled in (a 1.9 mib stripped binary) | MIT OR Apache-2.0 |
 | signal-hook (macos, iterator only) | sigterm and sigint as a message to the main loop, so a stop posts the gone and darkens the board; a thread blocked on its pipe, nothing while idle, and no unsafe code in the daemon | MIT OR Apache-2.0 |
 | if-addrs (macos) | this mac's addresses for the stream's `addrs` (decision 81) | MIT OR BSD-3-Clause |
 | jiff (macos, system tz only) | the local hour for the night curve | MIT OR Unlicense |

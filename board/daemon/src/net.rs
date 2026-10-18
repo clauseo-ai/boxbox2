@@ -8,7 +8,8 @@
 //! unplug must close it at once (`shutdown`), which a blocking client's
 //! body reader cannot be told to do from another thread. tls on both is the
 //! system's (native-tls, security framework on macos, its roots and its
-//! verifier): no tls stack or root store compiled in.
+//! verifier): no tls stack compiled in. ureq's native-tls feature also
+//! carries webpki's roots, which nothing here asks for.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
@@ -797,6 +798,30 @@ pub fn local_addrs() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ureq compiles its native-tls connector only under its full
+    /// `native-tls` feature; with `native-tls-no-default` alone every https
+    /// post panicked on a real server ("provider is `NativeTls` but feature is
+    /// not enabled"), which the harness, on plain http, never reached. an
+    /// https post to a socket that speaks no tls must come back as an error.
+    #[test]
+    fn an_https_post_fails_as_an_error_not_a_panic() -> std::io::Result<()> {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        let server = std::thread::spawn(move || {
+            if let Ok((mut s, _)) = listener.accept() {
+                let mut buf = [0_u8; 512];
+                let _ = std::io::Read::read(&mut s, &mut buf);
+                let _ = std::io::Write::write_all(&mut s, b"HTTP/1.1 400 not tls\r\n\r\n");
+            }
+        });
+        let result = agent()
+            .post(format!("https://127.0.0.1:{port}/api/login"))
+            .send("x");
+        assert!(result.is_err());
+        let _ = server.join();
+        Ok(())
+    }
 
     #[test]
     fn a_private_file_is_0600_even_over_a_wide_stale_temp() -> std::io::Result<()> {
