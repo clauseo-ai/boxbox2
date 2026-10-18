@@ -19,6 +19,11 @@ RUN apk add --no-cache musl-dev clang cmake make perl
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml clippy.toml rustfmt.toml ./
 COPY server server
+# the server builds against board/wire, and cargo reads every workspace
+# member's manifest even for -p boxbox, so the daemon's sources come along
+# (it is never built here)
+COPY board/wire board/wire
+COPY board/daemon board/daemon
 COPY vendor/cmx2 vendor/cmx2
 COPY vendor/openclaw vendor/openclaw
 COPY openclaw.pin openclaw.pin

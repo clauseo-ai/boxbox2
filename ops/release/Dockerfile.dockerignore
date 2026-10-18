@@ -7,6 +7,8 @@
 !clippy.toml
 !rustfmt.toml
 !server/
+!board/wire/
+!board/daemon/
 !vendor/cmx2/
 !vendor/openclaw/
 !openclaw.pin
