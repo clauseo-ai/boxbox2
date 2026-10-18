@@ -118,6 +118,25 @@ pub enum ApiError {
         holder: String,
         agent_key: bool,
     },
+    /// a board verb or a pairing with no board connected (`docs/board.md`).
+    #[error("no board is connected. plug it in, or wait for it to come back")]
+    NoBoard,
+    /// a focus or a compose with no boxbox window open on the board's mac.
+    #[error(
+        "no boxbox window is open on the mac the board is plugged into. open boxbox there and press again"
+    )]
+    NoBoardWindow,
+    /// a board stream too far behind to take a pin.
+    #[error("the board is not keeping up with the server. wait a moment and pair again")]
+    BoardBusy,
+    /// a compose for a machine the board shows no light for.
+    #[error("the board shows no machine named \"{0}\"")]
+    NoSuchMachine(String),
+    /// a board daemon that speaks another protocol than this server.
+    #[error(
+        "this board speaks protocol {asked}; this server speaks {speaks}. update the board's daemon or the server so they match"
+    )]
+    BoardProtocol { asked: u32, speaks: u32 },
 }
 
 /// why the daemon would not merge or discard a checkout, as the review card reads it.
@@ -174,7 +193,9 @@ pub struct ErrorDetail {
     /// `checkout-refused` (whose body is a `CheckoutRefusal`, not this one),
     /// and contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`
     /// (with `retry-after`), `generation-changed`, `not-confirmed`,
-    /// `not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`.
+    /// `not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,
+    /// and the board's `no-board`, `no-board-window`, `board-busy`,
+    /// `no-such-machine`, `board-protocol`.
     pub code: &'static str,
     /// for people, in the interface's voice.
     pub message: String,
@@ -248,6 +269,11 @@ impl ApiError {
             Self::AttachmentTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "attachment-too-large"),
             Self::AttachmentKind(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "attachment-kind"),
             Self::NameReserved { .. } => (StatusCode::CONFLICT, "name-reserved"),
+            Self::NoBoard => (StatusCode::CONFLICT, "no-board"),
+            Self::NoBoardWindow => (StatusCode::CONFLICT, "no-board-window"),
+            Self::BoardBusy => (StatusCode::SERVICE_UNAVAILABLE, "board-busy"),
+            Self::NoSuchMachine(_) => (StatusCode::NOT_FOUND, "no-such-machine"),
+            Self::BoardProtocol { .. } => (StatusCode::CONFLICT, "board-protocol"),
         }
     }
 }

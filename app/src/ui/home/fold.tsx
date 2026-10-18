@@ -12,6 +12,8 @@ import { colourStyle } from "../window/repo";
 import { openSuffix } from "../window/clear";
 import { type WindowView, windowName } from "../window/view";
 import { RepoMark } from "../repo-mark/repo-mark";
+import { BoardKey, boardWords } from "../../board/lazy";
+import { state } from "../../store";
 import { markOf, stateWords } from "./swatch";
 import { type Beside, toggleName, type WindowsState } from "./windows";
 import "./fold.css";
@@ -109,7 +111,7 @@ function Swatch(props: SwatchProps) {
       style={colourStyle(props.view.colour)}
       data-state={props.view.state}
       data-current={props.current ? "" : undefined}
-      aria-label={`${windowName(props.view)}${openSuffix(props.view.key)}`}
+      aria-label={`${windowName(props.view)}${boardWords(props.view.key)}${openSuffix(props.view.key)}`}
       aria-current={props.current ? "true" : undefined}
       onClick={(event) => props.onOpen(event.currentTarget, event)}
       onPointerEnter={(event) => event.pointerType !== "touch" && props.onLead(event.currentTarget, props.view.key)}
@@ -124,6 +126,9 @@ function Swatch(props: SwatchProps) {
             {shown() === "tick" ? TICK : shown() === "cross" ? CROSS : null}
           </span>
         )}
+      </Show>
+      <Show when={state.board.met}>
+        <BoardKey thread={props.view.key} form="swatch" />
       </Show>
     </button>
   );

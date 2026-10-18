@@ -70,6 +70,8 @@ pub struct AppState {
     pub births: compose::Births,
     /// contract 2's sends by agent and client id, so none runs twice.
     pub sends: crate::source::sends::Sends,
+    /// the board's channel, only with `[board]` in `boxbox.toml`.
+    pub board: Option<Arc<crate::board::Board>>,
     /// fired at shutdown; streams end on it.
     pub shutdown: CancellationToken,
 }
@@ -228,6 +230,7 @@ fn router_waiting(state: Arc<AppState>, photo_wait: Duration) -> Router {
             post(telemetry::ingest).layer(DefaultBodyLimit::max(TELEMETRY_BODY)),
         )
         .merge(contract_two(&state))
+        .merge(board_routes(&state))
         .route_layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             require_session,
@@ -272,6 +275,18 @@ fn router_waiting(state: Arc<AppState>, photo_wait: Duration) -> Router {
         .layer(DefaultBodyLimit::max(SMALL_BODY))
         .layer(middleware::from_fn(log_request))
         .with_state(state)
+}
+
+/// the board's routes, with `[board]` only: without it they are no route at
+/// all, and `/api/{*rest}` answers 404 (`docs/board.md`).
+fn board_routes(state: &AppState) -> Router<Arc<AppState>> {
+    if state.board.is_none() {
+        return Router::new();
+    }
+    Router::new()
+        .route("/api/board/stream", get(crate::board::routes::stream))
+        .route("/api/board/act", post(crate::board::routes::act))
+        .route("/api/board/pin", post(crate::board::routes::pin))
 }
 
 /// what a message with photos takes of the budget, in MiB: twice its size, since while it is parsed the server holds the
@@ -531,6 +546,19 @@ pub(crate) mod tests {
         store: crate::store::Store,
         fleet: Fleet,
     ) -> SocketAddr {
+        serve_board(photo_wait, upstreams, sends, media, store, fleet, None).await
+    }
+
+    /// the same, with the board's channel when `board` is set.
+    pub(crate) async fn serve_board(
+        photo_wait: Duration,
+        upstreams: Upstreams,
+        sends: crate::source::sends::Sends,
+        media: crate::media::Media,
+        store: crate::store::Store,
+        fleet: Fleet,
+        board: Option<Arc<crate::board::Board>>,
+    ) -> SocketAddr {
         let client = reqwest::Client::new();
         let shutdown = CancellationToken::new();
         let (icons, _task) = crate::icons::spawn(client.clone(), fleet.clone(), shutdown.clone());
@@ -555,12 +583,18 @@ pub(crate) mod tests {
             media,
             births: compose::Births::default(),
             sends,
+            board,
             shutdown,
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
-            let _ = axum::serve(listener, router_waiting(state, photo_wait)).await;
+            let _ = axum::serve(
+                listener,
+                router_waiting(state, photo_wait)
+                    .into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await;
         });
         addr
     }

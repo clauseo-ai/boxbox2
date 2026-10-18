@@ -196,6 +196,14 @@ export const EVENTS = {
       attempts: { type: "INTEGER", doc: "the repo's consecutive retries including this one, 0 when the read was not a retry." },
     },
   },
+  "perf.board_view": {
+    doc: "the server rebuilt the board's view (docs/board.md, cost) and sent it: one row a minute at most while a board stream listens, none without one. ms is the rebuild and encode, rounded; us the same in microseconds, since the budget is under 1 ms. no thread, host or machine name travels.",
+    props: {
+      us: { type: "INTEGER", doc: "the rebuild and encode, in microseconds." },
+      bytes: { type: "INTEGER", doc: "the encoded view frame's size." },
+      threads: { type: "INTEGER", doc: "threads riding the view, at most 36." },
+    },
+  },
   "perf.thread": {
     doc: "the thread's paints, an intent to the first frame that shows its result: a thread opening, a row opening, a stream event reaching a glyph. ms is intent to paint; ok = 1 when it painted inside its budget (a thread from cache in 300 ms, a row in one frame, an event in 150 ms).",
     props: {
@@ -794,6 +802,16 @@ export const EVENTS = {
       wire: { type: "INTEGER", doc: "the key, as wire index.", required: true },
       agent: { type: "TEXT", doc: "the agent bound or cleared." },
       bound: { type: "INTEGER", doc: "1 = bound, 0 = cleared.", required: true },
+    },
+  },
+  "perf.board": {
+    doc: "what the board daemon costs on its mac (docs/board.md, budgets: a 4 mib physical footprint, 0.1% of a core plugged in and idle, nothing measurable with no board). hourly while a board is plugged in, plus one row at each plug covering the time the board was away, so the no-board cost is measured without a timer running while idle.",
+    props: {
+      footprintKib: { type: "INTEGER", doc: "physical footprint at the sample, kib (vmmap): the process's own memory, what activity monitor shows. the budget's figure." },
+      rssKib: { type: "INTEGER", doc: "resident size at the sample, kib (ps rss). counts the shared CoreFoundation pages every IOKit client maps, so it reads about 5.4 mib above the process's own cost.", required: true },
+      cpu: { type: "REAL", doc: "percent of one core used since the last sample.", required: true },
+      spanMs: { type: "INTEGER", doc: "the wall time the cpu figure covers.", required: true },
+      board: { type: "INTEGER", doc: "1 = the span had a board plugged in, 0 = the span ends at a plug.", required: true },
     },
   },
 } as const satisfies Record<string, EventSpec>;

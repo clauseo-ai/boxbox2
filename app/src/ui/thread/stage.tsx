@@ -10,6 +10,7 @@ import { api } from "../../api/client";
 import { play } from "../../motion/animate";
 import { FADE, TICK_DRAW } from "../../motion/springs";
 import { FOCUS_FOR_MS, type Focus, openFocus, releaseFocus, state, threadCaches } from "../../store";
+import { BoardPair, BoardReceipt } from "../../board/lazy";
 import { type ThreadPlace, closeThread, deviceIdentity, emit, markPlace, openThread, placeInUrl, rereadThread } from "../../sync/client";
 import { splitKey } from "../../sync/protocol";
 import { Composer } from "../composer/composer";
@@ -1041,6 +1042,8 @@ export function Stage(props: StageProps) {
             <div class="menu-sep" role="separator" />
             <button role="menuitem" disabled={compactBlocked()} onClick={compactNow}>{compacting() ? "compacting" : "compact"}<em>summarise to free the context</em></button>
             <button role="menuitem" onClick={copyLink}>copy link</button>
+            {/* while a board is here (docs/board.md, the app); an agent never sits on a board's key */}
+            <Show when={state.board.here && state.board.pairing && !parentKey()}><BoardPair thread={key()} colour={colour()} onPick={() => setMenuOpen(false)} /></Show>
             <div class="menu-sep" role="separator" />
             <Show
               when={confirming()}
@@ -1056,6 +1059,7 @@ export function Stage(props: StageProps) {
               </div>
             </Show>
           </div>
+          <Show when={state.board.met}><BoardReceipt thread={key()} /></Show>
           <Show when={linkCopied()}>{(c) => <p class="stage-receipt" role="status">{c() === "copied" ? "copied" : "could not copy. the address bar holds the same link"}</p>}</Show>
           <div ref={scroller} class="stage-scroll" onScroll={onScroll} onWheel={markTouched} onTouchStart={markTouched} onPointerDown={markTouched} onKeyDown={markTouched}>
             <div ref={threadEl} class="thread" classList={{ wide: wide() }} data-flip-root aria-label="transcript">

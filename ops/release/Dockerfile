@@ -33,7 +33,7 @@ ARG BOXBOX_REPO=""
 ENV BOXBOX_REPO=${BOXBOX_REPO}
 RUN --mount=type=cache,id=boxbox-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=boxbox-target-${TARGETARCH},target=/src/target \
-    cargo build --release --locked \
+    cargo build --release --locked -p boxbox \
  && mkdir -p /out \
  && cp target/release/boxbox /out/boxbox \
  && /out/boxbox --version

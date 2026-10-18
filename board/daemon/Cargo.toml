@@ -1,0 +1,37 @@
+[package]
+name = "boxbox-board"
+version = "0.1.0"
+description = "the board's daemon: one native binary per mac, idle until the keypad is plugged in (docs/board.md)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "boxbox-board"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+boxbox-board-wire = { path = "../wire" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2"
+toml = { version = "1.1", default-features = false, features = ["std", "serde", "parse"] }
+
+# the keypad, the network, the microphone and the clock exist only on a mac:
+# linux builds the pure modules and the controller (ci's `just check`) and a
+# binary that says it runs on macos.
+[target.'cfg(target_os = "macos")'.dependencies]
+async-hid = { version = "0.5", default-features = false }
+cpal = "0.18"
+futures-lite = { version = "2", default-features = false, features = ["std"] }
+if-addrs = "0.15"
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+native-tls = "0.2"
+signal-hook = { version = "0.4", default-features = false, features = ["iterator"] }
+ureq = { version = "3.4", default-features = false, features = ["native-tls-no-default"] }

@@ -8,7 +8,8 @@
    replay is the build under test. it speaks v1 cmx's tool names
    (`exec_command` asks the `bash` permission, `question` needs
    OPENCODE_ENABLE_QUESTION_TOOL); a world for another daemon passes its own
-   with --shell-tool.
+   with --shell-tool, and the name of its command argument with
+   --shell-arg (cmx2: `--shell-tool shell --shell-arg command`).
 
    the script is picked by a marker in the turn's prompt:
 
@@ -21,7 +22,7 @@
      anything else          a one-line reply (cmx's own title and summary
                             calls land here)
 
-   run: bun board/trace/model.ts --port 4881 [--shell-tool exec_command] */
+   run: bun board/trace/model.ts --port 4881 [--shell-tool exec_command] [--shell-arg cmd] [--end-ms 0] */
 
 /* a module, not a script: its names stay out of the global scope the rest
    of the typecheck shares */
@@ -51,6 +52,13 @@ function arg(name: string, fallback: string): string {
 }
 
 const SHELL_TOOL = arg("--shell-tool", "exec_command");
+const SHELL_ARG = arg("--shell-arg", "cmd");
+/** a pause between a reply's last word and the end of its message. v1's cmx took about 300ms from a reply's last
+    token to the session going idle; cmx2 takes a few. the board shows a working key bright while text streams, and
+    v2's server builds the board's view at most every 250ms, so with no pause the last words and the turn's end land in
+    one build and the bright frame v1 drew never shows. the v2 world passes --end-ms 300 so a turn ends as long after
+    its words as it did when the traces were recorded; v1's world passes nothing, as recorded */
+const END_MS = Number(arg("--end-ms", "0"));
 
 /** the prompt that started this turn, and where it sits */
 function prompt(messages: Message[]): { text: string; index: number } {
@@ -83,7 +91,7 @@ function script(request: MessagesRequest): Step {
   const { text, index } = prompt(messages);
   if (text.includes("[trace:permission]")) {
     if (answered(messages, index)) return words("the command ran.");
-    return { kind: "tool", lead: "one command first.", call: { name: SHELL_TOOL, input: { cmd: "echo trace" } } };
+    return { kind: "tool", lead: "one command first.", call: { name: SHELL_TOOL, input: { [SHELL_ARG]: "echo trace" } } };
   }
   const question = /\[trace:question (\d)\]/.exec(text);
   if (question) {
@@ -142,6 +150,7 @@ function stream(step: Step, model: string, signal: AbortSignal): ReadableStream<
           if (step.everyMs > 0) await Bun.sleep(step.everyMs);
         }
         send("content_block_stop", { index: 0 });
+        if (END_MS > 0) await Bun.sleep(END_MS);
       }
       send("message_delta", {
         delta: { stop_reason: step.kind === "tool" ? "tool_use" : "end_turn", stop_sequence: null },

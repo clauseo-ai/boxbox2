@@ -57,6 +57,7 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
         super::prefs::repo,
         super::prefs::favorite_models,
         super::stream::stream,
+        crate::board::routes::pin,
         super::fleet::snapshot,
         super::transcript::messages,
         super::transcript::message,
@@ -106,6 +107,9 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
     ),
     components(schemas(
         Accepted,
+        boxbox_board_wire::AppFrame,
+        boxbox_board_wire::Seat,
+        boxbox_board_wire::PinRequest,
         crate::media::MediaObject,
         Archived,
         CheckoutRefusal,

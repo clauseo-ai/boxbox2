@@ -8,9 +8,10 @@
 
 import { unwrap } from "solid-js/store";
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
-import { deviceClass, deviceId } from "../push/device";
-import { applyPatches, bootSync, setCacheBlocked, setComposerNotice, setDraft, setDraftsKept, setBorn, setOpenThread, setOutbox, setReply, setStream, state, syncNeedsReload, syncSignedOut } from "../store";
+import { boardCapable, deviceClass, deviceId } from "../push/device";
+import { applyPatches, boardCompose, boardFocus, boardGone, boardHere, bootSync, setCacheBlocked, setComposerNotice, setDraft, setDraftsKept, setBorn, setOpenThread, setOutbox, setReply, setStream, state, syncNeedsReload, syncSignedOut } from "../store";
 import type { Emit, FromWorker, Outgoing, Query, StreamStatus, SyncCounters, ToWorker } from "./messages";
+import type { BoardFrame } from "./protocol";
 import { type Draft, type DraftMessage, type Photo, photosNotFitted, takeBackDraft } from "./outbox";
 import { coalesce, type Patch } from "./reducer";
 import type { AskReply } from "./replies";
@@ -97,6 +98,9 @@ function onMessage(event: MessageEvent<FromWorker>) {
     case "drafts":
       setDraftsKept(message.kept);
       return;
+    case "board":
+      onBoard(message.frame);
+      return;
     case "unsent": {
       const id = `${message.key} ${message.messageID}`;
       unsending.get(id)?.({ ok: message.ok, message: message.message, returned: message.returned });
@@ -105,6 +109,27 @@ function onMessage(event: MessageEvent<FromWorker>) {
     }
     default:
       message satisfies never;
+  }
+}
+
+/** a board frame (docs/board.md, the app). a focus or a compose is for the window the person is looking at: a hidden one
+    (another tab, a minimised window) lets it pass, so it never opens a thread or a sheet nobody sees */
+function onBoard(frame: BoardFrame) {
+  switch (frame.type) {
+    case "board.here":
+      boardHere(frame.seats);
+      return;
+    case "board.gone":
+      boardGone();
+      return;
+    case "board.focus":
+      if (document.visibilityState === "visible") boardFocus(frame.key);
+      return;
+    case "board.compose":
+      if (document.visibilityState === "visible") boardCompose(frame.machine);
+      return;
+    default:
+      frame satisfies never;
   }
 }
 
@@ -139,7 +164,7 @@ export function startSync(): void {
   device.id = deviceId();
   device.deviceClass = deviceClass();
   const key = new URLSearchParams(location.search).get(THREAD_PARAM);
-  send({ type: "start", device: device.id, deviceClass: device.deviceClass, open: key });
+  send({ type: "start", device: device.id, deviceClass: device.deviceClass, open: key, board: boardCapable() });
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("pagehide", onPageHide);
   window.addEventListener("pageshow", onPageShow);

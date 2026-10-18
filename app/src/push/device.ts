@@ -36,6 +36,14 @@ export function deviceClass(): DeviceClass {
   return navigator.webdriver ? "automation" : deviceClassOf(navigator.userAgent, navigator.maxTouchPoints);
 }
 
+/** a desk or a laptop: the only kind of device a board is plugged into (docs/board.md, where the board is), so the only
+    kind whose stream asks for board frames. phones, ipads and the ios app never do. the dictionary's sniff, read past
+    automation, since a drive in a desktop browser is still at a desk */
+export function boardCapable(): boolean {
+  const family = deviceClassOf(navigator.userAgent, navigator.maxTouchPoints);
+  return family === "mac" || family === "desktop";
+}
+
 /** safari on an iphone or ipad only offers web push inside an app added to
     the home screen, never in a tab */
 export function needsHomeScreen(): boolean {

@@ -25,7 +25,8 @@ import { FADE } from "../motion/springs";
 import { followWorkerLinks, takeLaunchLink } from "../push/links";
 import { startNotifications } from "../push/notifications";
 import { reportPresence } from "../push/presence";
-import { refreshHosts, state } from "../store";
+import { composeHost, focusable } from "../board/requests";
+import { boardCompose, boardFocus, refreshHosts, state } from "../store";
 import { emit, forgetSync, startSync } from "../sync/client";
 import { Home } from "../ui/home/home";
 import { warmLater } from "../ui/later";
@@ -141,6 +142,28 @@ export function ShellView(props: ShellViewProps) {
     removeEventListener("keydown", onKeyCapture, { capture: true });
     removeEventListener("keydown", onKey);
   });
+
+  /* a board key reaches for home from wherever the app is (docs/board.md, the app), and home takes the request once it is up.
+     one the app cannot take (no window for the key, a machine the sheet cannot start a thread on) is dropped where it is,
+     and so is any while a terminal holds the keyboard: someone is typing into a shell, and a key press elsewhere must not
+     take the screen from under them (an open terminal the trip closes keeps its shell, which the relay replays when it is
+     opened again, but the person's place in it is theirs) */
+  createEffect(
+    on(
+      () => state.board.focus ?? state.board.compose,
+      (asked) => {
+        if (!asked) return;
+        const takes = "key" in asked ? focusable(state.fleet, asked.key, Date.now()) : composeHost(state.fleet.hostNames, asked.machine) !== null;
+        const typing = state.terminals.open !== null && document.activeElement?.closest(".term") != null;
+        if (!takes || typing) {
+          if ("key" in asked) boardFocus(null);
+          else boardCompose(null);
+          return;
+        }
+        if (state.screen !== "home") navigate({ name: "home" });
+      },
+    ),
+  );
 
   /* —— who is driving: focus follows a screen change for the keyboard only; a finger gets no ring —— */
   let keyboard = false;

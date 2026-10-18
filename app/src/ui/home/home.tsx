@@ -24,7 +24,8 @@ import { createStore, reconcile } from "solid-js/store";
 import { flip, insetOf, installMotionProperties, play, prefersReducedMotion, settle } from "../../motion/animate";
 import { birth } from "../../motion/fly";
 import { FADE, SHEET, SNAP } from "../../motion/springs";
-import { openFocus, releaseFocus, setWindowsInView, state } from "../../store";
+import { composeHost, focusPlan, holdsWords, type Over } from "../../board/requests";
+import { boardCompose, boardFocus, openFocus, releaseFocus, setWindowsInView, state } from "../../store";
 import { type ThreadPlace, closeThread, openThread, placeInUrl } from "../../sync/client";
 import type { Ask } from "../../sync/protocol";
 import { extraOf } from "../inbox/extra";
@@ -1014,6 +1015,67 @@ export function Home(props: HomeProps) {
   };
   addEventListener("keydown", onKey);
   onCleanup(() => removeEventListener("keydown", onKey));
+
+  /* —— the board (docs/board.md, the app; the rules in board/requests.ts): a digit key opens its thread through the tap's own
+     path, with the tap's motion, and puts the caret in its composer without a scroll, so the dictation the keypad types next
+     lands there; a sheet holding words keeps the screen and its caret, and the thread opens behind it. a machine key opens
+     the new-thread sheet on that machine. each request is taken once, by whichever home is up: the shell brings home up for
+     one that comes while the app is elsewhere —— */
+  let boardFrame: number | undefined;
+  onCleanup(() => cancelAnimationFrame(boardFrame ?? 0));
+  const caret = (key: string, tries: number) => {
+    const field = stageEl?.querySelector<HTMLTextAreaElement>(`.thread-stage[data-thread="${CSS.escape(key)}"] .cz-body textarea`);
+    if (!field) {
+      if (tries > 0) boardFrame = requestAnimationFrame(() => caret(key, tries - 1));
+      return;
+    }
+    field.focus({ preventScroll: true });
+    // a screen coming back hands a keyboard's focus to the control that went in, a moment later (app/src/shell): for the first
+    // frames that hand-off is undone, and nothing a person chose is
+    const hold = (left: number) => {
+      const now = document.activeElement;
+      if (now !== field && (now === document.body || now?.matches("[data-opens], [data-screen-title]"))) field.focus({ preventScroll: true });
+      if (left > 0) boardFrame = requestAnimationFrame(() => hold(left - 1));
+    };
+    boardFrame = requestAnimationFrame(() => hold(20));
+  };
+  createEffect(
+    on(
+      () => state.board.focus,
+      (focus) => {
+        if (!focus) return;
+        boardFocus(null);
+        // a frame on, so a home the request just brought up has drawn its windows
+        cancelAnimationFrame(boardFrame ?? 0);
+        boardFrame = requestAnimationFrame(() => {
+          const el = originOf(focus.key);
+          if (!el || !held(focus.key)) return;
+          const over = (up: boolean, selector: string): Over => (!up ? "none" : holdsWords(document.querySelector(selector)) ? "words" : "empty");
+          const plan = focusPlan(over(sheet() !== null && !away(), ".cz-sheet"), over(askSheet() !== null, ".asks-sheet"));
+          if (plan.closeAnswer) setAskSheet(null);
+          if (plan.closeNewThread) closeSheet();
+          activate(focus.key, el, null);
+          // a tap a running transition refused opened nothing: the caret stays where it was
+          if (plan.caret && open() === focus.key) caret(focus.key, 30);
+        });
+      },
+    ),
+  );
+  createEffect(
+    on(
+      () => state.board.compose,
+      (compose) => {
+        if (!compose) return;
+        boardCompose(null);
+        // a sheet already up is someone's words: it is left as it is
+        const host = composeHost(state.fleet.hostNames, compose.machine);
+        if (host === null || untrack(sheet)) return;
+        setAskSheet(null);
+        const here = untrack(startPlace);
+        whenLoaded("NewThreadSheet", () => setSheet(here?.host === host ? here : { host, directory: null }));
+      },
+    ),
+  );
 
   /* —— the bar's line —— */
   /** a thread is on the stage and its layer renders: only then is what is under it inert. `open()` alone is not enough

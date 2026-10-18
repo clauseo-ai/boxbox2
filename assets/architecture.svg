@@ -14,7 +14,7 @@
 <rect x="40" y="70" width="168" height="76" rx="13" fill="url(#f-blue-0.6)"/>
 <rect x="40.5" y="70.5" width="167" height="75" rx="12.5" fill="none" stroke="#173a5e" stroke-opacity="0.34" stroke-dasharray="4 4"/>
 <text x="124" y="97" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="13" font-weight="650" fill="#173a5e">17-key board</text>
-<text x="124" y="115" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#415d7b" fill-opacity=".92">optional, a bun daemon</text>
+<text x="124" y="115" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#415d7b" fill-opacity=".92">optional, a native daemon</text>
 <text x="124" y="128" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="10" fill="#415d7b" fill-opacity=".92">over usb</text>
 <rect x="40" y="166" width="168" height="76" rx="13" fill="#173a5e" fill-opacity=".08"/>
 <rect x="40" y="164" width="168" height="76" rx="13" fill="url(#f-blue-1)"/>

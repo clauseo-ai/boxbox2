@@ -64,9 +64,10 @@ subsystem deserve different amounts of ceremony.
   attribution trailers or "generated with" lines. never bypass git hooks.
 - **cmx2** is read, never edited (see below). its gaps are asks, never
   workarounds in boxbox (decision 9).
-- **the board is frozen** (decisions 1, 11, 14). only
-  `board/daemon/src/client.ts` changes; a checksum test holds every other
-  board file to the v1 bytes.
+- **the board** is an optional add-on for one keypad (`docs/board.md`): it
+  costs nothing unless `[board]` is configured. decision 1 binds every key and
+  light, decisions 78 to 81 say what changed, and the recorded traces hold it
+  (`docs/board-verification.md`).
 - **telemetry.** kinds are never renamed; new kinds go into
   `telemetry/schema.ts`. outcomes are honest (`ok` comes from the echo, not
   the local call), and labels never carry user content.
@@ -106,7 +107,7 @@ subsystem deserve different amounts of ceremony.
 
 ## engineering
 
-### rust (`server/`)
+### rust (`server/`, `board/`)
 
 - edition 2024, `#![forbid(unsafe_code)]`, `clippy::pedantic` with warnings
   denied, `cargo fmt`.
@@ -118,7 +119,7 @@ subsystem deserve different amounts of ceremony.
   thread, file io goes through `spawn_blocking` or the writer.
 - payloads are serialized once and shared (`Bytes`, `Arc<str>`).
 
-### typescript (`app/`, `board/daemon/src/client.ts`)
+### typescript (`app/`, `board/trace/`)
 
 - `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`. no
   `any`; a non-null assertion carries a comment proving it.
@@ -144,7 +145,7 @@ subsystem deserve different amounts of ceremony.
 
 | command | does |
 |---|---|
-| `just setup` | every dependency from the lockfiles (the board keeps its own) |
+| `just setup` | every dependency from the lockfiles |
 | `just cmx2` | the dev daemon from the pinned commit on a port from 4840 to 4849, with the bench model beside it |
 | `just dev` | the boxbox dev server on 3001 (rust with hot rebuild plus vite), one process tree, against the dev daemon |
 | `just probes <port> [aN ...]` | the contract probes for cmx2's asks against the pinned daemon they start on `<port>`, with a per-ask table (`docs/verification.md`) |
@@ -152,7 +153,7 @@ subsystem deserve different amounts of ceremony.
 | `just api` | regenerates the app's api types (boxbox's utoipa document and the vendored cmx2 one) |
 | `just dictionary` | regenerates `telemetry/schema.json` from `telemetry/schema.ts` |
 | `bun bench/session.ts [--words N]` | the scripted session against the dev daemon |
-| `just check` | fmt, clippy (warnings denied), `tsc --noEmit`, unit tests, schema drift, vendored cmx2 files against the pin, board checksums. what ci runs |
+| `just check` | fmt, clippy (warnings denied), `tsc --noEmit`, unit tests, schema drift, vendored cmx2 files against the pin, board tests. what ci runs |
 | `just build` | the release binary with the app embedded |
 | `just release [--allow-dirty] [arch]` | the linux release (static, aarch64 and x86_64) with `install.sh` and `SHA256SUMS` in `target/dist` (`docs/deploy.md`) |
 | `boxbox init` and `boxbox doctor` | write a first `boxbox.toml` (0600, never over an existing one), and report whether an install can run, redacted |

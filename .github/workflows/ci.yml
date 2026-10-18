@@ -17,6 +17,7 @@ jobs:
         with:
           just-version: 1.51.0
       - run: just setup
-      # the vendored cmx2 files are proven by their git blob ids and the board
-      # by its recorded hashes, so neither needs the cmx2 or v1 repo here
+      # the vendored cmx2 files are proven by their git blob ids, so the cmx2
+      # repo is not needed here; the board's trace replay runs on a mac
+      # (docs/board-verification.md), not in ci
       - run: just check

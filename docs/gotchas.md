@@ -808,11 +808,20 @@ in `scars.md`.
   anything.
 - **`Bun.spawn` is writable but not configurable.** `Object.defineProperty`
   throws; plain assignment works. `globalThis.Bun` is neither.
-- **the board daemon draws before the hello ack.** its render loop starts
-  when the device opens, so a fake board that answers inside a render tick
-  races the palette push. rule: the fake answers hello after 40ms, longer
+- **v1's board daemon drew before the hello ack.** its render loop started
+  when the device opened, so a fake board that answered inside a render tick
+  raced the palette push. rule: the fake answers hello after 40ms, longer
   than a tick, which makes v1's real order (global and a base frame, then
   the palette) the only order.
+- **a bun server's streamed response can hold its headers until the first
+  chunk.** a test upstream that pushed its first sse frame only after the
+  client's `fetch` resolved deadlocked, since `fetch` resolves on headers.
+  rule: a fake stream sends its first frame unprompted, as boxbox's board
+  stream sends `hello`. the proxy records the status when headers arrive,
+  as the fetch wrapper did.
+- **a unix socket's path is capped at 104 bytes on macos.** a socket under
+  a run dir inside a worktree path is too long to bind. rule: the fake
+  board's socket lives directly in `/tmp`, named for the harness's pid.
 - **status alone cannot say a turn is over.** right after `prompt_async`
   the session is not busy yet and reads as idle. rule: settled means every
   prompt is in the thread and the last message is a finished assistant
@@ -1107,12 +1116,9 @@ which the daemon answers with its first answer.
   them and reported crowding nobody can see. rule: the shell's
   screenshot test hides inert subtrees after the screenshot and before
   the craft check (`app/.ladle/shell-shots.ts`).
-- **a fresh worktree fails `just check` before any code does.** the
-  board keeps its own `node_modules`, so `tsc -p board/daemon` stops on
-  `node-hid` until `just setup` (or `bun install --frozen-lockfile` in
-  `board/daemon`) runs there; and a fresh worktree has no pattern list, so the
-  public check prints "skipping" and proves nothing. rule: `just setup`
-  in every new worktree, and give the check `BOXBOX_PRIVATE_PATTERN`
+- **a fresh worktree has no pattern list, so the public check proves
+  nothing.** the public check prints "skipping" without one. rule: `just
+  setup` in every new worktree, and give the check `BOXBOX_PRIVATE_PATTERN`
   before a lane lands.
 - **a story that opens a thread needs its transcript at every width.**
   home at the ipad and mac widths puts the window that wants you on the
@@ -1655,6 +1661,26 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   (`system`, `reportsSystem`) is skipped while `None`.
 
 ## ladle in parallel lanes (the machines lane)
+
+- **two vites share 3002.** `app/vite.config.ts` takes `BOXBOX_VITE_PORT`
+  (3002 by default, what `just dev` and the bench's `[dev] vite` expect):
+  a lane that runs its own vite beside another starts it on a port from its
+  range and points a copy of `boxbox.dev.toml` under `/tmp` at it (the
+  board app lane).
+- **a killed agent-browser command can leave the tab flooded with keys.**
+  after a few drive commands were killed by a shell timeout mid-run, the
+  page's renderer sat at 90% of a core and every evaluation hung: pausing it
+  through the devtools port showed trusted `keydown` events for `Minus`
+  arriving without end. nothing in the app did it. rule: keep each drive
+  command inside its timeout, and when evals hang, close the session
+  (`agent-browser --session <name> close`) and open a fresh one.
+- **under `bun test` a solid store merges a new object into the old one.**
+  the tests load solid's server build, where `setState(path, obj)` (and a
+  `produce` assignment) kept the old object and its fields: a pin set from
+  `armed` to `paired` still carried `until`, and a second request for the
+  same thread was the same object. rule: a store value whose identity or
+  shape matters is reconciled (`reconcile(next)`) or carries a serial
+  (`store.ts`, the board's requests).
 
 - **two ladles share vite's hmr port.** ladle's vite opens its hot-reload socket on 24678 whatever `--port` says, so a
   second worktree's `shots` run fails while another lane's ladle is up. `LADLE_HMR_PORT=<port>` gives a run its own

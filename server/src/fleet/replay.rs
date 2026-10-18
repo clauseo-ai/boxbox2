@@ -89,6 +89,7 @@ impl Replay {
             model: super::Model::new(),
             journal,
             live: Vec::new(),
+            board: None,
             build: build.to_owned(),
             tails: tails_tx,
             outside: Outside {

@@ -7,7 +7,7 @@
 //! handle is dropped, after the job in hand.
 
 pub mod ids;
-mod schema;
+pub(crate) mod schema;
 
 use std::path::{Path, PathBuf};
 

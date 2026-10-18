@@ -30,6 +30,7 @@ record = []
 aws-lc-rs = { version = "1.18.1", default-features = false, features = ["aws-lc-sys"] }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio", "tower-log", "ws"] }
 base64ct = { version = "1.8", features = ["alloc"] }
+boxbox-board-wire = { path = "../board/wire", features = ["openapi"] }
 bytes = "1.12"
 data-encoding = "2.11"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

@@ -16,14 +16,20 @@
 //! is stalled, not gone, meets that error when it next reads. until then
 //! the stream costs what it already held (its queue, at most the cap, and
 //! hyper's write buffer) and nothing more: the actor feeds it no longer.
+//!
+//! with `[board]` configured, a window that sends `board=1` also gets the
+//! board's frames when it is on the board's mac (`board/mod.rs`): id-less
+//! data lines outside the journal, never replayed, interleaved once the
+//! stream is live. without `[board]` the flag is ignored.
 
 use std::collections::VecDeque;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use axum::body::Body;
-use axum::extract::{Query, State};
+use axum::extract::{ConnectInfo, Query, State};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
@@ -43,10 +49,31 @@ const HEARTBEAT_EVERY: Duration = Duration::from_secs(15);
 const HEARTBEAT: &[u8] = b": hb\n\n";
 
 #[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct StreamQuery {
     /// the cursor, `<epoch>:<seq>`, for clients that cannot set
     /// `Last-Event-ID`; the header wins when both are sent.
     after: Option<String>,
+    /// a desktop window that would show the board's digits and obey its
+    /// focus and compose (`docs/board.md`, where the board is). ignored
+    /// unless the server has `[board]`.
+    /// `board=1`, as the app sends it; `true` reads the same.
+    #[serde(default, deserialize_with = "flag")]
+    #[param(value_type = Option<bool>)]
+    board: Option<bool>,
+}
+
+/// a query flag: `1` or `true` is on, `0` or `false` off.
+fn flag<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<bool>, D::Error> {
+    let text = Option::<String>::deserialize(deserializer)?;
+    match text.as_deref() {
+        None => Ok(None),
+        Some("1" | "true") => Ok(Some(true)),
+        Some("0" | "false") => Ok(Some(false)),
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "board is 1 or 0, not \"{other}\""
+        ))),
+    }
 }
 
 /// the fleet, live.
@@ -64,9 +91,18 @@ pub struct StreamQuery {
 )]
 pub async fn stream(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Query(query): Query<StreamQuery>,
 ) -> Response {
+    let board = match (&state.board, query.board) {
+        (Some(board), Some(true)) => {
+            let addr = crate::board::addr::client(peer, &headers);
+            tracing::debug!(%addr, "a window asks for the board's frames");
+            Some(board.window(addr))
+        }
+        _ => None,
+    };
     let cursor = headers
         .get("last-event-id")
         .and_then(|v| v.to_str().ok())
@@ -86,6 +122,7 @@ pub async fn stream(
         next: None,
         pending: VecDeque::new(),
         live: None,
+        board,
         heartbeat: None,
         finished: false,
         opened: Instant::now(),
@@ -128,6 +165,8 @@ struct ClientStream {
     next: Option<Cursor>,
     pending: VecDeque<Bytes>,
     live: Option<Live>,
+    /// the board's frames for this window, when it asked and a board is configured.
+    board: Option<crate::board::WindowFeed>,
     heartbeat: Option<Interval>,
     finished: bool,
     opened: Instant,
@@ -193,6 +232,7 @@ impl ClientStream {
                     live.queued.fetch_sub(frame.len(), Ordering::AcqRel);
                     return Some(Ok(self.count(frame)));
                 }
+                Some(frame) = next_board(self.board.as_mut()) => return Some(Ok(self.count(frame))),
                 _ = heartbeat.tick() => return Some(Ok(self.count(Bytes::from_static(HEARTBEAT)))),
             }
         }
@@ -202,6 +242,14 @@ impl ClientStream {
         self.frames += 1;
         self.bytes += frame.len() as u64;
         frame
+    }
+}
+
+/// the next board frame; pending for good when the window has no feed.
+async fn next_board(feed: Option<&mut crate::board::WindowFeed>) -> Option<Bytes> {
+    match feed {
+        Some(feed) => feed.frames.recv().await,
+        None => std::future::pending().await,
     }
 }
 

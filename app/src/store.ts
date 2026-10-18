@@ -2,6 +2,7 @@
    copies; everything that changes it is an action here. the sync worker
    owns the stream and posts patches into this same store (sync/client.ts). */
 
+import { batch } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import type { components } from "./api/boxbox";
 import { api, type HostStatus, type PushKind } from "./api/client";
@@ -36,6 +37,40 @@ export type PushPermission = "unsupported" | "default" | "granted" | "denied";
 
 /** where a push tap asked to go: a thread, and the ask to put in front */
 export type Focus = { thread: string; ask: string | null; push: string | null };
+
+/** a board key asked for a thread on this mac (docs/board.md): home opens it as a tap would and puts the caret in its composer,
+    so dictation lands there. each carries its own serial, so a second press of the same key is a new request */
+export type BoardFocus = { key: string; serial: number };
+
+/** a pairing this window armed (docs/board.md, the app): the board takes the next digit pressed for `key`. `armed` until a
+    `board.here` shows the key bound, `paired` once one does, `missed` when no digit came in time, `refused` when the server
+    would not arm it (`why` says what to do) */
+export type BoardPin =
+  /** `was`: the paired key it already had when armed, which a later here showing it again does not settle */
+  | { key: string; phase: "armed"; until: number; was: number | null }
+  | { key: string; phase: "paired"; digit: number }
+  | { key: string; phase: "missed" }
+  | { key: string; phase: "refused"; why: string };
+
+/** the board, when one is plugged into this mac (docs/board.md). nothing here moves on a device without one */
+export type Board = {
+  /** a board is here: its daemon's stream is open and matched this window's mac */
+  here: boolean;
+  /** the digit each seated thread wears, by key, as the last `board.here` had them; replaced whole by each */
+  digits: Record<string, number>;
+  /** the keys whose digit is a paired key, not a seat by order */
+  bound: Record<string, true>;
+  /** a board has been here since the page opened: its chunk is in, and its pieces stay mounted, so a digit leaves by motion */
+  met: boolean;
+  /** when the board last arrived, ms since the epoch: a key drawn with its arrival arrives, one drawn later paints in place */
+  since: number;
+  focus: BoardFocus | null;
+  /** a machine key asked for a new thread on that machine */
+  compose: { machine: string; serial: number } | null;
+  pin: BoardPin | null;
+  /** the server takes pairings; false once it answered that it has no `[board]`, and the menu stops offering one */
+  pairing: boolean;
+};
 
 export type State = {
   gate: Gate;
@@ -111,6 +146,7 @@ export type State = {
         were handed back to); the composer takes it and clears it */
     notice: { key: string; text: string } | null;
   };
+  board: Board;
 };
 
 export type Compaction = { state: "running"; since: number } | { state: "failed"; message: string } | { state: "done"; at: number };
@@ -151,6 +187,7 @@ const [state, setState] = createStore<State>({
   repoIconHolds: {},
   replies: {},
   composer: { drafts: {}, outbox: [], born: {}, compacting: {}, draftsFull: false, notice: null },
+  board: { here: false, digits: {}, bound: {}, met: false, since: 0, focus: null, compose: null, pin: null, pairing: true },
 });
 
 export { state };
@@ -201,6 +238,7 @@ export async function signOut(): Promise<void> {
     setState("terminals", { byHost: {}, shells: {}, open: null });
     setState({ prefs: null, models: {}, modelsRead: {}, behind: null });
     setState("replies", reconcile({}));
+    boardGone();
   }
 }
 
@@ -305,6 +343,7 @@ export function setOpenThread(key: string | null): void {
 export function syncSignedOut(): void {
   threadCaches.clear();
   setState({ gate: "signed-out", fleet: EMPTY_FLEET, threads: {}, openThread: null });
+  boardGone();
 }
 
 export function syncNeedsReload(): void {
@@ -462,6 +501,66 @@ export function holdRepoIcon(key: string): () => void {
         else delete holds[key];
       }),
     );
+}
+
+/* —— the board (sync/client.ts hands its frames here; docs/board.md) —— */
+
+/** a `board.here`: the board is on this mac and shows these digits. each replaces the last whole; a seat the wire could not
+    mean (a digit outside 1 to 9, a key seated twice) is left out rather than drawn wrong */
+export function boardHere(seats: readonly { key: string; digit: number; bound?: boolean }[]): void {
+  const digits: Record<string, number> = {};
+  const bound: Record<string, true> = {};
+  const taken = new Set<number>();
+  for (const seat of seats) {
+    if (!Number.isInteger(seat.digit) || seat.digit < 1 || seat.digit > 9 || taken.has(seat.digit) || digits[seat.key] !== undefined) continue;
+    taken.add(seat.digit);
+    digits[seat.key] = seat.digit;
+    if (seat.bound) bound[seat.key] = true;
+  }
+  // a pin settles on its thread's seat turning paired, or a paired seat moving to another digit (`Seat.bound`), never on an
+  // unpaired seat by order nor on the paired key it already had
+  const pin = state.board.pin;
+  const digit = pin?.phase === "armed" ? digits[pin.key] : undefined;
+  const paired = pin?.phase === "armed" && digit !== undefined && bound[pin.key] !== undefined && (pin.was === null || digit !== pin.was) ? digit : undefined;
+  batch(() => {
+    if (!state.board.here) setState("board", "since", Date.now());
+    setState("board", { here: true, met: true });
+    setState("board", "digits", reconcile(digits));
+    setState("board", "bound", reconcile(bound));
+    if (pin && paired !== undefined) setBoardPin({ key: pin.key, phase: "paired", digit: paired });
+  });
+}
+
+/** the board left this mac, or the stream that carried it ended: every digit goes, and a pairing waiting on it with them */
+export function boardGone(): void {
+  batch(() => {
+    setState("board", "here", false);
+    boardFocus(null);
+    boardCompose(null);
+    setState("board", "digits", reconcile({}));
+    setState("board", "bound", reconcile({}));
+    if (state.board.pin?.phase === "armed") setBoardPin(null);
+  });
+}
+
+/* a store merges a new object into the one it replaces, so a request carries its own serial (a second press of one key is a
+   new request to whatever watches it) and a pin is reconciled (it keeps no field of the phase before it) */
+let requests = 0;
+
+export function boardFocus(key: string | null): void {
+  setState("board", "focus", key === null ? null : { key, serial: ++requests });
+}
+
+export function boardCompose(machine: string | null): void {
+  setState("board", "compose", machine === null ? null : { machine, serial: ++requests });
+}
+
+export function setBoardPin(pin: BoardPin | null): void {
+  setState("board", "pin", pin === null ? null : reconcile(pin));
+}
+
+export function setBoardPairing(pairing: boolean): void {
+  setState("board", "pairing", pairing);
 }
 
 export function setPushDevices(devices: PushDevice[]): void {

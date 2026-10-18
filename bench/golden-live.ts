@@ -17,7 +17,6 @@
                 cursor, redial from the start
      review     three checkouts: one merged, one discarded, one refused
                 (uncommitted work), with the review read of each first
-     board      one run of the board's client (board/daemon/src/client.ts)
 
    every answer is normalised before it is written or compared: cmx2's ids,
    times, seqs, shas and the world directory become placeholders numbered in
@@ -195,7 +194,7 @@ class World {
     const boxbox = join(SCRATCH, "boxbox-config");
     mkdirSync(boxbox, { recursive: true });
     this.gate = mintPassword(join(boxbox, "gate-password"), "gate");
-    // the board's client looks for a cookie named bb_session (v1's), so the gate's cookie carries that name
+    // the gate's cookie keeps v1's name, bb_session, which the board's client read when it was a bun daemon
     const config = [
       "# written by bench/golden-live.ts; never a real password",
       `listen = "127.0.0.1:${BOXBOX_PORT}"`,
@@ -554,133 +553,6 @@ async function review(world: World, out: Golden[]): Promise<void> {
   out.push({ golden: "review-base-after", proves: "the base branch holds the squash commit and nothing of the discarded or refused checkouts", log: base.stdout.trim().split("\n") });
 }
 
-/** the board's client as v1 left it (decision 11): the minimal shape this run calls */
-interface BoardClient {
-  device(): string;
-  stream(onEvent: (e: unknown) => void, onSnapshot: () => void): Promise<void>;
-  stop(): void;
-  refreshSessions(host: string, directories?: string[]): Promise<unknown[]>;
-  fetchSession(host: string, sessionID: string): Promise<unknown>;
-  spendToday(): Promise<number>;
-  markRead(sessionKey: string, at: number): Promise<boolean>;
-  focus(sessionKey: string): Promise<boolean>;
-  composeMachine(machineId: string): Promise<boolean>;
-  promptAsync(host: string, sessionID: string, text: string, directory?: string): Promise<boolean>;
-  postFrame(cells: readonly number[], palette: readonly string[]): Promise<boolean>;
-  postSeats(map: unknown): Promise<boolean>;
-  flushQueue(host: string, sessionID: string, directory?: string): Promise<boolean>;
-  emit(kind: string, props: Record<string, unknown>, envelope?: { host?: string; session?: string; ok?: boolean; ms?: number }): void;
-  flushTelemetry(): Promise<void>;
-}
-type Logged = { level: string; event: string; kv: Record<string, unknown> };
-
-async function board(world: World, out: Golden[], ids: { a: string; p: string }): Promise<void> {
-  const stateDir = join(SCRATCH, "board-state");
-  mkdirSync(stateDir, { recursive: true });
-  // a fixed device id, so the run does not mint a random one
-  writeFileSync(join(stateDir, "state.json"), JSON.stringify({ deviceId: "board-golden" }));
-  const logged: Logged[] = [];
-  const logger = {
-    info: (event: string, kv: Record<string, unknown>) => logged.push({ level: "info", event, kv }),
-    warn: (event: string, kv: Record<string, unknown>) => logged.push({ level: "warn", event, kv }),
-    error: (event: string, kv: Record<string, unknown>) => logged.push({ level: "error", event, kv }),
-  };
-  // what crossed the wire, in order: the client talks over fetch alone
-  const calls: Json[] = [];
-  const realFetch = globalThis.fetch;
-  const recording = async (input: string | URL | globalThis.Request, init?: RequestInit): Promise<Response> => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
-    const res = await realFetch(input, init);
-    const kind = res.headers.get("content-type") ?? "";
-    const entry: { [key: string]: Json } = { method: init?.method ?? "GET", path: url.pathname + url.search, status: res.status };
-    if (init?.body && typeof init.body === "string") {
-      const sent = JSON.parse(init.body) as { events?: Array<{ id?: string }> };
-      // a telemetry event's id is random (nano), minted by the client
-      for (const [n, event] of (sent.events ?? []).entries()) if (event.id) event.id = `<telemetry id ${n + 1}>`;
-      entry.sent = sent as Json;
-    }
-    if (!kind.startsWith("text/event-stream")) {
-      const copy = res.clone();
-      const text = await copy.text();
-      try {
-        entry.answer = JSON.parse(text) as Json;
-      } catch {
-        entry.answer = text;
-      }
-    } else entry.answer = "<event stream>";
-    calls.push(entry);
-    return res;
-  };
-  globalThis.fetch = Object.assign(recording, { preconnect: realFetch.preconnect }) as typeof fetch;
-  const results: { [key: string]: Json } = {};
-  const events: Json[] = [];
-  try {
-    const path = join(ROOT, "board/daemon/src/client.ts");
-    const mod = (await import(path)) as { BoxboxClient: new (cfg: { origin: string; password: string; stateDir: string }, log: typeof logger) => BoardClient };
-    const client = new mod.BoxboxClient({ origin: APP, password: world.gate, stateDir }, logger);
-    results.device = client.device();
-    const streaming = client.stream(
-      (e) => events.push(e as Json),
-      () => undefined,
-    );
-    await until("the board's stream to open", () => logged.some((l) => l.event === "client.stream_open"), 10_000);
-    await Bun.sleep(1500);
-    const keyA = `${HOST}:${ids.a}`;
-    results.refreshSessions = (await client.refreshSessions(HOST)) as Json;
-    results.fetchSession = (await client.fetchSession(HOST, ids.a)) as Json;
-    results.spendToday = await client.spendToday();
-    results.markRead = await client.markRead(keyA, 1_700_000_000_000);
-    results.focus = await client.focus(keyA);
-    results.focusAgain = await client.focus(keyA);
-    results.composeMachine = await client.composeMachine(HOST);
-    results.promptAsync = await client.promptAsync(HOST, ids.p, "[bench:words 2 1] from the board");
-    results.postFrame = await client.postFrame([0, 1, 2], ["#000000", "#ffffff", "#ff0000"]);
-    results.postSeats = await client.postSeats({ seats: [] });
-    results.flushQueue = await client.flushQueue(HOST, ids.p);
-    client.emit("board.key", { key: 1 }, { ok: true, ms: 3 });
-    await client.flushTelemetry();
-    client.stop();
-    await Promise.race([streaming, Bun.sleep(1500)]);
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-  out.push({
-    golden: "board-client-run",
-    proves: "the board's client (v1's, decision 11) against today's server: what it logs, what each call returns, every request it made with the answer, and the stream events it parsed first",
-    log: logged.map((l) => ({ level: l.level, event: l.event, kv: l.kv as Json })),
-    results,
-    calls,
-    events: events.slice(0, 2).map(boardEvent),
-  });
-}
-
-/** what the board was handed from the stream, kept to what does not depend on timing: the frame's type, and for the
-    snapshot, each host's connection and each thread's title, status and needs, by title (the snapshot's own order and its
-    counters, byte totals and tails vary run to run; the replayed goldens hold those) */
-function boardEvent(event: Json): Json {
-  if (!event || typeof event !== "object" || Array.isArray(event)) return event;
-  const type = event.type ?? null;
-  const fleet = event.fleet;
-  if (!fleet || typeof fleet !== "object" || Array.isArray(fleet)) return { type, keys: Object.keys(event) };
-  const list = (value: Json | undefined): Json[] => (Array.isArray(value) ? value : []);
-  const field = (value: Json | undefined, key: string): Json => (value && typeof value === "object" && !Array.isArray(value) ? (value[key] ?? null) : null);
-  const sessions = list(fleet.sessions).map((s) => ({
-    title: field(field(s, "info"), "title"),
-    directory: field(field(s, "info"), "directory"),
-    status: field(field(s, "status"), "type"),
-    needs: list(field(s, "needs")).map((n) => field(n, "kind")),
-  }));
-  sessions.sort((x, y) => String(x.title).localeCompare(String(y.title)));
-  return {
-    type,
-    reason: event.reason ?? null,
-    hosts: list(fleet.hosts).map((h) => ({ name: field(h, "name"), connection: field(h, "connection") })),
-    sessions,
-    asks: list(fleet.asks).length,
-    order: list(fleet.order).length,
-  };
-}
-
 /* —— record and check —— */
 
 function normalise(golden: Golden, world: World): string {
@@ -701,15 +573,13 @@ function firstDifference(want: string, got: string): string | null {
 
 async function session(world: World): Promise<Golden[]> {
   const out: Golden[] = [];
-  const ids = await hydration(world, out);
+  await hydration(world, out);
   log(`hydration and prompt: ${out.length} goldens`);
   await pty(world, out);
   log("pty: redial recorded");
   await review(world, out);
   log("review: merge, discard, refusal recorded");
   await world.settled();
-  await board(world, out, ids);
-  log("board: client run recorded");
   return out;
 }
 

@@ -40,7 +40,7 @@ async function record(target: Scenario, daemonDir: string, daemonName: string) {
   const world = await startV1World(`record-${target.name}`);
   try {
     await target.setup(world);
-    const run = await traceRun({ scenario: target, world, daemonDir, runDir: scratch });
+    const run = await traceRun({ scenario: target, world, daemon: daemonDir, runDir: scratch });
     const steps = scrub(run, { aliases: world.aliases(), redactions: world.redactions() });
     const path = join(TRACES, `${target.name}.json`);
     writeTrace(path, {

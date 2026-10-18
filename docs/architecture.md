@@ -28,9 +28,11 @@ the fleet actor (for cmx2, today's upstream watcher), which
 feeds the journal and the client streams. push, read state, needs, presence,
 the pty relay and telemetry all hang off that actor. the
 static assets are embedded, state is one sqlite file, and telemetry is .jsonl.
-[the pieces](README.md#the-pieces) draws the inside. the board daemon is a bun
-process on the mac, and a separate client of the normal api, not part of the server: its firmware, verbs, render and scenes are unchanged, and
-only `client.ts` is ported to v2. the native ios app is a third client,
+[the pieces](README.md#the-pieces) draws the inside. the board is an optional
+add-on: a keypad with a native daemon on the mac it is plugged into
+(`boxbox-board`, decision 78), and its own channel in the server
+(`docs/board.md`), not a client of the normal api. decision 1 holds what it
+does to v1's behaviour. the native ios app is a third client,
 kept in its own repository. agent credentials live on the server and
 nowhere else.
 
@@ -134,7 +136,7 @@ message, never by shared locks on the hot path:
 | task | owns | talks to |
 |---|---|---|
 | upstream watcher, one per host | the host's connection, `(epoch, seq)`, backoff | sends decoded events to the fleet actor |
-| fleet actor | the fleet model: hosts, sessions index, window tails, asks, needs, read, board state, presence | appends to the journal, asks push to decide |
+| fleet actor | the fleet model: hosts, sessions index, window tails, asks, needs, read, the board's projection while a board listens, presence | appends to the journal, asks push to decide |
 | journal | the ring of normalized events and its `(epoch, seq)` | serves replays to client streams |
 | client stream, one per connection | a bounded outbound channel | reads the journal, writes sse |
 | push | subscriptions, presence, pending "done" timers, per-device rate and dedupe | sqlite, the web push services |
@@ -395,7 +397,8 @@ that incarnation only.
 **the service worker** (`app/src/push/sw.ts`, built alone into one classic
 script and served unhashed at `/sw.js`, scope `/`) handles push,
 notificationclick, notification tags and the badge, and
-precaches the hashed ui. the shell registers it at boot on every visit
+precaches the hashed ui, all of it but the board's chunk, which only a
+window beside a board ever fetches (`board.md`, the app). the shell registers it at boot on every visit
 (`app/src/shell/worker.ts`), not only when notifications turn on. the build
 writes its file list and a hash of their bytes into the worker
 (`app/vite.config.ts`), so every build is a new worker script; the worker
@@ -533,27 +536,19 @@ service worker posts the answer through the same route as the ui, with a
 
 ## the board
 
-decision 1 freezes the board; decision 11 ports only `client.ts`.
-research found that the other board files also import v1 code by
-relative path (`lib/board/contract.ts`, `lib/board/seats.ts`,
-`lib/read/contract.ts`, `lib/store/model.ts` for `needRank`, `lib/fleet/sse.ts`,
-and types from `lib/server/brain.ts`, `lib/fleet/watcher.ts`,
-`lib/fleet/types.ts`). so (decision 14):
-
-- the v2 repo keeps the board as `board/daemon/src/` (every file byte for
-  byte except `client.ts`) and `board/lib/` (those v1 files, byte for
-  byte, types kept as type-only modules), so `../../lib/...` resolves
-  unchanged.
-- the new `client.ts` speaks v2's api and hands the rest of the daemon
-  the same `BrainEvent` shapes it has always consumed: `snapshot`,
-  `hosts`, `pending`, `status`, `read`, `bindings`, `frame` with the cmx
-  frame types it reads, and `pinArm`. the translation lives in the board,
-  not in the server; v2 carries no v1-shaped route.
-- the board is a separate client. it talks to the normal api through
-  `board/daemon/src/client.ts`, and the server has no board route and no
-  board channel.
-- the gate is a trace recorded against v1 (keys in; calls and led frames
-  out) replayed against v2, byte-identical frames required.
+the board is an optional add-on with its own channel (decisions 78 to 81).
+`docs/board.md` holds how it is built: the view the fleet actor computes
+while a board listens, `/api/board/stream` and `/api/board/act`, the board's
+mac found by client address, and the id-less `board.*` frames on
+`/api/stream?board=1`. with no `[board]` in `boxbox.toml` the channel is
+dormant: its routes are not registered, the fleet actor holds no projection
+and starts no timer, and the app stream ignores the flag. with `[board]`, the
+projection exists only while a board stream is open; it is marked by the
+changes that can move the picture and rebuilt at most four times a second
+(`server/src/fleet/board.rs`, budget under 1 ms, `perf.board_view`; 84 µs
+for a 300-thread fleet in a release build). presence, the board's mac and
+its app windows live in `server/src/board/`, behind a mutex held only for a
+few comparisons and never across an await.
 
 ## telemetry
 

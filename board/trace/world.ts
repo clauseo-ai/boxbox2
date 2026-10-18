@@ -5,7 +5,7 @@
    scenario runs against v1 (world-v1.ts) and against v2 (the world m6
    adds), and the traces stay comparable. */
 
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
 
 /** what a scenario can make an agent do; the world's model scripts each one */
@@ -52,6 +52,11 @@ export function launch(name: string, command: string, args: string[], cwd: strin
   return { name, child };
 }
 
+/** why a service is no use any more, for waitFor */
+export function exited(service: Service, logPath: string): () => string | null {
+  return () => (service.child.exitCode !== null || service.child.signalCode !== null ? `${service.name} exited (${service.child.signalCode ?? service.child.exitCode}); see ${logPath}` : null);
+}
+
 export async function halt(services: Service[]) {
   for (const { child } of [...services].reverse()) {
     if (child.pid === undefined || child.exitCode !== null) continue;
@@ -74,9 +79,12 @@ export async function halt(services: Service[]) {
   }
 }
 
-export async function waitFor(what: string, check: () => Promise<boolean>, timeoutMs = 60_000) {
+/** @param gone says why waiting is pointless (the service exited), or null to keep waiting */
+export async function waitFor(what: string, check: () => Promise<boolean>, timeoutMs = 60_000, gone: () => string | null = () => null) {
   const began = Date.now();
   for (;;) {
+    const why = gone();
+    if (why !== null) throw new Error(`gave up waiting for ${what}: ${why}`);
     try {
       if (await check()) return;
     } catch {
@@ -89,9 +97,13 @@ export async function waitFor(what: string, check: () => Promise<boolean>, timeo
 
 /** the port is free, or the run stops before it starts anything */
 export async function assertFree(port: number) {
-  const inUse = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(500) }).then(
-    () => true,
-    () => false,
-  );
-  if (inUse) throw new Error(`port ${port} is taken; the harness uses 4880 to 4889 and 3021, stop what holds it`);
+  /* a listener that speaks no http (a lane's fake board) still holds the port */
+  const listening = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"]).status === 0;
+  const inUse =
+    listening ||
+    (await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(500) }).then(
+      () => true,
+      () => false,
+    ));
+  if (inUse) throw new Error(`port ${port} is taken; the harness uses 4880 to 4889, 3021 and 3022 (BOARD_TRACE_CMX2_PORT and BOARD_TRACE_BOXBOX_PORT move v2's), stop what holds it or move`);
 }

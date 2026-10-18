@@ -6,6 +6,23 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the board's channel on the server.** with `[board]` in `boxbox.toml`
+  (`machines`, up to four `label.machine` names, optional), the server
+  serves `GET /api/board/stream` (hello, then a whole view whenever the
+  board's picture changes, pins, replaced), `POST /api/board/act` (focus,
+  compose, read, reply, flush, seats, bind, unbind, gone) and
+  `POST /api/board/pin`, and app windows that open `/api/stream?board=1` on
+  the board's mac get id-less `board.*` frames. the fleet actor computes the
+  view only while a board stream is open, at most four rebuilds a second
+  (84 µs for 300 threads in a release build, `perf.board_view`). the board's
+  mac is found by client address: the socket peer, or the rightmost
+  `X-Forwarded-For` from a loopback proxy. pairings persist in `boxbox.db`
+  (`board_bindings`, made only where `[board]` is configured and outside the
+  versioned schema, so a rollback still opens the database). without `[board]` the routes are not
+  registered and nothing runs; `boxbox doctor` says which. `/api/stream`'s
+  query parameters (`after`, and the new `board`) are now described as query
+  parameters in the api document; they were described as path parameters.
+
 - **what each machine is, and how it is doing.** the agents screen's machine
   card shows the os (a drawn mark), the machine's model and os version, cpu
   load, memory and disk as meters, and the host's uptime beside the daemon's.

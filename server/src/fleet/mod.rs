@@ -27,6 +27,7 @@
 //! (`upstream/tails.rs`), and the read comes back as an upstream message.
 
 pub mod adopted;
+pub mod board;
 pub mod change;
 pub mod clears;
 pub mod model;
@@ -212,6 +213,32 @@ enum Command {
     },
     ReviewGone {
         key: String,
+    },
+    Board(BoardCommand),
+}
+
+/// what the board's routes ask of the fleet (`board/routes.rs`).
+#[derive(Debug)]
+enum BoardCommand {
+    Subscribe {
+        wanted: board::Wanted,
+        reply: oneshot::Sender<watch::Receiver<Bytes>>,
+    },
+    Left,
+    Bindings(Vec<boxbox_board_wire::Binding>),
+    Holds {
+        what: board::Holds,
+        reply: oneshot::Sender<bool>,
+    },
+    Read {
+        key: String,
+        device: Device,
+        reply: oneshot::Sender<Result<(), ReadRefused>>,
+    },
+    Ask {
+        agent: String,
+        id: String,
+        reply: oneshot::Sender<Option<crate::wire::Ask>>,
     },
 }
 
@@ -526,6 +553,85 @@ impl Fleet {
         self.command(Command::ReviewGone { key }).await
     }
 
+    /// a board stream's view: the actor builds the projection if no stream
+    /// held one, and the receiver holds the current view.
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn board_subscribe(
+        &self,
+        wanted: board::Wanted,
+    ) -> Result<watch::Receiver<Bytes>, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::Board(BoardCommand::Subscribe { wanted, reply }))
+            .await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
+    /// a board stream dropped its view: with none left the projection goes.
+    /// from a drop, so it never waits. a `Left` lost to a full queue, or a
+    /// subscribe whose stream was cancelled before it took its receiver,
+    /// leaves the projection in memory until the next change reaches the
+    /// actor, which finds no receiver and drops it; no timer runs meanwhile,
+    /// since a projection with nothing to build has no deadline.
+    pub fn board_left(&self) {
+        let _ = self.commands.try_send(Command::Board(BoardCommand::Left));
+    }
+
+    /// the board's pairings as `boxbox.db` holds them now.
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn board_bindings(
+        &self,
+        bindings: Vec<boxbox_board_wire::Binding>,
+    ) -> Result<(), Stopped> {
+        self.command(Command::Board(BoardCommand::Bindings(bindings)))
+            .await
+    }
+
+    /// `device` has seen `key` through its newest message.
+    ///
+    /// # Errors
+    /// the actor has stopped (outer), or the session is unknown (inner).
+    pub async fn board_read(
+        &self,
+        key: String,
+        device: Device,
+    ) -> Result<Result<(), ReadRefused>, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::Board(BoardCommand::Read { key, device, reply }))
+            .await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
+    /// whether the fleet holds a thread, or the board's view a machine light
+    /// (with no view held, it cannot say no).
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn board_holds(&self, what: board::Holds) -> Result<bool, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::Board(BoardCommand::Holds { what, reply }))
+            .await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
+    /// the agent's open ask `id`, as its source told it.
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn board_ask(
+        &self,
+        agent: String,
+        id: String,
+    ) -> Result<Option<crate::wire::Ask>, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::Board(BoardCommand::Ask { agent, id, reply }))
+            .await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
     async fn command(&self, command: Command) -> Result<(), Stopped> {
         self.commands.send(command).await.map_err(|_| Stopped)
     }
@@ -553,6 +659,7 @@ pub fn spawn(
         model: Model::restored(wiring.needs, wiring.reads, wiring.clears, wiring.adopted),
         journal: Journal::new(epoch),
         live: Vec::new(),
+        board: None,
         build,
         tails: wiring.tails,
         outside: Outside {
@@ -584,6 +691,8 @@ struct Actor {
     model: Model,
     journal: Journal,
     live: Vec<Subscriber>,
+    /// the board's projection, only while a board stream listens.
+    board: Option<board::Projection>,
     build: String,
     tails: mpsc::Sender<TailRequest>,
     outside: Outside,
@@ -649,6 +758,7 @@ impl Actor {
         let mut watching = true;
         loop {
             let due = self.model.tail_due();
+            let board_due = self.board.as_ref().and_then(board::Projection::due);
             tokio::select! {
                 biased;
                 () = shutdown.cancelled() => break,
@@ -656,6 +766,8 @@ impl Actor {
                 Some(command) = commands.recv() => self.command(command),
                 // ahead of the events, so a stream of them cannot starve a held tail
                 () = tokio::time::sleep(until(due)), if due.is_some() => self.flush_tails(),
+                // exists only while a board listens and its picture may move
+                () = tokio::time::sleep_until(board_due.unwrap_or_else(tokio::time::Instant::now)), if board_due.is_some() => self.board_tick(),
                 changed = looking.changed(), if watching => match changed {
                     Ok(()) => {
                         let devices = looking.borrow_and_update().clone();
@@ -760,6 +872,7 @@ impl Actor {
                 // a stream that went away while it waited needs nothing
                 let _ = reply.send(self.read(from, first, stream));
             }
+            Command::Board(command) => self.board_command(command),
             Command::Snapshot { reply } => match serde_json::to_vec(&self.model.snapshot()) {
                 Ok(json) => {
                     let _ = reply.send(Bytes::from(json));
@@ -783,7 +896,12 @@ impl Actor {
                 event,
                 raw,
             } => match event {
-                SourceEvent::Connection(status) => self.model.connection(status),
+                SourceEvent::Connection(status) => {
+                    if let Some(projection) = &mut self.board {
+                        projection.connection_moved();
+                    }
+                    self.model.connection(status)
+                }
                 SourceEvent::Snapshot(read) => {
                     let (epoch, sessions) = (read.epoch.clone(), read.threads.len());
                     let changes = self.model.agent_read(&agent, *read);
@@ -844,11 +962,98 @@ impl Actor {
         for change in changes {
             self.publish(change);
         }
+        if let Some(projection) = &mut self.board {
+            let now = tokio::time::Instant::now();
+            for change in changes {
+                projection.saw(change, now);
+            }
+            self.board_tick();
+        }
         for effect in self.model.drain() {
             match effect {
                 Effect::ReadTail(request) => self.ask_tail(request),
                 effect => self.outside.effect(effect),
             }
+        }
+    }
+
+    fn board_command(&mut self, command: BoardCommand) {
+        match command {
+            BoardCommand::Subscribe { wanted, reply } => {
+                let receiver = match &mut self.board {
+                    Some(projection) if !projection.is_closed() => projection.subscribe(wanted),
+                    _ => {
+                        let (projection, receiver) =
+                            board::Projection::start(wanted, &self.model, board::Clock::now());
+                        info!("the board's view started");
+                        self.board = Some(projection);
+                        receiver
+                    }
+                };
+                let _ = reply.send(receiver);
+            }
+            BoardCommand::Left => {
+                if let Some(projection) = self.board.take_if(|p| p.is_closed()) {
+                    info!(
+                        builds = projection.builds,
+                        sent = projection.sent,
+                        "the board's view stopped"
+                    );
+                }
+            }
+            BoardCommand::Bindings(bindings) => {
+                if let Some(projection) = &mut self.board {
+                    projection.bindings(bindings);
+                    self.board_tick();
+                }
+            }
+            BoardCommand::Read { key, device, reply } => {
+                let answer = match self.model.newest_message(&key) {
+                    Err(refused) => Err(refused),
+                    Ok(None) => Ok(()),
+                    Ok(Some((message, at))) => {
+                        self.model.read(&key, &device, &message, at).map(|changes| {
+                            self.publish_all(&changes);
+                        })
+                    }
+                };
+                let _ = reply.send(answer);
+            }
+            BoardCommand::Holds { what, reply } => {
+                let holds = match what {
+                    board::Holds::Thread(key) => self.model.newest_message(&key).is_ok(),
+                    board::Holds::Machine(name) => {
+                        self.board.as_ref().is_none_or(|p| p.shows_machine(&name))
+                    }
+                };
+                let _ = reply.send(holds);
+            }
+            BoardCommand::Ask { agent, id, reply } => {
+                let _ = reply.send(self.model.neutral_ask(&agent, &id));
+            }
+        }
+    }
+
+    /// builds the board's view when it is due, and lets the projection go
+    /// once no stream holds it.
+    fn board_tick(&mut self) {
+        let Some(projection) = &mut self.board else {
+            return;
+        };
+        if projection.is_closed() {
+            self.board = None;
+            info!("the board's view stopped: no stream held it");
+            return;
+        }
+        let now = board::Clock::now();
+        if let Some(built) = projection.tick(&self.model, now)
+            && projection.sample(now.at)
+        {
+            self.outside.telemetry.record(&json!({
+                "kind": "perf.board_view",
+                "ms": built.micros / 1000,
+                "props": { "us": built.micros, "bytes": built.bytes, "threads": built.threads },
+            }));
         }
     }
 
@@ -1103,6 +1308,7 @@ mod tests {
             model: Model::new(),
             journal: Journal::new("ep".into()),
             live: Vec::new(),
+            board: None,
             build: "test".into(),
             tails: mpsc::channel(1).0,
             outside: Outside {

@@ -82,8 +82,8 @@ consequences:
   thread is open full screen on the deck, the top of its flood, so the
   repo's colour reaches the screen's edge.
 - **the board, when connected**, drives the stage like a tap (its focus
-  key opens a thread with the same motion) and each window shows its
-  seat digit while the board is showing seats.
+  key opens a thread with the same motion) and each window it seats wears
+  its digit as a key set into its material (the board, below).
 
 ## what the app is for
 
@@ -619,6 +619,80 @@ menu when the thread lane places it. the wire and the relay are
 - **a resync** after a long absence, when the host no longer kept what was
   missed, resets the screen and writes one dim line, `· older output was
   not kept ·`, then the tail.
+
+## the board (2026-10-18)
+
+the board is one person's keypad (`board.md`). on a device without one
+none of this exists: not a byte of it is fetched. while a board is plugged
+into the mac a window is open on, that window's windows wear its digits.
+
+- **the key.** a window the board seats wears its digit as a key set into
+  its material: a 26 px well at the end of the header row, centred on it,
+  pressed into the window's own material (`--win-press`,
+  `--win-press-edge`), the digit in the window's accent at 13 px, weight
+  680, tabular. a paired key (the board keeps that thread on that digit)
+  is lit as the board lights it: the accent raised off the material
+  (`--win-raise`, a lit key), the digit in the accent's ink. the key is a
+  step under the chip's 34 px, so the chip stays the window's voice; it is
+  a mark of where the window lives, never a control of its own.
+- **the swatch's key.** 18 px on the swatch's foot corner, 5 px out, in the
+  swatch's own material ringed 2.5 px in the ground, as the state's badge
+  sits on the top corner; lit the same way when paired. the two never share
+  a corner.
+- **the same digit `⌥n` opens** while no key is paired: the server seats
+  the app's window order. a paired key keeps its thread wherever the order
+  moves it, and being lit is how it says so.
+- **room without layout.** the key is out of the flow. a chip slides aside
+  for it by its `translate` (32 px: the key and 6 px), and the name gives
+  up the room at its end, its start never moving, so a key arriving or
+  leaving moves nothing a layout shift counts (`perf.shift` unchanged).
+- **motion.** arriving, the chip slides aside on the snap spring and the
+  key rises into the room 70 ms later, from `scale(.6)` and clear.
+  changing, the new digit rises into the key from 70% below, and a key
+  that becomes paired lights on the fade curve. leaving, the key sinks
+  back and fades on the snap spring and the chip returns 70 ms behind it.
+  transform and opacity only; nothing is measured but the window's box,
+  once per move, to tell whether it is in view. out of view, offline,
+  replaying, hidden or under reduced motion, the end state lands at once.
+  a key drawn with the board's arrival arrives; a window drawn later paints
+  its key in place.
+- **names.** a seated window's name and its swatch's end in ", board key
+  N" ("ledger: set the greeting in the notes. wants you, board key 3"), so
+  a screen reader hears the key that opens it, and every name is unique
+  while a board is here.
+- **focus.** a digit key opens its thread through home's own tap path, with
+  the tap's motion, wherever the app is: from the machines, history,
+  settings or a terminal, home comes back on its own travel first. a focus
+  never discards or buries typed words: while a sheet (the new-thread one
+  or the answer sheet) holds words, the thread opens behind it and the
+  sheet keeps the screen and its caret. an empty sheet is put away. with no
+  words in the way the caret goes into the thread's composer without a
+  scroll, so the dictation the keypad types next lands there (a draft in
+  another thread's composer is kept per thread, so moving the caret loses
+  nothing), and only once the thread is on the stage: a tap a running
+  transition refused moves nothing.
+- **compose.** a machine key opens the new-thread sheet on that machine, at
+  the repo on stage when that repo is on it. the key names a machine as its
+  agents' `label.machine`, which for cmx2 is the host's name, and the sheet
+  starts threads on the fleet's hosts: a machine it cannot start one on is
+  dropped. a sheet already up is someone writing, and is left as it is.
+- **what the app cannot take** is dropped where the person is, without
+  leaving the screen: a focus for a key home draws no window for, a compose
+  for a machine the sheet cannot start a thread on, and any request while a
+  terminal holds the keyboard.
+- **a hidden window** (another tab, minimised) does neither: the window in
+  front of the person is the one that moves.
+- **pairing.** while a board is here, a thread's menu offers "pair with a
+  board key"; a thread already paired offers "pair with another board key",
+  with "paired with key N" beside it. a server without `[board]` answers
+  that it has none, and the menu stops offering it. it
+  arms the board in the window's light tone, the bright one of its pair,
+  which a key's led can show, and the stage says "press a digit on the
+  board", still and calm, until the board shows the thread on a paired key
+  ("paired with board key N", for 2.4 s) or the 30 s are up ("nothing was
+  pressed. pair again from the thread menu."). a refusal says what
+  happened and what to do ("the board is not plugged into this mac now.
+  plug it in, then pair again.").
 
 ## starting a thread
 

@@ -1,0 +1,91 @@
+{
+  "fleet": {
+    "asks": {
+      "desk:per_1": {
+        "key": "desk:old-asking"
+      }
+    },
+    "order": [
+      "desk:old-asking",
+      "desk:done",
+      "desk:child",
+      "desk:old-busy",
+      "desk:recent",
+      "desk:old",
+      "desk:cleared"
+    ],
+    "sessions": {
+      "desk:child": {
+        "info": {
+          "parentID": "old-busy",
+          "time": {
+            "updated": 3599999000
+          }
+        },
+        "status": {
+          "since": 5,
+          "type": "busy"
+        }
+      },
+      "desk:cleared": {
+        "cleared": 3599998000.0,
+        "info": {
+          "time": {
+            "updated": 3599998000
+          }
+        },
+        "status": null
+      },
+      "desk:done": {
+        "info": {
+          "time": {
+            "updated": 3599997000
+          }
+        },
+        "status": null
+      },
+      "desk:old": {
+        "info": {
+          "time": {
+            "updated": 3553200000
+          }
+        },
+        "status": null
+      },
+      "desk:old-asking": {
+        "info": {
+          "time": {
+            "updated": 3553200000
+          }
+        },
+        "status": null
+      },
+      "desk:old-busy": {
+        "info": {
+          "time": {
+            "updated": 3553200000
+          }
+        },
+        "status": {
+          "since": 5,
+          "type": "busy"
+        }
+      },
+      "desk:recent": {
+        "info": {
+          "time": {
+            "updated": 3599999000
+          }
+        },
+        "status": null
+      }
+    }
+  },
+  "now": 3600000000,
+  "windows": [
+    "desk:old-asking",
+    "desk:done",
+    "desk:old-busy",
+    "desk:recent"
+  ]
+}

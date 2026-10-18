@@ -9,6 +9,70 @@
     "version": "1"
   },
   "paths": {
+    "/api/board/pin": {
+      "post": {
+        "tags": [
+          "crate::board::routes"
+        ],
+        "summary": "arms the board: the next digit key pressed pairs with this thread.",
+        "operationId": "pin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "armed: the next digit pressed on the board pairs with the thread, for 30 s"
+          },
+          "400": {
+            "description": "not a thread key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no `[board]` in boxbox.toml",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "no board is here to arm",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the board's stream is not reading; pair again in a moment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/clear": {
       "post": {
         "tags": [
@@ -4160,14 +4224,20 @@
         "parameters": [
           {
             "name": "after",
-            "in": "path",
+            "in": "query",
             "description": "the cursor, `<epoch>:<seq>`, for clients that cannot set\n`Last-Event-ID`; the header wins when both are sent.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
+            }
+          },
+          {
+            "name": "board",
+            "in": "query",
+            "description": "a desktop window that would show the board's digits and obey its\nfocus and compose (`docs/board.md`, where the board is). ignored\nunless the server has `[board]`.\n`board=1`, as the app sends it; `true` reads the same.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           },
           {
@@ -4298,6 +4368,84 @@
             "minimum": 0
           }
         }
+      },
+      "AppFrame": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "the board is on this mac and shows these digits. sent when a board\narrives, when a window's stream opens while one is here, and whenever\nthe digits change.",
+            "required": [
+              "seats",
+              "type"
+            ],
+            "properties": {
+              "seats": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Seat"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "board.here"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the board left this mac (unplugged, moved, or its stream timed out).",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "board.gone"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "board.focus"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "machine",
+              "type"
+            ],
+            "properties": {
+              "machine": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "board.compose"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "what app windows on the board's mac receive on `/api/stream?board=1`:\nid-less frames outside the journal (they carry no seq and move no\ncursor), sent only to a stream that asked for them and whose address is\nthe board's mac. a stream that never asks (ios, a phone) never sees one."
       },
       "Archived": {
         "type": "object",
@@ -5037,7 +5185,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`."
+            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,\nand the board's `no-board`, `no-board-window`, `board-busy`,\n`no-such-machine`, `board-protocol`."
           },
           "message": {
             "type": "string",
@@ -6217,6 +6365,27 @@
         },
         "additionalProperties": false
       },
+      "PinRequest": {
+        "type": "object",
+        "description": "`POST /api/board/pin` from the app: arm the board so the next digit key\npressed pairs with this thread.",
+        "required": [
+          "key",
+          "color"
+        ],
+        "properties": {
+          "color": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "key": {
+            "type": "string"
+          }
+        }
+      },
       "Place": {
         "type": "string",
         "description": "where a new thread runs.",
@@ -6638,6 +6807,28 @@
         ],
         "properties": {
           "host": {
+            "type": "string"
+          }
+        }
+      },
+      "Seat": {
+        "type": "object",
+        "required": [
+          "key",
+          "digit"
+        ],
+        "properties": {
+          "bound": {
+            "type": "boolean",
+            "description": "the digit is a paired key holding this thread (a [`Binding`]), not a\nseat by order. the app needs it to tell a press that paired a thread\nfrom the digit it already sat on, and draws a kept key as kept."
+          },
+          "digit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1 to 9.",
+            "minimum": 0
+          },
+          "key": {
             "type": "string"
           }
         }

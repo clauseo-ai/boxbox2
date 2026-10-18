@@ -20,6 +20,9 @@ export type Frame = {
   /** the individual scale property: a transform that composes with the element's own `transform`, so a press
       never fights a spring that is moving the same element */
   scale?: string;
+  /** the individual translate property, for the same reason: a board key slides a window's chip aside while the chip's own
+      settle plays on its `transform` */
+  translate?: string;
   opacity?: number | string;
   clipPath?: string;
   filter?: string;

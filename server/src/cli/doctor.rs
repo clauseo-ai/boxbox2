@@ -239,6 +239,7 @@ fn examine_config(path: &str) -> (Section, Option<Config>) {
                 ),
             )
         });
+        lines.push(board_line(config));
         if let Some(dev) = &config.dev {
             lines.push(line(
                 Level::Warn,
@@ -257,6 +258,20 @@ fn examine_config(path: &str) -> (Section, Option<Config>) {
         },
         config,
     )
+}
+
+/// whether the keypad add-on is on (`docs/board.md`): off costs nothing.
+fn board_line(config: &Config) -> Line {
+    match &config.board {
+        None => line(Level::Ok, "board off: no [board] in the file"),
+        Some(board) => line(
+            Level::Ok,
+            match &board.machines {
+                Some(machines) => format!("board on: machine lights {}", machines.join(", ")),
+                None => "board on: machine lights in the app's machine order".to_owned(),
+            },
+        ),
+    }
 }
 
 /// `gateways`: how many other connections the file holds, so a config

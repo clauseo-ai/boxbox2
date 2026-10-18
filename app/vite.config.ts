@@ -22,7 +22,9 @@ import { build, defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 import { marksInHtml } from "./src/ui/composer/marks-sprite";
 
-const VITE_PORT = 3002;
+/** 3002 for `just dev`; a parallel lane running its own vite beside another gives it a port of its own (docs/gotchas.md,
+    parallel lanes), and points its server's `[dev] vite` at it */
+const VITE_PORT = Number(process.env.BOXBOX_VITE_PORT ?? 3002);
 const WORKER_SOURCE = "/src/push/sw.ts";
 
 function serviceWorkerInDev(): Plugin {
@@ -47,8 +49,10 @@ function serviceWorkerInDev(): Plugin {
 }
 
 const DIST = "dist";
-/** the worker's own file is not its precache; the server's precompressed copies are written after this runs */
-const NOT_PRECACHED = /^sw\.js$|\.(br|gz)$/;
+/** the worker's own file is not its precache; the server's precompressed copies are written after this runs. nor is the
+    board's chunk (app/src/board/board.tsx, named for its file): a device that never meets a board never fetches a byte of
+    it, and the one that does fetches it on the first board frame (docs/board.md) */
+const NOT_PRECACHED = /^sw\.js$|\.(br|gz)$|^assets\/board-[\w-]+\.(js|css)$/;
 
 function filesIn(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

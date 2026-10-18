@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod auth;
+mod board;
 mod cli;
 mod cmx2;
 mod config;
@@ -164,6 +165,10 @@ async fn run(config: Config) -> Result<(), StartupError> {
     let (telemetry, writer) =
         telemetry::spawn(config.data_dir.join("telemetry")).map_err(StartupError::Telemetry)?;
     let (store, store_thread) = store::Store::open(&config.data_dir.join("boxbox.db"))?;
+    if config.board.is_some() {
+        // the board's one table, only where the board is configured (`store/schema.rs` says why)
+        store.call(|c| board::store::ensure(c)).await?;
+    }
     let paired = upstream::paired::load(&store).await?;
     refuse_agent_keys(&config, &store).await?;
     // the fleet asks for window tails; the upstream side reads them
@@ -212,6 +217,7 @@ async fn run(config: Config) -> Result<(), StartupError> {
         media,
         births: http::compose::Births::default(),
         sends: source::sends::Sends::new(fleet_upstream),
+        board: config.board.clone().map(board::Board::new),
         shutdown: shutdown.clone(),
     });
 
@@ -219,10 +225,15 @@ async fn run(config: Config) -> Result<(), StartupError> {
 
     tokio::spawn(stop_on_signal(shutdown.clone()));
     tokio::spawn(http::threads::confirm_adopted(Arc::clone(&state)));
-    axum::serve(listener, http::router(Arc::clone(&state)))
-        .with_graceful_shutdown(shutdown.clone().cancelled_owned())
-        .await
-        .map_err(StartupError::Serve)?;
+    // each connection's peer, for the board's address match (`board/addr.rs`)
+    axum::serve(
+        listener,
+        http::router(Arc::clone(&state))
+            .into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown.clone().cancelled_owned())
+    .await
+    .map_err(StartupError::Serve)?;
 
     // once the relays and the state are gone, push finishes its deliveries
     // and drops its handles, the writers flush and stop, and the watchers,

@@ -16,7 +16,7 @@
     "app"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p app && tsc --noEmit -p board/daemon",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p app",
     "telemetry": "bun scripts/telemetry.ts"
   },
   "devDependencies": {

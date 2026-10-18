@@ -48,8 +48,8 @@ paid model api, because the dev daemon runs against a scripted model.
 - **the cmx2 pin moves on purpose.** edit `cmx2.pin`, run `just vendor` and
   `just check`, run the probes in `docs/verification.md`, and say in
   `CHANGELOG.md` what changed in the contract.
-- **the board is frozen.** only `board/daemon/src/client.ts` changes.
-  `board/checksums.test.ts` holds every other file to its recorded hash.
+- **the board** is an optional add-on (`docs/board.md`). decision 1 binds how it
+  behaves, and the recorded traces in `docs/board-verification.md` hold it.
 - **a gap in cmx2 is an ask, not a workaround.** describe it in
   `docs/cmx2-asks.md` and open an issue on cmx2 asking for it.
 - **every buffer has a cap and every map an eviction rule.** budgets have

@@ -90,8 +90,9 @@ and posts small patches to the ui thread once a frame.
 | path | what it is |
 |---|---|
 | `vendor/cmx2/`, `cmx2.pin` | the pinned cmx2 commit and the two files copied from it, an openapi document and a manifest. `just check` proves they match the commit |
-| `board/daemon/` | the board's bun daemon. only `src/client.ts` talks to boxbox |
-| `board/lib/`, `board/trace/` | the board's carried code and a harness that replays recorded key sessions against it |
+| `board/wire/` | the board channel's shapes, shared by the server and the daemon |
+| `board/daemon/` | `boxbox-board`, the native board daemon |
+| `board/trace/` | the harness that replays recorded key sessions against the daemon |
 | `telemetry/` | the telemetry dictionary (`schema.ts`) and a query tool over the day files |
 | `probes/` | scripts that test each cmx2 contract boxbox relies on against the pinned daemon |
 | `bench/` | scripted drives with budgets: a fake model for the dev daemon, load and layout checks |

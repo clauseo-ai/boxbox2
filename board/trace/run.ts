@@ -15,7 +15,7 @@
 
 import { join } from "node:path";
 import { startDaemon } from "./daemon";
-import type { Record } from "./preload";
+import type { Record } from "./records";
 import { keyEvents, type KeyEvent, type Scenario } from "./scenarios";
 import type { World } from "./world";
 
@@ -25,8 +25,19 @@ const WORLD_POLL_MS = 200;
 const STEP_TIMEOUT_MS = 45_000;
 const CONNECT_TIMEOUT_MS = 20_000;
 
-/** call paths that are clock-driven, not caused by a step */
-const BACKGROUND = [/^\/api\/stream/, /^\/api\/telemetry/, /^\/api\/board\/seats/, /^\/api\/board\/frame/, /^\/api\/spend/];
+/** call paths that are clock-driven, not caused by a step: v1's stream, telemetry batches, the seat heartbeat, the
+    twin mirror and the spend poll, and the native daemon's board stream */
+const BACKGROUND = [/^\/api\/stream/, /^\/api\/board\/stream/, /^\/api\/telemetry/, /^\/api\/board\/seats/, /^\/api\/board\/frame/, /^\/api\/spend/];
+
+/** the native daemon posts its seat map as one act among many on /api/board/act; it counts as v1's seat posts did */
+function isBackground(record: Extract<Record, { ch: "http" }>): boolean {
+  if (BACKGROUND.some((p) => p.test(record.path))) return true;
+  const body = record.body;
+  return record.path === "/api/board/act" && typeof body === "object" && body !== null && "verb" in body && body.verb === "seats";
+}
+
+const STREAMS = new Set(["/api/stream", "/api/board/stream"]);
+const barePath = (path: string) => path.split("?")[0] ?? path;
 
 export type TracedStep = {
   label: string;
@@ -45,7 +56,8 @@ export type Run = { steps: TracedStep[] };
 export type RunOptions = {
   scenario: Scenario;
   world: World;
-  daemonDir: string;
+  /** v1's daemon package, or the native binary (daemon.ts) */
+  daemon: string;
   runDir: string;
   /** replay feeds the recorded presses rather than re-deriving them */
   keysFor?: (index: number) => KeyEvent[] | undefined;
@@ -94,7 +106,7 @@ export async function traceRun(options: RunOptions): Promise<Run> {
       return;
     }
     if (record.ch === "http") {
-      if (BACKGROUND.some((p) => p.test(record.path))) {
+      if (isBackground(record)) {
         backgroundIds.add(record.id);
         return;
       }
@@ -107,7 +119,7 @@ export async function traceRun(options: RunOptions): Promise<Run> {
   };
 
   const daemon = startDaemon({
-    daemonDir: options.daemonDir,
+    daemon: options.daemon,
     runDir: join(options.runDir, "daemon"),
     origin: options.world.origin,
     password: options.world.password,
@@ -141,15 +153,17 @@ export async function traceRun(options: RunOptions): Promise<Run> {
   };
 
   try {
-    /* the daemon logs in, opens the stream and reconciles with no board;
+    /* v1's daemon logs in, opens the stream and reconciles with no board;
        once that has settled the board goes in, and the formation lap plays
-       over a known state */
+       over a known state. the native daemon talks to nobody until the board
+       is plugged in (docs/board.md, lifecycle), so it only has to settle:
+       any call it makes before the plug lands in the start step's diff */
     const startBegan = Date.now();
-    let streamOpen = false;
+    let streamOpen = !daemon.connectsBeforePlug;
     while (!streamOpen) {
       if (Date.now() - startBegan > CONNECT_TIMEOUT_MS) throw new Error("the daemon never opened its stream");
       if (crashed !== null) throw new Error(`the daemon exited with ${crashed} before it opened its stream`);
-      streamOpen = current.records.some((r) => r.ch === "http" && r.path === "/api/stream" && current.records.some((d) => d.ch === "http-done" && d.id === r.id && d.status === 200));
+      streamOpen = current.records.some((r) => r.ch === "http" && STREAMS.has(barePath(r.path)) && current.records.some((d) => d.ch === "http-done" && d.id === r.id && d.status === 200));
       await Bun.sleep(20);
     }
     await settle(startBegan, frameChanges, false, "the daemon starts");

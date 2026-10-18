@@ -2,6 +2,23 @@
 /* source: boxbox openapi (server/src/http) */
 
 export type paths = {
+    "/api/board/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** arms the board: the next digit key pressed pairs with this thread. */
+        post: operations["pin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/clear": {
         parameters: {
             query?: never;
@@ -1051,6 +1068,28 @@ export type components = {
             /** @description events dropped whole (unknown kind, or a kind the server owns). */
             dropped: number;
         };
+        /**
+         * @description what app windows on the board's mac receive on `/api/stream?board=1`:
+         *     id-less frames outside the journal (they carry no seq and move no
+         *     cursor), sent only to a stream that asked for them and whose address is
+         *     the board's mac. a stream that never asks (ios, a phone) never sees one.
+         */
+        AppFrame: {
+            seats: components["schemas"]["Seat"][];
+            /** @enum {string} */
+            type: "board.here";
+        } | {
+            /** @enum {string} */
+            type: "board.gone";
+        } | {
+            key: string;
+            /** @enum {string} */
+            type: "board.focus";
+        } | {
+            machine: string;
+            /** @enum {string} */
+            type: "board.compose";
+        };
         /** @description the daemon's answer to an archive. */
         Archived: {
             /**
@@ -1299,7 +1338,9 @@ export type components = {
              *     `checkout-refused` (whose body is a `CheckoutRefusal`, not this one),
              *     and contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`
              *     (with `retry-after`), `generation-changed`, `not-confirmed`,
-             *     `not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`.
+             *     `not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,
+             *     and the board's `no-board`, `no-board-window`, `board-busy`,
+             *     `no-such-machine`, `board-protocol`.
              */
             code: string;
             /** @description for people, in the interface's voice. */
@@ -1758,6 +1799,14 @@ export type components = {
             url: string;
         };
         /**
+         * @description `POST /api/board/pin` from the app: arm the board so the next digit key
+         *     pressed pairs with this thread.
+         */
+        PinRequest: {
+            color: number[];
+            key: string;
+        };
+        /**
          * @description where a new thread runs.
          * @enum {string}
          */
@@ -1928,6 +1977,20 @@ export type components = {
         ResetReason: "none" | "epoch" | "expired" | "invalid";
         Restarting: {
             host: string;
+        };
+        Seat: {
+            /**
+             * @description the digit is a paired key holding this thread (a [`Binding`]), not a
+             *     seat by order. the app needs it to tell a press that paired a thread
+             *     from the digit it already sat on, and draws a kept key as kept.
+             */
+            bound?: boolean;
+            /**
+             * Format: int32
+             * @description 1 to 9.
+             */
+            digit: number;
+            key: string;
         };
         /**
          * @description a prompt, a queued prompt or a steer: what the person typed, with what
@@ -2213,6 +2276,64 @@ export type components = {
 };
 export type $defs = Record<string, never>;
 export interface operations {
+    pin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinRequest"];
+            };
+        };
+        responses: {
+            /** @description armed: the next digit pressed on the board pairs with the thread, for 30 s */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not a thread key */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description no `[board]` in boxbox.toml */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description no board is here to arm */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the board's stream is not reading; pair again in a moment */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     clear: {
         parameters: {
             query?: never;
@@ -5340,18 +5461,25 @@ export interface operations {
     };
     stream: {
         parameters: {
-            query?: never;
-            header?: {
-                /** @description the id of the last frame applied, `<epoch>:<seq>` */
-                "Last-Event-ID"?: string | null;
-            };
-            path: {
+            query?: {
                 /**
                  * @description the cursor, `<epoch>:<seq>`, for clients that cannot set
                  *     `Last-Event-ID`; the header wins when both are sent.
                  */
-                after: string | null;
+                after?: string;
+                /**
+                 * @description a desktop window that would show the board's digits and obey its
+                 *     focus and compose (`docs/board.md`, where the board is). ignored
+                 *     unless the server has `[board]`.
+                 *     `board=1`, as the app sends it; `true` reads the same.
+                 */
+                board?: boolean;
             };
+            header?: {
+                /** @description the id of the last frame applied, `<epoch>:<seq>` */
+                "Last-Event-ID"?: string | null;
+            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

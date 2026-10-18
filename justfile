@@ -5,10 +5,9 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 default:
     @just --list
 
-# install every dependency from the lockfiles (the board keeps its own)
+# install every dependency from the lockfiles
 setup:
     bun install --frozen-lockfile
-    cd board/daemon && bun install --frozen-lockfile
 
 # the cmx2 dev daemon from the commit in cmx2.pin on 4840, with the bench model on 4841
 cmx2 *flags:
@@ -55,7 +54,6 @@ check:
     bunx tsc --noEmit -p app
     bunx tsc --noEmit -p app/src/push
     bunx tsc --noEmit -p app/.ladle
-    bunx tsc --noEmit -p board/daemon
     cargo test --locked
     bun test telemetry board probes app
     bun test --conditions browser app/src/ui/thread/live.reactive.test.ts app/src/ui/thread/holds.reactive.test.ts app/src/ui/thread/stage-window.reactive.test.ts
@@ -76,5 +74,14 @@ release-mac *flags:
 build:
     cd app && bunx vite build
     bun scripts/compress.ts
-    cargo build --release --locked
+    cargo build --release --locked -p boxbox
     ls -l target/release/boxbox
+
+# the board daemon's release binary, stripped by the profile (docs/board.md)
+board-build:
+    cargo build --release --locked -p boxbox-board
+    ls -l target/release/boxbox-board
+
+# the board daemon installed on this mac: signed, its config made, its launch agent loaded
+board-install: board-build
+    target/release/boxbox-board install

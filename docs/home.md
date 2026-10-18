@@ -12,6 +12,7 @@ is binding the same way (AGENTS.md, design law).
 | `app/src/motion/` | the motion law as code: the two springs sampled into `linear()` curves, the short curves, and `play`/`flip`/`settle`/`sweep`, the only way anything animates |
 | `app/src/ui/window/` | one window: the repo colours (`repo.ts`), the tail's grammar (`tail.ts`), the window's view of a session (`view.ts`), the component and its stylesheet |
 | `app/src/ui/home/` | home: membership (`membership.ts`), the arrangements, the order and its calm, the stage and its motion (`home.tsx`, `stage.tsx`), the folds at the rail and the strip (the fold and its swatches `fold.tsx`, `swatch.ts`, the windows toggle's words `windows.ts`; the stage card's edge moving `edge.ts`, `glide.ts`; the choice kept on the device `remembered.ts`), the budgets (`perf.ts`), the fixtures and the stories |
+| `app/src/board/` | the board's digits on home (`docs/board.md`, the app): the first load's foothold (`lazy.ts`: the lazy pieces and the words a name carries), and the chunk fetched on the first board frame (`board.tsx`, `board.css`: the key on a window and a swatch, the pairing item and the stage's line; `pin.ts`: arming a pairing), with its stories |
 | `bench/windows.ts` | the windows world: five threads across two repos on a real daemon, for the fixture capture and the budget run |
 | `bench/home.ts` | the budget run |
 
@@ -293,6 +294,42 @@ design.md (the inspector and the folds) is the law; how it is built:
   `-inspector-folded`, `-windows-hidden-inspector-folded`,
   `-inspector-turns`, `-empty`,
   `-strip-folded` (the folded strip at the ipad width).
+
+## the board's digits (2026-10-18)
+
+how the board's keys on home are built; how they look and move is
+`design.md`, the board.
+
+- **nothing until a board.** the store's `board` slice is all a device
+  without a board ever holds: `here` false, no digits. the window, the
+  swatch and the stage mount the board's pieces only once `board.met` (a
+  board has been here since the page opened), and those pieces are a chunk
+  of their own (`board/board.tsx`), fetched by that first mount and left
+  out of the service worker's precache. once a board has been here they
+  stay mounted, so a key can leave by motion when the board goes.
+- **the store owns the digits.** each `board.here` replaces the digits
+  and the paired keys whole; `board.gone`, and the end of a stream that
+  carried a board, clear them. a key reads its window's digit from the
+  store and keeps only the face it is showing while it leaves; it marks
+  its window (`data-board`, seated or leaving) for the chip's and the
+  name's room, and unmarks it when it goes.
+- **requests are taken once.** a focus or a compose is a request in the
+  store with a serial of its own (a second press of the same key is a new
+  request). the rules are `board/requests.ts`, pure and tested: which
+  requests the app can take, what a focus does with a sheet over home,
+  and which host a machine light composes on. the shell drops one it
+  cannot take, or any while a terminal holds the keyboard, and brings home
+  up for the rest; whichever home is up takes it, clears it, and acts a
+  frame later, once its windows are drawn: `activate(key, originOf(key),
+  null)`, the tap's own path, then the caret, only when the thread is on
+  the stage and no sheet holds words. a screen coming back hands a
+  keyboard's focus to the control that went in a moment later
+  (`app/src/shell`); for the first frames that hand-off is undone.
+- **pairing settles on the wire's word.** an armed pin settles on a
+  `board.here` whose seat for its thread turns paired (`Seat.bound`),
+  at the digit it sat on or another, or whose paired seat moves to another
+  digit; never on an unpaired seat by order (an unpaired thread often sits
+  on a digit already) nor on the paired key it already had. the stage's line owns each phase's timer.
 
 ## clearing and history
 
@@ -595,6 +632,18 @@ guesses.
   animation of transform and opacity whose `currentTime` rises frame by
   frame while its computed opacity and transform change (0 and
   `scale(.9)` to 1 and none, about 34 frames).
+- **the board's digits.** `bun test app/src/sync/protocol.test.ts
+  app/src/store-board.test.ts app/src/board`: board frames are taken
+  without a seq and leave the cursor and the reducer's state as they were,
+  only on a stream that asked; the slice replaces, clears and settles a
+  pairing; the board's membership is the app's (`windows.test.ts`, over
+  the server's fixture, `server/src/fleet/board/windows.json`). `bun .ladle/shots.ts --prefix
+  board--` (and `--theme light`) shoots arriving, changing and leaving
+  (each held part way), at rest, the folded strip and rail, and reduced
+  motion at 390, 820 and 1512, and fails a story on a layout shift or a
+  long task while the digits moved, a seated window without its key or its
+  name's ", board key N", two equal names, or, under reduced motion, a move
+  in flight.
 - **the budget run.** `just build && bun bench/home.ts` drives chromium
   against the real daemon with five threads streaming, at 390, 820 and
   1512: 20 cold launches, 50 opens and closes, scrolling while streaming,

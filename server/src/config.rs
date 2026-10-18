@@ -63,6 +63,17 @@ pub struct Config {
     /// reserved (decision 35): parsed and checked, run by nothing yet.
     pub hermes: Vec<HermesConfig>,
     pub cache: CacheConfig,
+    /// `[board]`: the keypad add-on (`docs/board.md`). none, the default,
+    /// turns the board off: no route, no projection, no task.
+    pub board: Option<BoardConfig>,
+}
+
+/// the board's machine lights, at most `boxbox_board_wire::MAX_MACHINES`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoardConfig {
+    /// each a `label.machine`, in key order (`/ * - +`); none for the
+    /// app's machine order.
+    pub machines: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,6 +228,13 @@ struct File {
     hermes: Vec<HermesFile>,
     #[serde(default)]
     cache: CacheFile,
+    board: Option<BoardFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BoardFile {
+    machines: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -334,6 +352,8 @@ impl Config {
             ("openclaw", self.openclaw != next.openclaw),
             ("hermes", self.hermes != next.hermes),
             ("cache", self.cache != next.cache),
+            // the routes and the board's handle are built once, at start
+            ("board", self.board != next.board),
         ]
         .into_iter()
         .filter_map(|(name, differs)| differs.then_some(name))
@@ -385,6 +405,8 @@ impl Config {
             ));
         }
 
+        let board = file.board.map(board_of).transpose()?;
+
         Ok(Self {
             path: PathBuf::new(),
             listen: file.listen.unwrap_or(DEFAULT_LISTEN),
@@ -406,6 +428,7 @@ impl Config {
             openclaw,
             hermes,
             cache: CacheConfig { transcript_bytes },
+            board,
         })
     }
 
@@ -569,6 +592,37 @@ fn gateway_name(table: &str, name: String) -> Result<String, String> {
             "{table} name \"{name}\" must be 1 to {MAX_GATEWAY_NAME} lowercase letters, digits and dashes"
         ))
     }
+}
+
+/// the most characters a `[board] machines` name may have; a `label.machine`
+/// is a computer's name.
+const MAX_BOARD_MACHINE: usize = 64;
+
+fn board_of(file: BoardFile) -> Result<BoardConfig, String> {
+    let Some(machines) = file.machines else {
+        return Ok(BoardConfig { machines: None });
+    };
+    let most = boxbox_board_wire::MAX_MACHINES;
+    if machines.is_empty() || machines.len() > most {
+        return Err(format!(
+            "board.machines lists {} machines; give 1 to {most}, or leave it out for the app's order",
+            machines.len()
+        ));
+    }
+    for (at, name) in machines.iter().enumerate() {
+        if name.trim().is_empty() || name.trim() != name || name.chars().count() > MAX_BOARD_MACHINE
+        {
+            return Err(format!(
+                "board.machines: \"{name}\" is not a machine; give the label.machine its agents carry (for cmx2, the host's name)"
+            ));
+        }
+        if machines[..at].contains(name) {
+            return Err(format!("board.machines names \"{name}\" twice"));
+        }
+    }
+    Ok(BoardConfig {
+        machines: Some(machines),
+    })
 }
 
 fn machine_of(table: &str, name: &str, machine: Option<String>) -> Result<Option<String>, String> {
@@ -893,6 +947,39 @@ mod tests {
         assert_eq!(set.media.max_bytes, 3 * 1024 * 1024);
         let tiny = parse("password = \"long enough\"\n[media]\nmax_bytes = 1000").unwrap_err();
         assert!(tiny.contains("at least"), "{tiny}");
+    }
+
+    #[test]
+    fn the_board_is_off_unless_its_section_is_there() {
+        let off = parse("password = \"long enough\"").unwrap();
+        assert!(off.board.is_none());
+        let on = parse("password = \"long enough\"\n[board]").unwrap();
+        assert_eq!(on.board, Some(BoardConfig { machines: None }));
+        let named =
+            parse("password = \"long enough\"\n[board]\nmachines = [\"desk\", \"vm\", \"laptop\", \"mini\"]")
+                .unwrap();
+        assert_eq!(
+            named.board.unwrap().machines.unwrap(),
+            ["desk", "vm", "laptop", "mini"]
+        );
+    }
+
+    #[test]
+    fn the_board_takes_one_to_four_distinct_machines() {
+        let five = parse(
+            "password = \"long enough\"\n[board]\nmachines = [\"a\", \"b\", \"c\", \"d\", \"e\"]",
+        )
+        .unwrap_err();
+        assert!(five.contains("1 to 4"), "{five}");
+        let none = parse("password = \"long enough\"\n[board]\nmachines = []").unwrap_err();
+        assert!(none.contains("1 to 4"), "{none}");
+        let twice = parse("password = \"long enough\"\n[board]\nmachines = [\"desk\", \"desk\"]")
+            .unwrap_err();
+        assert!(twice.contains("twice"), "{twice}");
+        let blank = parse("password = \"long enough\"\n[board]\nmachines = [\" \"]").unwrap_err();
+        assert!(blank.contains("not a machine"), "{blank}");
+        let unknown = parse("password = \"long enough\"\n[board]\nkeys = 17").unwrap_err();
+        assert!(unknown.contains("unknown field"), "{unknown}");
     }
 
     #[test]

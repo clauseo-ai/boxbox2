@@ -1,45 +1,53 @@
 # board verification
 
-decision 1 freezes the board: every key behaves as it does in v1, judged
-by identical behaviour, not parity of spirit. decisions 11 and 14 say how
-that is held: only `board/daemon/src/client.ts` is rewritten for v2, and
-a trace recorded against v1 (keys in; calls and led frames out) is
-replayed against v2 and must match. the checksum test (`board/CHECKSUMS`,
-`board/checksums.test.ts`) proves the bytes; this harness proves the
-behaviour. m6's gate is both.
+decision 1 binds what the board does: every key behaves as it does in v1,
+judged by identical behaviour, not parity of spirit, apart from the changes
+decision 79 lists. decision 78 replaced v1's daemon with a native one, so
+the bytes of v1's files no longer prove anything; this harness proves the
+behaviour, by replaying sessions recorded against v1 at the process
+boundary.
 
 ## what the harness is
 
 `board/trace/` runs a real board daemon, unmodified, against a fake board
 and a real server, plays a scripted session of key presses and agent
-turns, and records everything the daemon does, timestamped:
+turns, and records everything the daemon does, timestamped. it attaches
+two ways. the native daemon (decision 78) runs at its seams
+(`docs/board.md`, the harness's seams). v1's bun daemon runs under a
+preload. the records are the same either way:
 
 | channel | what is recorded |
 |---|---|
 | leds | every hid write the daemon sends the board: hello, palette, frame, global, ping, mode |
 | board | every report the fake board sends back: hello ack, key down and up, mode echo |
-| calls | every `fetch` to its server: method, path, directory header, body, status |
-| radio | every `say` (the words) and every `sox` start and stop |
+| calls | every call to its server: method, path, directory header, body, status. the board stream's frames are kept beside them for reading, never diffed |
+| radio | every readback (the words), and every meter start and stop (v1's `sox`) |
 
 the pieces:
 
 | file | does |
 |---|---|
 | `firmware.ts` | the fake board: the mf17 boxbox keymap (fw 5, protocol v1) as a pure state machine. hello ack, key reports, the local nl double tap into calc (the triggering press never reported), nothing reported on the calc layer, the 2000ms watchdog, the unconditional mode echo |
-| `preload.ts` | loaded with `bun --preload` into the daemon's own process. `node-hid` resolves to a virtual module whose one device is the fake board; `fetch` is wrapped and recorded; `Bun.spawn` of `say` is recorded and never speaks, and of `sox` is a scripted microphone (six level windows 150ms apart, then quiet) so the voice meter draws the same frames every run |
-| `daemon.ts` | launches `<daemon>/src/main.ts` under the preload with a pinned config (flat night curve, the daemon's own timings) and a fresh state dir, and talks to it over ipc |
-| `world.ts`, `world-v1.ts` | the server side. v1's world is boxbox v1 exported at the frozen commit (`18df8bd`), built and served in production mode on 3021, in front of a harness cmx serve on 4880 whose model is the trace model on 4881 |
-| `model.ts` | the trace model: a scripted anthropic messages api. a reply, a permission, a question with n options, or streamed work, each with a fixed 400ms think time and a 300ms pause before a tool call, so agent-driven frames hold long enough to compare |
+| `daemon.ts` | starts the daemon `--daemon` names: a binary is the native daemon (`native.ts`), a directory is v1's bun daemon under the preload |
+| `native.ts` | runs `boxbox-board` with `BOXBOX_BOARD_HID=unix:<path>`, `BOXBOX_BOARD_METER=script:<path>` and `BOXBOX_BOARD_CONFIG=<path>` (origin the proxy, a password file, a flat night curve, no voice, the meter on, `say_command` the recorder, the daemon's own timings), with its own HOME, so the state dir starts empty |
+| `socket-board.ts` | the fake board on a unix socket. the socket exists only while the board is plugged in. each way carries fixed 32-byte frames: the protocol's host writes, and the firmware's reports. a report goes out 1ms after the write that caused it, the hello ack after 40ms, and the watchdog ticks every 50ms. unplugging closes the connection |
+| `proxy.ts` | the recording reverse proxy between the native daemon and its server: method, path, body and status, as the fetch wrapper recorded them. it passes a stream through unbuffered and records each `data:` frame on the side |
+| `radio.ts`, `say-recorder.ts` | the radio's seams. `say_command` is a shim that logs its argv and exits 0 without speaking. the meter script is `{"windowMs":150,"levels":[0.3,0.15,0.3,0.08,0.3,0.15]}`, the six windows v1's fake sox played. in script mode the daemon appends `start` and `stop` to `<script>.log`, and those read as `sox start` and `sox stop` |
+| `preload.ts` | v1 only, loaded with `bun --preload` into v1's daemon process. `node-hid` resolves to a virtual module whose one device is the fake board; `fetch` is wrapped and recorded; `Bun.spawn` of `say` is recorded and never speaks, and of `sox` is the same scripted microphone |
+| `world.ts`, `world-v1.ts`, `world-v2.ts` | the server side. v1's world is boxbox v1 exported at the frozen commit (`18df8bd`), built and served in production mode on 3021, in front of a harness cmx serve on 4880 whose model is the trace model on 4881. v2's world is boxbox v2 built from the checkout (`target/release/boxbox`) on 3022, with one host `h1` and `[board] machines = ["h1"]`, in front of the pinned cmx2 (`just cmx2`'s export) on 4884 whose model is the trace model on 4885, with an app window on `/api/stream?board=1` so a focus has somewhere to land. the board's mac is played by `192.0.2.10` (a documentation address): the proxy forwards every daemon call with it as `X-Forwarded-For`, and the app window says the same, so the server finds the window by address as decision 81 does. the daemon's real `addrs` pass through and never reach a record |
+| `model.ts` | the trace model: a scripted anthropic messages api. a reply, a permission, a question with n options, or streamed work, each with a fixed 400ms think time and a 300ms pause before a tool call, so agent-driven frames hold long enough to compare. `--shell-tool` and `--shell-arg` name the runtime's shell tool (cmx2's is `shell` with `command`). `--end-ms` pauses between a reply's last word and its end: v1's cmx went idle about 300ms after a reply's last token and cmx2 within a few, so the v2 world passes 300 and a turn ends as long after its words as it did when the traces were recorded (otherwise the words and the end land in one 250ms build of the server's view, and the bright working frame v1 drew never shows) |
 | `scenarios.ts` | the three sessions, as setup plus steps (a gesture, an agent turn, or rest) |
-| `run.ts` | one traced run: the daemon starts with no board, reconciles, then the board is plugged in; each step ends when the board and the world are both quiet |
-| `normalize.ts` | a run reduced to the lines the diff compares, and the v1 wire decoded into intents |
-| `diff.ts` | per step and channel, a line diff: `-` the trace, `+` the replay |
+| `run.ts` | one traced run: the daemon starts with no board (v1's reconciles; the native one must stay silent), then the board is plugged in; each step ends when the board and the world are both quiet |
+| `normalize.ts` | a run reduced to the lines the diff compares, with v1's wire (`decodeV1`) and the native daemon's acts (`decodeV2`) decoded into the same intents |
+| `deltas.ts` | decision 79's deliberate changes, as reviewed rules, and the step whose presses change with them |
+| `diff.ts` | per step and channel, a line diff: `-` the trace, `+` the replay. the lines a decision 79 rule forgave are printed apart |
 | `trace.ts` | the file format, and the scrub that names nothing on the recording machine |
 | `record.ts`, `replay.ts` | the two entry points |
 
-the harness never imports daemon code: it meets the daemon only at the
-process boundary (the hid module, `fetch`, `Bun.spawn`), so the same
-checker drives v1's daemon and m6's.
+the harness never imports daemon code. it meets the daemon only at the
+process boundary: the socket, the proxy, the say command and the meter
+script for the native daemon, and the hid module, `fetch` and
+`Bun.spawn` for v1's. so the same checker drives both.
 
 ## the three traces
 
@@ -75,7 +83,7 @@ once, an answer) finishes inside the step that set it going.
 `normalize.ts` is the definition; its tests pin every rule. in short:
 
 - **byte for byte**: every frame, palette writes to slots 0 to 13, global,
-  hello, mode, every board report, every `say`, every `sox` start and
+  hello, mode, every board report, every `say`, every meter start and
   stop, and every call's intent and outcome.
 - **checked, not diffed**: ping is the keepalive; the longest gap between
   host writes is printed (about 510ms against the firmware's 2000ms
@@ -103,26 +111,103 @@ once, an answer) finishes inside the step that set it going.
   verb's own order kept), since calls from different sources interleave
   by timing.
 
+### across versions
+
+a replay against v2 reads both sides through `crossVersion`:
+
+- v2's acts decode onto v1's intents. `focus`, `compose` and `read`
+  (`markRead`) map one to one. a reply is `replyPermission` with its
+  answer, or `replyQuestion` with the label of the option it names.
+  `seats` is the seats on the keys by digit (v1's map without its page and
+  hidden seats). v1's abort then loop is one `flush`. `bind`, `unbind`,
+  `gone` and telemetry keep their own shape. a reply's directory is
+  dropped on both sides, since v2 never sends one.
+- **a seat is the unit (decision 80).** v2's board follows the app's window
+  order, so digit n is window n, and its threads sit on other digits than
+  v1's own triage put them. each side is read through its own posted seat
+  maps (v1's `postSeats`, v2's `Act::Seats`):
+  + calls and readback by digit, under the map in effect at the press that
+    caused them. a tap on k1 focuses whatever sits on digit 1 on that side.
+    `markRead` and "the top call" mean digit 1's thread. a verb's telemetry
+    `session` reads the same way. a thread on no digit keeps its key.
+  + frames by thread for the nine digit keys. each side's digit cells move
+    through its own map (the map posted for that render: the last one
+    before the next frame) to where the trace's map seats each thread, so
+    each thread must wear the same light wherever it sits. every other key
+    must match byte for byte, decision 79's cells apart.
+  + the seat map itself is not a line. it changes whenever the app's order
+    does, which is not when v1's triage did, and every other line is
+    already read through it.
+  + after an answer, v1's seat memo could redraw the picture from just
+    before the pit (the board as it was at the press that entered it) for
+    under 250ms. v2 has no memo and shows the thread's true state there
+    instead. only where the trace's frame is that redraw, the replay's frame
+    holds for at most 250ms (measured at the fake board, with 10ms of slack
+    for the hops a write crosses: one 250ms build was seen holding 251ms),
+    and read by thread the two differ on one digit key alone (decision 79's
+    cells apart).
+- **a bare first frame (decision 81).** the daemon opens no server
+  connection until the board is plugged in, so a frame drawn before the
+  first view reached it shows no threads or machines. only frames before
+  the first view are forgiven, never one after.
+- **telemetry fixes.** `board.connect` may carry the board's real `fw`,
+  `proto` and `reconnects`; v1 sent a hardcoded `fw` 1. its outcome and
+  every other field must match. `perf.board` is new (the daemon's budget
+  row) and is accounted for wherever it lands.
+- these three print under "accounted for by decisions 80 and 81, and
+  telemetry fixes", apart from decision 79's.
+- not compared, because v2 has no counterpart (`V1_ONLY`): the twin
+  mirror (`/api/board/frame`), the spend poll, and the session list and
+  session reads v1 derived the board from (refreshSessions,
+  fetchSession). v2's server sends the view (decision 80).
+- decision 79's changes are forgiven only as `deltas.ts` writes them, and
+  each forgiven line is printed under "accounted for by decision 79":
+  + where the trace has the mark-read light (`25`, v1's copy armed), `+`
+    may show a machine light (the floor, or what `/ * -` show), and where
+    the trace's `.` is the floor (no more pages to hint), `.` may show the
+    mark-read light, in any step;
+  + in the two fleet steps of thread switching, the odometer's cells (`-`,
+    `+`, ent) may differ, since they are the fourth machine's column;
+  + "tap plus: mark the top call read" presses a 600ms hold on `.`
+    instead. its board reports may say wire 16 for 7, its frames may differ
+    on `+` and `.`, and v1's one `board.key` tap on `+` is the hold's
+    `holdStart` and `holdEnd` on `.` (target read), with the same bank and
+    outcome. the call it makes must still be the same `markRead`.
+  anything else that differs fails.
+
 ## commands
 
 ```sh
+cargo build --release -p boxbox-board
+bun board/trace/replay.ts all --daemon target/release/boxbox-board --world v2   # the m6 gate
+bun board/trace/replay.ts all --daemon target/release/boxbox-board --world v2 --rediff   # the last run diffed again, starts nothing
+bun board/trace/world-v2.ts --smoke [--board]   # the v2 world alone: three threads, a permission, a question
+bun board/trace/replay.ts <trace.json | all> [--daemon <dir>]   # v1's daemon against v1's world
 bun board/trace/record.ts <scenario | all> [--daemon <dir>]
-bun board/trace/replay.ts <trace.json | all> [--daemon <dir>]
 bun board/trace/replay.ts <trace.json> --show   # the normalized view, starts nothing
 ```
 
-`--daemon` defaults to v1's own daemon (`board/` in the v1 export). the
-first run exports, installs and builds v1 into `board/trace/.work/`
-(gitignored); later runs reuse it. worlds live under the system temp dir,
-never inside a checkout. both commands stop everything they start, on
-success or failure. replay writes its own run to
-`board/trace/.work/replay-<scenario>/replay.json` for reading a diff
-against, and the daemon's log to `.../daemon/daemon.log`.
+`--world v2` builds boxbox with `cargo build --release` (or uses
+`BOXBOX_BINARY`) and exports the pinned cmx2 into `.cmx2/<pin>/` once
+(`CMX2_REPO` when the cmx2 checkout is not `../cmx2`). it needs ports 4884,
+4885 and 3022 free. `BOARD_TRACE_CMX2_PORT` (the model takes the next port)
+and `BOARD_TRACE_BOXBOX_PORT` move them for a parallel lane. the daemon logs
+at `BOARD_TRACE_RUST_LOG` (info).
 
-needs: the boxbox v1 repo (not public), at the path in
-`BOXBOX_V1_REPO`, holding the frozen commit, and the installed cmx binary
-(`~/.local/share/cmx/bin/opencode`, or `CMX_BINARY`). ports 4880, 4881 and
-3021 must be free.
+`--world v1` is the default. `--daemon` then defaults to v1's own daemon
+(`board/` in the v1 export). the first run exports, installs and builds v1
+into `board/trace/.work/` (gitignored); later runs reuse it. it needs the
+boxbox v1 repo (not public) at the path in `BOXBOX_V1_REPO`, holding the
+frozen commit, and the installed cmx binary
+(`~/.local/share/cmx/bin/opencode`, or `CMX_BINARY`). ports 4880, 4881
+and 3021 must be free. recording is v1 only.
+
+worlds live under the system temp dir, never inside a checkout. every
+command stops everything it starts, on success or failure. replay writes
+its own run to `board/trace/.work/replay-<scenario>/replay.json` for
+reading a diff against, and the daemon's log to `.../daemon/daemon.log`.
+the v2 world's logs (`cmx2.log`, `boxbox.log`, `model.log`,
+`app-window.log`) are in `<tmp>/boxbox-board-trace/replay-<scenario>/`.
 
 ## the evidence against v1
 
@@ -133,26 +218,23 @@ in printed `diff empty (leds, board, calls, radio)` for all three.
 
 ## how m6 uses it
 
-1. port `board/daemon/src/client.ts` to v2. nothing else under
-   `board/daemon/src` or `board/lib` changes; the checksum test holds them.
-2. add `board/trace/world-v2.ts`: the cmx2 dev daemon from the pin (with
-   its bench model or this trace model, `--shell-tool` set to cmx2's shell
-   tool) behind boxbox v2's server, implementing `World` (`open`,
-   `prompt`, `settled`, `quiet`, `aliases`, `redactions`) the same way.
-   anything the v1 world does to make v1 faithful (minting the read
-   baseline before setup, one commit in the scratch repo) has its v2
-   equivalent or is shown unnecessary.
-3. add `decodeV2` to `normalize.ts`: v2's wire onto the same intents
-   (`focus`, `compose`, `markRead`, `replyPermission`, `replyQuestion`,
-   `seats`, `mirror`, `telemetry` and the rest). if the ported client
-   talks over something other than `fetch`, record it in `preload.ts`
-   beside `fetch`. the leds, board and radio channels need no mapping:
-   they are the frozen daemon's own output.
-4. add `--world v2` to `replay.ts`, then run
-   `bun board/trace/replay.ts all --daemon board/daemon --world v2`. the
-   gate is the printed diff, empty on every channel, for all three traces.
-5. the live half of the gate is not this harness: the real board on the
+1. the native daemon (`board/daemon`, decision 78) honours the seams in
+   `docs/board.md`. the harness drives it only through them.
+2. the server's board channel answers `/api/board/stream` and
+   `/api/board/act` with `[board]` configured. `world-v2.ts` stages it from
+   the checkout, and `--smoke --board` checks the stream answers.
+3. run `bun board/trace/replay.ts all --daemon target/release/boxbox-board
+   --world v2`. the gate is the printed diff: empty on every channel for all
+   three traces, with every forgiven line under "accounted for by decision
+   79" and each one a rule in `deltas.ts`. a needed change outside those
+   rules is a decision row and a reviewed rule, never a looser normalizer.
+4. the live half of the gate is not this harness: the real board on the
    mac, focusing, composing, answering a question and flushing a queue.
+
+v1's daemon against v1's world stays. it is the determinism check for the
+harness itself (an empty diff with nothing forgiven), and the only way to
+record a trace. `preload.ts` and the bun half of `daemon.ts` exist for it
+alone.
 
 ## what the traces do not cover
 

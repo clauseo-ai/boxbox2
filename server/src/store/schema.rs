@@ -173,6 +173,13 @@ const MIGRATIONS: &[&str] = &[
      ) STRICT;",
 ];
 
+// the board's pairings (`src/board/store.rs`) are not a migration: the
+// board is an add-on, and a migration would bump `user_version` on every
+// install, so a rollback to the build before it would refuse the database
+// (`MigrateError::Newer`). `board::store::ensure` creates its table with
+// `IF NOT EXISTS` at start, only where `[board]` is configured, and the
+// version stays what the rest of the schema says.
+
 /// the schema version this build writes.
 pub const VERSION: usize = MIGRATIONS.len();
 

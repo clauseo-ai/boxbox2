@@ -4,8 +4,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { lineDiff } from "../trace/diff";
-import { BRIEF_FRAME_MS, decodeV1, normalize } from "../trace/normalize";
-import type { Record } from "../trace/preload";
+import { BRIEF_FRAME_MS, crossVersion, decodeV1, decodeV2, normalize, V1_CROSS, V1_ONLY, V2_CROSS } from "../trace/normalize";
+import type { Record } from "../trace/records";
 import type { TracedStep } from "../trace/run";
 import { scrub } from "../trace/trace";
 
@@ -54,6 +54,166 @@ describe("decodeV1", () => {
 
   test("names anything it does not know, so a new call can never pass unseen", () => {
     expect(decodeV1("DELETE", "/api/something", null, null)).toEqual({ verb: "unknown", method: "DELETE", path: "/api/something", body: null });
+  });
+});
+
+describe("decodeV2", () => {
+  const act = (body: unknown, options: [string, string[]][] = []) => decodeV2("POST", "/api/board/act", null, body, { askOptions: new Map(options) });
+
+  test("reads the acts onto v1's intents", () => {
+    expect(act({ verb: "focus", key: "h1:s" })).toEqual({ verb: "focus", session: "h1:s" });
+    expect(act({ verb: "compose", machine: "h1" })).toEqual({ verb: "compose", machine: "h1" });
+    expect(act({ verb: "read", key: "h1:s" })).toEqual({ verb: "markRead", session: "h1:s" });
+    expect(act({ verb: "flush", key: "h1:s" })).toEqual({ verb: "flush", session: "h1:s" });
+    expect(act({ verb: "bind", wire: 11, key: "h1:s", color: [1, 2, 3] })).toEqual({ verb: "bind", binds: [{ wire: 11, key: "h1:s", color: [1, 2, 3] }] });
+    expect(act({ verb: "unbind", wire: 11 })).toEqual({ verb: "unbind", wire: 11 });
+    expect(act({ verb: "gone" })).toEqual({ verb: "gone" });
+    expect(decodeV2("POST", "/api/login", null, { password: "p" })).toEqual({ verb: "login" });
+    expect(decodeV2("GET", "/api/board/stream?protocol=1&device=board-x&addrs=", null, null)).toEqual({ verb: "stream" });
+  });
+
+  test("reads a reply as the pit's answer, a question's option by the label the view offered", () => {
+    expect(act({ verb: "reply", key: "h1:s", ask: "per_1", answer: { kind: "once" } })).toEqual({ verb: "replyPermission", host: "h1", id: "per_1", reply: "once", directory: null });
+    expect(act({ verb: "reply", key: "h1:s", ask: "per_1", answer: { kind: "reject" } })).toMatchObject({ reply: "reject" });
+    expect(act({ verb: "reply", key: "h1:s", ask: "que_1", answer: { kind: "option", index: 1 } }, [["que_1", ["one", "two", "three"]]])).toEqual({
+      verb: "replyQuestion",
+      host: "h1",
+      id: "que_1",
+      answers: [["two"]],
+      directory: null,
+    });
+    /* an index no view offered can never pass for a label */
+    expect(act({ verb: "reply", key: "h1:s", ask: "que_9", answer: { kind: "option", index: 0 } })).toMatchObject({ answers: [["<option 0 of an ask no view offered>"]] });
+  });
+
+  test("reads the seat map as the seats on the keys, by digit", () => {
+    expect(act({ verb: "seats", seats: [{ key: "h1:b", digit: 2 }, { key: "h1:a", digit: 1, bound: true }] })).toEqual({
+      verb: "seats",
+      map: { seats: [{ digit: 1, key: "h1:a", bound: true }, { digit: 2, key: "h1:b" }] },
+    });
+  });
+
+  test("telemetry reads as v1's, and an unknown act is named", () => {
+    const body = { device: "d", deviceClass: "board", events: [{ id: "x", at: 5, kind: "board.key", props: { wire: 11 }, ok: 1, ms: 3 }] };
+    expect(decodeV2("POST", "/api/telemetry", null, body)).toEqual(decodeV1("POST", "/api/telemetry", null, body));
+    expect(act({ verb: "dance" })).toEqual({ verb: "unknown", method: "POST", path: "/api/board/act", body: { verb: "dance" } });
+  });
+});
+
+describe("crossVersion", () => {
+  test("drops v1's twin mirror, spend poll and session reads, and lists each with its reason", () => {
+    for (const verb of ["mirror", "spend", "sessions", "session"] as const) expect(V1_ONLY.map((d) => d.verb)).toContain(verb);
+    expect(crossVersion({ verb: "spend" })).toBeNull();
+    expect(crossVersion({ verb: "sessions", host: "h1", directory: null })).toBeNull();
+    expect(crossVersion({ verb: "mirror", cells: [], palette: [] })).toBeNull();
+    expect(crossVersion({ verb: "session", host: "h1", session: "h1:s" })).toBeNull();
+  });
+
+  test("folds v1's abort then loop into one flush, and its replies' directory away", () => {
+    expect(crossVersion({ verb: "abort", host: "h1", session: "h1:s", directory: "/p" })).toEqual({ verb: "flush", session: "h1:s" });
+    expect(crossVersion({ verb: "loop", host: "h1", session: "h1:s", directory: "/p" })).toBeNull();
+    expect(crossVersion({ verb: "replyPermission", host: "h1", id: "p", reply: "once", directory: "/p" })).toEqual({ verb: "replyPermission", host: "h1", id: "p", reply: "once", directory: null });
+  });
+
+  test("a seat map is each side's own: read for the comparison, never a line of it", () => {
+    const v1 = call(0, "POST", "/api/board/seats", { page: 1, pages: 2, seats: [{ digit: 1, key: "h1:a", visible: false }, { digit: 1, key: "h1:k", visible: true }] });
+    const v2 = call(0, "POST", "/api/board/act", { verb: "seats", seats: [{ key: "h1:k", digit: 1 }] });
+    const one = normalize([step("s", "keys", 0, 1000, v1)], V1_CROSS);
+    const two = normalize([step("s", "keys", 0, 1000, v2)], V2_CROSS);
+    expect(one.steps[0]?.calls).toEqual([]);
+    expect(two.steps[0]?.calls).toEqual([]);
+    /* the same records without the cross profile still show v1's map */
+    expect(normalize([step("s", "keys", 0, 1000, v1)]).steps[0]?.calls[0]).toStartWith("seats ");
+  });
+
+  test("a v2 reply names the option the board stream's last view offered", () => {
+    const view = { ch: "sse", t: 1, data: { type: "view", machines: [], bindings: [], threads: [{ key: "h1:c", need: "question", ask: { id: "<question 1>", kind: "question", options: ["one", "two", "three"] } }] } } as const;
+    const reply = call(5, "POST", "/api/board/act", { verb: "reply", key: "h1:c", ask: "<question 1>", answer: { kind: "option", index: 1 } }, 204);
+    const v2 = normalize([step("s", "keys", 0, 1000, [view, ...reply])], V2_CROSS);
+    const v1 = normalize([step("s", "keys", 0, 1000, call(5, "POST", "/api/hosts/h1/proxy/question/<question 1>/reply", { answers: [["two"]] }, 200, "<project>"))], V1_CROSS);
+    expect(v2.steps[0]?.calls).toEqual(['replyQuestion {"answers":[["two"]],"directory":null,"host":"h1","id":"<question 1>"} -> ok']);
+    expect(v1.steps[0]?.calls).toEqual(v2.steps[0]?.calls ?? []);
+  });
+
+  test("the meter's start and stop read as v1's sox lines", () => {
+    const view = normalize([step("hold", "keys", 0, 2000, [{ ch: "exec", t: 10, cmd: "sox", args: [] }, { ch: "exec-end", t: 1600, cmd: "sox" }])], V2_CROSS);
+    expect(view.steps[0]?.radio).toEqual(["sox start", "sox stop"]);
+  });
+});
+
+describe("across versions, a seat is the unit (decision 80)", () => {
+  const v1Seats = (t: number, keys: string[]) => call(t, "POST", "/api/board/seats", { page: 0, pages: 1, seats: keys.map((key, i) => ({ digit: i + 1, key, visible: true })) });
+  const v2Seats = (t: number, keys: string[]) => call(t, "POST", "/api/board/act", { verb: "seats", seats: keys.map((key, i) => ({ key, digit: i + 1 })) });
+
+  test("a tap on k1 focuses digit 1's thread on each side, whoever sits there", () => {
+    const one = normalize([step("tap k1", "keys", 0, 1000, [...v1Seats(0, ["h1:<alpha>", "h1:<bravo>"]), ...call(500, "POST", "/api/board/focus", { session: "h1:<alpha>" })])], V1_CROSS);
+    const two = normalize([step("tap k1", "keys", 0, 1000, [...v2Seats(0, ["h1:<bravo>", "h1:<alpha>"]), ...call(500, "POST", "/api/board/act", { verb: "focus", key: "h1:<bravo>" }, 204)])], V2_CROSS);
+    expect(one.steps[0]?.calls).toContain('focus {"session":"digit 1"} -> ok');
+    expect(two.steps[0]?.calls).toEqual(one.steps[0]?.calls ?? []);
+    /* focusing digit 2's thread is a different call */
+    const wrong = normalize([step("tap k1", "keys", 0, 1000, [...v2Seats(0, ["h1:<bravo>", "h1:<alpha>"]), ...call(500, "POST", "/api/board/act", { verb: "focus", key: "h1:<alpha>" }, 204)])], V2_CROSS);
+    expect(wrong.steps[0]?.calls).toContain('focus {"session":"digit 2"} -> ok');
+  });
+
+  test("a verb names the thread the press chose, even when its answer reseats before the call returns", () => {
+    const press: Record = { ch: "board", t: 100, bytes: [0x82, 11, 0] };
+    const records: Record[] = [
+      ...v2Seats(0, ["h1:<bravo>", "h1:<alpha>"]),
+      press,
+      /* the answer lands and the order moves before the reply's own call is recorded */
+      ...v2Seats(150, ["h1:<alpha>", "h1:<bravo>"]),
+      ...call(160, "POST", "/api/board/act", { verb: "focus", key: "h1:<bravo>" }, 204),
+    ];
+    expect(normalize([step("s", "keys", 0, 1000, records)], V2_CROSS).steps[0]?.calls).toContain('focus {"session":"digit 1"} -> ok');
+  });
+
+  test("mark read and readback name the top call by its digit, the map in effect at that moment", () => {
+    const records: Record[] = [
+      ...v2Seats(0, ["h1:<charlie>", "h1:<bravo>"]),
+      { ch: "exec", t: 100, cmd: "say", args: ["charlie has news, waiting 0 minutes"] },
+      ...call(200, "POST", "/api/board/act", { verb: "read", key: "h1:<charlie>" }, 204),
+      ...v2Seats(300, ["h1:<bravo>"]),
+      ...call(400, "POST", "/api/board/act", { verb: "read", key: "h1:<bravo>" }, 204),
+    ];
+    const view = normalize([step("s", "keys", 0, 1000, records)], V2_CROSS);
+    expect(view.steps[0]?.radio).toEqual(['say "digit 1 has news, waiting 0 minutes"']);
+    expect(view.steps[0]?.calls.filter((c) => c.startsWith("markRead"))).toEqual(['markRead {"session":"digit 1"} -> ok', 'markRead {"session":"digit 1"} -> ok']);
+  });
+
+  test("a thread on no digit keeps its key, and a run without the cross profile keeps every key", () => {
+    const records = [...v1Seats(0, ["h1:<alpha>"]), ...call(500, "POST", "/api/board/focus", { session: "h1:<kilo>" })];
+    expect(normalize([step("s", "keys", 0, 1000, records)], V1_CROSS).steps[0]?.calls).toContain('focus {"session":"h1:<kilo>"} -> ok');
+    expect(normalize([step("s", "keys", 0, 1000, records)]).steps[0]?.calls).toContain('focus {"session":"h1:<alpha>"} -> ok'.replace("alpha", "kilo"));
+  });
+
+  test("a frame is v1's seat memo when an answer redraws the picture from the pit's entry press for under 250ms", () => {
+    const key = (t: number, wire: number, down: boolean): Record => ({ ch: "board", t, bytes: [0x82, wire, down ? 0 : 1] });
+    const entered = call(1100, "POST", "/api/telemetry", { device: "d", deviceClass: "board", events: [{ at: 1070, kind: "board.key", props: { wire: 11, target: "pit" } }] });
+    const steps = [
+      step("drive", "keys", 0, 1000, [frame(0, 0x49)]),
+      step("into the pit", "keys", 1000, 2000, [key(1000, 11, true), key(1070, 11, false), frame(1071, 0x4f), ...entered]),
+      step("answer", "keys", 2000, 4000, [
+        key(2000, 13, true),
+        ...call(2080, "POST", "/api/hosts/h1/proxy/permission/p/reply", { reply: "reject" }),
+        frame(2090, 0x49),
+        frame(2310, 0x29),
+      ]),
+    ];
+    const view = normalize(steps, V1_CROSS);
+    expect(view.steps[2]?.ledsMemo).toEqual([true, false]);
+    expect(view.steps[2]?.ledsHold?.[0]).toBe(220);
+    /* no answer in the step, no memo */
+    const noAnswer = normalize([steps[0] as TracedStep, steps[1] as TracedStep, step("tap", "keys", 2000, 4000, [frame(2090, 0x49), frame(2310, 0x29)])], V1_CROSS);
+    expect(noAnswer.steps[2]?.ledsMemo).toEqual([false, false]);
+  });
+
+  test("a frame carries the seat map posted for its render, and whether it came before the first view", () => {
+    const records: Record[] = [frame(10, 0x1d), { ch: "sse", t: 50, data: { type: "view", machines: [], threads: [], bindings: [] } }, frame(100, 0x29), ...v2Seats(105, ["h1:<a>"]), frame(900, 0x2a)];
+    const view = normalize([step("start", "start", 0, 1000, records)], V2_CROSS);
+    expect(view.steps[0]?.ledsBeforeView).toEqual([true, false, false]);
+    expect(view.steps[0]?.ledsSeats?.[0]).toBeNull();
+    expect(view.steps[0]?.ledsSeats?.[1]?.[0]).toBe("h1:<a>");
+    expect(normalize([step("start", "start", 0, 1000, records)]).steps[0]?.ledsSeats).toBeUndefined();
   });
 });
 

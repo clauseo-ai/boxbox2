@@ -531,8 +531,9 @@ copy. so the server speaks both contracts at once, and the client picks.
   older build keeps contract 1 throughout. a contract 2 build that meets a
   server whose hello answers `protocol: 1` to `?protocol=2` says the server
   is older than the app and to update the server, and sends nothing.
-- **the board** (`board/daemon/src/client.ts`, decision 11) stays on
-  contract 1 until its client moves; contract 1 lives as long as it needs.
+- **the board** reads its own channel (`docs/board.md`), which the server
+  computes from the fleet model, so it needs no contract and sees every kind
+  of agent. contract 1 lives as long as it needs.
 - **what removes contract 1.** the server counts streams by contract: its
   `client stream open` log line (`http/stream.rs:80`) gains `protocol`, and
   it keeps a count of stream opens per contract per day in `boxbox.db`
@@ -540,7 +541,7 @@ copy. so the server speaks both contracts at once, and the client picks.
   commit, with its journal, its types, the `/api/hosts` routes and the
   raw payloads the cmx2 source carries for it, when all of these hold:
   the ios build installed on every device the person uses speaks contract
-  2, the board's client speaks contract 2, and `stream_days` shows no
+  2, and `stream_days` shows no
   contract 1 stream for 14 days in a row. the commit quotes those rows.
 
 ## 3. thread ids for foreign keys
@@ -1445,8 +1446,8 @@ session did not start (AGENTS.md, the live fleet).
      `/api/fleet`, `/api/needs` (body and `x-boxbox-seq`), the
      hydration routes (body, `x-cmx2-seq`, `x-next-cursor`, gzip), the
      prompt 202 and 409 bodies, push payloads and titles, a pty redial
-     with its cursor, review merge and discard, and one run of the board's
-     client (`board/daemon/src/client.ts`).
+     with its cursor, review merge and discard. the board reads its own channel
+     (`docs/board.md`), not contract 1, so it is not checked here.
    - openclaw: a new thread with no place, text, a voice note up (m4a,
      webm and ogg, each with a device transcript), a spoken reply down (a scripted tts
      directive) with its spoken text, an image both ways, a generated

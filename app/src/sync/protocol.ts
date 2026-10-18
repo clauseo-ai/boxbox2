@@ -76,6 +76,10 @@ export type DeltaEntry = Extract<Entry, { type: "delta" }>;
 /** what a data line decodes to */
 export type Frame = Hello | Reset | Entry;
 
+/** what a window on the board's mac is sent beside the journal (docs/board.md, where the board is): id-less, with no seq,
+    outside the journal. it never reaches the reducer, the cursor or the cache; the worker hands it to the ui as it is */
+export type BoardFrame = Schemas["AppFrame"];
+
 /** `<epoch>:<seq>`, the journal's cursor and the sse id */
 export type Cursor = { epoch: string; seq: number };
 
@@ -116,9 +120,12 @@ const FRAME_TYPES: ReadonlySet<string> = new Set<Frame["type"]>([
   "message.removed",
 ]);
 
+const BOARD_TYPES: ReadonlySet<string> = new Set<BoardFrame["type"]>(["board.here", "board.gone", "board.focus", "board.compose"]);
+
 /** a data line's json, when it names a frame type this protocol has. the fields are the server's to get right:
-    its document is typed from the same rust structs, and the reducer is exhaustive over the union */
-export function decodeFrame(data: string): Frame | null {
+    its document is typed from the same rust structs, and the reducer is exhaustive over the union. a board frame is
+    taken as it is, without a seq: it is never journalled (`isBoardFrame` tells the two apart) */
+export function decodeFrame(data: string): Frame | BoardFrame | null {
   let value: unknown;
   try {
     value = JSON.parse(data);
@@ -127,7 +134,24 @@ export function decodeFrame(data: string): Frame | null {
   }
   if (value === null || typeof value !== "object" || !("type" in value)) return null;
   const type = (value as { type: unknown }).type;
-  if (typeof type !== "string" || !FRAME_TYPES.has(type)) return null;
+  if (typeof type !== "string") return null;
+  if (BOARD_TYPES.has(type)) return value as BoardFrame;
+  if (!FRAME_TYPES.has(type)) return null;
   if (type !== "hello" && type !== "reset" && typeof (value as { seq?: unknown }).seq !== "number") return null;
   return value as Frame;
+}
+
+export function isBoardFrame(frame: Frame | BoardFrame): frame is BoardFrame {
+  return BOARD_TYPES.has(frame.type);
+}
+
+/** where a data line goes: the journal's frames to the reducer, which moves the cursor; a board frame to the ui as it is,
+    and only on a stream that asked for board frames (`board`); anything else nowhere */
+export type Routed = { to: "journal"; frame: Frame } | { to: "board"; frame: BoardFrame };
+
+export function routeFrame(data: string, board: boolean): Routed | null {
+  const frame = decodeFrame(data);
+  if (!frame) return null;
+  if (isBoardFrame(frame)) return board ? { to: "board", frame } : null;
+  return { to: "journal", frame };
 }

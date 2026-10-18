@@ -28,6 +28,8 @@ import { StripLane } from "../thread/strip";
 import { colourStyle } from "./repo";
 import type { TailLine } from "./tail";
 import { footClock, parkedOn, type WindowView, windowName } from "./view";
+import { BoardKey, boardWords } from "../../board/lazy";
+import { state } from "../../store";
 
 export type Arrangement = "deck" | "strip" | "rail";
 
@@ -192,9 +194,13 @@ export function Window(props: WindowProps) {
             {chipText()}
           </span>
         </Show>
+        {/* the board's digit at the header's end, once a board has been here (docs/board.md, the app) */}
+        <Show when={state.board.met}>
+          <BoardKey thread={props.view.key} form="window" live={live()} />
+        </Show>
       </header>
       <h2>
-        <button class="win-open" type="button" aria-label={`${windowName(props.view)}${openSuffix(props.view.key)}`} aria-current={props.current ? "true" : undefined} onClick={open}>
+        <button class="win-open" type="button" aria-label={`${windowName(props.view)}${boardWords(props.view.key)}${openSuffix(props.view.key)}`} aria-current={props.current ? "true" : undefined} onClick={open}>
           {props.view.title}
         </button>
       </h2>

@@ -34,6 +34,8 @@
 //! at or below R leaves the tail alone. deltas carry no seq; their offset
 //! decides, as it always does.
 
+pub mod board;
+
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use serde::Deserialize;

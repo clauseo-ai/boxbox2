@@ -14,7 +14,7 @@ import { Backoff } from "./backoff";
 import { Cache, cleanDirty, type Dirty } from "./cache";
 import type { Emit, FromWorker, StreamStatus, SyncCounters, ToWorker, UiSync } from "./messages";
 import { inDaemonOrderAll } from "./order";
-import { decodeFrame, formatCursor, type Message, parseCursor, PROTOCOL, splitKey } from "./protocol";
+import { formatCursor, type Message, parseCursor, PROTOCOL, routeFrame, splitKey } from "./protocol";
 import {
   type Action,
   type Cold,
@@ -113,7 +113,11 @@ class Sync {
   /** this device's replies to asks, by book key, oldest first: what the cache holds under `ask:` (replies.ts) */
   private replies: Record<string, AskReply> = {};
 
-  constructor(device: string, deviceClass: ConstructorParameters<typeof Telemetry>[1]) {
+  /** the connection carried a board frame: when it ends, the ui is told the board went with it */
+  private boardSeen = false;
+
+  /** `board`: this device may sit beside a board, so its stream asks for board frames (docs/board.md) */
+  constructor(device: string, deviceClass: ConstructorParameters<typeof Telemetry>[1], private readonly board = false) {
     this.telemetry = new Telemetry(
       device,
       deviceClass,
@@ -269,13 +273,14 @@ class Sync {
       try {
         const headers: Record<string, string> = { accept: "text/event-stream" };
         if (this.state.cursor) headers["last-event-id"] = formatCursor(this.state.cursor);
-        const res = await fetch("/api/stream", { headers, signal: connection.signal, credentials: "same-origin", cache: "no-store" });
+        const res = await fetch(this.board ? "/api/stream?board=1" : "/api/stream", { headers, signal: connection.signal, credentials: "same-origin", cache: "no-store" });
         if (res.status === 401) signedOut = true;
         else if (res.ok && res.body) await this.read(res.body, connection);
       } catch {
         /* aborted, refused or dropped: the connection is over either way */
       } finally {
         this.life.signal.removeEventListener("abort", stop);
+        this.boardLost();
       }
       if (this.life.signal.aborted) break;
       if (signedOut) {
@@ -318,8 +323,15 @@ class Sync {
   }
 
   private onFrame(sse: SseFrame): void {
-    const frame = decodeFrame(sse.data);
-    if (!frame) return;
+    const routed = routeFrame(sse.data, this.board);
+    if (!routed) return;
+    // a board frame is outside the journal: it moves no cursor, no seq and no replay count
+    if (routed.to === "board") {
+      this.boardSeen = routed.frame.type !== "board.gone";
+      post({ type: "board", frame: routed.frame });
+      return;
+    }
+    const frame = routed.frame;
     if (frame.type === "hello") {
       if (frame.protocol !== PROTOCOL) {
         post({ type: "reload" });
@@ -395,6 +407,15 @@ class Sync {
       this.resumeWaiter = done;
       this.life.signal.addEventListener("abort", done, { once: true });
     });
+  }
+
+  /** a connection that carried a board ended (a drop, a pause, a stop): the next one may come from a mac the board has
+      left, and one that never comes must not leave digits standing, so the ui drops them now. the server sends
+      `board.here` again on a stream that opens while the board is here */
+  private boardLost(): void {
+    if (!this.boardSeen) return;
+    this.boardSeen = false;
+    post({ type: "board", frame: { type: "board.gone" } });
   }
 
   private wentDown(): void {
@@ -650,7 +671,7 @@ scope.addEventListener("message", (event) => {
   const message = event.data;
   if (message.type === "start") {
     if (sync) return;
-    const started = new Sync(message.device, message.deviceClass);
+    const started = new Sync(message.device, message.deviceClass, message.board);
     sync = started;
     ready = started.boot(message.open);
     return;

@@ -210,8 +210,10 @@ source or use `just release-mac`.
 - **notifications** are on from the settings screen. boxbox pushes when a thread
   asks something, hits a real fault, finishes a turn you started or has a branch ready to review, and stays
   quiet while you are looking at that thread on any device.
-- **the board** is an optional 17-key usb keyboard driven by `board/daemon`. it
-  is a second client, described in [docs/board-verification.md](docs/board-verification.md).
+- **the board** is an optional 17-key usb keyboard driven by `boxbox-board`, a
+  small native daemon in `board/daemon`. it is a second client, described in
+  [docs/board.md](docs/board.md), and its recorded sessions are in
+  [docs/board-verification.md](docs/board-verification.md).
 
 the config file is `~/.config/boxbox/boxbox.toml`, mode 0600, and
 [boxbox.example.toml](boxbox.example.toml) documents every key.

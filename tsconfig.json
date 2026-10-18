@@ -13,5 +13,5 @@
     "resolveJsonModule": true,
     "verbatimModuleSyntax": false
   },
-  "include": ["scripts/**/*.ts", "ops/**/*.ts", "telemetry/**/*.ts", "bench/**/*.ts", "probes/**/*.ts", "board/checksums.test.ts", "board/trace/**/*.ts", "board/test/**/*.ts", "app/src/**/*.test.ts"]
+  "include": ["scripts/**/*.ts", "ops/**/*.ts", "telemetry/**/*.ts", "bench/**/*.ts", "probes/**/*.ts", "board/trace/**/*.ts", "board/test/**/*.ts", "app/src/**/*.test.ts"]
 }

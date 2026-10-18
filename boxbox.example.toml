@@ -92,6 +92,14 @@ password = "the daemon's password"
 # [cache]
 # transcript_bytes = 268435456
 
+# the board: an optional 17-key keypad that shows the fleet and drives the
+# app on the mac it is plugged into (docs/board.md). left out, the board is
+# off and costs nothing. changing it takes a restart.
+# [board]
+# the machine lights, in key order (/ * - +), at most four. each is a
+# label.machine: for cmx2, the host's name. left out, the app's machine order.
+# machines = ["desk", "vm", "laptop", "mini"]
+
 # one [[hermes]] per hermes gateway. m10 builds its source; until then the
 # entry is read and checked, and nothing connects (decision 35). the name
 # follows the openclaw rule, the url is wss://, or ws:// only to this machine.

@@ -1,0 +1,89 @@
+/* the board's digits (docs/design.md, the board): a key set into the window's material. part of the board's chunk, so a
+   device that never meets a board never loads it. nothing here changes a layout box another element starts from: the key
+   is out of the flow, the chip moves by `translate`, and the name gives up room at its end only. */
+
+/* the header is the key's bed: positioned so the key can sit at its end, which moves nothing in a flex row */
+.win .wh {
+  position: relative;
+}
+
+/* a key set into the window like a key in its bed: pressed into the window's own material, its digit in the window's
+   accent, at the end of the header row and centred on it; 26 px, a step under the chip's 34, so the chip stays the
+   window's voice and the key reads as a mark of where it lives */
+.win .bkey {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 26px;
+  height: 26px;
+  margin-top: -13px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+/* a swatch's: the same key at 18 px on its foot corner, ringed in the page's ground so it sits on the corner and not in it,
+   as the state's badge sits on the top one */
+.home .swatch .bkey {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  font-size: 11px;
+  background: linear-gradient(170deg, var(--win-1), var(--win-2));
+  box-shadow: var(--win-lit), 0 0 0 2.5px var(--ground);
+}
+
+.bkey {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--win-press);
+  box-shadow: var(--win-press-edge);
+  color: var(--accent);
+  font-family: "Boxbox Sans Chip", "Boxbox Sans", system-ui, sans-serif;
+  font-weight: 680;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.bkey[hidden] {
+  display: none;
+}
+
+/* a paired key is lit in the window's livery, as the board lights it: the accent raised off the material ("a lit key",
+   styles.css --win-raise), the digit in the ink an accent takes */
+.bkey-lit {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--accent);
+  box-shadow: var(--win-raise);
+  opacity: 0;
+}
+
+.bkey[data-bound] {
+  color: var(--on-accent);
+}
+
+.bkey[data-bound] .bkey-lit {
+  opacity: 1;
+}
+
+.bkey-n {
+  display: block;
+}
+
+/* the key's room: the name ends short of it (its start never moves), and a chip slides aside for it by its translate. a
+   key leaving keeps the name clear while it fades and lets the chip back at once, on the same spring */
+.win[data-board] .who {
+  margin-right: 32px;
+}
+
+.win[data-board="seated"] .wh > .chip {
+  translate: -32px 0;
+}

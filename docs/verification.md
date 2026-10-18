@@ -297,9 +297,9 @@ board: every key event in, every call and led frame out, with timings.
 replay the keys against v2 through the fake board; the led frames must be
 byte-identical and the calls semantically identical (same intent, same
 target, each verb in the same order). `docs/board-verification.md` is the
-harness, what it compares and how m6 runs it. the checksum test proves
-every board file except `client.ts` is unchanged from the recorded v1
-commit.
+harness, what it compares and how m6 runs it. decision 78 replaced v1's
+daemon with a native one, so v1's bytes prove nothing now; the traces hold
+the behaviour, and `docs/board.md` says how the board is built.
 
 ## the full surface drive (m7)
 
@@ -358,8 +358,8 @@ world). it runs one session and compares each answer with its file in
 gzipped, with `x-cmx2-seq`, `x-next-cursor` and their pages; history and
 its pages; a prompt's 202, its repeat, and the 409 of its client id on
 another thread; a terminal redialled with its cursor, from 0 and with -1; a
-checkout's review read, merged, discarded and refused (uncommitted work);
-and one run of the board's client. ids, times, seqs, shas, the world
+checkout's review read, merged, discarded and refused (uncommitted work).
+ids, times, seqs, shas, the world
 directory, the minted passwords and the machine's name become placeholders
 before anything is written or compared. it prints a table, one row per
 golden, and exits 1 on any difference. `bun bench/golden-live.ts record`

@@ -45,7 +45,7 @@ echo "release-mac: boxbox $version at $(git rev-parse --short HEAD) for aarch64-
 [ -f app/dist/index.html ] || fail "app/dist is not built: run just build first"
 echo "release-mac: building the binary around app/dist"
 started=$(date +%s)
-cargo build --release --locked --quiet
+cargo build --release --locked --quiet -p boxbox
 target/release/boxbox --version >/dev/null || fail "the built binary does not run"
 file target/release/boxbox | grep -q 'arm64' || fail "the built binary is not arm64: $(file target/release/boxbox)"
 echo "release-mac: built in $(( $(date +%s) - started )) s"

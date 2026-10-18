@@ -28,10 +28,10 @@ an unassigned row.
 
 - repo as a public project: mit `LICENSE`, `README` with the intended
   quickstart, `CONTRIBUTING`, `SECURITY`, `CHANGELOG`, `THIRD_PARTY`.
-- cargo workspace (`server/`), vite + solid + typescript app (`app/`), the
-  board layout from decision 14 (`board/daemon/src/`, `board/lib/`, copied
-  byte for byte from v1 at a recorded commit, with a checksum test), and
-  `telemetry/schema.ts` plus the query tool carried from v1.
+- cargo workspace (`server/`, `board/wire`), vite + solid + typescript app
+  (`app/`), the board's trace harness (`board/trace`; the board daemon is
+  native, decision 78, `docs/board.md`), and `telemetry/schema.ts` plus the
+  query tool carried from v1.
 - cmx2 wiring: `cmx2.pin` (already written), `vendor/cmx2/openapi.json`
   and `vendor/cmx2/manifest.ts` copied from the pinned commit, `just
   vendor`, and `just cmx2` running the dev daemon from the pinned commit on
@@ -39,8 +39,8 @@ an unassigned row.
 - one binary: the server embeds the built app and serves it; `just dev`
   runs the dev server on 3001 with hot rebuild, one command, children die
   with it; `just check` runs fmt, clippy with warnings denied, `tsc
-  --noEmit`, unit tests, the schema drift test, the vendored-files-match-
-  the-pin test and the board checksum test.
+  --noEmit`, unit tests, the schema drift test and the vendored-files-match-
+  the-pin test.
 - `docs/deploy.md` drafted; systemd unit with `MemoryMax` and drain.
 - ci runs `just check` on every push.
 
@@ -242,27 +242,29 @@ and screenshots of the deck, strip and rail described; or, after 80 turns,
 report what is done, what is verified, what is not, and
 the exact next command, and stop."
 
-## m6 · the board
+## m6 · the board (an add-on)
 
-- the board channel in the server: bindings, seats, frame mirror, focus,
-  compose, pin arming.
-- the ported `client.ts`, translating v2 into the `BrainEvent` shapes;
-  every other board file byte for byte (checksum test).
-- the app obeys focus and compose with the same motion as a tap and shows
-  seat digits on windows.
+- the board channel in the server (`docs/board.md`): the view the fleet
+  actor computes while a board listens, the verbs, the board's mac found by
+  client address, pairings kept in `boxbox.db`. dormant without `[board]`.
+- `boxbox-board`, the native daemon (decision 78), with four machine lights
+  (decision 79).
+- the app: digits on the windows of the board's mac, focus and compose
+  obeyed there, pairing; its own lazy chunk, never loaded without a board.
 
-**gate:** the recorded v1 trace (keys in; http calls and led frames out,
-captured against v1 before cutover) replayed against v2 with a fake
-serial port: every led frame byte-identical and every call semantically
-identical (diff printed, empty). a live check with the real board on the
-mac: focus, compose, answer a question, flush a queue.
+**gate:** the three v1 traces replayed against `boxbox-board` and v2
+(`board-verification.md`): every led frame byte-identical and every call the
+same by meaning, apart from the changes decision 79 makes, each listed; the
+budgets in `docs/board.md` measured; and a live run with the real board on
+two macs: focus, compose, answer a question, flush a queue, four machine
+lights with one machine down, and the digits and focus moving with the
+board.
 
-**goal:** "m6 of boxbox v2 per docs/plan.md is done: print the board
-trace replay from docs/verification.md with the led-frame diff empty and
-the call diff empty, the checksum test showing every board file except
-client.ts unchanged from v1, and the live run with the real board
-logged; or, after 50 turns, report what is done, what is
-verified, what is not, and the exact next command, and stop."
+**goal:** "m6 of boxbox v2 per docs/plan.md is done: print the board trace
+replay from board-verification.md with every remaining diff line accounted
+for by decision 79, the budget table from docs/board.md measured, and the
+live run on two macs logged; or, after 50 turns, report what is done, what
+is verified, what is not, and the exact next command, and stop."
 
 ## m7 · the rest of the surface
 
@@ -367,8 +369,7 @@ mixed fleet, cursors across contracts (reset reason `epoch` both ways),
 `/api/fleet`, `/api/needs` (body and `x-boxbox-seq`), the hydration
 routes with their headers and gzip, the prompt 202 and 409 bodies, push
 payloads and titles (no foreign notice or `served` to a contract 1
-device), a pty redial, review merge and discard, and one run of the
-board's client; the scripted session and the exactly-once suite
+device), a pty redial, review merge and discard; the scripted session and the exactly-once suite
 passing with the web app on contract 2; the openclaw drive and its chaos
 cases against the dev gateway with the journal and thread printed after
 each; every gated route answering 422 for the assistant; the installed

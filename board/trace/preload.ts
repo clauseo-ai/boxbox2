@@ -20,22 +20,9 @@
 import { plugin } from "bun";
 import { FakeFirmware } from "./firmware";
 
-export type Record =
-  | { ch: "hid"; t: number; bytes: number[] }
-  | { ch: "board"; t: number; bytes: number[] }
-  | { ch: "key"; t: number; wire: number; down: boolean }
-  | {
-      ch: "http";
-      t: number;
-      id: number;
-      method: string;
-      path: string;
-      directory: string | null;
-      body: unknown;
-    }
-  | { ch: "http-done"; t: number; id: number; status: number | null }
-  | { ch: "exec"; t: number; cmd: string; args: string[] }
-  | { ch: "exec-end"; t: number; cmd: string };
+import type { Record } from "./records";
+
+export type { Record };
 
 export type Command = { kind: "plug" } | { kind: "key"; wire: number; down: boolean };
 

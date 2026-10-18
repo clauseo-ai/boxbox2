@@ -242,6 +242,13 @@ impl Need {
         }
     }
 
+    /// where it sorts in the inbox (`sort_key`), for a surface that ranks
+    /// needs itself.
+    #[must_use]
+    pub fn inbox_key(&self) -> (u8, i64) {
+        self.sort_key()
+    }
+
     /// the order within the inbox: rank, then oldest ask first, newest
     /// news first.
     fn sort_key(&self) -> (u8, i64) {
@@ -373,6 +380,11 @@ impl Needs {
             .filter(|n| n.key == key)
             .map(Need::sort_key)
             .min()
+    }
+
+    /// every open need, in no order.
+    pub fn open_iter(&self) -> impl Iterator<Item = &Need> {
+        self.open.values()
     }
 
     /// every open need, in inbox order.

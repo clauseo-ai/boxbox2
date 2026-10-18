@@ -8,6 +8,28 @@ it is verified`. closed items move to the bottom with the commit.
 
 ### bugs you can hit
 
+- [board] a board focus or compose the app drops still answers 204 to the
+  daemon: the server relays the frame and answers before any window acts,
+  so a focus that reaches only hidden windows (another tab, minimised), one
+  for a key no window draws, or a compose for a machine the sheet cannot
+  start a thread on reads as taken in the daemon's telemetry and the
+  person gets no signal on the keypad. fix shape: the window reports back
+  (a small post saying taken or dropped, and why, for the server to fold
+  into its answer within a short wait, or into telemetry). · a fake board
+  posting `Act::Focus` for a key with no window, with the app's tab hidden:
+  the act answers 204 and nothing opens (`sync/client.ts` onBoard,
+  `ui/home/home.tsx` and `shell/shell.tsx` drop it)
+
+- [home] folding and unfolding the strip's windows and opening the details
+  at the rail shift layout: about 749 thousandths in one drive (fold 190,
+  unfold 190, the details folding the rail 360), the same on cmx2/board's
+  base as with the board's digits (2026-10-18); the layout trails the stage
+  card's glide and lands after the input window. · a fresh chromium at
+  1512x945 logging `layout-shift` entries from an init script: resize to
+  900x1100, fold the strip by its toggle, unfold it, resize to 1200x900,
+  open details from the thread menu, then sum the entries without recent
+  input
+
 - [home] the window tail's rotating lines shift layout every ~800 ms while their
   thread streams: move them by transform. the tail is a bottom-anchored list in
   a box of 74 px (42 px for the thread on stage), and the streaming reply's

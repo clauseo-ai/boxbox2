@@ -199,7 +199,7 @@ function architecture(t: Theme): Canvas {
   c.group(300, top, 330, bottom - top, "boxbox server: rust, serves the solid app", "violet");
   c.group(706, top, 170, bottom - top, "your machines", "teal");
 
-  c.node(40, r[0]!, 168, rowH, "17-key board", "blue", { sub: "optional, a bun daemon\nover usb", dashed: true });
+  c.node(40, r[0]!, 168, rowH, "17-key board", "blue", { sub: "optional, a native daemon\nover usb", dashed: true });
   c.node(40, r[1]!, 168, rowH, "web app", "blue", { sub: "phone, tablet, laptop,\ninstalled as an app" });
 
   // the gate is the front door, so it is tall and everything else sits behind it

@@ -639,7 +639,26 @@ pub async fn answer(
             ));
         }
     };
-    let found = find(&state, &agent)?;
+    answer_ask(&state, agent, id, kind, device, body.client_id, reply).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// answers an ask through its agent once the answer is checked: the fleet
+/// hears who is answering first, so the need it serves names the device.
+/// the board's reply takes the same path (`board/routes.rs`).
+///
+/// # Errors
+/// no such agent, the agent lacks the capability, or it refused.
+pub async fn answer_ask(
+    state: &AppState,
+    agent: String,
+    id: String,
+    kind: AskKind,
+    device: crate::fleet::model::Device,
+    client_id: String,
+    reply: Reply,
+) -> Result<(), ApiError> {
+    let found = find(state, &agent)?;
     found.needs(match kind {
         AskKind::Permission => Capability::Approvals,
         AskKind::Question => Capability::Questions,
@@ -662,13 +681,12 @@ pub async fn answer(
             crate::source::Answer {
                 device: device.id,
                 device_class: device.class,
-                client_id: body.client_id,
+                client_id,
                 reply,
             },
         )
         .await
-        .map_err(|e| found.refusal(None, e))?;
-    Ok(StatusCode::NO_CONTENT)
+        .map_err(|e| found.refusal(None, e))
 }
 
 /// the agent, its thread checked, and the device a plain verb came from.

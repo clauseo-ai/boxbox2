@@ -4,6 +4,7 @@
 
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
 import type { Draft, DraftMessage, OutboxView, Photo, Target, Verb } from "./outbox";
+import type { BoardFrame } from "./protocol";
 import type { Counters, Fleet, Patch, ThreadView } from "./reducer";
 import type { AskReply } from "./replies";
 
@@ -55,7 +56,8 @@ export type Query = { query: "counters" } | { query: "transcript"; key: string }
 
 export type ToWorker =
   /** `open` is the thread the url names, whose pages boot reads for the first frame */
-  | { type: "start"; device: string; deviceClass: DeviceClass; open: string | null }
+  /** `board`: a desktop-class device, whose stream asks for board frames (docs/board.md) */
+  | { type: "start"; device: string; deviceClass: DeviceClass; open: string | null; board: boolean }
   /** the person opens a thread: it is cached up to the caps, evicted last, and its recency is the person's */
   | { type: "open"; key: string }
   /** keep a thread current for another one on stage (a child under its parent). it leases one of 16 places of its own,
@@ -118,4 +120,7 @@ export type FromWorker =
   | { type: "returned"; key: string; photos: Photo[]; text: string | null }
   /** the worker's writes of drafts to indexeddb have failed several times in a row (`kept: false`: the device is out of
       room), or are working again */
-  | { type: "drafts"; kept: boolean };
+  | { type: "drafts"; kept: boolean }
+  /** a board frame, as the stream had it; and a `board.gone` of the worker's own when a connection that carried one ends, since
+      the next may come from a mac the board has left, or never come */
+  | { type: "board"; frame: BoardFrame };

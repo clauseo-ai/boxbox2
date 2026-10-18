@@ -42,6 +42,25 @@ build only (`build/`):
 | syn, quote, proc-macro2, prettyplease | generating and formatting that code | MIT OR Apache-2.0 |
 | heck | naming generated types | MIT OR Apache-2.0 |
 
+## the board daemon (`board/daemon/Cargo.toml`)
+
+a separate binary, only on the macs the board is plugged into (docs/board.md);
+linux builds only the first four. release builds compile `-p boxbox` alone.
+
+| crate | why | licence |
+|---|---|---|
+| serde, serde_json | the board channel's frames and acts, telemetry | MIT OR Apache-2.0 |
+| thiserror | typed errors | MIT OR Apache-2.0 |
+| toml (parse only) | `board.toml` | MIT OR Apache-2.0 |
+| async-hid (macos) | the keypad: macos's hid add and remove notifications on a dispatch queue (no polling), and a non-exclusive open split into a reader thread and the main loop's writer. hidapi offers no hotplug, and its device cannot be read on one thread while written on another | MIT |
+| futures-lite (macos) | `block_on` for async-hid's futures on plain threads, so the daemon has no async runtime | Apache-2.0 OR MIT |
+| cpal (macos) | the mic meter's input through coreaudio, opened only while talking | Apache-2.0 |
+| ureq (macos, native-tls, no default features) | the posts (acts, login, telemetry), pooled and blocking, on the system's tls | MIT OR Apache-2.0 |
+| native-tls (macos) | tls for the stream, through security framework: the system's roots and verifier, no tls stack or root store compiled in (a 1.7 mib stripped binary) | MIT OR Apache-2.0 |
+| signal-hook (macos, iterator only) | sigterm and sigint as a message to the main loop, so a stop posts the gone and darkens the board; a thread blocked on its pipe, nothing while idle, and no unsafe code in the daemon | MIT OR Apache-2.0 |
+| if-addrs (macos) | this mac's addresses for the stream's `addrs` (decision 81) | MIT OR BSD-3-Clause |
+| jiff (macos, system tz only) | the local hour for the night curve | MIT OR Unlicense |
+
 ## the app and the tooling (`package.json`, `app/package.json`)
 
 | package | why | licence |
@@ -61,12 +80,6 @@ build only (`build/`):
 | typescript | the type checker | Apache-2.0 |
 | playwright-core | drives webkit for `bench/window.ts` (agent-browser drives chrome only, and the scroll law has to hold where webkit has no scroll anchoring), and attaches to agent-browser's chrome over cdp so both engines run the same checks; the core alone, no test runner and no bundled browsers (webkit comes from `bunx playwright-core install webkit`). development only | Apache-2.0 |
 | @types/bun, @types/node | types for scripts and the board | MIT |
-
-the board daemon keeps its own lockfile (`board/daemon/bun.lock`, from v1):
-
-| package | why | licence |
-|---|---|---|
-| node-hid | talks to the board over usb hid | MIT OR X11 |
 
 ## fonts (`app/src/fonts/`)
 
