@@ -167,13 +167,6 @@ export function refusedLine(name: string, error: string, shows: string | null = 
   return `${name}'s colour did not change. ${why}`;
 }
 
-/** the thread menu's item and the repo line's name: the colour shown now and where it comes from */
-export function colourLine(repo: Repo, colours: ColourMap): { colour: RepoColour; automatic: boolean; text: string } {
-  const { shown, chosen } = colourAssignment(repo, colours);
-  const automatic = chosen === null;
-  return { colour: shown, automatic, text: `${shown.name} · ${automatic ? "automatic" : "chosen"}` };
-}
-
 /** the radio group's order: automatic first, then the ten in slot order */
 export const PICK_ORDER: readonly Pick[] = [AUTOMATIC, ...REPO_COLOURS.map((c): Pick => ({ kind: "chosen", name: c.name }))];
 

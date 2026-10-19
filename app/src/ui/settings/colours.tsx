@@ -5,7 +5,7 @@
 
 import { For, Show, createMemo, createSignal, lazy } from "solid-js";
 import { state } from "../../store";
-import { colourLine } from "../colour/picker-model";
+import { colourLine } from "../window/repo";
 import { repoRootOf } from "../composer/place";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { placeName } from "../thread/place";

@@ -105,6 +105,14 @@ export function colourAssignment(repo: Repo, colours: ColourMap): { shown: RepoC
   return { shown: chosen ?? auto, auto, chosen };
 }
 
+/** the thread menu's item and the repo line's name: the colour shown now and where it comes from. here, not in the
+    picker's model, so the stage and settings that show it do not carry the picker into the first load */
+export function colourLine(repo: Repo, colours: ColourMap): { colour: RepoColour; automatic: boolean; text: string } {
+  const { shown, chosen } = colourAssignment(repo, colours);
+  const automatic = chosen === null;
+  return { colour: shown, automatic, text: `${shown.name} · ${automatic ? "automatic" : "chosen"}` };
+}
+
 /** a repo's colour: the one its assignment shows (the chosen one, else the one boxbox gave), or its hash colour when the
     server has not spoken for it or names a colour this build does not know. the map is required, so a surface that
     forgets it does not quietly paint the hash where the server said otherwise */

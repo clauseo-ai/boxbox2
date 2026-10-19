@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { ColourMap } from "../window/repo";
-import { REPO_COLOURS, repoColourNamed } from "../window/repo";
+import { colourLine, REPO_COLOURS, repoColourNamed } from "../window/repo";
 import {
   AUTOMATIC,
   autoLine,
   badgeOf,
   buttonsOf,
-  colourLine,
   currentPick,
   heardBeforeRefused,
   holds,
