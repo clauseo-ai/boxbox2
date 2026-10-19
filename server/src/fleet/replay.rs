@@ -73,7 +73,8 @@ pub struct Replay {
 }
 
 impl Replay {
-    /// an actor as a fresh server starts one, with an empty store, a journal
+    /// an actor as a fresh server from before repo colours started one (the
+    /// recording predates them, so this one gives none), with an empty store, a journal
     /// of `epoch` (the recorded one, so recorded cursors mean what they meant)
     /// and `build` for `hello`.
     pub fn new(epoch: &str, build: &str) -> Self {
@@ -90,12 +91,14 @@ impl Replay {
             journal,
             live: Vec::new(),
             board: None,
+            colours_version: 0,
             build: build.to_owned(),
             tails: tails_tx,
             outside: Outside {
                 push,
                 telemetry: crate::telemetry::Sender::detached(),
                 persist: mpsc::channel(1).0,
+                ack: None,
             },
         };
         Self {
@@ -106,6 +109,20 @@ impl Replay {
             pushed: Vec::new(),
             steps: 0,
         }
+    }
+
+    /// the same, giving repos colours as a fresh server does now: what the
+    /// recording would have journaled with them.
+    pub fn colouring(epoch: &str, build: &str) -> Self {
+        let mut replay = Self::new(epoch, build);
+        replay.actor.model = super::Model::restored(
+            super::Needs::default(),
+            super::Reads::default(),
+            super::Clears::default(),
+            Vec::new(),
+            super::Colours::assigning(),
+        );
+        replay
     }
 
     /// runs one recorded step on its recorded clock.
@@ -268,6 +285,7 @@ impl Replay {
                     from,
                     first,
                     stream,
+                    colours: None,
                     reply,
                 });
                 let page = answer.try_recv().map_err(|e| e.to_string())?;
@@ -388,12 +406,22 @@ impl Replay {
     /// a query asked after the tape ran out, on the clock of `at`: a stream
     /// opening from `from`, answered with its first page.
     pub fn open(&mut self, from: From, at: i64) -> Vec<Bytes> {
+        self.open_with(from, at, None)
+    }
+
+    /// the same for a stream that asks for repo colours (`?colours=1`).
+    pub fn open_colours(&mut self, from: From, at: i64) -> Vec<Bytes> {
+        self.open_with(from, at, Some(0))
+    }
+
+    fn open_with(&mut self, from: From, at: i64, colours: Option<u64>) -> Vec<Bytes> {
         crate::test_clock::set(Some(at));
         let (reply, mut answer) = oneshot::channel();
         self.actor.command(Command::Read {
             from,
             first: true,
             stream: 0,
+            colours,
             reply,
         });
         crate::test_clock::set(None);

@@ -142,7 +142,7 @@ export class Cache {
     const threads = tx.objectStore("threads");
     const [meta, fleet, keys] = await Promise.all([
       done(tx.objectStore("meta").get("sync")) as Promise<SyncMeta | undefined>,
-      done(tx.objectStore("fleet").get("fleet")) as Promise<Fleet | undefined>,
+      done(tx.objectStore("fleet").get("fleet")) as Promise<(Omit<Fleet, "colours"> & Partial<Pick<Fleet, "colours">>) | undefined>,
       done(threads.getAllKeys()) as Promise<IDBValidKey[]>,
     ]);
     const records = await Promise.all(keys.map(String).filter((id) => id.endsWith("#head")).map((id) => done(threads.get(id)) as Promise<Partial<ThreadHead> | undefined>));
@@ -153,7 +153,9 @@ export class Cache {
       this.pagesWritten.set(head.key, head.pages);
       heads.push(head);
     }
-    return { cursor: meta?.cursor ?? null, counters: meta?.counters ?? null, fleet: fleet ?? null, heads };
+    // a fleet saved before the server gave repos colours has no `colours`; it starts empty and the stream's colour map,
+    // which comes on every connection, fills it
+    return { cursor: meta?.cursor ?? null, counters: meta?.counters ?? null, fleet: fleet ? { ...fleet, colours: fleet.colours ?? {} } : null, heads };
   }
 
   /** a thread's messages from its pages, or null when a page the head counts is missing (the thread is read from the daemon) */

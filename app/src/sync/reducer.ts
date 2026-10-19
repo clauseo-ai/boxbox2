@@ -60,9 +60,11 @@ import type {
   Message,
   MessageInfo,
   Part,
+  RepoColourEntry,
   SessionEntry,
   ThreadEntry,
 } from "./protocol";
+import { type ColourAssignment, repoKey } from "../ui/window/repo";
 import { placeBefore } from "./order";
 import type { ReadTrouble } from "./read";
 
@@ -93,9 +95,11 @@ export type Fleet = {
   asks: Record<string, Ask>;
   /** session keys in the server's window order */
   order: string[];
+  /** each repo's colour as the server gave it and the person chose it, by `repoKey` (`host:root`) */
+  colours: Record<string, ColourAssignment>;
 };
 
-export const EMPTY_FLEET: Fleet = { hostNames: [], hosts: {}, sessions: {}, asks: {}, order: [] };
+export const EMPTY_FLEET: Fleet = { hostNames: [], hosts: {}, sessions: {}, asks: {}, order: [], colours: {} };
 
 export type ThreadStatus = "hydrating" | "live";
 
@@ -230,7 +234,11 @@ export type Action =
   | { type: "read-failed"; key: string; hydration: number; trouble: ReadTrouble }
   /** the person asked for a thread that is waiting on its read again (a stage's retry): the read starts over now, under a
       new number and without the backoff the old one was sitting out. a thread that is live, or not held, is left alone */
-  | { type: "reread"; key: string };
+  | { type: "reread"; key: string }
+  /** the server's whole map of repo colours, outside the journal: it replaces what the fleet holds */
+  | { type: "colours"; colours: RepoColourEntry[] }
+  /** one repo's colour changed, outside the journal */
+  | { type: "colour"; colour: RepoColourEntry };
 
 export type Result = { state: SyncState; patches: Patch[]; effects: Effect[] };
 
@@ -300,6 +308,12 @@ export function reduce(state: SyncState, action: Action): Result {
     case "reread":
       next = reread(work, state, action.key);
       break;
+    case "colours":
+      next = colours(work, state, action.colours);
+      break;
+    case "colour":
+      next = colour(work, state, action.colour);
+      break;
     default:
       return unreachable(action);
   }
@@ -327,7 +341,9 @@ function hello(state: SyncState, frame: Hello): SyncState {
 
 function reset(work: Work, state: SyncState, snapshot: FleetSnapshot, cursor: Cursor): SyncState {
   work.count("resets");
-  const fleet = fleetOf(snapshot);
+  // the colours travel outside the journal and arrive ahead of the reset on the same connection, so the snapshot has
+  // none and the map stays as it is
+  const fleet = { ...fleetOf(snapshot), colours: state.fleet.colours };
   work.patch(["fleet"], fleet);
   // the transcripts may have missed anything; each is read again, and shows what it had meanwhile
   const threads: Record<string, Thread> = {};
@@ -342,8 +358,27 @@ export function fleetOf(snapshot: FleetSnapshot): Fleet {
   for (const session of snapshot.sessions) sessions[session.key] = session;
   const asks: Record<string, Ask> = {};
   for (const ask of snapshot.asks) asks[askKey(ask.host, ask.id)] = ask;
-  return { hostNames: snapshot.hosts.map((h) => h.name), hosts, sessions, asks, order: snapshot.order };
+  // a snapshot carries no colours: they come in frames of their own (protocol.ts, `ColourFrame`)
+  return { hostNames: snapshot.hosts.map((h) => h.name), hosts, sessions, asks, order: snapshot.order, colours: {} };
 }
+
+/** the whole map, which replaces the one the fleet holds */
+function colours(work: Work, state: SyncState, list: readonly RepoColourEntry[]): SyncState {
+  const map: Record<string, ColourAssignment> = {};
+  for (const one of list) map[repoKey(one)] = assignmentOf(one);
+  work.patch(["fleet", "colours"], map);
+  return { ...state, fleet: { ...state.fleet, colours: map } };
+}
+
+function colour(work: Work, state: SyncState, one: RepoColourEntry): SyncState {
+  const key = repoKey(one);
+  const assignment = assignmentOf(one);
+  work.patch(["fleet", "colours", key], assignment);
+  return { ...state, fleet: { ...state.fleet, colours: { ...state.fleet.colours, [key]: assignment } } };
+}
+
+/** what the fleet keeps of a repo's colour: its key already names the host and root */
+const assignmentOf = (colour: RepoColourEntry): ColourAssignment => ({ auto: colour.auto, chosen: colour.chosen ?? null });
 
 const askKey = (host: string, id: string) => `${host}:${id}`;
 

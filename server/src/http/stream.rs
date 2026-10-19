@@ -21,6 +21,11 @@
 //! board's frames when it is on the board's mac (`board/mod.rs`): id-less
 //! data lines outside the journal, never replayed, interleaved once the
 //! stream is live. without `[board]` the flag is ignored.
+//!
+//! a stream that sends `colours=1` also gets repo colours
+//! (`fleet/colours.rs`), id-less too, but from the fleet actor in journal
+//! order: the whole map after `hello` and before any page it moved under,
+//! then each change ahead of the entry that first shows its repo.
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -61,6 +66,13 @@ pub struct StreamQuery {
     #[serde(default, deserialize_with = "flag")]
     #[param(value_type = Option<bool>)]
     board: Option<bool>,
+    /// `colours=1`: the stream also carries repo colours as id-less
+    /// `ColourFrame`s outside the journal: the whole map after `hello`, then
+    /// each change ahead of the entry that first shows its repo. a stream
+    /// that does not ask gets contract 1 exactly as it was.
+    #[serde(default, deserialize_with = "flag")]
+    #[param(value_type = Option<bool>)]
+    colours: Option<bool>,
 }
 
 /// a query flag: `1` or `true` is on, `0` or `false` off.
@@ -71,7 +83,7 @@ fn flag<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<bool
         Some("1" | "true") => Ok(Some(true)),
         Some("0" | "false") => Ok(Some(false)),
         Some(other) => Err(serde::de::Error::custom(format!(
-            "board is 1 or 0, not \"{other}\""
+            "a flag is 1 or 0, not \"{other}\""
         ))),
     }
 }
@@ -123,6 +135,7 @@ pub async fn stream(
         pending: VecDeque::new(),
         live: None,
         board,
+        colours: (query.colours == Some(true)).then_some(0),
         heartbeat: None,
         finished: false,
         opened: Instant::now(),
@@ -167,6 +180,9 @@ struct ClientStream {
     live: Option<Live>,
     /// the board's frames for this window, when it asked and a board is configured.
     board: Option<crate::board::WindowFeed>,
+    /// for a stream that asked for repo colours, the version of the map it
+    /// was sent last (0 before the first page).
+    colours: Option<u64>,
     heartbeat: Option<Interval>,
     finished: bool,
     opened: Instant,
@@ -194,12 +210,13 @@ impl ClientStream {
                     (None, Some(next)) => (From::At(next), false),
                     (None, None) => return None,
                 };
-                let Ok(page) = self.fleet.read(from, first, self.id).await else {
+                let Ok(page) = self.fleet.read(from, first, self.id, self.colours).await else {
                     self.ended = "the server is stopping";
                     return None;
                 };
                 self.pending.extend(page.frames);
                 self.next = Some(page.next);
+                self.colours = page.colours;
                 if page.live.is_some() {
                     self.live = page.live;
                     let mut heartbeat = interval_at(

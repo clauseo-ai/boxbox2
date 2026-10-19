@@ -31,6 +31,7 @@ import type { Ask } from "../../sync/protocol";
 import { extraOf } from "../inbox/extra";
 import type { DetailsRoom, InspectorLink, InspectorView } from "../thread/inspector";
 import { RepoMark } from "../repo-mark/repo-mark";
+import { colourMap } from "../window/colours";
 import { colourStyle } from "../window/repo";
 import { clockOf, type WindowView, windowView } from "../window/view";
 import { type Arrangement, Window } from "../window/window";
@@ -1142,7 +1143,7 @@ export function Home(props: HomeProps) {
 
   function viewOf(key: string): WindowView | null {
     const entry = state.fleet.sessions[key];
-    return entry ? windowView(entry, asksBy()[key] ?? [], extraOf(entry)) : null;
+    return entry ? windowView(entry, asksBy()[key] ?? [], colourMap(), extraOf(entry)) : null;
   }
   /** what a stage layer draws: its window's view, or for an agent the fleet does not hold, its parent's view under the
       agent's key and the name of the row that opened it (its session id when the row had none) */

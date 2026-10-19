@@ -19,7 +19,8 @@ import type { Child, ChildState, PendingAsk, RowCtx } from "./rows";
 import { number, record, string } from "./wire";
 import type { Kin } from "./details-model";
 import { repoRootOf } from "../composer/place";
-import { type RepoColour, colourOf } from "../window/repo";
+import { repoColour } from "../window/colours";
+import type { RepoColour } from "../window/repo";
 
 /** a repo palette as the stage reads it (design.md, colour): the same colour the window, the composer and the
     browser chrome take, from the one hash of host and project root (window/repo.ts) */
@@ -113,8 +114,11 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
   }, new Map(), { equals: (a, b) => a.size === b.size && [...a].every(([call, r]) => b.get(call) === r) });
   const { turns, count, ids, turnOf, more, grow, all } = createTurns(rawMessages, root, key, caches, { ...turnsOptions, need: () => new Set(asksByCall().keys()) });
   const title = () => session()?.info.title || key().split(":")[1] || key();
-  /* the project root, as the window hashes it (window/view.ts), so a worktree's stage keeps its repo's colour */
-  const tone = createMemo(() => toneOfColour(colourOf({ host: host(), root: session()?.info.projectID || directory() || key() })));
+  /* the repo's root, as its window reads it (window/view.ts), so a worktree's stage keeps its repo's colour */
+  const tone = createMemo(() => {
+    const info = session()?.info;
+    return toneOfColour(repoColour({ host: host(), root: info ? repoRootOf(info) : directory() || key() }));
+  });
 
   /* the agents' reports, which an agent row links to: the mail turns alone, which a delta to the running turn never changes */
   const reports = createMemo(() => turns().filter((t) => t.by === "mail" && !t.note), [], { equals: (a, b) => a.length === b.length && a.every((t, i) => t === b[i]) });

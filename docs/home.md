@@ -103,10 +103,13 @@ is binding the same way (AGENTS.md, design law).
 - **the six hues the law left open**, each proven by `repo.test.ts` to
   hold 4.5:1 for body text at both ends of the gradient, for the light tone
   on the top colour and for the bottom colour on the light tone:
-  blue `#173a5e`/`#0a1a2e`/`#9cc8ff`, teal `#10484a`/`#062123`/`#7fe0d6`,
-  clay `#5a2c19`/`#29130a`/`#ffb48c`, plum `#46205c`/`#1f0e2b`/`#dfa8ff`,
-  olive `#3b4216`/`#1a1d08`/`#d4df7c`, slate `#2b3441`/`#12161c`/`#b9c6d8`.
-  a repo's hue is fnv-1a of `host:projectRoot` modulo ten.
+  blue `#004077`/`#071938`/`#9fd0ff`, teal `#00484b`/`#002025`/`#7ee2db`,
+  sunset `#761521`/`#300936`/`#ffbc91`, plum `#512977`/`#1e0e33`/`#daaafd`,
+  magenta `#700159`/`#2e0628`/`#ffa4e9`, slate `#334052`/`#131822`/`#b8c9de`
+  (retuned 2026-10-19, design.md: colour; sunset and magenta took clay's
+  and olive's slots).
+  a repo's hue is the one the server gave it (decision 82), fnv-1a of
+  `host:projectRoot` modulo ten only until the server has named it.
 - **the springs as sampled.** snap settles in 467 ms and sheet in 508 ms to
   the springs' own rest threshold; the law's "about 420" and "about 560"
   are rounded from the same constants.

@@ -1,8 +1,15 @@
 /* repo colours (docs/design.md, colour): ten deep hues, each a pair for
-   the window's gradient and a light tone for chips, asks and accents. a
-   repo gets one by a stable hash of its identity and keeps it forever;
+   the window's gradient and a light tone for chips, asks and accents.
    colour always means which repo, never a state. only failure is red, and
    red is not one of these.
+
+   the server gives each repo (a host plus its root) its colour when it
+   first sees it and remembers it: the hue fewest of that host's repos wear,
+   the repo's hash colour when that one is free. a person can choose
+   another, and every device shows it. the stream carries both (`colour`
+   entries, the snapshot's `colours`), so this file only resolves a name to
+   a hue; the hash is the fallback for a repo the server has not spoken for
+   yet, or for a name this build does not know.
 
    every pair holds 4.5:1 for white body text at both ends of the
    gradient, the light tone holds 4.5:1 as text on the top colour (the
@@ -21,27 +28,27 @@ export type RepoColour = {
 };
 
 export const REPO_COLOURS: readonly RepoColour[] = [
-  { name: "green", top: "#1b4a33", bottom: "#0c2419", light: "#8fe6a5" },
+  { name: "green", top: "#004a2c", bottom: "#002319", light: "#80e9a8" },
   { name: "violet", top: "#34298a", bottom: "#171240", light: "#b7abff" },
-  { name: "rose", top: "#5a1f45", bottom: "#2a0d20", light: "#ff9fd0" },
-  { name: "gold", top: "#4a3b12", bottom: "#211a07", light: "#f3d474" },
-  { name: "blue", top: "#173a5e", bottom: "#0a1a2e", light: "#9cc8ff" },
-  { name: "teal", top: "#10484a", bottom: "#062123", light: "#7fe0d6" },
-  { name: "clay", top: "#5a2c19", bottom: "#29130a", light: "#ffb48c" },
-  { name: "plum", top: "#46205c", bottom: "#1f0e2b", light: "#dfa8ff" },
-  { name: "olive", top: "#3b4216", bottom: "#1a1d08", light: "#d4df7c" },
-  { name: "slate", top: "#2b3441", bottom: "#12161c", light: "#b9c6d8" },
+  { name: "rose", top: "#721743", bottom: "#2e0820", light: "#ffa9ca" },
+  { name: "cobalt", top: "#19359c", bottom: "#101048", light: "#adc2ff" },
+  { name: "blue", top: "#004077", bottom: "#071938", light: "#9fd0ff" },
+  { name: "teal", top: "#00484b", bottom: "#002025", light: "#7ee2db" },
+  { name: "sunset", top: "#761521", bottom: "#300936", light: "#ffbc91" },
+  { name: "plum", top: "#512977", bottom: "#1e0e33", light: "#daaafd" },
+  { name: "magenta", top: "#700159", bottom: "#2e0628", light: "#ffa4e9" },
+  { name: "slate", top: "#334052", bottom: "#131822", light: "#b8c9de" },
 ];
 
 /** the five assistant palettes (docs/design.md, agents: who a window belongs to): the same recipe as the ten, chosen for
     the gaps the ten leave on the wheel, so an assistant beside a repo of a near hue still reads as another thing. an
     agent's `palette` names one of them by its name; coral is the first assistant's */
 export const ASSISTANT_COLOURS: readonly RepoColour[] = [
-  { name: "coral", top: "#5c2129", bottom: "#290b11", light: "#ffa39a" },
-  { name: "lime", top: "#2f4a17", bottom: "#132008", light: "#c3ec86" },
-  { name: "jade", top: "#14483a", bottom: "#07211a", light: "#88e8c6" },
-  { name: "lagoon", top: "#0f4458", bottom: "#061e28", light: "#8ad9f5" },
-  { name: "orchid", top: "#521f58", bottom: "#240c27", light: "#f5a6f0" },
+  { name: "coral", top: "#701e2e", bottom: "#2e0914", light: "#ffa9a7" },
+  { name: "lime", top: "#1b4a03", bottom: "#022209", light: "#bbea7a" },
+  { name: "jade", top: "#00493d", bottom: "#00211e", light: "#83e8c9" },
+  { name: "lagoon", top: "#004757", bottom: "#001d2a", light: "#85ddf3" },
+  { name: "orchid", top: "#621f6d", bottom: "#250a2d", light: "#eea7f4" },
 ];
 
 /** every palette a surface can wear: the ten repo hues, then the five assistant slots (the plane and flood tests run over all fifteen) */
@@ -65,8 +72,44 @@ export function fnv1a(text: string): number {
   return hash;
 }
 
-export function colourOf(repo: Repo): RepoColour {
-  return REPO_COLOURS[fnv1a(`${repo.host}:${repo.root}`) % REPO_COLOURS.length] as RepoColour; // an index modulo the length
+/** what a repo is known by in the colour map, and what the server hashes: `host:root` */
+export function repoKey(repo: Repo): string {
+  return `${repo.host}:${repo.root}`;
+}
+
+/** what the server says of one repo's colour: `auto` is the one boxbox gave it, `chosen` the person's, null for automatic.
+    both are names, which may be ones a newer server knows and this build does not */
+export type ColourAssignment = { auto: string; chosen: string | null };
+
+/** every repo the server has spoken for, by `repoKey` */
+export type ColourMap = Readonly<Record<string, ColourAssignment>>;
+
+/** the colour a repo wears before the server has spoken for it: a stable hash of its key, the same one the server
+    starts from when it gives a colour (server/src/fleet/colours.rs) */
+export function hashColour(repo: Repo): RepoColour {
+  return REPO_COLOURS[fnv1a(repoKey(repo)) % REPO_COLOURS.length] as RepoColour; // an index modulo the length
+}
+
+/** one of the ten by name; undefined for any other name, an assistant's palette included, since a repo never wears one */
+export function repoColourNamed(name: string | null | undefined): RepoColour | undefined {
+  return name == null ? undefined : REPO_COLOURS.find((c) => c.name === name);
+}
+
+/** a repo's colour and where it comes from, for the picker: `auto` is what automatic shows (the hash colour until the
+    server gave one), `chosen` the person's choice, null for automatic. a name this build does not know reads as the hash
+    colour, in either place, as the server reads its own rows (server/src/fleet/colours.rs) */
+export function colourAssignment(repo: Repo, colours: ColourMap): { shown: RepoColour; auto: RepoColour; chosen: RepoColour | null } {
+  const assigned = colours[repoKey(repo)];
+  const auto = repoColourNamed(assigned?.auto) ?? hashColour(repo);
+  const chosen = assigned?.chosen == null ? null : (repoColourNamed(assigned.chosen) ?? hashColour(repo));
+  return { shown: chosen ?? auto, auto, chosen };
+}
+
+/** a repo's colour: the one its assignment shows (the chosen one, else the one boxbox gave), or its hash colour when the
+    server has not spoken for it or names a colour this build does not know. the map is required, so a surface that
+    forgets it does not quietly paint the hash where the server said otherwise */
+export function colourOf(repo: Repo, colours: ColourMap): RepoColour {
+  return colourAssignment(repo, colours).shown;
 }
 
 /** the last segment of the project root: "api" for /home/me/src/api */

@@ -473,7 +473,10 @@ copy. so the server speaks both contracts at once, and the client picks.
   one of the new migrations, section 4, what a source persists). the ios app does not subscribe to push
   today, so this protects old pwa pages.
 - **contract 1 never gains a change type,** and no field changes type or
-  meaning. the ios decoder drops an unknown type without advancing
+  meaning. what it must carry anew comes opt-in and outside the journal:
+  repo colours (decision 82) are id-less `ColourFrame`s on
+  `GET /api/stream?colours=1` only, the way the board's frames come on
+  `board=1`, and neither `reset` nor `GET /api/fleet` gains a field. the ios decoder drops an unknown type without advancing
   (`StreamFrameDecoder.swift:77-84,148-150` in the ios repo), the next
   entry then reads as a seq gap (`FleetReducer.swift:136-139`), and the
   stream reconnects in a loop. cmx2's `Connection` status encodes to
@@ -1333,7 +1336,8 @@ treats them by what they did, not how they began (decision 44):
 - **mark.** `square` for a coding agent (the repo mark windows show
   today), `round` for an assistant and for `other`.
 - **palettes.** the ten repo palettes stay as they are, and a coding
-  agent's thread keeps today's colour, hashed from `host:root`. beside
+  agent's thread wears its repo's colour, the one the server gave
+  `host:root` (decision 82). beside
   them sit named assistant slots that an agent's config chooses with
   `palette = "<slot>"`; an assistant whose config names none takes the
   slot its key hashes to. the first slot is `coral`: top #5C2129, bottom

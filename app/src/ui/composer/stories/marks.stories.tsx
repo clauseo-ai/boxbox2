@@ -6,7 +6,7 @@
 import { createElement, type ReactElement, useEffect, useRef } from "react";
 import { createComponent } from "solid-js";
 import { render } from "solid-js/web";
-import { colourOf, colourStyle } from "../../window/repo";
+import { colourStyle, hashColour } from "../../window/repo";
 import { MarkGlyph, ProviderMark } from "../mark";
 import { MARK_NAMES } from "../marks-data";
 import { DIRECTORY, HOST } from "./fixtures";
@@ -39,7 +39,7 @@ function mount(host: HTMLElement): () => void {
   const root = node("div");
   root.className = "cz-story-marks plane-window";
   root.setAttribute("data-ready", "");
-  for (const [key, value] of Object.entries(colourStyle(colourOf({ host: HOST, root: DIRECTORY })))) root.style.setProperty(key, value);
+  for (const [key, value] of Object.entries(colourStyle(hashColour({ host: HOST, root: DIRECTORY })))) root.style.setProperty(key, value);
   const disposers: Array<() => void> = [];
   list(root, "marks", MARK_NAMES, true, disposers);
   list(root, "no mark", UNKNOWN, false, disposers);

@@ -51,6 +51,14 @@
 /* the big title is the first thing in the log */
 .title-block { padding: calc(var(--bar) + 38px + env(safe-area-inset-top)) 0 var(--s2); }
 .tb-repo { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 620; font-stretch: 110%; color: var(--accent); }
+/* the repo line is a button that opens the repo's colour (docs/thread.md, the repo line): a capsule on the flood ringed in
+   the accent, with the colour's dot and a caret, so it reads as something to press and not as a label. its target is 44
+   px tall to the finger, the capsule unchanged */
+.thread-stage .tb-repo-btn { position: relative; display: inline-flex; align-items: center; gap: 7px; min-height: 0; margin-left: -4px; padding: 4px 10px 4px 4px; border-radius: 99px; font-size: 13px; font-weight: 620; font-stretch: 110%; color: inherit; background: var(--hover); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent); }
+.thread-stage .tb-repo-btn::before { content: ""; position: absolute; inset: -8px -4px; }
+.tb-repo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.tb-repo-caret { width: 5px; height: 5px; margin: -3px 1px 0 -1px; border-right: 1.5px solid var(--text-3); border-bottom: 1.5px solid var(--text-3); transform: rotate(45deg); }
+@media (hover: hover) { .thread-stage .tb-repo-btn:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); } }
 /* a subagent's stage says whose agent it is, after the repo */
 .tb-parent { font-weight: 450; color: var(--text-2); font-stretch: 100%; }
 .tb-parent::before { content: " · "; color: var(--text-3); }
@@ -196,6 +204,9 @@
 .thread-stage .menu .menu-ask-do .menu-ask-go { background: var(--text); color: var(--ground); }
 .thread-stage .menu .menu-ask-do button:disabled { opacity: 0.5; }
 .thread-stage .menu button em { font-style: normal; color: var(--text-2); font-size: 13px; }
+/* the colour item's dot: the repo's accent as a window would wear it (its own plane), beside "cobalt · automatic" */
+.thread-stage .menu-colour em { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.thread-stage .menu-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 14%, transparent); }
 .thread-stage .menu > button:disabled { opacity: 0.45; }
 @media (hover: hover) { .thread-stage .menu > button:disabled:hover { background: none; } }
 /* the menu's three groups: where the panel goes and what it shows; what is done to the thread; archive */

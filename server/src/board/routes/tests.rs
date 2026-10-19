@@ -48,6 +48,7 @@ fn real_fleet(
             reads: fleet::read::Reads::default(),
             clears: fleet::clears::Clears::default(),
             adopted: Vec::new(),
+            colours: fleet::colours::Colours::default(),
             tails: mpsc::channel(fleet::TAIL_REQUESTS).0,
         },
         shutdown.clone(),

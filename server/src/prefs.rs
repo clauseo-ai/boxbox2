@@ -9,7 +9,12 @@
 //! decides from the subscription row that carries them (`docs/push.md`),
 //! so the settings screen changes them through that subscription.
 //!
-//! eviction: each scope keeps its 1,000 most recently changed rows.
+//! a repo's colour is in this table too, scope `colour`, but it is the
+//! fleet's: given, chosen and evicted there (`fleet/colours.rs`) and sent
+//! to every client on the stream, so `load` leaves it out.
+//!
+//! eviction: each scope here keeps its 1,000 most recently changed rows,
+//! counted apart, so one scope's churn never pushes out another's rows.
 
 use std::collections::BTreeMap;
 

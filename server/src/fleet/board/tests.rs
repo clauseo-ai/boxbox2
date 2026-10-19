@@ -651,12 +651,14 @@ fn with_no_board_stream_the_actor_holds_nothing_and_runs_no_timer() {
         journal: Journal::new("ep".into()),
         live: Vec::new(),
         board: None,
+        colours_version: 0,
         build: "test".into(),
         tails: mpsc::channel(1).0,
         outside: Outside {
             push: Push::detached(),
             telemetry: crate::telemetry::Sender::detached(),
             persist: mpsc::channel(1).0,
+            ack: None,
         },
     };
     for n in 0..300 {

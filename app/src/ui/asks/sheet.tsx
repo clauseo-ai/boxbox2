@@ -15,6 +15,7 @@ import type { Ask } from "../../sync/protocol";
 import { askActions } from "../thread/asks";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { needOf, permissionWhat } from "../window/need";
+import { colourMap } from "../window/colours";
 import { colourStyle } from "../window/repo";
 import { windowView } from "../window/view";
 import { AskCard, type AskBody, AskContext, PermissionCard, type PermissionBody } from "./card";
@@ -67,7 +68,7 @@ export function AskSheet(props: AskSheetProps) {
   const askOf = (id: string) => asks().find((a) => a.id === id);
   const view = createMemo(() => {
     const e = entry();
-    return e ? windowView(e, asks()) : null;
+    return e ? windowView(e, asks(), colourMap()) : null;
   });
   const need = createMemo(() => needOf(asks()));
   const actions = askActions(() => entry()?.host ?? asks()[0]?.host ?? "");

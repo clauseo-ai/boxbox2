@@ -171,6 +171,19 @@ const MIGRATIONS: &[&str] = &[
          updated INTEGER NOT NULL,
          PRIMARY KEY (connection, name)
      ) STRICT;",
+    // 10. a fourth pref scope (`src/fleet/colours.rs`): each repo's colour,
+    // the one boxbox gave it and the one a person chose, by `host:root`.
+    // rebuilt around its rows, as in 6.
+    "CREATE TABLE prefs_next (
+         scope TEXT NOT NULL CHECK (scope IN ('device', 'repo', 'models', 'colour')),
+         subject TEXT NOT NULL CHECK (length(subject) BETWEEN 1 AND 1024),
+         value TEXT NOT NULL CHECK (json_valid(value)),
+         updated_at INTEGER NOT NULL,
+         PRIMARY KEY (scope, subject)
+     ) STRICT;
+     INSERT INTO prefs_next SELECT scope, subject, value, updated_at FROM prefs;
+     DROP TABLE prefs;
+     ALTER TABLE prefs_next RENAME TO prefs;",
 ];
 
 // the board's pairings (`src/board/store.rs`) are not a migration: the
@@ -295,6 +308,29 @@ mod tests {
                 .is_err(),
             "the scopes are still a closed list"
         );
+    }
+
+    #[test]
+    fn the_colour_scope_joins_the_prefs_and_keeps_the_rows_already_there() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate_with(&mut connection, &MIGRATIONS[..9]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO prefs (scope, subject, value, updated_at) VALUES ('models', 'favorites', '{}', 7)",
+                [],
+            )
+            .unwrap();
+        assert_eq!(migrate(&mut connection).unwrap(), VERSION - 9);
+        connection
+            .execute(
+                "INSERT INTO prefs (scope, subject, value, updated_at) VALUES ('colour', 'desk:/work/api', '{\"auto\":\"teal\",\"chosen\":null}', 8)",
+                [],
+            )
+            .unwrap();
+        let rows: i64 = connection
+            .query_row("SELECT count(*) FROM prefs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 2);
     }
 
     #[test]

@@ -85,10 +85,11 @@
      top colour on the light card; ink on an accent is the window's bottom colour, or near-white on the deep accent */
   --accent: color-mix(in srgb, var(--p1) calc(var(--L) * 100%), var(--p3));
   --on-accent: color-mix(in srgb, #f7f7f5 calc(var(--L) * 100%), var(--p2));
-  /* the material, top of the gradient to its foot: the deep pair, or the light tone at 30% and 12% in near-white, a
-     touch lighter than the stage's flood so a window over the stage still reads as raised from it */
-  --win-1: color-mix(in srgb, color-mix(in srgb, var(--p3) 30%, #fff) calc(var(--L) * 100%), var(--p1));
-  --win-2: color-mix(in srgb, color-mix(in srgb, var(--p3) 12%, #fbfbfa) calc(var(--L) * 100%), var(--p2));
+  /* the material, top of the gradient to its foot: the deep pair, or the light tone at 40% and 18% in near-white, a
+     touch lighter than the stage's flood so a window over the stage still reads as raised from it (30 and 12% left the
+     cool hues, blue, slate and teal, reading as grey paper rather than a card of their colour) */
+  --win-1: color-mix(in srgb, color-mix(in srgb, var(--p3) 40%, #fff) calc(var(--L) * 100%), var(--p1));
+  --win-2: color-mix(in srgb, color-mix(in srgb, var(--p3) 18%, #fbfbfa) calc(var(--L) * 100%), var(--p2));
   /* the lit top edge and the 1 px edge that follows the corners; light, the edge is the window's own deep colour at a
      whisper, so a pale card holds its shape on the pale ground without a grey border */
   --win-lit: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.16));

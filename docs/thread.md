@@ -1317,8 +1317,18 @@ touching those (`big-text.ts`):
   it with its clock: `composer/compact.ts`) and copy link (`/?thread=` with
   `&at=` the turn in view, else the newest; "copied" under the bar for
   1.6 s, or "could not copy. the address bar holds the same link" for 4
-  s); then archive. esc closes it and gives the keyboard back to `⋯`.
+  s), and colour (the repo's colour's dot and "cobalt · automatic" or
+  "sunset · chosen"; it opens the colour sheet, `design.md`, the colour
+  sheet; not on a thread with no repo); then archive. esc closes it and
+  gives the keyboard back to `⋯`.
   rename and fork from here wait on a daemon verb.
+- **the repo line** above the big title is a button: a capsule on the
+  flood, ringed in the accent, holding the mark, the repo's name, its
+  colour's dot and a caret (44 px tall to the finger). it opens the colour
+  sheet, as the menu's colour item does, and the keyboard comes back to it
+  when the sheet closes. an agent's stage keeps "an agent of <parent>"
+  beside it, outside the button. a thread with no repo root shows the
+  plain line.
 - **the turn keys** (the ios app's, ⌘ on a mac and control elsewhere; the
   stage on top only, not under another layer or the sheet): ⌥⌘↓ and ⌥⌘↑
   the next and previous prompt, ⌘↓ the latest, ⌘I the details, ⇧⌘T the
@@ -1464,7 +1474,9 @@ named "show all 476 characters"). every option in an ask is
 named by its answer. the bar's buttons are "back to threads" ("back to
 the long helper" on an agent's stage), "details" (a disclosure, expanded
 while the details show; the rail's fold toggle is its pair, "windows",
-expanded while the rail is open) and "thread menu"; the facts line under the title is
+expanded while the rail is open) and "thread menu"; the menu's colour item is
+"colour, cobalt, automatic" and the repo line "ledger, cobalt, automatic.
+choose its colour"; the facts line under the title is
 one button named in full ("details: opus 5.5, high, 41% of context used,
 $1.84 spent"). the turns list is named "turns"; each turn in it is named
 by its clock and its prompt, and ", switched to opus 5.5, high" when its
@@ -1523,6 +1535,8 @@ once took home's `.home .bar`), `strip-head`;
 `tail`; `bar`, `bar-title`, `title-block`, `tb-repo` (the place line: the
 repo's name beside its mark; a thread in the disk's root says the machine's
 name and one in a home folder says "home", `place.ts`, never a lone "/"),
+`tb-repo-btn`, `tb-repo-dot`, `tb-repo-caret` (the line as the colour
+sheet's button), `menu-colour`, `menu-dot` (the menu's colour item),
 `tb-h1`,
 `tb-status`; `you`, `report` (the chip), `rep-line`, `rep-chev`, `rep-glyph`, `rep-sheet`, `rep-grab`, `rep-sheet-h`, `rep-sheet-body`, `rep-tag`, `rep-b`, `mark`,
 `sumcard`; `bed`, `fl`, `fb`, `hits`, `todo`, `facts`, `gap`, `dir`, `fn`;

@@ -3708,6 +3708,67 @@
         }
       }
     },
+    "/api/prefs/colours": {
+      "put": {
+        "tags": [
+          "super::prefs"
+        ],
+        "summary": "sets the colour a repo wears on every device, or automatic. the change\nreaches every client that asked for colours as a `colour` frame on the stream.",
+        "operationId": "colour",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ColourChoice"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "saved: the repo's colour as it stands",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepoColour"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "the host is unknown, the root is not an absolute path or holds no thread boxbox knows, or the colour is not a repo colour",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the store did not keep it (every device shows it until the server restarts), or the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/prefs/devices/{device}": {
       "put": {
         "tags": [
@@ -4235,6 +4296,15 @@
             "name": "board",
             "in": "query",
             "description": "a desktop window that would show the board's digits and obey its\nfocus and compose (`docs/board.md`, where the board is). ignored\nunless the server has `[board]`.\n`board=1`, as the app sends it; `true` reads the same.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "colours",
+            "in": "query",
+            "description": "`colours=1`: the stream also carries repo colours as id-less\n`ColourFrame`s outside the journal: the whole map after `hello`, then\neach change ahead of the entry that first shows its repo. a stream\nthat does not ask gets contract 1 exactly as it was.",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -4992,6 +5062,76 @@
             }
           }
         }
+      },
+      "ColourChoice": {
+        "type": "object",
+        "description": "a person's choice of colour for one repo.",
+        "required": [
+          "host",
+          "root"
+        ],
+        "properties": {
+          "chosen": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "one of the ten repo colours by name; null for automatic, which shows the\ncolour boxbox gave the repo again."
+          },
+          "host": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string",
+            "description": "the repo's root on that host, as the stream's `colour` frames name it."
+          }
+        }
+      },
+      "ColourFrame": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "every repo's colour, by host, then root: replaces what the client holds.",
+            "required": [
+              "colours",
+              "type"
+            ],
+            "properties": {
+              "colours": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/RepoColour"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "colours"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "one repo was given a colour, or a person chose one.",
+            "required": [
+              "colour",
+              "type"
+            ],
+            "properties": {
+              "colour": {
+                "$ref": "#/components/schemas/RepoColour"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "colour"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "repo colours on `GET /api/stream?colours=1` (`colours.rs`): id-less data\nlines outside the journal, so contract 1 gains no change type and a\nstream that does not ask sees none of them. the whole map comes first,\nafter `hello` (and again before a replay page if it moved meanwhile);\nthen each change, ahead of the journal entry that first shows its repo."
       },
       "CommandChoice": {
         "type": "object",
@@ -6756,6 +6896,35 @@
             "items": {
               "$ref": "#/components/schemas/McpServer"
             }
+          }
+        }
+      },
+      "RepoColour": {
+        "type": "object",
+        "description": "the colour of one repo: a host plus its root, which the repo's\nworktrees share. the colour shown is `chosen`, else `auto`; a name the\nclient does not know shows the repo's hash colour.",
+        "required": [
+          "host",
+          "root",
+          "auto"
+        ],
+        "properties": {
+          "auto": {
+            "type": "string",
+            "description": "the repo colour boxbox gave the repo when it first saw it; it keeps it."
+          },
+          "chosen": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the repo colour a person chose; null for automatic, which shows `auto`."
+          },
+          "host": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string",
+            "description": "the project's root on that host, as cmx2 names it: its `projectID`\nwhen that is a path, else the session's directory."
           }
         }
       },

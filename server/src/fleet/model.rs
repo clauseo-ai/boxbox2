@@ -46,6 +46,7 @@ use super::change::{
     Ask, AskKind, Change, FleetSnapshot, SessionEntry, TailItem, TailKind, TailRole,
 };
 use super::clears::{Clear, Clears};
+use super::colours::{self, Colours};
 use super::needs::{By, How, Moved, Need, NeedKind, Needs, last_sentences};
 use super::read::{Mark, Reads};
 use crate::push::presence::Looking;
@@ -129,10 +130,6 @@ struct Session {
     /// wrote it. a thread without one has no contract 1 entry.
     info: Option<Box<RawValue>>,
     /// the thread as its source knows it (its raw info moved to `info`).
-    #[allow(
-        dead_code,
-        reason = "contract 2's thread encoding reads it (m9, the neutral wire)"
-    )]
     thread: ThreadFacts,
     updated: f64,
     /// the parent session's key, for a subagent.
@@ -308,6 +305,8 @@ pub enum Effect {
     Adopted { key: String, info: Box<RawValue> },
     /// an adopted thread went (the cap, an archive, its host holds it itself): forget it.
     Unadopted(String),
+    /// a repo's colour was given, chosen or let go: write it.
+    Colour(colours::Write),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -360,6 +359,8 @@ pub struct Model {
     reads: Reads,
     /// the threads cleared off home (`clears.rs`).
     clears: Clears,
+    /// each repo's colour (`colours.rs`).
+    colours: Colours,
     /// the keys of sessions held because a person opened them from history,
     /// oldest first, at most `MAX_ADOPTED`. a host read (a reconnect, a new
     /// epoch) rebuilds from the daemon's newest listing, which does not hold
@@ -555,6 +556,21 @@ pub(crate) fn part_facts(part: &Part) -> Option<PartFacts> {
     })
 }
 
+/// the repos the fleet holds a session of, which keeps their colours from
+/// the cap.
+fn repos_in_use(sessions: &HashMap<String, Session>) -> colours::InUse {
+    let mut in_use = colours::InUse::new();
+    for session in sessions.values() {
+        if let Some(place) = &session.thread.place {
+            in_use
+                .entry(session.host.clone())
+                .or_default()
+                .insert(place.root.clone());
+        }
+    }
+    in_use
+}
+
 /// `<host>:<sessionID>`, the identity every surface uses.
 #[must_use]
 pub fn session_key(host: &str, session: &str) -> String {
@@ -573,19 +589,21 @@ impl Model {
         Self::default()
     }
 
-    /// a model that starts from what the store kept of needs, marks, clears and
-    /// adopted threads.
+    /// a model that starts from what the store kept of needs, marks, clears,
+    /// adopted threads and repo colours.
     #[must_use]
     pub fn restored(
         needs: Needs,
         reads: Reads,
         clears: Clears,
         adopted: Vec<(String, Option<ThreadFacts>)>,
+        colours: Colours,
     ) -> Self {
         Self {
             needs,
             reads,
             clears,
+            colours,
             restored: adopted,
             ..Self::default()
         }
@@ -617,6 +635,96 @@ impl Model {
             asks: asks.into_iter().map(|p| p.ask.clone()).collect(),
             order: self.order.clone(),
         }
+    }
+
+    /// every repo's colour, by host, then root.
+    #[must_use]
+    pub fn colour_list(&self) -> Vec<super::change::RepoColour> {
+        self.colours.list()
+    }
+
+    /// colours for the repos these changes show that have none yet, to be
+    /// sent ahead of them. a host read gives its repos theirs most threads
+    /// first, then by root, so the busiest keep their hash colour. a host
+    /// read or a session change that shows a repo which has one marks it
+    /// used (written at most daily), which is what the cap and the trim at
+    /// start evict by (`colours.rs`), so a repo in use is always recent even
+    /// on a host that never reconnects.
+    pub fn assign_colours(&mut self, changes: &[Change]) -> Vec<super::change::RepoColour> {
+        if !self.colours.is_assigning() {
+            return Vec::new();
+        }
+        let mut assigned = Vec::new();
+        for change in changes {
+            let mut roots: Vec<(String, usize)> = Vec::new();
+            let host = match change {
+                Change::HostReset { host, sessions, .. } => {
+                    for session in sessions {
+                        let Some(root) = self.root_of(&session.key) else {
+                            continue;
+                        };
+                        match roots.iter_mut().find(|(r, _)| r == root) {
+                            Some((_, threads)) => *threads += 1,
+                            None => roots.push((root.to_owned(), 1)),
+                        }
+                    }
+                    roots.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                    host
+                }
+                Change::Session { session } => {
+                    roots.extend(self.root_of(&session.key).map(|root| (root.to_owned(), 1)));
+                    &session.host
+                }
+                _ => continue,
+            };
+            for (root, _) in roots {
+                let sessions = &self.sessions;
+                let in_use = || repos_in_use(sessions);
+                if let Some((colour, writes)) = self.colours.assign(host, &root, self.now, in_use) {
+                    info!(host, root, colour = colour.auto, "repo colour given");
+                    self.effects.extend(writes.into_iter().map(Effect::Colour));
+                    assigned.push(colour);
+                } else if let Some(write) = self.colours.seen(host, &root, self.now) {
+                    self.effects.push(Effect::Colour(write));
+                }
+            }
+        }
+        assigned
+    }
+
+    /// sets the colour a person chose for a repo, or none for automatic: the
+    /// repo's colour now, and whether it moved (a choice that moved nothing
+    /// still writes its row, so its answer can mean kept). only a
+    /// repo boxbox has given a colour or holds a session of can be chosen
+    /// for, so a request cannot fill the table with rows for no repo.
+    ///
+    /// # Errors
+    /// the repo is neither, or its subject is longer than the table holds.
+    pub fn choose_colour(
+        &mut self,
+        host: &str,
+        root: &str,
+        chosen: Option<u8>,
+    ) -> Result<(super::change::RepoColour, bool), ColourRefused> {
+        let known = self.colours.has(host, root)
+            || self
+                .sessions
+                .values()
+                .any(|s| s.host == host && s.thread.place.as_ref().is_some_and(|p| p.root == root));
+        if !known || !colours::keepable(host, root) {
+            return Err(ColourRefused::UnknownRepo);
+        }
+        let sessions = &self.sessions;
+        let in_use = || repos_in_use(sessions);
+        let (colour, writes, moved) = self.colours.choose(host, root, chosen, self.now, in_use);
+        self.effects.extend(writes.into_iter().map(Effect::Colour));
+        Ok((colour, moved))
+    }
+
+    /// the repo a session works in: its project's root.
+    fn root_of(&self, key: &str) -> Option<&str> {
+        let place = self.sessions.get(key)?.thread.place.as_ref()?;
+        Some(place.root.as_str())
     }
 
     /// every project root and session directory on `host`, as the daemon
@@ -1789,6 +1897,14 @@ impl Model {
 
 /// how each thread of a clear went, in the order asked.
 pub type ClearAnswers = Vec<(String, Result<(), ClearRefused>)>;
+
+/// why a repo's colour could not be chosen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColourRefused {
+    /// boxbox has given the repo no colour and holds no session of it, or its
+    /// root is longer than the table holds.
+    UnknownRepo,
+}
 
 /// why a thread could not be cleared off home.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3143,7 +3259,7 @@ mod tests {
                 .into_iter()
                 .map(|(key, info)| (key, translate::thread_from_json(info).ok()))
                 .collect();
-            Self::restored(needs, reads, clears, adopted)
+            Self::restored(needs, reads, clears, adopted, Colours::default())
         }
     }
 
@@ -3973,6 +4089,7 @@ mod tests {
                 Effect::Uncleared(key) => format!("uncleared {key}"),
                 Effect::Adopted { key, .. } => format!("adopted {key}"),
                 Effect::Unadopted(key) => format!("unadopted {key}"),
+                Effect::Colour(write) => format!("colour {write:?}"),
                 Effect::ReadTail(_) => unreachable!("filtered above"),
             })
             .collect()
@@ -5891,6 +6008,304 @@ mod tests {
         assert!(
             model.places("laptop").is_empty(),
             "another host shows nothing of this one's"
+        );
+    }
+
+    /// a model on a fresh install: no colours kept, and it gives them.
+    fn colouring() -> Model {
+        let mut model = Model::restored(
+            Needs::default(),
+            Reads::default(),
+            Clears::default(),
+            Vec::new(),
+            Colours::assigning(),
+        );
+        model.at(1_000);
+        model
+    }
+
+    /// a session's info in `project`, working in `directory`.
+    fn info_at(id: &str, project: &str, directory: &str) -> String {
+        info(id, 5, None)
+            .replace(
+                r#""projectID":"/w""#,
+                &format!(r#""projectID":"{project}""#),
+            )
+            .replace(
+                r#""directory":"/w""#,
+                &format!(r#""directory":"{directory}""#),
+            )
+    }
+
+    /// the `n`th root under /work whose hash on desk names `slot`.
+    fn root_hashing_to(slot: u8, n: usize) -> String {
+        (0..)
+            .map(|i| format!("/work/r{i}"))
+            .filter(|root| colours::hashed("desk", root) == slot)
+            .nth(n)
+            .unwrap()
+    }
+
+    fn hash_colour(root: &str) -> String {
+        colours::NAMES[usize::from(colours::hashed("desk", root))].to_owned()
+    }
+
+    fn given(colours: &[super::super::change::RepoColour]) -> Vec<(String, String)> {
+        colours
+            .iter()
+            .map(|colour| (colour.root.clone(), colour.auto.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn a_first_read_gives_the_busiest_repo_its_hash_colour_and_moves_the_one_that_clashed() {
+        let mut model = colouring();
+        // two repos whose hashes name cobalt; the one that sorts first has fewer threads
+        let (mut quiet, mut busy) = (root_hashing_to(3, 0), root_hashing_to(3, 1));
+        if quiet > busy {
+            std::mem::swap(&mut quiet, &mut busy);
+        }
+        let worktree = format!("{busy}-fix");
+        let changes = model.host_read(host_read_of(
+            "ep",
+            5,
+            &[
+                info_at("ses_q", &quiet, &quiet),
+                info_at("ses_b1", &busy, &busy),
+                info_at("ses_b2", &busy, &worktree),
+                info_at("ses_b3", &busy, &busy),
+                // threads in the root folder are a repo like any other
+                info_at("ses_s1", "/", "/"),
+                info_at("ses_s2", "/", "/"),
+            ],
+        ));
+        let colours = model.assign_colours(&changes);
+        let scratch = if hash_colour("/") == "cobalt" {
+            "green".to_owned()
+        } else {
+            hash_colour("/")
+        };
+        let given = given(&colours);
+        assert_eq!(
+            given[..2],
+            [
+                (busy.clone(), "cobalt".to_owned()),
+                ("/".to_owned(), scratch.clone())
+            ],
+            "most threads first"
+        );
+        assert_eq!(given.len(), 3, "a worktree's thread is its repo's");
+        assert_eq!(given[2].0, quiet);
+        assert!(
+            given[2].1 != "cobalt" && given[2].1 != scratch,
+            "the quieter repo moves off the colours taken"
+        );
+        assert_eq!(model.colour_list().len(), 3);
+        assert_eq!(
+            model
+                .drain()
+                .iter()
+                .filter(|e| matches!(e, Effect::Colour(_)))
+                .count(),
+            3,
+            "each is written at once"
+        );
+    }
+
+    #[test]
+    fn a_read_breaks_a_tie_in_threads_by_root() {
+        let mut model = colouring();
+        let (a, b) = (root_hashing_to(8, 0), root_hashing_to(8, 1));
+        let (first, second) = if a < b { (a, b) } else { (b, a) };
+        let changes = model.host_read(host_read_of(
+            "ep",
+            5,
+            &[
+                info_at("ses_2", &second, &second),
+                info_at("ses_1", &first, &first),
+            ],
+        ));
+        let given = given(&model.assign_colours(&changes));
+        assert_eq!(given[0], (first, "magenta".to_owned()));
+        assert_eq!(given[1], (second, "green".to_owned()));
+    }
+
+    #[test]
+    fn a_repo_already_given_a_colour_keeps_it_on_the_next_read() {
+        let mut model = colouring();
+        let changes = model.host_read(host_read_of(
+            "ep",
+            5,
+            &[info_at("ses_1", "/work/api", "/work/api")],
+        ));
+        assert_eq!(model.assign_colours(&changes).len(), 1);
+        let again = model.host_read(host_read_of(
+            "ep2",
+            6,
+            &[info_at("ses_1", "/work/api", "/work/api")],
+        ));
+        assert!(model.assign_colours(&again).is_empty());
+    }
+
+    #[test]
+    fn two_sessions_of_a_new_repo_arriving_together_give_it_one_colour() {
+        let mut model = colouring();
+        let first = event(&mut model, Some(1), &updated_in("ses_1", 2, "/w"));
+        let second = event(&mut model, Some(2), &updated_in("ses_2", 2, "/w-other"));
+        // the actor takes one message at a time, the first in full before the second
+        let colours: Vec<_> = model
+            .assign_colours(&first)
+            .into_iter()
+            .chain(model.assign_colours(&second))
+            .collect();
+        assert_eq!(given(&colours), vec![("/w".to_owned(), hash_colour("/w"))]);
+        // and two in one read are one repo too
+        let mut model = colouring();
+        let changes = model.host_read(host_read_of(
+            "ep",
+            5,
+            &[
+                info_at("ses_1", "/work/api", "/work/api"),
+                info_at("ses_2", "/work/api", "/work/api-wt"),
+            ],
+        ));
+        assert_eq!(model.assign_colours(&changes).len(), 1);
+    }
+
+    #[test]
+    fn a_host_read_marks_its_repos_used_at_most_once_a_day() {
+        let mut model = colouring();
+        let read = |model: &mut Model, epoch: &str| {
+            let changes = model.host_read(host_read_of(
+                epoch,
+                5,
+                &[info_at("ses_1", "/work/api", "/work/api")],
+            ));
+            model.assign_colours(&changes);
+            model
+                .drain()
+                .iter()
+                .filter(|e| matches!(e, Effect::Colour(_)))
+                .count()
+        };
+        assert_eq!(read(&mut model, "ep1"), 1, "given");
+        model.at(1_000 + 60_000);
+        assert_eq!(
+            read(&mut model, "ep2"),
+            0,
+            "a reconnect within the day writes nothing"
+        );
+        model.at(1_000 + 24 * 60 * 60 * 1000);
+        assert_eq!(
+            read(&mut model, "ep3"),
+            1,
+            "a day on, its last use is written"
+        );
+    }
+
+    #[test]
+    fn a_session_change_marks_its_repo_used_on_a_host_that_never_reconnects() {
+        let mut model = colouring();
+        let given = event(&mut model, Some(1), &updated("ses_1", 2, None));
+        assert_eq!(model.assign_colours(&given).len(), 1);
+        model.drain();
+        let touch = |model: &mut Model, at: i64, updated_at: u64| {
+            model.at(at);
+            let changes = event(model, None, &updated("ses_1", updated_at, None));
+            assert!(model.assign_colours(&changes).is_empty());
+            model
+                .drain()
+                .into_iter()
+                .filter_map(|e| match e {
+                    Effect::Colour(colours::Write::Put { at, .. }) => Some(at),
+                    _ => None,
+                })
+                .collect::<Vec<i64>>()
+        };
+        let day = 24 * 60 * 60 * 1000;
+        assert!(
+            touch(&mut model, 1_000 + 60_000, 3).is_empty(),
+            "within the day: no write"
+        );
+        assert_eq!(
+            touch(&mut model, 1_000 + day, 4),
+            vec![1_000 + day],
+            "a day on: its last use"
+        );
+        assert!(touch(&mut model, 2_000 + day, 5).is_empty());
+        // so a restart over the cap, before any host read, keeps it
+        let kept: Vec<colours::Kept> = std::iter::once((
+            "desk:/w".to_owned(),
+            r#"{"auto":"teal","chosen":null}"#.to_owned(),
+            1_000 + day,
+        ))
+        .chain((0..colours::MAX_COLOURS).map(|n| {
+            (
+                format!("desk:/idle/{n}"),
+                r#"{"auto":"teal","chosen":null}"#.to_owned(),
+                500 + i64::try_from(n).unwrap(),
+            )
+        }))
+        .collect();
+        let (restored, dropped) = Colours::restore(kept);
+        assert!(restored.has("desk", "/w"));
+        assert_eq!(dropped, vec!["desk:/idle/0".to_owned()]);
+    }
+
+    #[test]
+    fn a_model_that_does_not_give_colours_journals_none() {
+        let mut model = Model::new();
+        let changes = event(&mut model, Some(1), &updated("ses_1", 2, None));
+        assert!(model.assign_colours(&changes).is_empty());
+        assert!(model.colour_list().is_empty());
+    }
+
+    #[test]
+    fn a_choice_journals_the_repo_colour_and_automatic_brings_back_the_given_one() {
+        let mut model = colouring();
+        let changes = model.host_read(host_read_of(
+            "ep",
+            5,
+            &[info_at("ses_1", "/work/api", "/work/api")],
+        ));
+        let given = model.assign_colours(&changes);
+        let auto = &given[0];
+        let (chosen, changes) = model
+            .choose_colour("desk", "/work/api", colours::slot("sunset"))
+            .unwrap();
+        assert_eq!(chosen.chosen.as_deref(), Some("sunset"));
+        assert_eq!(
+            chosen.auto, auto.auto,
+            "a choice keeps what was given under it"
+        );
+        assert!(changes, "it moved");
+        let (back, changes) = model.choose_colour("desk", "/work/api", None).unwrap();
+        assert_eq!(&back, auto);
+        assert!(changes);
+        let (_, nothing) = model.choose_colour("desk", "/work/api", None).unwrap();
+        assert!(!nothing, "the same choice again moves nothing");
+        assert_eq!(
+            model
+                .drain()
+                .iter()
+                .filter(|e| matches!(e, Effect::Colour(_)))
+                .count(),
+            4,
+            "one write each, the choice that moved nothing too: it may retry a dropped write"
+        );
+        assert!(
+            matches!(
+                model.choose_colour("desk", "/work/never", colours::slot("teal")),
+                Err(ColourRefused::UnknownRepo)
+            ),
+            "a repo with no colour and no session"
+        );
+        assert!(
+            matches!(
+                model.choose_colour("laptop", "/work/api", colours::slot("teal")),
+                Err(ColourRefused::UnknownRepo)
+            ),
+            "repos never merge across hosts"
         );
     }
 }

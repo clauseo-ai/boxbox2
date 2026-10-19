@@ -656,7 +656,7 @@ utf-16 units, as cmx2 defines it.
     `confirm_adopted` asks each one's daemon (`GET /session/:id`) and drops
     what was archived or deleted meanwhile. all pending migrations run in one
     transaction (a failed one changes nothing). **rolling back a
-    deploy past migration 4, 5 or 6 needs `boxbox.db` restored from before
+    deploy past migration 4, 5, 6 or 10 needs `boxbox.db` restored from before
     the upgrade: a build refuses a database newer than it knows.**
   - telemetry: `thread.cleared`, `thread.archived`, `history.page`, and
     `clear` as a `read.mark` source.
@@ -700,7 +700,30 @@ utf-16 units, as cmx2 defines it.
   device, the favourite model ids in order (`PUT /api/prefs/models`, at
   most 64, repeats dropped; migration 6 widens the table's scope check).
   validated on the way in, read back
-  leniently, 1,000 rows kept per scope. a device's push kinds stay on its
+  leniently, 1,000 rows kept per scope.
+- **repo colours** (`fleet/colours.rs`, decision 82): scope `colour` of
+  the same table (migration 10), subject `host:root`, value `{auto,
+  chosen}`. the fleet actor gives a repo its colour in the step that first
+  shows a session of it and writes the row through its writer. colours
+  never enter contract 1's journal, its `reset` or `GET /api/fleet`
+  (`agents.md`, section 2: contract 1 never gains a change type): a
+  stream that asks with `GET /api/stream?colours=1` also gets id-less
+  `ColourFrame`s from the actor, in journal order: the whole map after
+  `hello` (and again before a replay page if it moved meanwhile), then a
+  `colour` frame ahead of the entry that first shows a new repo, and one
+  per choice. a stream without the flag gets contract 1 byte for byte.
+  `PUT /api/prefs/colours` (`{host, root,
+  chosen}`, one of the ten names or null for automatic) goes through the
+  actor too, for a repo the fleet has a colour or a session for, and
+  answers the row as it stands once it is committed (503 when the store did
+  not keep it; every stream has heard it either way). a choice that moves
+  nothing still writes its row, so a retry after a 503 is kept. at most
+  1,000 rows, the model's own cap (the per scope cap does not apply): past
+  it the row that goes is one no session in the fleet uses, automatic
+  before chosen, the longest unused first. a row's last use is its last
+  change or the last host read or session change that showed the repo (written at most once
+  a day), so a restart that finds the table over the cap trims idle repos,
+  never busy ones. a device's push kinds stay on its
   subscription row, where push decides from them (`push.md`); settings
   changes them by sending the subscription again with the new kinds.
 - **data dir**: `boxbox.db` (sqlite, wal, one writer: the push key and

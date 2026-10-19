@@ -37,7 +37,7 @@ describe("names that would be the same", () => {
 
   test("ids that share a long ending grow the suffix until every name is unique", () => {
     const rows = Array.from({ length: 30 }, (_, n) => row(`ses_${String(n).padStart(2, "0")}0000abcd`, NOW, {}, "ok"));
-    const names = rows.map((r) => rowView(r, undefined, [], NOW, collisionSuffixes(rows).get(r.key) ?? "").name);
+    const names = rows.map((r) => rowView(r, undefined, [], {}, NOW, collisionSuffixes(rows).get(r.key) ?? "").name);
     expect(new Set(names).size).toBe(30);
   });
 
@@ -64,32 +64,32 @@ describe("last activity", () => {
 
 describe("a row", () => {
   test("a thread the fleet does not hold is idle, with its repo, machine and time", () => {
-    const view = rowView(row("a", NOW - 3 * HOUR, {}, "fix the rate limiter"), undefined, [], NOW);
+    const view = rowView(row("a", NOW - 3 * HOUR, {}, "fix the rate limiter"), undefined, [], {}, NOW);
     expect(view).toMatchObject({ repo: "ledger", title: "fix the rate limiter", state: "idle", words: "idle", cleared: false, when: "3 h ago", host: "desk" });
   });
 
   test("an empty title reads as untitled", () => {
-    expect(rowView(row("a", NOW, {}, "  "), undefined, [], NOW).title).toBe("untitled");
+    expect(rowView(row("a", NOW, {}, "  "), undefined, [], {}, NOW).title).toBe("untitled");
   });
 
   test("a thread the fleet holds shows the fleet's state, not the page's", () => {
     const r = row("a", NOW - MIN);
     const working = held(r, { status: { type: "busy", since: NOW - MIN } });
-    expect(rowView(r, working, [], NOW)).toMatchObject({ state: "working", words: "working" });
+    expect(rowView(r, working, [], {}, NOW)).toMatchObject({ state: "working", words: "working" });
     const unseen = held(r, { needs: [{ kind: "done", body: "" } as never] });
-    expect(rowView(r, unseen, [], NOW).words).toBe("done");
+    expect(rowView(r, unseen, [], {}, NOW).words).toBe("done");
   });
 
   test("cleared follows the live entry when the fleet holds the thread, the page otherwise", () => {
     const r = row("a", NOW - MIN, { cleared: true });
-    expect(rowView(r, undefined, [], NOW).cleared).toBe(true);
-    expect(rowView(r, held(r), [], NOW).cleared).toBe(false);
-    expect(rowView(row("b", NOW), held(row("b", NOW), { cleared: NOW - 1 }), [], NOW).cleared).toBe(true);
+    expect(rowView(r, undefined, [], {}, NOW).cleared).toBe(true);
+    expect(rowView(r, held(r), [], {}, NOW).cleared).toBe(false);
+    expect(rowView(row("b", NOW), held(row("b", NOW), { cleared: NOW - 1 }), [], {}, NOW).cleared).toBe(true);
   });
 
   test("the name is unique per thread and says what a sighted person reads", () => {
-    const a = rowView(row("a", NOW - HOUR, { cleared: true }, "same title"), undefined, [], NOW);
-    const b = rowView(row("b", NOW - 2 * HOUR, {}, "same title"), undefined, [], NOW);
+    const a = rowView(row("a", NOW - HOUR, { cleared: true }, "same title"), undefined, [], {}, NOW);
+    const b = rowView(row("b", NOW - 2 * HOUR, {}, "same title"), undefined, [], {}, NOW);
     expect(a.name).not.toBe(b.name);
     expect(a.name).toContain("ledger: same title, idle, cleared, desk");
   });

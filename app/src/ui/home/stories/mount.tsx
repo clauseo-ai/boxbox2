@@ -70,6 +70,7 @@ export function mountState(el: HTMLElement, story: StateStory): () => void {
     Object.values(final.state.fleet.asks)
       .filter((a) => a.key === key)
       .map((a) => (questions ? askWith(a, questions) : a)),
+    {},
     extra,
   );
   return render(
@@ -363,7 +364,7 @@ export function mountGlass(el: HTMLElement): () => void {
     const key = keyOf(final.state, SOURCES[story].title);
     const entry = final.state.fleet.sessions[key];
     if (!entry) throw new Error(`no session for ${story}`);
-    return windowView(entry, Object.values(final.state.fleet.asks).filter((a) => a.key === key), SOURCES[story].extra);
+    return windowView(entry, Object.values(final.state.fleet.asks).filter((a) => a.key === key), {}, SOURCES[story].extra);
   });
   const asking = views[1];
   if (!asking) throw new Error("no asking window");

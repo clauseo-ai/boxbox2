@@ -32,6 +32,9 @@ type Schemas = Boxbox["schemas"];
 /** a host's connection, health and the upstream cursor the server holds for it */
 export type HostState = Schemas["HostStatus"];
 
+/** one repo's colour as the server sends it (named apart from window/repo.ts's `RepoColour`, which is the hue itself) */
+export type RepoColourEntry = Schemas["RepoColour"];
+
 /** one display item of a session's window tail */
 export type TailItem = Schemas["TailItem"];
 
@@ -80,6 +83,11 @@ export type Frame = Hello | Reset | Entry;
     outside the journal. it never reaches the reducer, the cursor or the cache; the worker hands it to the ui as it is */
 export type BoardFrame = Schemas["AppFrame"];
 
+/** the repo colours, on a stream that asked for them (`colours=1`): id-less, with no seq, outside the journal. `colours` is
+    the whole map and replaces what the client holds (sent after `hello` on every connection, and again before a replay
+    page when the map moved meanwhile); `colour` is one repo's change. they move no cursor and count as no entry */
+export type ColourFrame = Schemas["ColourFrame"];
+
 /** `<epoch>:<seq>`, the journal's cursor and the sse id */
 export type Cursor = { epoch: string; seq: number };
 
@@ -122,10 +130,13 @@ const FRAME_TYPES: ReadonlySet<string> = new Set<Frame["type"]>([
 
 const BOARD_TYPES: ReadonlySet<string> = new Set<BoardFrame["type"]>(["board.here", "board.gone", "board.focus", "board.compose"]);
 
+const COLOUR_TYPES: ReadonlySet<string> = new Set<ColourFrame["type"]>(["colours", "colour"]);
+
 /** a data line's json, when it names a frame type this protocol has. the fields are the server's to get right:
     its document is typed from the same rust structs, and the reducer is exhaustive over the union. a board frame is
-    taken as it is, without a seq: it is never journalled (`isBoardFrame` tells the two apart) */
-export function decodeFrame(data: string): Frame | BoardFrame | null {
+    taken as it is, without a seq: it is never journalled (`isBoardFrame` tells the two apart). so is a colour frame, and
+    one that carries a seq is no frame at all: the journal has no colour entry */
+export function decodeFrame(data: string): Frame | BoardFrame | ColourFrame | null {
   let value: unknown;
   try {
     value = JSON.parse(data);
@@ -136,22 +147,29 @@ export function decodeFrame(data: string): Frame | BoardFrame | null {
   const type = (value as { type: unknown }).type;
   if (typeof type !== "string") return null;
   if (BOARD_TYPES.has(type)) return value as BoardFrame;
+  if (COLOUR_TYPES.has(type)) return "seq" in value ? null : (value as ColourFrame);
   if (!FRAME_TYPES.has(type)) return null;
   if (type !== "hello" && type !== "reset" && typeof (value as { seq?: unknown }).seq !== "number") return null;
   return value as Frame;
 }
 
-export function isBoardFrame(frame: Frame | BoardFrame): frame is BoardFrame {
+export function isBoardFrame(frame: Frame | BoardFrame | ColourFrame): frame is BoardFrame {
   return BOARD_TYPES.has(frame.type);
 }
 
-/** where a data line goes: the journal's frames to the reducer, which moves the cursor; a board frame to the ui as it is,
-    and only on a stream that asked for board frames (`board`); anything else nowhere */
-export type Routed = { to: "journal"; frame: Frame } | { to: "board"; frame: BoardFrame };
+export function isColourFrame(frame: Frame | BoardFrame | ColourFrame): frame is ColourFrame {
+  return COLOUR_TYPES.has(frame.type);
+}
 
-export function routeFrame(data: string, board: boolean): Routed | null {
+/** where a data line goes: the journal's frames to the reducer, which moves the cursor; a board frame to the ui as it is,
+    and only on a stream that asked for board frames (`board`); a colour frame to the reducer outside the journal, and only
+    on a stream that asked for colours (`colours`); anything else nowhere */
+export type Routed = { to: "journal"; frame: Frame } | { to: "board"; frame: BoardFrame } | { to: "colours"; frame: ColourFrame };
+
+export function routeFrame(data: string, board: boolean, colours: boolean): Routed | null {
   const frame = decodeFrame(data);
   if (!frame) return null;
   if (isBoardFrame(frame)) return board ? { to: "board", frame } : null;
+  if (isColourFrame(frame)) return colours ? { to: "colours", frame } : null;
   return { to: "journal", frame };
 }

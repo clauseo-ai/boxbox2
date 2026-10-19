@@ -328,6 +328,7 @@ async fn start_fleet(
             reads: restored.reads,
             clears: restored.clears,
             adopted: restored.adopted,
+            colours: restored.colours,
             tails,
         },
         shutdown.clone(),

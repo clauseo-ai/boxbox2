@@ -6,6 +6,21 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **repo colours are given by the server, and a person can choose one.**
+  the first time the fleet shows a session of a repo with no colour, the
+  repo gets the colour its machine's repos wear least (its old hash colour
+  when that is free), so up to ten repos on a machine never share. a
+  stream opened with `?colours=1` carries them as id-less frames outside
+  the journal (the whole map first, then each change ahead of the repo's
+  first window); without the flag the stream is unchanged, so contract 1
+  and its protocol stay as they were. `PUT /api/prefs/colours` sets a
+  repo's colour or puts it back to automatic. the thread's menu, the repo name
+  above its title and settings' repo colours open the colour sheet, where
+  trying a colour repaints the repo live and nothing is sent until "use".
+  kept in `boxbox.db`'s `prefs`
+  (scope `colour`, migration 10: a rollback past it needs the database from
+  before the upgrade). decision 82.
+
 - **the board's channel on the server.** with `[board]` in `boxbox.toml`
   (`machines`, up to four `label.machine` names, optional), the server
   serves `GET /api/board/stream` (hello, then a whole view whenever the

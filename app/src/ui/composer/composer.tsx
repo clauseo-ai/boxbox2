@@ -28,7 +28,9 @@ import { api } from "../../api/client";
 import { deviceClass, deviceId } from "../../push/device";
 import { answerQuestion } from "../asks/answer";
 import { questionsOf } from "../asks/words";
-import { type RepoColour, colourOf, colourStyle, repoName } from "../window/repo";
+import { repoColour } from "../window/colours";
+import { repoRootOf } from "./place";
+import { type RepoColour, colourStyle, repoName } from "../window/repo";
 import { bytesOfUrl, MAX_ATTACHMENTS, megabytes, noRoomFor } from "./fit";
 import { cutMiddle, FILE_ACCEPT, fileKind, isPhotoKind, noRoomLeft, notTaken, sizeOf, typeWord } from "./files";
 import { isOriginal, kindOf } from "./heic";
@@ -102,9 +104,13 @@ export function Composer(props: ComposerProps) {
   const repo = () => repoName(directory());
   const draft = () => state.composer.drafts[key()] ?? EMPTY;
   const entry = () => (props.target.kind === "session" ? state.fleet.sessions[key()] : undefined);
-  /* a session's colour is its project root's, as its window's is (window/view.ts): its directory may be a worktree,
-     which would hash to another hue */
-  const colour = createMemo(() => props.colour ?? colourOf({ host: host(), root: entry()?.info.projectID || directory() }));
+  /* a session's colour is its repo root's, as its window's is (window/view.ts): its directory may be a worktree, which
+     is not the repo the colour belongs to */
+  const colour = createMemo(() => {
+    if (props.colour) return props.colour;
+    const info = entry()?.info;
+    return repoColour({ host: host(), root: info ? repoRootOf(info) : directory() });
+  });
   const asks = createMemo(() => Object.values(state.fleet.asks).filter((ask) => ask.key === key()));
   /** how many questions the ask waiting on this thread holds: words typed here answer each of them */
   const questionCount = createMemo(() => { const ask = asks().find((a) => a.kind === "question"); return ask ? questionsOf(ask).length : 1; });

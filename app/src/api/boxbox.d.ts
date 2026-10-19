@@ -856,6 +856,26 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/prefs/colours": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * sets the colour a repo wears on every device, or automatic. the change
+         *     reaches every client that asked for colours as a `colour` frame on the stream.
+         */
+        put: operations["colour"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/prefs/devices/{device}": {
         parameters: {
             query?: never;
@@ -1253,6 +1273,33 @@ export type components = {
             /** @description the threads that left home. */
             cleared: string[];
             refused: components["schemas"]["NotCleared"][];
+        };
+        /** @description a person's choice of colour for one repo. */
+        ColourChoice: {
+            /**
+             * @description one of the ten repo colours by name; null for automatic, which shows the
+             *     colour boxbox gave the repo again.
+             */
+            chosen?: string | null;
+            host: string;
+            /** @description the repo's root on that host, as the stream's `colour` frames name it. */
+            root: string;
+        };
+        /**
+         * @description repo colours on `GET /api/stream?colours=1` (`colours.rs`): id-less data
+         *     lines outside the journal, so contract 1 gains no change type and a
+         *     stream that does not ask sees none of them. the whole map comes first,
+         *     after `hello` (and again before a replay page if it moved meanwhile);
+         *     then each change, ahead of the journal entry that first shows its repo.
+         */
+        ColourFrame: {
+            colours: components["schemas"]["RepoColour"][];
+            /** @enum {string} */
+            type: "colours";
+        } | {
+            colour: components["schemas"]["RepoColour"];
+            /** @enum {string} */
+            type: "colour";
         };
         /** @description a `/` command a menu can offer. */
         CommandChoice: {
@@ -1956,6 +2003,23 @@ export type components = {
             /** @description what the daemon flushed: skills, agents, commands, models. */
             flushed: string[];
             mcp: components["schemas"]["McpServer"][];
+        };
+        /**
+         * @description the colour of one repo: a host plus its root, which the repo's
+         *     worktrees share. the colour shown is `chosen`, else `auto`; a name the
+         *     client does not know shows the repo's hash colour.
+         */
+        RepoColour: {
+            /** @description the repo colour boxbox gave the repo when it first saw it; it keeps it. */
+            auto: string;
+            /** @description the repo colour a person chose; null for automatic, which shows `auto`. */
+            chosen?: string | null;
+            host: string;
+            /**
+             * @description the project's root on that host, as cmx2 names it: its `projectID`
+             *     when that is a path, else the session's directory.
+             */
+            root: string;
         };
         /**
          * @description what a new thread in one repo starts with. absent means the daemon's
@@ -5032,6 +5096,57 @@ export interface operations {
             };
         };
     };
+    colour: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ColourChoice"];
+            };
+        };
+        responses: {
+            /** @description saved: the repo's colour as it stands */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepoColour"];
+                };
+            };
+            /** @description the host is unknown, the root is not an absolute path or holds no thread boxbox knows, or the colour is not a repo colour */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the store did not keep it (every device shows it until the server restarts), or the server is stopping */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     device: {
         parameters: {
             query?: never;
@@ -5474,6 +5589,13 @@ export interface operations {
                  *     `board=1`, as the app sends it; `true` reads the same.
                  */
                 board?: boolean;
+                /**
+                 * @description `colours=1`: the stream also carries repo colours as id-less
+                 *     `ColourFrame`s outside the journal: the whole map after `hello`, then
+                 *     each change ahead of the entry that first shows its repo. a stream
+                 *     that does not ask gets contract 1 exactly as it was.
+                 */
+                colours?: boolean;
             };
             header?: {
                 /** @description the id of the last frame applied, `<epoch>:<seq>` */

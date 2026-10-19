@@ -15,7 +15,7 @@ import type { StreamStatus } from "../../../sync/messages";
 import type { Draft, OutboxView } from "../../../sync/outbox";
 import { EMPTY_FLEET } from "../../../sync/reducer";
 import type { Ask, SessionEntry } from "../../../sync/protocol";
-import { colourOf, colourStyle, REPO_COLOURS } from "../../window/repo";
+import { colourStyle, hashColour, REPO_COLOURS } from "../../window/repo";
 import { Composer } from "../composer";
 import { NewThreadDock } from "../dock";
 import { NewThreadSheet } from "../sheet";
@@ -59,7 +59,7 @@ export type ComposerStory =
   | "glass-rest-violet"
   | "glass-rest-violet-focus"
   | "glass-rest-violet-line"
-  | "glass-rest-olive"
+  | "glass-rest-magenta"
   | "dropped"
   | "model"
   | "slash"
@@ -234,17 +234,17 @@ const SETUPS: Record<Exclude<ComposerStory, HomeStory>, () => Setup> = {
   "glass-queue": () => ({ entry: WORKING, outbox: three(), under: true }),
   "glass-shell": () => ({ entry: IDLE, draft: draft(""), type: "!git log --oneline -5", under: true }),
   // the glass at rest, the words not focused, in a few hues: a two-line draft on violet (the state the owner saw), the
-  // same draft focused, one line on gold, nothing on teal, and the agent working with nothing typed on rose
+  // same draft focused, one line on cobalt, nothing on teal, and the agent working with nothing typed on rose
   "glass-rest": () => ({ entry: IDLE, draft: draft(PROMPTS.perf), under: true, palette: "violet" }),
   "glass-rest-focus": () => ({ entry: IDLE, draft: draft(PROMPTS.perf), focus: true, under: true, palette: "violet" }),
-  "glass-rest-line": () => ({ entry: IDLE, draft: draft("ship it"), under: true, palette: "gold" }),
+  "glass-rest-line": () => ({ entry: IDLE, draft: draft("ship it"), under: true, palette: "cobalt" }),
   "glass-rest-empty": () => ({ entry: IDLE, draft: draft(""), under: true, palette: "teal" }),
   "glass-rest-working": () => ({ entry: WORKING, draft: draft(""), under: true, palette: "rose" }),
-  // the rim at rest, the state the owner saw next: nothing typed, unfocused, on violet; then focused, one line, and on olive
+  // the rim at rest, the state the owner saw next: nothing typed, unfocused, on violet; then focused, one line, and on magenta
   "glass-rest-violet": () => ({ entry: IDLE, draft: draft(""), under: true, palette: "violet" }),
   "glass-rest-violet-focus": () => ({ entry: IDLE, draft: draft(""), focus: true, under: true, palette: "violet" }),
   "glass-rest-violet-line": () => ({ entry: IDLE, draft: draft("ship it"), under: true, palette: "violet" }),
-  "glass-rest-olive": () => ({ entry: IDLE, draft: draft(""), under: true, palette: "olive" }),
+  "glass-rest-magenta": () => ({ entry: IDLE, draft: draft(""), under: true, palette: "magenta" }),
   // a file dragged over the stage: the composer's edge lights and its line says what a drop does
   "drop-over": () => ({ entry: IDLE, draft: draft(""), drive: (go) => go.drag("dragenter", ".cz-story-stage") }),
   // a spec, a pdf and an archive dropped on the stage: the spec and the pdf join the draft as files, the archive is mentioned
@@ -371,7 +371,7 @@ export function mountComposer(el: HTMLElement, story: ComposerStory): () => void
   const restore = answerReads(setup.models, setup.compact, setup.many ?? false, setup.starsRefused, setup.none);
   installMotionProperties();
   boot(setup);
-  const colour = colourStyle(REPO_COLOURS.find((c) => c.name === setup.palette) ?? colourOf({ host: HOST, root: DIRECTORY }));
+  const colour = colourStyle(REPO_COLOURS.find((c) => c.name === setup.palette) ?? hashColour({ host: HOST, root: DIRECTORY }));
   const dispose = render(
     () => (
       <div class="cz-story" data-keyboard={setup.keyboard ? "" : undefined} data-under={setup.under ? "" : undefined} style={colour}>

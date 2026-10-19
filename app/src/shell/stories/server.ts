@@ -42,6 +42,14 @@ export function answerReview(answer: ReviewAnswer | undefined): void {
   reviewAnswer = answer;
 }
 
+/** the repo colour route, answered from code by the colour sheet's stories (ui/colour/stories): the choice as the body
+    sent it, and the answer to give */
+type ColoursAnswer = (choice: { host: string; root: string; chosen: string | null }) => Answer;
+let coloursAnswer: ColoursAnswer | undefined;
+export function answerColours(answer: ColoursAnswer | undefined): void {
+  coloursAnswer = answer;
+}
+
 const realFetch = globalThis.fetch.bind(globalThis);
 const RealWebSocket = globalThis.WebSocket;
 
@@ -57,6 +65,10 @@ async function answer(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   if (review && reviewAnswer) {
     const made = reviewAnswer(request.method, review[1] ?? "");
     if (made) return Response.json(made.body, { status: made.status });
+  }
+  if (request.method === "PUT" && url.pathname === "/api/prefs/colours" && coloursAnswer) {
+    const made = coloursAnswer((await request.json()) as { host: string; root: string; chosen: string | null });
+    return Response.json(made.body, { status: made.status });
   }
   let path = url.pathname;
   if (hostsAnswer) {

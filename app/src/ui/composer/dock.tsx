@@ -4,7 +4,8 @@
    holds nothing anyone types in, so following never remounts anything. */
 
 import { Show } from "solid-js";
-import { colourOf, colourStyle, repoName } from "../window/repo";
+import { repoColour } from "../window/colours";
+import { colourStyle, repoName } from "../window/repo";
 import "./composer.css";
 
 export type DockProps = {
@@ -20,7 +21,7 @@ export type DockProps = {
 };
 
 export function NewThreadDock(props: DockProps) {
-  const colour = () => colourOf({ host: props.host, root: props.directory ?? props.host });
+  const colour = () => repoColour({ host: props.host, root: props.directory ?? props.host });
   const where = () => (props.directory ? `in ${repoName(props.directory)}` : `on ${props.host}`);
   const name = () => (props.directory ? `new thread in ${repoName(props.directory)} on ${props.host}` : `new thread on ${props.host}`);
   return (

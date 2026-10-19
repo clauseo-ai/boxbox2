@@ -272,6 +272,55 @@ describe("the fleet", () => {
   });
 });
 
+describe("repo colours", () => {
+  const api = { host: "bench", root: "/w", auto: "teal", chosen: null };
+  const notes = { host: "desk", root: "/home/dev/notes", auto: "rose", chosen: "plum" };
+  const both = { "bench:/w": { auto: "teal", chosen: null }, "desk:/home/dev/notes": { auto: "rose", chosen: "plum" } };
+
+  test("the map brings every colour the server holds, by host and root, in one patch, and replaces what was held", () => {
+    const first = run(INITIAL_STATE, [{ type: "colours", colours: [api, notes] }]);
+    expect(first.state.fleet.colours).toEqual(both);
+    expect(first.results[0]?.patches).toEqual([{ path: ["fleet", "colours"], value: both }]);
+    const { state } = run(first.state, [{ type: "colours", colours: [{ ...api, chosen: "slate" }] }]);
+    expect(state.fleet.colours).toEqual({ "bench:/w": { auto: "teal", chosen: "slate" } });
+  });
+
+  test("a change patches one repo's colour, and a later one replaces it", () => {
+    const { state, results } = run(INITIAL_STATE, [
+      { type: "colour", colour: api },
+      { type: "colour", colour: { ...api, chosen: "slate" } },
+      { type: "colour", colour: notes },
+    ]);
+    expect(state.fleet.colours).toEqual({ "bench:/w": { auto: "teal", chosen: "slate" }, "desk:/home/dev/notes": { auto: "rose", chosen: "plum" } });
+    expect(results.map((r) => r.patches)).toEqual([
+      [{ path: ["fleet", "colours", "bench:/w"], value: { auto: "teal", chosen: null } }],
+      [{ path: ["fleet", "colours", "bench:/w"], value: { auto: "teal", chosen: "slate" } }],
+      [{ path: ["fleet", "colours", "desk:/home/dev/notes"], value: { auto: "rose", chosen: "plum" } }],
+    ]);
+  });
+
+  test("a reset keeps the map, which came ahead of it on the same connection", () => {
+    const before = run(INITIAL_STATE, [{ type: "colours", colours: [api, notes] }]).state;
+    const { state, results } = run(before, [reset(4)]);
+    expect(state.fleet.colours).toEqual(both);
+    expect(results[0]?.patches).toEqual([{ path: ["fleet"], value: state.fleet }]);
+  });
+
+  test("colour frames are outside the journal: no cursor moves, nothing counts as applied, a duplicate or a gap", () => {
+    const live = run(INITIAL_STATE, [reset(3)]).state;
+    const { state, results } = run(live, [{ type: "colours", colours: [api] }, { type: "colour", colour: notes }]);
+    expect(state.cursor).toEqual(live.cursor);
+    expect(state.head).toBe(live.head);
+    expect(state.counters).toEqual(live.counters);
+    expect(results.flatMap((r) => r.effects)).toEqual([]);
+    // and before any reset, with no cursor at all, they still apply and ask for no reconnect
+    const cold = run(INITIAL_STATE, [{ type: "colour", colour: api }]);
+    expect(cold.state.cursor).toBeNull();
+    expect(cold.state.fleet.colours).toEqual({ "bench:/w": { auto: "teal", chosen: null } });
+    expect(cold.results[0]?.effects).toEqual([]);
+  });
+});
+
 /* —— the daemon's order of parts —— */
 
 const SES = "s";

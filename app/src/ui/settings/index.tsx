@@ -1,5 +1,5 @@
-/* settings: this device's appearance and notifications, and what a new
-   thread in each repo starts with. every value lives in the server's
+/* settings: this device's appearance and notifications, what a new
+   thread in each repo starts with, and each repo's colour. every value lives in the server's
    prefs (server/src/prefs.rs); nothing here keeps its own copy. rows sit
    on the ground behind a hairline: they are settings, not machines
    (design.md, until m5). */
@@ -14,6 +14,7 @@ import { repoRootOf } from "../composer/place";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { type RepoPrefs, state } from "../../store";
 import { devicePrefs, loadModels, loadPrefs, loadPushDevices, saveAppearance, savePushKinds, saveRepo } from "./actions";
+import { RepoColours } from "./colours";
 import { Segmented, Toggle } from "./controls";
 import "./settings.css";
 
@@ -147,6 +148,8 @@ export function Settings() {
       </section>
 
       <RepoDefaults onProblem={setProblem} />
+
+      <RepoColours />
     </section>
   );
 }

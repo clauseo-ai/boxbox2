@@ -9,7 +9,7 @@ import type { components } from "../../api/boxbox";
 import type { Ask, SessionEntry, SessionInfo } from "../../sync/protocol";
 import { repoRootOf } from "../composer/place";
 import { extraOf } from "../inbox/extra";
-import { colourOf, type RepoColour, repoName } from "../window/repo";
+import { type ColourMap, colourOf, type RepoColour, repoName } from "../window/repo";
 import { type WindowState, windowView } from "../window/view";
 
 export type HistoryApiRow = components["schemas"]["HistoryRow"];
@@ -93,9 +93,10 @@ export function collisionSuffixes(rows: readonly HistoryApiRow[]): Map<string, s
   return suffixes;
 }
 
-export function rowView(row: HistoryApiRow, held: SessionEntry | undefined, asks: readonly Ask[], now: number, suffix = ""): RowView {
+/** `colours` is the fleet's (window/colours.ts, `colourMap`), from the reactive caller */
+export function rowView(row: HistoryApiRow, held: SessionEntry | undefined, asks: readonly Ask[], colours: ColourMap, now: number, suffix = ""): RowView {
   const info = (held?.info ?? row.info) as unknown as SessionInfo;
-  const view = held ? windowView(held, asks, extraOf(held)) : null;
+  const view = held ? windowView(held, asks, colours, extraOf(held)) : null;
   const state: WindowState = view?.state ?? "idle";
   const title = info.title.trim() || "untitled";
   const repo = repoName(info.projectID);
@@ -108,7 +109,8 @@ export function rowView(row: HistoryApiRow, held: SessionEntry | undefined, asks
     host: row.host,
     repo,
     root: repoRootOf(info),
-    colour: colourOf({ host: row.host, root: info.projectID }),
+    // a copy, for the reason windowView copies it: the page's store reconciles rows into what it holds
+    colour: { ...colourOf({ host: row.host, root: repoRootOf(info) }, colours) },
     title,
     state,
     words,

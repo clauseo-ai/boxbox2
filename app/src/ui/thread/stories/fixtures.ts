@@ -8,13 +8,16 @@ import type { WireMessage } from "../wire";
 import cmxUrl from "../fixtures/cmx-deploy.json?url";
 import notesUrl from "../fixtures/notes-asks.json?url";
 import northstarUrl from "../fixtures/northstar-heavy.json?url";
+import { REPO_COLOURS } from "../../window/repo";
 
 export type Tone = { name: string; top: string; bottom: string; tone: string };
-export const TONES: Record<"gold" | "violet" | "green", Tone> = {
-  gold: { name: "gold", top: "#4a3b12", bottom: "#211a07", tone: "#f3d474" },
-  violet: { name: "violet", top: "#34298a", bottom: "#171240", tone: "#b7abff" },
-  green: { name: "green", top: "#1b4a33", bottom: "#0c2419", tone: "#8fe6a5" },
+/** a repo palette by its name (repo.ts), as the stage's tone: the stories wear the palettes the app ships */
+const tone = (name: string): Tone => {
+  const c = REPO_COLOURS.find((p) => p.name === name);
+  if (!c) throw new Error(`no palette ${name}`);
+  return { name, top: c.top, bottom: c.bottom, tone: c.light };
 };
+export const TONES: Record<"cobalt" | "violet" | "green", Tone> = { cobalt: tone("cobalt"), violet: tone("violet"), green: tone("green") };
 
 type ImportedFile = { session: { id: string; directory: string; title: string }; messages: WireMessage[]; children: Array<{ session: { id: string }; messages: WireMessage[] }> };
 type Snapshot = { label: string; at: number; messages: WireMessage[]; permissions: Array<{ id: string; permission: string; patterns: string[]; tool?: { messageID: string; callID: string } }>; questions: Array<{ id: string; questions: unknown[]; tool?: { messageID: string; callID: string } }>; status: Record<string, unknown> };
@@ -44,7 +47,7 @@ export async function loadImported(which: "northstar" | "cmx"): Promise<Loaded> 
   const root = projectRoot(file.session.directory, file.messages);
   const turns = turnsOf(file.messages, root);
   const children = childrenOf(file, root);
-  return { title: file.session.title, repo: which, tone: which === "northstar" ? TONES.gold : TONES.violet, turns, ctx: { turns, children, thinking: "rows" } };
+  return { title: file.session.title, repo: which, tone: which === "northstar" ? TONES.cobalt : TONES.violet, turns, ctx: { turns, children, thinking: "rows" } };
 }
 
 /** the native session at one of its recorded moments, its pending asks joined onto their rows */

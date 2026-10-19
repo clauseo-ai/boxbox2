@@ -14,6 +14,7 @@ use super::history::{HistoryPage, HistoryRow, Unreached};
 use super::hosts::{HostModels, McpServer, ModelChoice, Pair, PairedHost, Reloaded, Restarting};
 use super::login::{Login, Session};
 use super::needs::{NeedsList, ReadBody};
+use super::prefs::ColourChoice;
 use super::push::{
     PushDevice, PushState, PushTest, Subscribe, SubscriptionKeys, TestQueued, Unsubscribe,
     Unsubscribed,
@@ -24,8 +25,8 @@ use super::telemetry::{Accepted, TelemetryBatch};
 use super::threads::{Archived, ClearBody, ClearSource, Cleared, NotCleared, NotClearedWhy};
 use crate::config::Origin;
 use crate::fleet::change::{
-    Ask, AskKind, Change, Control, FleetSnapshot, JournalEntry, ResetReason, SessionEntry,
-    StreamFrame, TailItem, TailKind,
+    Ask, AskKind, Change, ColourFrame, Control, FleetSnapshot, JournalEntry, RepoColour,
+    ResetReason, SessionEntry, StreamFrame, TailItem, TailKind,
 };
 use crate::fleet::needs::{By, How, Need, NeedKind};
 use crate::fleet::read::ReadMark;
@@ -56,6 +57,7 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
         super::prefs::device,
         super::prefs::repo,
         super::prefs::favorite_models,
+        super::prefs::colour,
         super::stream::stream,
         crate::board::routes::pin,
         super::fleet::snapshot,
@@ -185,6 +187,9 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
         DevicePrefs,
         ModelPrefs,
         RepoPrefs,
+        RepoColour,
+        ColourChoice,
+        ColourFrame,
         Reloaded,
         Restarting,
         Theme,

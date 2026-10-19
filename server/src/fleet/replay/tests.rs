@@ -191,6 +191,133 @@ fn the_recorded_session_replays_to_the_journal_recorded_live_byte_for_byte() {
     }
 }
 
+/// the tape replayed whole into an actor that gives repos colours, as a
+/// fresh server does now.
+fn coloured(live: &Live) -> Replay {
+    let mut replay = Replay::colouring(&live.epoch, &live.build);
+    for step in tape() {
+        replay.step(step).unwrap();
+    }
+    replay
+}
+
+#[test]
+fn with_colours_given_contract_1_is_still_what_was_recorded_byte_for_byte() {
+    let live = live();
+    let replay = coloured(&live);
+    let ours = normalise(&joined(&replay.journal()), &live.epoch, &live.build);
+    assert!(
+        ours == normalise(&live.journal, &live.epoch, &live.build),
+        "the journal moved"
+    );
+    let mut fleet = live.fleet.iter();
+    let mut streams: Vec<(u32, String)> = Vec::new();
+    for answer in &replay.answers {
+        match answer {
+            Answer::Snapshot(body) => {
+                assert!(
+                    Some(&body[..]) == fleet.next().map(String::as_bytes),
+                    "/api/fleet moved"
+                );
+            }
+            Answer::Page {
+                stream,
+                first,
+                frames,
+            } => match streams.iter_mut().rev().find(|(id, _)| id == stream) {
+                Some((_, held)) if !first => held.push_str(&joined(frames)),
+                _ => streams.push((*stream, joined(frames))),
+            },
+            Answer::Needs { .. } => {}
+        }
+    }
+    for ((_, ours), theirs) in streams.iter().zip(&live.streams) {
+        if let Some(theirs) = theirs {
+            assert!(
+                theirs.starts_with(ours.as_str()),
+                "a stream that did not ask for colours moved"
+            );
+            assert!(!ours.contains(r#""type":"colour"#), "and it saw no colour");
+        }
+    }
+}
+
+/// the repo of each session a page's frames show, as `host:root`.
+fn repos_shown(frames: &[Bytes]) -> Vec<String> {
+    let mut repos = Vec::new();
+    for frame in frames {
+        let text = std::str::from_utf8(frame).unwrap();
+        let Some(data) = text.lines().find_map(|l| l.strip_prefix("data: ")) else {
+            continue;
+        };
+        let value: serde_json::Value = serde_json::from_str(data).unwrap();
+        let sessions: Vec<&serde_json::Value> = match value["type"].as_str() {
+            Some("session") => vec![&value["session"]],
+            Some("host.reset") => value["sessions"].as_array().unwrap().iter().collect(),
+            Some("reset") => value["fleet"]["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .collect(),
+            _ => continue,
+        };
+        for session in sessions {
+            let info = &session["info"];
+            let project = info["projectID"].as_str().unwrap();
+            let root = if project.starts_with('/') {
+                project
+            } else {
+                info["directory"].as_str().unwrap()
+            };
+            repos.push(format!("{}:{root}", session["host"].as_str().unwrap()));
+        }
+    }
+    repos
+}
+
+#[test]
+fn a_stream_that_asks_for_colours_gets_the_map_before_any_session_from_a_reset_or_a_resume() {
+    let live = live();
+    let steps = tape();
+    let at = end(&steps);
+    let mut replay = coloured(&live);
+    for from in [
+        From::Start,
+        From::At(Cursor {
+            epoch: live.epoch.clone(),
+            seq: 0,
+        }),
+    ] {
+        let frames = replay.open_colours(from, at);
+        let second = std::str::from_utf8(&frames[1]).unwrap();
+        assert!(
+            second.starts_with("data: {\"type\":\"colours\",\"colours\":["),
+            "hello, then the map: {}",
+            &second[..second.len().min(80)]
+        );
+        assert!(!second.starts_with("id:"), "id-less, outside the journal");
+        let map: serde_json::Value =
+            serde_json::from_str(second.trim().strip_prefix("data: ").unwrap()).unwrap();
+        let given: Vec<String> = map["colours"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                format!(
+                    "{}:{}",
+                    c["host"].as_str().unwrap(),
+                    c["root"].as_str().unwrap()
+                )
+            })
+            .collect();
+        let shown = repos_shown(&frames[2..]);
+        assert!(!shown.is_empty());
+        for repo in shown {
+            assert!(given.contains(&repo), "{repo} shows without its colour");
+        }
+    }
+}
+
 #[test]
 fn replaying_the_tape_twice_gives_the_same_journal_bytes() {
     let live = live();

@@ -8,7 +8,7 @@ import type { Ask, SessionEntry, SessionInfo, SessionStatus } from "../../sync/p
 import { headerWords, questionsOf, waitingWords } from "../asks/words";
 import { type Need, needOf, permissionWhat } from "./need";
 import { repoRootOf } from "../composer/place";
-import { colourOf, type RepoColour, repoName } from "./repo";
+import { type ColourMap, colourOf, type RepoColour, repoName } from "./repo";
 import type { Strip } from "../thread/groups";
 import { runOf } from "./run";
 import type { TailLine } from "./tail";
@@ -73,7 +73,9 @@ export type WindowView = {
 /** facts the model does not carry yet, supplied where they are known (docs/home.md, gaps) */
 export type Extra = { failure?: string; /** the note on a checkout waiting to be merged */ review?: string; seen?: boolean };
 
-export function windowView(entry: SessionEntry, asks: readonly Ask[], extra: Extra = {}): WindowView {
+/** `colours` is the fleet's (window/colours.ts, `colourMap`), passed in by the reactive caller so the window repaints when a
+    repo's colour changes */
+export function windowView(entry: SessionEntry, asks: readonly Ask[], colours: ColourMap, extra: Extra = {}): WindowView {
   const info: SessionInfo = entry.info;
   const status: SessionStatus | null = entry.status;
   const ask = asks[0] ?? null;
@@ -88,7 +90,10 @@ export function windowView(entry: SessionEntry, asks: readonly Ask[], extra: Ext
     host: entry.host,
     repo: repoName(info.projectID),
     root: repoRootOf(info),
-    colour: colourOf({ host: entry.host, root: info.projectID }),
+    /* a copy: home and history hold views in stores of their own and reconcile the next one into them, which writes a
+       changed colour's fields into the object the store holds. the table's own entry would be rewritten (teal becoming
+       cobalt for every repo) the first time a repo's colour changes while its window is up, as the picker's preview does */
+    colour: { ...colourOf({ host: entry.host, root: repoRootOf(info) }, colours) },
     title: info.title.trim() || "untitled",
     state,
     chip: chipOf(state, queued, extra.review !== undefined),

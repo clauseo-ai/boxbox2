@@ -128,6 +128,7 @@ fn router_waiting(state: Arc<AppState>, photo_wait: Duration) -> Router {
             axum::routing::put(prefs::device),
         )
         .route("/api/prefs/repos", axum::routing::put(prefs::repo))
+        .route("/api/prefs/colours", axum::routing::put(prefs::colour))
         .route(
             "/api/prefs/models",
             axum::routing::put(prefs::favorite_models),

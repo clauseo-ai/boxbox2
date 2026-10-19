@@ -147,7 +147,14 @@ export type State = {
     notice: { key: string; text: string } | null;
   };
   board: Board;
+  /** a repo colour the picker is showing before the person settles on it: while set, that repo wears it everywhere
+      (the stage, the windows behind the sheet). this device's ui alone, never sent; the choice itself goes to the
+      server and comes back as a `colour` frame (ui/window/colours.ts) */
+  colourPreview: ColourPreview | null;
 };
+
+/** one repo, by host and root, shown in one of the ten by name */
+export type ColourPreview = { host: string; root: string; name: string };
 
 export type Compaction = { state: "running"; since: number } | { state: "failed"; message: string } | { state: "done"; at: number };
 
@@ -188,6 +195,7 @@ const [state, setState] = createStore<State>({
   replies: {},
   composer: { drafts: {}, outbox: [], born: {}, compacting: {}, draftsFull: false, notice: null },
   board: { here: false, digits: {}, bound: {}, met: false, since: 0, focus: null, compose: null, pin: null, pairing: true },
+  colourPreview: null,
 });
 
 export { state };
@@ -234,7 +242,7 @@ export async function signOut(): Promise<void> {
     await api.POST("/api/logout");
   } finally {
     threadCaches.clear();
-    setState({ gate: "signed-out", hosts: [], hostsAt: null, problem: null, fleet: EMPTY_FLEET, threads: {}, openThread: null });
+    setState({ gate: "signed-out", hosts: [], hostsAt: null, problem: null, fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null });
     setState("terminals", { byHost: {}, shells: {}, open: null });
     setState({ prefs: null, models: {}, modelsRead: {}, behind: null });
     setState("replies", reconcile({}));
@@ -342,7 +350,7 @@ export function setOpenThread(key: string | null): void {
 
 export function syncSignedOut(): void {
   threadCaches.clear();
-  setState({ gate: "signed-out", fleet: EMPTY_FLEET, threads: {}, openThread: null });
+  setState({ gate: "signed-out", fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null });
   boardGone();
 }
 
@@ -561,6 +569,11 @@ export function setBoardPin(pin: BoardPin | null): void {
 
 export function setBoardPairing(pairing: boolean): void {
   setState("board", "pairing", pairing);
+}
+
+/** the picker's preview of a repo colour, or null when it closes or the choice is made */
+export function setColourPreview(preview: ColourPreview | null): void {
+  setState("colourPreview", preview);
 }
 
 export function setPushDevices(devices: PushDevice[]): void {

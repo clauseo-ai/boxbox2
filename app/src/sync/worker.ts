@@ -273,7 +273,8 @@ class Sync {
       try {
         const headers: Record<string, string> = { accept: "text/event-stream" };
         if (this.state.cursor) headers["last-event-id"] = formatCursor(this.state.cursor);
-        const res = await fetch(this.board ? "/api/stream?board=1" : "/api/stream", { headers, signal: connection.signal, credentials: "same-origin", cache: "no-store" });
+        // the app always asks for the repo colours, which travel beside the journal (protocol.ts, `ColourFrame`)
+        const res = await fetch(this.board ? "/api/stream?colours=1&board=1" : "/api/stream?colours=1", { headers, signal: connection.signal, credentials: "same-origin", cache: "no-store" });
         if (res.status === 401) signedOut = true;
         else if (res.ok && res.body) await this.read(res.body, connection);
       } catch {
@@ -323,8 +324,13 @@ class Sync {
   }
 
   private onFrame(sse: SseFrame): void {
-    const routed = routeFrame(sse.data, this.board);
+    const routed = routeFrame(sse.data, this.board, true);
     if (!routed) return;
+    // so is a colour frame: the reducer takes it as an action of its own, never as an entry
+    if (routed.to === "colours") {
+      this.dispatch(routed.frame);
+      return;
+    }
     // a board frame is outside the journal: it moves no cursor, no seq and no replay count
     if (routed.to === "board") {
       this.boardSeen = routed.frame.type !== "board.gone";

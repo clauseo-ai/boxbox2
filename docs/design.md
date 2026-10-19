@@ -540,7 +540,8 @@ about a thread is on its resting screen, and the long tail lives behind
   details would be), details (with a count, "2 agents, 3 files"), show
   thinking, then the law's long tail as it is built: rename, model and
   effort defaults, fork, compact, revert to a turn (also on each turn's
-  own menu), open a terminal here, copy link, archive.
+  own menu), open a terminal here, copy link, colour (the colour sheet,
+  above), archive.
 - **archive** (built): the menu item swaps the menu for one question in
   words, "archive this thread? it leaves every list on every device. its
   history stays on disk.", with "keep it" and "archive it". focus goes to
@@ -992,30 +993,102 @@ that the screen never lies about how current it is.
   uses the repo's light tint.
 - **repo colours.** a curated set of ten deep hues, each a pair (top and
   bottom of the window gradient) plus a light tone for chips, asks and
-  accents. a repo gets one by a stable hash of its path and keeps it
-  forever; the user can change it. every pair holds 4.5:1 for body text
-  in white.
+  accents. the server gives a repo one when it first sees a session there
+  and keeps it (decision 82): of the colours the repo's host wears least,
+  the one a stable hash of `host:root` names when it is free, else the
+  lowest in the table, so up to ten repos on a machine never share.
+  "least used" counts every repo the server remembers on that host, idle
+  ones too, not only those with threads now. a
+  person can choose another (the colour sheet, below), and automatic gives
+  back the one boxbox picked. every client shows the server's colour; the
+  hash is only the fallback for a repo the server has not named yet, such
+  as a folder no thread has worked in. every pair holds 4.5:1 for body
+  text in white.
 
 | name | top | bottom | light tone |
 |---|---|---|---|
-| green | `#1b4a33` | `#0c2419` | `#8fe6a5` |
+| green | `#004a2c` | `#002319` | `#80e9a8` |
 | violet | `#34298a` | `#171240` | `#b7abff` |
-| rose | `#5a1f45` | `#2a0d20` | `#ff9fd0` |
-| gold | `#4a3b12` | `#211a07` | `#f3d474` |
-| blue | `#173a5e` | `#0a1a2e` | `#9cc8ff` |
-| teal | `#10484a` | `#062123` | `#7fe0d6` |
-| clay | `#5a2c19` | `#29130a` | `#ffb48c` |
-| plum | `#46205c` | `#1f0e2b` | `#dfa8ff` |
-| olive | `#3b4216` | `#1a1d08` | `#d4df7c` |
-| slate | `#2b3441` | `#12161c` | `#b9c6d8` |
+| rose | `#721743` | `#2e0820` | `#ffa9ca` |
+| cobalt | `#19359c` | `#101048` | `#adc2ff` |
+| blue | `#004077` | `#071938` | `#9fd0ff` |
+| teal | `#00484b` | `#002025` | `#7ee2db` |
+| sunset | `#761521` | `#300936` | `#ffbc91` |
+| plum | `#512977` | `#1e0e33` | `#daaafd` |
+| magenta | `#700159` | `#2e0628` | `#ffa4e9` |
+| slate | `#334052` | `#131822` | `#b8c9de` |
 
-set in m5 (`docs/home.md`): every pair holds 4.5:1 for white body text at
+set in m5 (`docs/home.md`); retuned 2026-10-19: gold, clay and olive (yellow and
+brown, read as muddy) gave their slots to cobalt, sunset and magenta, so the
+other seven repos keep their colour; every top sits near 0.05 relative
+luminance at the most chroma that allows, and the bottom's hue turns a few
+degrees from the top's (sunset's from vermilion to wine), so each window is a
+saturated gradient rather than a greyed one. every pair holds 4.5:1 for white body text at
 both ends, the light tone holds 4.5:1 on the top colour, and the bottom
 colour holds 4.5:1 on the light tone (`app/src/ui/window/repo.test.ts`).
 
 - **red** (`#ff6b6b` on dark, `#ad2323` on light) means failure and
   nothing else. diff lines use `#9ff0b3` and `#ffa3a3` on dark, `#0d6329`
   and `#a8233b` on light.
+
+### the colour sheet (2026-10-19)
+
+a repo's colour is chosen in one sheet, `app/src/ui/colour/sheet.tsx`, with
+its rules in `picker-model.ts` (tested). a repo is a machine and a root, so
+the sheet is titled "api's colour" and says "on desk · every window, thread
+and chip of api", with the close.
+
+- **where it opens.** the thread menu's "colour" item, which shows the
+  colour's dot and "cobalt · automatic" or "sunset · chosen"; the repo line
+  above the thread's big title, a capsule ringed in the accent with the
+  mark, the name, the dot and a caret (at the top of the log on every
+  size; it scrolls away with the title, and the bar keeps to its title and
+  status); and settings' *repo colours*, one
+  row per repo. not from home: a long press there fights the deck's
+  gestures. a thread with no repo (an assistant's) offers none of them.
+- **what it shows.** this repo's window (the thread's title, its mark, and
+  its ask with "wants you" while one is open) ringed in the colour being
+  tried, beside the machine's other repos as small windows in theirs
+  ("beside your other repos on desk", the three newest). then automatic, a
+  row with a radio that says what it gives in words: "cobalt, picked by
+  boxbox. every device agrees.", or "teal for now. boxbox picks api's own
+  when a thread runs there." for a repo the server has not spoken for. then
+  the ten in slot order with their names: the picked one ringed and ticked
+  (automatic's swatch ringed alone while automatic is picked), "auto" under
+  the one automatic gives, and a badge with the wearer's initial (or how
+  many) on a swatch another repo on the machine wears. a line under them
+  says who: "slate is relay's on desk. ledger has green, docs has plum. you
+  can still share one; their windows would look alike." sharing is allowed.
+- **trying is live, nothing is sent.** a press on a swatch or automatic
+  repaints the repo everywhere at once through the store's preview (the
+  stage behind the sheet, home's windows, the marks), on this device only.
+  "use sunset" (or "use automatic") is the one control that sends; it shows
+  only once the pick differs from what the server holds. "keep cobalt", the
+  close, escape and a press outside put the repo back as it was. picking
+  automatic's own colour by hand reads "keep automatic" and "use cobalt",
+  so the two never read alike.
+- **after use.** the stream's `colour` frame repaints every device, usually
+  before the answer; the preview holds until the map holds the choice, or 3
+  s, so the stage never flashes back. a refusal keeps the sheet open.
+  a 503 comes only after every device has the choice, so it says so:
+  "every device shows sunset now, but the server could not keep it, so it
+  goes back when the server restarts. try again in a moment.", and "use
+  sunset" stays to send it again. any other refusal changed nothing and
+  keeps the server's words ("api's colour did not change. boxbox has no
+  thread in ...").
+- **shape and motion.** a modal dialog in the top layer, the report sheet's
+  glass, painted in the colour being tried (its "use" and rings take it).
+  on the phone it rises from the screen's foot at the screen's width, the
+  swatches five to a row; from 700 px it is a card 640 wide standing at the
+  foot of the stage it belongs to, the swatches ten to a row. it rises on
+  the sheet spring and sinks on it; under reduced motion it fades in 120 ms.
+- **keyboard and names.** automatic and the ten are one radio group named
+  "api's colour": tab reaches the checked one, the arrows move the pick and
+  the keyboard with it. a swatch is named "slate, worn by relay", "cobalt,
+  automatic" or "rose"; the menu item "colour, cobalt, automatic"; the repo
+  line "api, cobalt, automatic. choose its colour"; a settings row "api on
+  desk, sunset, chosen. choose its colour". focus goes back to what opened
+  it (`⋯` for the menu, whose items are inert once it closes).
 
 ### the two appearances, as built (2026-10-02)
 
@@ -1045,7 +1118,8 @@ colour matched (2026-10-02). what holds both appearances together now:
   rail, wears a 2 px ring of its accent outside its edge with 2 px of
   ground between, and keeps its own lit edge; a folded swatch on the stage
   wears the same (the native app's decision 22). light is the
-  light tone at 30% in white at the top and 12% in near-white at the foot,
+  light tone at 40% in white at the top and 18% in near-white at the foot
+  (30 and 12% until 2026-10-19 left the cool hues reading as grey paper),
   a touch lighter than the flood so a window over the stage still reads
   raised; accents are the deep top colour with near-white ink on them;
   quiet fills and pressed wells are the deep colour at a few percent, so
@@ -1276,15 +1350,16 @@ agent that lacks one simply does not show that surface.
 
 | name | top | bottom | light tone | sits between |
 |---|---|---|---|---|
-| coral | `#5c2129` | `#290b11` | `#ffa39a` | rose and clay (the first assistant's, as approved) |
-| lime | `#2f4a17` | `#132008` | `#c3ec86` | olive and green |
-| jade | `#14483a` | `#07211a` | `#88e8c6` | green and teal |
-| lagoon | `#0f4458` | `#061e28` | `#8ad9f5` | teal and blue |
-| orchid | `#521f58` | `#240c27` | `#f5a6f0` | plum and rose |
+| coral | `#701e2e` | `#2e0914` | `#ffa9a7` | rose and sunset (the first assistant's, as approved) |
+| lime | `#1b4a03` | `#022209` | `#bbea7a` | green, on the yellow side |
+| jade | `#00493d` | `#00211e` | `#83e8c9` | green and teal |
+| lagoon | `#004757` | `#001d2a` | `#85ddf3` | teal and blue |
+| orchid | `#621f6d` | `#250a2d` | `#eea7f4` | plum and magenta |
 
-  measured for this table (wcag relative luminance): white on the tops
-  9.9 to 12.4, on the bottoms 16.9 to 18.3; the light tone on its top 6.4
-  to 7.4; the bottom on its light tone 9.5 to 12.7.
+  measured for this table (wcag relative luminance, retuned 2026-10-19
+  with the ten): white on the tops 10.3 to 11.0, on the bottoms 17.0 to
+  18.1; the light tone on its top 5.9 to 7.5; the bottom on its light tone
+  9.9 to 12.3.
 
 - **the round mark.** an assistant's mark is a circle where a repo's is a
   squircle: the shape says the kind (square is a place an agent works in,
@@ -2048,7 +2123,7 @@ what can I do.
 ### settings
 
 **settings** (`?screen=settings`, reached from the machines header) is
-three groups of hairline rows on the ground: *this device* (appearance:
+four groups of hairline rows on the ground: *this device* (appearance:
 system, dark, light as a segmented control, a track pressed into the
 ground with the chosen option on it in the light tone; reduce motion as a
 switch whose knob moves on the snap spring by transform, "follows the
@@ -2057,7 +2132,10 @@ this device* (the notifications row below, then the four push kinds as
 switches once subscribed, and the other devices' choices read-only), and
 *new threads* (each repo with threads, most recent first: model and
 effort as native selects pressed into the ground, 16 px on touch, with
-"the machine's default" and "the model's default effort" first). a chosen
+"the machine's default" and "the model's default effort" first), and
+*repo colours* (each repo by machine and root, newest thread first: its
+mark, its machine, and its colour's dot with "green · automatic" or
+"sunset · chosen"; a press opens the colour sheet, colour above). a chosen
 appearance applies at once and a copy rides in localStorage so a cold
 launch paints in it; the server's prefs are the truth.
 

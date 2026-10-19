@@ -20,7 +20,8 @@ import { discardSend, retrySend, saveDraft } from "../../sync/client";
 import { type Target, targetKey } from "../../sync/outbox";
 import { createKeyboardInset } from "../term/keyboard";
 import { RepoMark } from "../repo-mark/repo-mark";
-import { colourOf, colourStyle, repoName } from "../window/repo";
+import { repoColour } from "../window/colours";
+import { colourStyle, repoName } from "../window/repo";
 import { Close } from "../close";
 import { Composer } from "./composer";
 import { Icon } from "./icons";
@@ -137,7 +138,7 @@ export function NewThreadSheet(props: SheetProps) {
 
   /* the sheet stands on the keyboard itself: on home no stage sets the inset (decision 19) */
   const keyboard = createKeyboardInset();
-  const colour = () => ({ ...colourStyle(colourOf({ host: host(), root: chosen() ?? host() })), "--keyboard": `${keyboard()}px` });
+  const colour = () => ({ ...colourStyle(repoColour({ host: host(), root: chosen() ?? host() })), "--keyboard": `${keyboard()}px` });
 
   /* the folder finder: always there, a field that filters the repos, or reads the folders inside a typed path */
   const [query, setQuery] = createSignal("");
@@ -447,7 +448,7 @@ export function NewThreadSheet(props: SheetProps) {
                           aria-checked={dir === chosen() ? "true" : "false"}
                           aria-label={`${repoName(dir)}, ${dir}`}
                           data-waiting={waiting().includes(dir) ? "" : undefined}
-                          style={colourStyle(colourOf({ host: host(), root: dir }))}
+                          style={colourStyle(repoColour({ host: host(), root: dir }))}
                           onClick={() => pickFolder(dir)}
                         >
                           <span class="cz-recent-mark">
@@ -515,7 +516,7 @@ export function NewThreadSheet(props: SheetProps) {
                     <For each={known()}>
                       {(dir) => (
                         <div class="cz-row" role="listitem">
-                          <button type="button" class="cz-row-main" data-lead="" data-active={isActive(dir) ? "" : undefined} aria-label={`${repoName(dir)}, ${dir}`} style={colourStyle(colourOf({ host: host(), root: dir }))} onClick={() => pickFolder(dir)}>
+                          <button type="button" class="cz-row-main" data-lead="" data-active={isActive(dir) ? "" : undefined} aria-label={`${repoName(dir)}, ${dir}`} style={colourStyle(repoColour({ host: host(), root: dir }))} onClick={() => pickFolder(dir)}>
                             <RepoMark host={host()} root={dir} size={28} />
                             <b>{repoName(dir)}</b>
                             <span>{dir}</span>

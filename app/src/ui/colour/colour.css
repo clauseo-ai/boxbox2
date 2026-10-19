@@ -1,0 +1,96 @@
+/* a repo's colour sheet (sheet.tsx; docs/design.md, the colour sheet). the sheet's glass is the report sheet's and the
+   spend card's; it is a surface of the plane (`plane-window`) painted in the colour being tried, so its accent, the
+   "use" button and the rings take that colour as the stage behind it does. every small window and swatch is a plane
+   surface of its own colour. only transform and opacity move, and only on the springs (sheet.tsx plays them) */
+
+.cs-sheet {
+  position: fixed;
+  inset: auto 0 0;
+  margin: 0 auto;
+  width: 100vw;
+  max-width: none;
+  max-height: calc(100dvh - 40px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom));
+  border: none;
+  border-radius: 26px 26px 0 0;
+  background: var(--glass-deep);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: var(--glass-edge), var(--lift);
+  color: var(--text);
+  font-family: var(--sans);
+}
+.cs-sheet[open] { display: block; }
+/* the page under it stays readable: the point of the sheet is the stage repainting behind it */
+.cs-sheet::backdrop { background: color-mix(in srgb, rgb(16 17 20 / 0.12) calc(var(--L, 0) * 100%), rgb(0 0 0 / 0.28)); }
+:where(.cs-sheet) button { min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; font: inherit; color: inherit; cursor: pointer; text-align: inherit; }
+.cs-sheet button:disabled { opacity: 1; cursor: default; }
+@media (min-width: 700px) {
+  .cs-sheet { bottom: 20px; width: 640px; padding: 0 18px 16px; border-radius: 26px; }
+}
+
+.cs-grab { display: block; width: 38px; height: 5px; margin: 8px auto 6px; border-radius: 3px; background: color-mix(in srgb, var(--text) 22%, transparent); }
+.cs-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.cs-head h2 { margin: 2px 0 0; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.2; }
+.cs-head p { margin: 2px 0 0; font-size: 12.5px; color: var(--text-2); }
+
+/* the preview: this repo's window in the colour being tried, beside the machine's other repos in theirs */
+.cs-preview { display: grid; grid-template-columns: 1fr; gap: 10px; margin: 12px 0; }
+@media (min-width: 700px) { .cs-preview { grid-template-columns: 200px 1fr; gap: 12px; } }
+.cs-win { min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 16px; color: var(--text); background: radial-gradient(90% 50% at 20% 0%, var(--win-glow), transparent 60%), linear-gradient(170deg, var(--win-1), var(--win-2)); box-shadow: var(--win-edge), var(--win-cast); }
+.cs-own { min-height: 104px; box-shadow: var(--win-edge), var(--win-cast), 0 0 0 2px var(--ground), 0 0 0 4px var(--accent); }
+@media (min-width: 700px) { .cs-own { min-height: 150px; } }
+.cs-win-hd { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cs-win-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; font-weight: 600; color: var(--accent); }
+.cs-win-chip { flex: none; padding: 3px 7px; border-radius: 99px; font-size: 9.5px; font-weight: 650; line-height: 1.2; background: var(--win-fill); color: var(--text); }
+.cs-win-chip[data-lit] { background: var(--accent); color: var(--on-accent); }
+.cs-win-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; font-size: 13.5px; font-weight: 700; line-height: 1.2; letter-spacing: -0.005em; }
+.cs-win-ask { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 7px 7px 7px 10px; border-radius: 11px; font-size: 11.5px; font-weight: 600; background: var(--accent); color: var(--on-accent); }
+.cs-win-ask span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cs-win-ask b { flex: none; padding: 3px 8px; border-radius: 99px; font-size: 10.5px; background: var(--on-accent); color: var(--accent); }
+.cs-beside { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-content: end; }
+.cs-beside-l { grid-column: 1 / -1; font-size: 11.5px; color: var(--text-2); }
+.cs-beside .cs-win { min-height: 62px; padding: 8px; }
+.cs-beside .cs-win-title { font-size: 12px; }
+
+/* the choices: automatic first, then the ten. one radio group */
+.cs-choices { display: grid; gap: 12px; }
+.cs-auto { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; padding: 8px 12px 8px 8px; border-radius: 14px; background: var(--well); box-shadow: var(--well-edge); }
+.cs-auto[aria-checked="true"] { box-shadow: var(--well-edge), inset 0 0 0 1.5px var(--accent); }
+.cs-auto-sw { flex: none; position: relative; width: 30px; height: 30px; border-radius: 9px; background: linear-gradient(170deg, var(--win-1), var(--win-2)); box-shadow: var(--win-edge); }
+.cs-auto-sw i, .cs-dot { position: absolute; right: 6px; bottom: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+.cs-auto-words { min-width: 0; display: grid; }
+.cs-auto-words b { font-size: 13.5px; font-weight: 650; }
+.cs-auto-words span { font-size: 12px; color: var(--text-2); }
+.cs-radio { flex: none; margin-left: auto; width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--text-3); }
+.cs-auto[aria-checked="true"] .cs-radio { background: radial-gradient(circle, var(--accent) 0 4.5px, transparent 5px); box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+.cs-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px 8px; }
+@media (min-width: 700px) { .cs-grid { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; } }
+.cs-sw { display: flex; flex-direction: column; align-items: center; gap: 5px; -webkit-tap-highlight-color: transparent; }
+.cs-chip { position: relative; width: 100%; max-width: 56px; aspect-ratio: 1; border-radius: 13px; background: radial-gradient(90% 60% at 20% 0%, var(--win-glow), transparent 70%), linear-gradient(160deg, var(--win-1), var(--win-2)); box-shadow: var(--win-edge), 0 6px 14px -8px var(--c2); transition: transform var(--snap-t); }
+@media (min-width: 700px) { .cs-chip { max-width: none; } }
+.cs-sw.shown .cs-chip { box-shadow: var(--win-edge), 0 0 0 2px var(--ground), 0 0 0 4px var(--accent), 0 8px 18px -8px var(--c2); }
+.cs-tick { position: absolute; inset: 0; margin: auto; width: 15px; height: 15px; fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.cs-badge { position: absolute; left: -4px; top: -4px; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font-size: 9px; font-weight: 700; line-height: 1; color: var(--text); background: var(--glass-deep); box-shadow: 0 0 0 1.5px var(--ground), inset 0 0 0 1px var(--hairline); }
+.cs-badge.inline { position: static; display: inline-grid; vertical-align: -3px; margin-right: 6px; box-shadow: inset 0 0 0 1px var(--hairline); }
+.cs-sw-name { display: flex; flex-direction: column; align-items: center; font-size: 10.5px; line-height: 1.15; color: var(--text-2); }
+.cs-sw-name em { font-style: normal; font-size: 9px; color: var(--text-3); }
+.cs-sw.shown .cs-sw-name { color: var(--text); font-weight: 700; }
+.cs-sw:focus-visible { outline: none; }
+.cs-sw:focus-visible .cs-chip { outline: 2px solid var(--focus); outline-offset: 5px; }
+@media (hover: hover) and (pointer: fine) { .cs-sw:not(:disabled):hover .cs-chip { transform: translateY(-1px); } }
+
+.cs-note { margin: 12px 0 0; font-size: 12px; line-height: 1.4; color: var(--text-2); }
+.cs-refused { margin: 10px 0 0; font-size: 12.5px; line-height: 1.4; color: var(--red); }
+.cs-do { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.cs-sheet .cs-do button { min-height: 42px; padding: 0 18px; border-radius: 99px; font-size: 14px; font-weight: 700; }
+.cs-sheet .cs-keep { background: var(--pill); box-shadow: var(--pill-edge); color: var(--text); }
+.cs-sheet .cs-use { background: var(--accent); color: var(--on-accent); }
+.cs-sheet .cs-do button:disabled { opacity: 0.6; }
+
+@media (prefers-reduced-motion: reduce) { .cs-chip { transition: none; } }
+:root[data-motion="reduced"] .cs-chip { transition: none; }

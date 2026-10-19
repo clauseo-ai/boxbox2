@@ -110,6 +110,21 @@ pub enum Change {
     },
 }
 
+/// the colour of one repo: a host plus its root, which the repo's
+/// worktrees share. the colour shown is `chosen`, else `auto`; a name the
+/// client does not know shows the repo's hash colour.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, ToSchema)]
+pub struct RepoColour {
+    pub host: String,
+    /// the project's root on that host, as cmx2 names it: its `projectID`
+    /// when that is a path, else the session's directory.
+    pub root: String,
+    /// the repo colour boxbox gave the repo when it first saw it; it keeps it.
+    pub auto: String,
+    /// the repo colour a person chose; null for automatic, which shows `auto`.
+    pub chosen: Option<String>,
+}
+
 /// one session in the fleet, identity `host:session` (repos never merge
 /// across hosts).
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -232,6 +247,22 @@ pub struct FleetSnapshot {
     pub asks: Vec<Ask>,
     /// the window order: session keys, first first.
     pub order: Vec<String>,
+}
+
+/// repo colours on `GET /api/stream?colours=1` (`colours.rs`): id-less data
+/// lines outside the journal, so contract 1 gains no change type and a
+/// stream that does not ask sees none of them. the whole map comes first,
+/// after `hello` (and again before a replay page if it moved meanwhile);
+/// then each change, ahead of the journal entry that first shows its repo.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(tag = "type")]
+pub enum ColourFrame {
+    /// every repo's colour, by host, then root: replaces what the client holds.
+    #[serde(rename = "colours")]
+    Colours { colours: Vec<RepoColour> },
+    /// one repo was given a colour, or a person chose one.
+    #[serde(rename = "colour")]
+    Colour { colour: RepoColour },
 }
 
 /// the stream's frames that are not journal entries.

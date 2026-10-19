@@ -9,7 +9,8 @@
 
 import { createEffect, createMemo, createSignal, type JSX, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { holdRepoIcon, state } from "../../store";
-import { colourOf, colourStyle, type RepoColour, repoName } from "../window/repo";
+import { repoColour } from "../window/colours";
+import { colourStyle, type RepoColour, repoName } from "../window/repo";
 import { initialsOf } from "../home/swatch";
 import { askAgainIn, iconKey, iconUrl } from "./icons";
 import { letterScale, lettersFor } from "./letters";
@@ -41,7 +42,7 @@ export type RepoMarkProps = {
 const HOW = { sample: sampleImage, onRead: reportIconRead };
 
 export function RepoMark(props: RepoMarkProps): JSX.Element {
-  const colour = createMemo(() => props.colour ?? colourOf({ host: props.host, root: props.root }));
+  const colour = createMemo(() => props.colour ?? repoColour({ host: props.host, root: props.root }));
   const round = () => props.shape === "round";
   // an assistant's name is a word: two letters would read as a code, so the circle carries its first letter alone
   const letters = createMemo(() => (round() ? ([...initialsOf(props.name ?? props.root)][0] ?? "") : lettersFor(props.name ?? repoName(props.root), props.size)));

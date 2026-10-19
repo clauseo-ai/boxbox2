@@ -13,6 +13,7 @@ import { leave, navigate } from "../../shell/navigation";
 import { state } from "../../store";
 import { said, UNREACHABLE } from "../machines/verb";
 import { RepoMark } from "../repo-mark/repo-mark";
+import { colourMap } from "../window/colours";
 import { colourStyle } from "../window/repo";
 import type { RowView } from "./rows";
 import { appendRows, collisionSuffixes, emptyWords, type HistoryApiRow, rowView, unreachedWords } from "./rows";
@@ -279,6 +280,7 @@ function HistoryRow(props: RowProps) {
       props.row,
       state.fleet.sessions[props.row.key],
       Object.values(state.fleet.asks).filter((ask) => ask.key === props.row.key),
+      colourMap(),
       props.now(),
       props.suffix,
     ),

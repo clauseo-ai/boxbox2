@@ -16,7 +16,7 @@ const view = (title: string) => {
   const key = keyOf(state, title);
   const entry = state.fleet.sessions[key];
   if (!entry) throw new Error(`no session ${key}`);
-  return windowView(entry, asksOf(key));
+  return windowView(entry, asksOf(key), {});
 };
 
 describe("the recorded journal", () => {

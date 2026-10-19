@@ -18,7 +18,8 @@ import { compactThread } from "../composer/compact";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { openReview, reviewLine } from "../review/open";
 import { ReviewSlot } from "../review/slot";
-import type { RepoColour } from "../window/repo";
+import { colourStyle, type RepoColour } from "../window/repo";
+import { colourLine } from "../colour/picker-model";
 import { placeName } from "./place";
 import { createKeyboardInset } from "../term/keyboard";
 import { holdChrome } from "../settings/appearance";
@@ -50,6 +51,8 @@ import "./stage.css";
 /* the review is a chunk of its own: most threads never have one, so its card, controller and words stay out of the first
    load's script budget (docs/architecture.md). the stage keeps only the question of when one is wanted (review/open.ts) */
 const ReviewLayer = lazy(() => import("../review/layer").then((m) => ({ default: m.ReviewLayer })));
+/* the colour sheet is a chunk of its own: most visits to a thread never open it */
+const ColourSheet = lazy(() => import("../colour/sheet").then((m) => ({ default: m.ColourSheet })));
 
 const THINKING_KEY = "boxbox.thinking";
 /** the turns a long thread is opened with, and how many more come in each frame after it (turns.ts) */
@@ -966,6 +969,23 @@ export function Stage(props: StageProps) {
     });
   };
 
+  /* ---------- the repo's colour (docs/design.md, the colour sheet) ---------- */
+  /* what the server holds for the repo, never the preview: the menu says what the repo wears on every device. a stage with
+     no repo root (none is a path) has nothing to colour, and offers nothing */
+  const hasRepo = () => repoRoot().trim() !== "";
+  const colourNow = createMemo(() => colourLine({ host: data.host(), root: repoRoot() }, state.fleet.colours));
+  const colourWords = () => `${colourNow().colour.name}, ${colourNow().automatic ? "automatic" : "chosen"}`;
+  /** where the sheet was opened from, for the keyboard to go back to: the menu's button (the menu is inert once it closes),
+      or the repo line */
+  const [colourFrom, setColourFrom] = createSignal<HTMLElement | null>(null);
+  let repoButton: HTMLButtonElement | undefined;
+  const openColour = (from: "menu" | "repo") => { setMenuOpen(false); setColourFrom((from === "menu" ? moreEl : repoButton) ?? moreEl); };
+  const closeColour = () => {
+    const back = colourFrom();
+    setColourFrom(null);
+    if (back?.isConnected) back.focus({ preventScroll: true });
+  };
+
   /* ---------- the turn keys (docs/thread.md, navigation; the ios app's ThreadKeys) ---------- */
   const backable = () => props.deck !== false || parentKey() !== null;
   const goBack = (event: Event) => (props.onBack ? props.onBack(event) : parentKey() ? openThread(parentKey() as string) : closeThread());
@@ -982,7 +1002,7 @@ export function Stage(props: StageProps) {
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       // the stage on top only: one under another layer or the new-thread sheet is inert
-      if (e.defaultPrevented || e.isComposing || stageEl.closest("[inert]")) return;
+      if (e.defaultPrevented || e.isComposing || stageEl.closest("[inert]") || colourFrom()) return;
       if (!(MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
       const typing = e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]") !== null;
       const key_ = e.key.length === 1 ? e.key.toLowerCase() : e.key;
@@ -1042,6 +1062,11 @@ export function Stage(props: StageProps) {
             <div class="menu-sep" role="separator" />
             <button role="menuitem" disabled={compactBlocked()} onClick={compactNow}>{compacting() ? "compacting" : "compact"}<em>summarise to free the context</em></button>
             <button role="menuitem" onClick={copyLink}>copy link</button>
+            <Show when={hasRepo()}>
+              <button role="menuitem" class="menu-colour" aria-label={`colour, ${colourWords()}`} onClick={() => openColour("menu")}>
+                colour<em><i class="menu-dot plane-window" style={colourStyle(colourNow().colour)} aria-hidden="true" />{colourNow().text}</em>
+              </button>
+            </Show>
             {/* while a board is here (docs/board.md, the app); an agent never sits on a board's key */}
             <Show when={state.board.here && state.board.pairing && !parentKey()}><BoardPair thread={key()} colour={colour()} onPick={() => setMenuOpen(false)} /></Show>
             <div class="menu-sep" role="separator" />
@@ -1064,7 +1089,18 @@ export function Stage(props: StageProps) {
           <div ref={scroller} class="stage-scroll" onScroll={onScroll} onWheel={markTouched} onTouchStart={markTouched} onPointerDown={markTouched} onKeyDown={markTouched}>
             <div ref={threadEl} class="thread" classList={{ wide: wide() }} data-flip-root aria-label="transcript">
               <div ref={titleBlock} class="title-block">
-                <div class="tb-repo"><RepoMark host={data.host()} root={repoRoot()} name={repoLabel()} colour={colour()} size={20} /><span>{repoLabel()}<Show when={parentKey()}><span class="tb-parent">an agent of {parentTitle()}</span></Show></span></div>
+                {/* the repo line is the door to the repo's colour (docs/thread.md, the repo line) */}
+                <div class="tb-repo">
+                  <Show when={hasRepo()} fallback={<><RepoMark host={data.host()} root={repoRoot()} name={repoLabel()} colour={colour()} size={20} /><span>{repoLabel()}</span></>}>
+                    <button ref={repoButton} type="button" class="tb-repo-btn" aria-label={`${repoLabel()}, ${colourWords()}. choose its colour`} onClick={() => openColour("repo")}>
+                      <RepoMark host={data.host()} root={repoRoot()} name={repoLabel()} colour={colour()} size={20} />
+                      <span>{repoLabel()}</span>
+                      <i class="tb-repo-dot" aria-hidden="true" />
+                      <i class="tb-repo-caret" aria-hidden="true" />
+                    </button>
+                  </Show>
+                  <Show when={parentKey()}><span class="tb-parent">an agent of {parentTitle()}</span></Show>
+                </div>
                 <h1 class="tb-h1">{title()}</h1>
                 <div class="tb-status" aria-live="polite">
                   <Show when={status().live}><i /></Show>
@@ -1158,6 +1194,11 @@ export function Stage(props: StageProps) {
         </Portal>
       )}</Show>
       <div class="scrim" classList={{ on: menuOpen() || (panel() !== null && !docks()) }} onClick={() => { setMenuOpen(false); if (!docks()) showPanel(null); }} />
+      {/* the repo's colour, in the top layer; the stage behind it repaints as colours are tried. keyed on the repo, so a stage
+          that moves to another repo while the sheet is open mounts a new sheet for it, with that repo's own pick */}
+      <Show when={colourFrom() && `${data.host()}:${repoRoot()}`} keyed>
+        <ColourSheet host={data.host()} root={repoRoot()} name={repoLabel()} thread={key()} within={stageEl} onClose={closeColour} />
+      </Show>
     </section>
   );
 }

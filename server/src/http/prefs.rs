@@ -1,14 +1,21 @@
 //! preferences: `GET /api/prefs`, `PUT /api/prefs/devices/{device}`,
-//! `PUT /api/prefs/repos` and `PUT /api/prefs/models`. what each holds and how long it is kept is
-//! `src/prefs.rs`.
+//! `PUT /api/prefs/repos`, `PUT /api/prefs/models` and `PUT /api/prefs/colours`. what each
+//! holds and how long it is kept is `src/prefs.rs`; a repo's colour is the fleet's
+//! (`src/fleet/colours.rs`), and every client hears it on the stream.
 
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
+use serde::Deserialize;
+use utoipa::ToSchema;
 
 use super::AppState;
 use super::error::{ApiError, ErrorBody};
+use crate::fleet::Chosen;
+use crate::fleet::change::RepoColour;
+use crate::fleet::colours;
+use crate::fleet::model::ColourRefused;
 use crate::prefs::{self, DevicePrefs, ModelPrefs, Prefs, RepoPrefs};
 
 /// a model id or an effort longer than this is not one a daemon lists.
@@ -112,6 +119,79 @@ pub async fn repo(
     Ok(Json(value))
 }
 
+/// a person's choice of colour for one repo.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, ToSchema)]
+pub struct ColourChoice {
+    pub host: String,
+    /// the repo's root on that host, as the stream's `colour` frames name it.
+    pub root: String,
+    /// one of the ten repo colours by name; null for automatic, which shows the
+    /// colour boxbox gave the repo again.
+    pub chosen: Option<String>,
+}
+
+/// sets the colour a repo wears on every device, or automatic. the change
+/// reaches every client that asked for colours as a `colour` frame on the stream.
+#[utoipa::path(
+    put,
+    path = "/api/prefs/colours",
+    request_body = ColourChoice,
+    responses(
+        (status = 200, description = "saved: the repo's colour as it stands", body = RepoColour),
+        (status = 400, description = "the host is unknown, the root is not an absolute path or holds no thread boxbox knows, or the colour is not a repo colour", body = ErrorBody),
+        (status = 401, description = "not signed in", body = ErrorBody),
+        (status = 503, description = "the store did not keep it (every device shows it until the server restarts), or the server is stopping", body = ErrorBody),
+    ),
+)]
+pub async fn colour(
+    State(state): State<Arc<AppState>>,
+    Json(value): Json<ColourChoice>,
+) -> Result<Json<RepoColour>, ApiError> {
+    super::hosts::find(&state, &value.host)
+        .map_err(|_| ApiError::BadRequest(format!("no machine named \"{}\"", value.host)))?;
+    let chosen = checked_colour(&value)?;
+    let Chosen { colour, written } = state
+        .fleet
+        .choose_colour(value.host.clone(), value.root.clone(), chosen)
+        .await
+        .map_err(|_| ApiError::Stopping)?
+        .map_err(|ColourRefused::UnknownRepo| {
+            ApiError::BadRequest(format!(
+                "boxbox has no thread in {} on {}; a repo gets a colour once a thread works there",
+                value.root, value.host
+            ))
+        })?;
+    // every stream has heard the choice; the answer waits for the row to be kept
+    if written.await != Ok(true) {
+        tracing::warn!(host = %colour.host, root = %colour.root, "a repo colour was chosen but not kept; it holds until the server restarts");
+        return Err(ApiError::StoreDown);
+    }
+    tracing::info!(host = %colour.host, root = %colour.root, auto = %colour.auto, chosen = colour.chosen.as_deref().unwrap_or("-"), "repo colour chosen");
+    Ok(Json(colour))
+}
+
+/// the choice's slot, once its root and its colour are usable.
+fn checked_colour(value: &ColourChoice) -> Result<Option<u8>, ApiError> {
+    if !value.root.starts_with('/')
+        || value.root.len() > DIRECTORY_MAX
+        || !colours::keepable(&value.host, &value.root)
+        || value.root.chars().any(char::is_control)
+    {
+        return Err(ApiError::BadRequest(
+            "the repo's root must be an absolute path".into(),
+        ));
+    }
+    match value.chosen.as_deref() {
+        None => Ok(None),
+        Some(name) => colours::slot(name).map(Some).ok_or_else(|| {
+            ApiError::BadRequest(format!(
+                "\"{name}\" is not a repo colour. pick one of {}, or automatic",
+                colours::NAMES.join(", ")
+            ))
+        }),
+    }
+}
+
 /// sets the favourite models, in order. repeats are dropped, keeping the
 /// first; the answer is the list as saved.
 #[utoipa::path(
@@ -167,6 +247,52 @@ mod tests {
     fn list(ids: &[&str]) -> ModelPrefs {
         ModelPrefs {
             favorites: ids.iter().map(|id| (*id).to_owned()).collect(),
+        }
+    }
+
+    fn choice(root: &str, chosen: Option<&str>) -> ColourChoice {
+        ColourChoice {
+            host: "desk".into(),
+            root: root.into(),
+            chosen: chosen.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn a_colour_choice_takes_a_repo_colour_or_automatic_for_an_absolute_root() {
+        assert_eq!(
+            checked_colour(&choice("/work/api", Some("sunset"))).unwrap(),
+            Some(6)
+        );
+        assert_eq!(checked_colour(&choice("/work/api", None)).unwrap(), None);
+        assert_eq!(
+            checked_colour(&choice("/", Some("green"))).unwrap(),
+            Some(0)
+        );
+        for name in colours::NAMES {
+            assert!(checked_colour(&choice("/w", Some(name))).is_ok(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_colour_choice_refuses_a_relative_root_and_anything_but_the_ten() {
+        for (root, chosen) in [
+            ("work/api", Some("green")),
+            ("", None),
+            ("/work/a\nb", None),
+            (&*format!("/{}", "d".repeat(DIRECTORY_MAX)), None),
+            ("/work/api", Some("coral")),
+            ("/work/api", Some("Green")),
+            ("/work/api", Some("")),
+            ("/work/api", Some("#ff0000")),
+        ] {
+            assert!(
+                matches!(
+                    checked_colour(&choice(root, chosen)),
+                    Err(ApiError::BadRequest(_))
+                ),
+                "{root:?} {chosen:?}"
+            );
         }
     }
 
