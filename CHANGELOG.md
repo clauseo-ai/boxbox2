@@ -6,6 +6,20 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **a streaming reply costs what changed.** a reply is painted in units
+  cut at blocks nothing written later can change (raw html, a link
+  definition, a footnote or a fence inside a list or quote stop the
+  cutting), each parsed and sanitised once, so a 21 kb reply streamed word
+  by word takes 0.45 s of painting instead of 13.7 s, and settled code
+  blocks are not highlighted again. every prefix of every fixture and edge
+  document paints the same dom as a whole render
+  (`markdown-stream.test.ts`, and the `said-streaming-equivalence`
+  story through the real sanitiser in `shots.ts`). the streaming code
+  loads with the markdown engine, so the first load is 119.1 kb of the
+  120 kb budget. the ruler, the jump and the stage menu drop their blur
+  once faded out and get it back at once when shown, checked frame by
+  frame in chromium and in webkit.
+
 - **the worker writes only what changed to indexeddb.** one save commits
   at a time and the next gathers everything asked for meanwhile (16 saves
   queued at peak against a 1 s disk, now 2); the fleet is kept as a record

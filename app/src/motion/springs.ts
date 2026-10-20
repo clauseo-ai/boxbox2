@@ -104,6 +104,7 @@ export function motionProperties(reduced: boolean): Record<string, string> {
     "--press": PRESS.easing,
     "--press-ms": pressMs,
     "--press-t": `${pressMs} ${PRESS.easing}`,
+    "--leave-ms": leaveMs,
     "--leave-t": `${leaveMs} ${LEAVE.easing}`,
     "--press-scale": String(reduced ? 1 : PRESS_SCALE),
     "--press-scale-large": String(reduced ? 1 : PRESS_SCALE_LARGE),

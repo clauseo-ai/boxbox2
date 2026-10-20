@@ -1724,3 +1724,15 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   (page starts, the key index) is only good while it wrote last. each save reads the
   meta record (writer id and a counter) in its own transaction and rewrites whole
   after another writer.
+- **an html block left open in a reply runs into everything after it.** a streaming
+  unit after raw html is never cut, and a link definition anywhere makes the piece one
+  unit, since either can change what earlier text means. the cut rules follow marked
+  18's list, quote and fence rules: a marked upgrade reruns `markdown-stream.test.ts`
+  and the `said-streaming-equivalence` story before it lands.
+- **the caret is recreated on every paint on purpose.** its blink restarts with each
+  new node, which keeps it lit while words flow; a kept caret blinks mid stream.
+- **a hidden layer's glass goes after its fade, not with it.** the ruler, the jump and
+  the menu step `backdrop-filter` to none after `--leave-ms`; webkit steps both the
+  prefixed and unprefixed property at the delay (checked in a wkwebview), so a new
+  fading glass layer follows the same pattern rather than `visibility`, which would
+  change focus and the accessibility tree.

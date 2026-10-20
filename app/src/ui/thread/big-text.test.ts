@@ -3,7 +3,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { marked } from "marked";
-import { CHUNK, HEAD, PLAIN_HEAD, PLAIN_TAIL, RUN_HEAD, RUN_MAX, TAIL, boundedPlain, boundedText, chunksOf, cutHtml, cutRuns, hasLongRun, newestOf, notShown, openLabel } from "./big-text";
+import { CHUNK, HEAD, PLAIN_HEAD, PLAIN_TAIL, RUN_HEAD, RUN_MAX, TAIL, boundedPlain, boundedText, cutHtml, cutRuns, hasLongRun, newestOf, notShown, openLabel } from "./big-text";
+import { chunksOf } from "./big-pieces";
 
 const prose = "this is a paragraph of the agent's prose with `code` and **bold** words, long enough to read like a real one. ";
 const paragraphs = (bytes: number): string => { let s = ""; let i = 0; while (s.length < bytes) s += `${prose.repeat(3)}${i++}\n\n`; return s; };

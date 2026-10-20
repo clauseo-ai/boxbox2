@@ -1697,6 +1697,8 @@ was silent; what is decided, and why it looks as it does:
   into a detached template, dresses the fences, and replaces only the
   top-level blocks whose html changed, so a block that has settled keeps
   its node, its focus, its hover and its "copied" while a reply streams on.
+  a reply being written is made in units (`markdown-stream.ts`, docs/thread.md),
+  so a frame parses and sanitises only the unit being written.
   the sanitiser is the one it always was, run before anything of ours is
   added; the controls are made by our code after it and are never allowed
   through it. clicks are one listener on the surface.

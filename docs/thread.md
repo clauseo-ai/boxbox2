@@ -976,7 +976,17 @@ growing at its end, and the run going on now is at the live edge:
   caret at the end of its last text). only the blocks whose html changed
   are replaced: a code block that has settled keeps its node, so its copy
   control keeps focus, hover and its "copied" while the reply goes on
-  beneath it. every said row reads as markdown, so
+  beneath it. a frame costs what changed, not what was written
+  (`markdown-stream.ts`): the reply is cut into units at blocks nothing
+  later can change (after a blank line, outside a fence, not a list item,
+  a quote, a pipe or a tag; never in a piece with a footnote, never after
+  raw html or a fence inside a list, and a piece with a link definition is
+  one unit), each unit is parsed and sanitised alone and kept by its text,
+  and a unit painted as it was is passed over whole. the units joined are
+  the whole text's html, which `markdown-stream.test.ts` (marked) and the
+  said-streaming-equivalence story (sanitiser and dom) hold for every
+  prefix of every test document; a 21 kb reply streamed word by word went
+  from 13.7 s of painting to 0.45 s in chromium. every said row reads as markdown, so
   a list said mid-turn is a list. at the settle the trailing reply steps
   into the answer's type in place, with the same structure, so only its
   size changes, once, and it fades up 10 px. a thought's words keep the
@@ -1224,6 +1234,7 @@ seen top out at 64 KB, so what is painted is bounded without
 touching those (`big-text.ts`):
 
 - markdown (the answer, a said row, a report, a summary) is parsed in pieces
+  (`big-pieces.ts`, which only the engine's chunk carries)
   of about 16 KB cut where a block ends outside a fenced block, which is linear
   in the text: a 64 KB part is four pieces and is shown whole.
 - a text past 80 KB shows its head (to 64 KB, cut where a block ends) and its

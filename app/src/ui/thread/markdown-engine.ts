@@ -5,7 +5,8 @@
 
 import DOMPurify from "dompurify";
 import { keepsClass } from "./languages";
-import { ALLOWED_TAGS, ALLOWED_URI, toHtml } from "./markdown-gfm";
+import { ALLOWED_TAGS, ALLOWED_URI, reaches, toHtml } from "./markdown-gfm";
+import { type Made, Stream, whole as wholeWith } from "./markdown-stream";
 
 /** the agent's markdown as html, sanitised: the answer, a report and what a row said are block markdown; a row's teaser and a thought's paragraphs use inlineNodes (thread.tsx), which builds nodes.
     links open in a new tab and carry no referrer; scripts, handlers (every on* attribute) and styles never survive; no button, form or input does, no data attribute, and no class (but marked's `language-ts` on a fence's code), so nothing the agent writes can look like our controls or be taken for the thread. */
@@ -17,6 +18,13 @@ export const sanitise = (md: string): string =>
     ADD_FORBID_CONTENTS: ["form", "object", "embed", "button", "select", "textarea", "input", "canvas"],
     ALLOW_DATA_ATTR: false,
   });
+/** `sanitise`, and what in the markdown reaches past its block (a streaming reply's units, markdown-stream.ts) */
+export const sanitiseUnit = (md: string): Made => { const html = sanitise(md); return { html, ...reaches() }; };
+/* the painting of a whole text and of a streaming one live here, in the engine's chunk, so the first load does not carry them */
+/** the html of a whole text as it is painted (markdown-stream.ts, `whole`) */
+export const whole = (md: string): string => wholeWith(md, sanitise);
+/** a streaming reply's units, for one surface */
+export const stream = (): Stream => new Stream(sanitiseUnit);
 /* an image is its words: its alt text where it was, never a request to wherever its src points */
 DOMPurify.addHook("uponSanitizeElement", (node, data) => {
   if (data.tagName !== "img" || !(node instanceof Element)) return;

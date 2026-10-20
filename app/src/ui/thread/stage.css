@@ -215,4 +215,19 @@
 .stage-receipt { position: absolute; z-index: 8; left: 50%; top: calc(64px + env(safe-area-inset-top)); transform: translateX(-50%); margin: 0; padding: 7px 14px; border-radius: 999px; background: var(--glass-deep); -webkit-backdrop-filter: blur(24px) saturate(1.4); backdrop-filter: blur(24px) saturate(1.4); box-shadow: var(--glass-edge), var(--drop); font-size: 13px; font-weight: 600; white-space: nowrap; max-width: calc(100% - 2 * var(--gutter)); overflow: hidden; text-overflow: ellipsis; }
 .thread-stage .menu button[aria-checked="true"] em { color: var(--accent); }
 
+/* glass at opacity 0 still costs the compositor its blur on every frame: the ruler, the jump and the menu, once faded out, drop their
+   backdrop filter when the fade has ended (the delay is the fade's own length) and take it back at once when they show, so no frame
+   differs. under the app's reduced motion the fades are 120 ms of opacity alone (styles.css), which would drop the glass at their start, so
+   the glass stays as it was */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-motion="reduced"]) .ruler:not(.show, .drag)::before { -webkit-backdrop-filter: none; backdrop-filter: none; transition: -webkit-backdrop-filter 0s linear var(--fade-ms), backdrop-filter 0s linear var(--fade-ms); }
+  :root:not([data-motion="reduced"]) .jump:not(.on) { -webkit-backdrop-filter: none; backdrop-filter: none; transition: transform var(--snap-t), opacity var(--fade-t), -webkit-backdrop-filter 0s linear var(--fade-ms), backdrop-filter 0s linear var(--fade-ms); }
+  :root:not([data-motion="reduced"]) .menu:not(.on) { -webkit-backdrop-filter: none; backdrop-filter: none; transition: opacity var(--leave-t), transform var(--leave-t), -webkit-backdrop-filter 0s linear var(--leave-ms), backdrop-filter 0s linear var(--leave-ms); }
+}
+/* a system that asks for reduced motion, with full motion chosen in settings: the ruler and the menu go at once (the rule below), the jump
+   still fades */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-motion="full"] .ruler:not(.show, .drag)::before, :root[data-motion="full"] .menu:not(.on) { -webkit-backdrop-filter: none; backdrop-filter: none; transition: none; }
+  :root[data-motion="full"] .jump:not(.on) { -webkit-backdrop-filter: none; backdrop-filter: none; transition: opacity var(--fade-t), -webkit-backdrop-filter 0s linear var(--fade-ms), backdrop-filter 0s linear var(--fade-ms); }
+}
 @media (prefers-reduced-motion: reduce) { .ruler, .stage-bar-title, .menu, .scrim { transition: none; } .thread-stage .bar-stop { animation: none; } .jump { transform: none; transition: opacity var(--fade-t); } .jump-n { animation: none; } }

@@ -2,14 +2,16 @@
    report, a compaction's summary) and one painter paints them all: it parses into a detached template, dresses each
    fenced block as a code block (a header with the language and a copy control, and highlighted code), and replaces only
    the top-level blocks whose html changed, so a settled block keeps its node, its focus, its hover and its "copied" for
-   as long as the reply streams on beneath it. the sanitiser is the same one, set before anything of ours is added: the
+   as long as the reply streams on beneath it. a reply being written is made in units (markdown-stream.ts) and a frame
+   parses, sanitises and compares only the units that changed, the one being written, not the whole reply. the sanitiser is the same one, set before anything of ours is added: the
    controls are made by this file after it ran and are never let through it. */
 
-import { CHUNK, HEAD, TAIL, boundedText, chunksOf, cutHtml, cutRuns } from "./big-text";
+import { HEAD, TAIL, boundedText, cutHtml, cutRuns } from "./big-text";
 import { copyButton, copyFrom, forget, renameSoon, sourceOf, warmLater } from "./copy";
 import { nameOf } from "./copy-names";
 import { highlight, highlighterReady, loadHighlighter } from "./highlight";
 import { languageOf } from "./languages";
+import type { Stream } from "./markdown-stream";
 import type { HtmlMemo } from "./memo-cache";
 
 /** past this, a text is not worth keeping in the html cache */
@@ -33,7 +35,7 @@ export const plain = (md: string): string =>
 
 /** what is painted of a text, as html: its head and tail when it is huge, in pieces parsed one at a time (big-text.ts), since marked takes
     time that grows with the square of what it is given. a text of an ordinary answer is one piece and is `sanitise` as it was */
-export const render = (md: string): string => cutHtml(engine ? chunksOf(boundedText(md).shown, CHUNK).map(engine.sanitise).join("") : plain(md));
+export const render = (md: string): string => (engine ? engine.whole(md) : cutHtml(plain(md)));
 
 /** the sanitised html of text that has settled, kept by its text in the store's cache (memo-cache.ts): a thread opened again, or a
     turn painted again, does not run marked and the sanitiser over an answer it has already read. the text a reply is still writing
@@ -48,6 +50,21 @@ function settled(md: string, cache: HtmlMemo | undefined): string {
   if (engine) cache?.set(md, html, (md.length + html.length) * 2);
   return html;
 }
+
+/** a reply that has just settled, from the units it streamed in (markdown-stream.ts): they are made already, and joined they are its
+    html, which the cache keeps as `settled` would */
+function settledFrom(md: string, stream: Stream, cache: HtmlMemo | undefined): string[] {
+  if (md.length > BIG) return stream.units(md);
+  const held = cache?.get(md);
+  if (held !== undefined) return [held];
+  const units = stream.units(md);
+  const html = units.join("");
+  cache?.set(md, html, (md.length + html.length) * 2);
+  return units;
+}
+
+/** one unit of a paint: its html, the first of the surface's blocks it made, and how many */
+type Unit = { html: string; start: number; count: number };
 
 /** what a block was built from: its html, and for a block that ends in a fence still being written, that fact, so it is built again once it is not */
 const keyOf = (node: Node, open: boolean): string => (node.nodeType === Node.ELEMENT_NODE ? (node as Element).outerHTML : node.textContent ?? "") + (open ? "\u0000open" : "");
@@ -128,8 +145,9 @@ export type Painter = {
   dispose(): void;
 };
 
-/** a painter for one surface; `html` is the cache settled text is kept in, when the surface has one. its clicks are one listener on the surface, which finds the control a click was on; its scroll watching is one listener too */
-export function painter(surface: HTMLElement, html?: HtmlMemo): Painter {
+/** a painter for one surface; `html` is the cache settled text is kept in, when the surface has one. `whole` paints every text as one unit, as
+    painting did before units: the reference the said-streaming-equivalence story holds the units to. its clicks are one listener on the surface, which finds the control a click was on; its scroll watching is one listener too */
+export function painter(surface: HTMLElement, html?: HtmlMemo, whole = false): Painter {
   const keys: string[] = [];
   const nodes: Node[] = [];
   /** which blocks hold a fence that is plain only because the highlighter had not arrived */
@@ -138,6 +156,11 @@ export function painter(surface: HTMLElement, html?: HtmlMemo): Painter {
   let caret: HTMLElement | undefined;
   let writing: Element | undefined;
   let lastPaint: { md: string; caret: boolean } | undefined;
+  /** the reply being written, in units (markdown-stream.ts): made while the caret shows, let go once the text settles */
+  let stream: Stream | undefined;
+  /** the units the last paint was made of: where each began among the blocks and how many it made. a unit made again as it was, where it
+      was, is passed over whole, so a frame parses and compares only the unit being written */
+  let kept: Unit[] = [];
   let waiting = false;
   let afterEngine = false;
   let gone = false;
@@ -175,20 +198,34 @@ export function painter(surface: HTMLElement, html?: HtmlMemo): Painter {
     end.append(caret);
   };
 
-  const self: Painter = {
-    paint(md, withCaret) {
-      lastPaint = { md, caret: withCaret };
-      let touched = false;
-      const fresh: Element[] = [];
-      const template = document.createElement("template");
-      template.innerHTML = withCaret ? render(md) : settled(md, html);
+  /** the html of the text in units: the reply being written in its own, settled text as one, from the store's cache when it has it */
+  const unitsOf = (md: string, withCaret: boolean): string[] => {
+    if (!engine || whole) return [withCaret ? render(md) : settled(md, html)];
+    if (withCaret) return (stream ??= engine.stream()).units(md);
+    const was = stream;
+    stream = undefined;
+    // a reply that has just settled is made of the units it streamed in, all of them made already
+    return was ? settledFrom(md, was, html) : [settled(md, html)];
+  };
+
+  /** the blocks of the units in order, each made only when its html is not what stands at its place; returns the units as painted */
+  const apply = (units: readonly string[], withCaret: boolean, fresh: Element[]): { painted: Unit[]; touched: boolean } => {
+    const painted: Unit[] = [];
+    const template = document.createElement("template");
+    const final = units.length - 1;
+    let touched = false;
+    let at = 0;
+    units.forEach((unit, u) => {
+      const was = kept[u];
+      /* a unit before the last that is the one painted at the same place, and was not the last then either (so no block of it was open), stands */
+      if (u < final && u < kept.length - 1 && was !== undefined && was.html === unit && was.start === at) { painted.push(was); at += was.count; return; }
+      template.innerHTML = unit;
       const incoming = Array.from(template.content.childNodes).filter(isBlock);
       const last = incoming.length - 1;
-      caret?.remove();
-      caret = undefined;
-      incoming.forEach((node, i) => {
+      incoming.forEach((node, j) => {
+        const i = at + j;
         /* the last block of a reply being written is built again when it is not, if it holds a fence: that is when its fence is highlighted in full and its control appears */
-        const open = withCaret && i === last && node.nodeType === Node.ELEMENT_NODE && fencesIn(node as Element).length > 0;
+        const open = withCaret && u === final && j === last && node.nodeType === Node.ELEMENT_NODE && fencesIn(node as Element).length > 0;
         const key = keyOf(node, open);
         if (keys[i] === key) return;
         const built = build(node, open);
@@ -201,13 +238,35 @@ export function painter(surface: HTMLElement, html?: HtmlMemo): Painter {
         nodes[i] = made;
         keys[i] = key;
       });
-      for (let i = nodes.length - 1; i > last; i--) {
-        if (hasControl(nodes[i])) touched = true;
-        nodes[i]?.parentNode?.removeChild(nodes[i] as Node);
+      painted.push({ html: unit, start: at, count: incoming.length });
+      at += incoming.length;
+    });
+    for (let i = nodes.length - 1; i >= at; i--) {
+      if (hasControl(nodes[i])) touched = true;
+      nodes[i]?.parentNode?.removeChild(nodes[i] as Node);
+    }
+    nodes.length = at;
+    keys.length = at;
+    late.length = at;
+    return { painted, touched };
+  };
+
+  const self: Painter = {
+    paint(md, withCaret) {
+      lastPaint = { md, caret: withCaret };
+      const fresh: Element[] = [];
+      const units = unitsOf(md, withCaret);
+      caret?.remove();
+      caret = undefined;
+      let { painted, touched } = apply(units, withCaret, fresh);
+      /* a last unit with no block leaves the text's last block in a unit passed over, which may be the one being written: painted again as one */
+      if (withCaret && units.length > 1 && painted.at(-1)?.count === 0) {
+        kept = [];
+        const again = apply([units.join("")], withCaret, fresh);
+        painted = again.painted;
+        touched ||= again.touched;
       }
-      nodes.length = incoming.length;
-      keys.length = incoming.length;
-      late.length = incoming.length;
+      kept = painted;
       place(withCaret);
       thread ??= surface.closest(".thread");
       if (touched) renameSoon(surface);
@@ -223,6 +282,7 @@ export function painter(surface: HTMLElement, html?: HtmlMemo): Painter {
           afterEngine = false;
           if (gone || !lastPaint) return;
           keys.fill("\u0000stale");
+          kept = [];
           self.paint(lastPaint.md, lastPaint.caret);
         }, () => { afterEngine = false; });
       }
@@ -233,6 +293,7 @@ export function painter(surface: HTMLElement, html?: HtmlMemo): Painter {
           waiting = false;
           if (gone || !highlighterReady() || !lastPaint) return;
           late.forEach((l, i) => { if (l) keys[i] = "\u0000stale"; });
+          kept = [];
           self.paint(lastPaint.md, lastPaint.caret);
         });
       }

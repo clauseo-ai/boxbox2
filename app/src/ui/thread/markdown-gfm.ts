@@ -75,10 +75,20 @@ const footnoteRef: TokenizerAndRendererExtension = {
   renderer: (token) => `<sup>${String((token as Tokens.Generic)["n"])}</sup>`,
 };
 
+/** what the text just read held that reaches past its own block: raw html (a tag left open holds what follows it) and link definitions
+    (a reference anywhere reads one). set by the parse, read after it: a streaming reply cuts no unit where they could reach (markdown-stream.ts) */
+let sawHtml = false;
+let sawDef = false;
+export const reaches = (): { raw: boolean; defs: boolean } => ({ raw: sawHtml, defs: sawDef });
+
 /** one marked of our own: gfm, a strikethrough only between two tildes each side, and footnote references */
 export const gfm = new Marked({ gfm: true, async: false });
 gfm.use({
   extensions: [footnoteRef],
+  walkTokens: (token) => {
+    if (token.type === "html") sawHtml = true;
+    else if (token.type === "def") sawDef = true;
+  },
   tokenizer: {
     del(src) {
       const m = /^~~(?=[^\s~])([\s\S]*?[^\s~])~~(?!~)/.exec(src);
@@ -93,6 +103,8 @@ gfm.use({
 export function toHtml(md: string): string {
   const notes = footnotes(md);
   reading = notes.number;
+  sawHtml = false;
+  sawDef = false;
   try {
     const html = String(gfm.parse(notes.body));
     if (!notes.notes.length) return html;

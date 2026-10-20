@@ -22,6 +22,7 @@ import { type Question as Asked, LONG_ASK, TWO_QUESTIONS } from "./asks";
 import { HomeFrame, Host, TurnFrame } from "./host";
 import { picture } from "./pictures";
 import { CodeReplay, LiveReplay } from "./replay";
+import { UnitsCheck } from "./units-check";
 import "./stories.css";
 
 export default { title: "thread" };
@@ -147,6 +148,7 @@ export const SaidStreamingInAListFence = story("text, assistant, streaming: part
 export const SaidFencesOfAllShapes = story("text, assistant, settled: a fence in a quote, an unlabelled block of several lines, an unlabelled line", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, FENCES_OF_ALL_SHAPES), time: clock(turnAt(l, 0).at) }), true); });
 export const SaidHostileMarkup = story("text, assistant: html written to look like our controls loses its classes and its button", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, HOSTILE_MARKUP), time: clock(turnAt(l, 0).at) }), true); });
 export const SaidStreamingThroughFences = story("text, assistant, streaming: a reply written through prose and fences, its settled blocks keeping their nodes (data-replaced stays 0)", async () => { const l = await cmx(); return { ...inHost(l, () => createComponent(CodeReplay, { text: ANSWER_WITH_CODE, at: turnAt(l, 0).at }), true) }; });
+export const SaidStreamingEquivalence = story("text, assistant, streaming: every test document streamed in seeded chunks paints, after every chunk, what painting it whole does (data-mismatches stays 0)", async () => { const l = await cmx(); return inHost(l, () => createComponent(UnitsCheck, {}), true); });
 export const AnswerGithubReading = story("the answer read as github reads it: a single tilde as written, footnotes, details, keys, an image as its words, a link that runs nothing", async () => { const l = await cmx(); return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(Answer, { say: said(l, GITHUB_READING) }); } })); });
 export const SaidWithCode = story("text, assistant, settled: a said row with a code block (no reply control mid-turn)", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, ANSWER_WITH_CODE.split("run the suite")[0] ?? ""), time: clock(turnAt(l, 0).at) }), true); });
 export const SaidStreamingInAFence = story("text, assistant, streaming: part-way through a fence, the open block holds back its control", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, REPLY_IN_A_FENCE, true), time: clock(turnAt(l, 0).at) }), true); });
