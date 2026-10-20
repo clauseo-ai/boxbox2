@@ -6,7 +6,7 @@
    result (mark it dirty, run its effects, save) is the caller's. */
 
 import { parseJournal, type Recorded } from "../../ui/home/fixtures/replay";
-import type { Message, SessionEntry } from "../protocol";
+import type { Frame, Message, SessionEntry } from "../protocol";
 import { parseCursor } from "../protocol";
 import { type Action, type Effect, INITIAL_STATE, type Patch, reduce, type SyncState } from "../reducer";
 
@@ -51,13 +51,63 @@ function padFleet(recorded: Recorded[], pad: number): void {
   reset.frame = { ...reset.frame, fleet: { ...reset.frame.fleet, sessions: [...reset.frame.fleet.sessions, ...padding] } };
 }
 
+/** a deterministic generator, so every build streams the same deltas */
+function seeded(seed: number): () => number {
+  let value = seed;
+  return () => {
+    value = (value * 1_103_515_245 + 12_345) % 2_147_483_648;
+    return value / 2_147_483_648;
+  };
+}
+
+/** `count` long answers of `length` characters each, streamed after the journal into the first opened thread as the daemon
+    streams one (deltas of 8 to 40 characters), each settled by its whole part, the last left streaming when `settle` is
+    false; numbered on from the journal's last entry */
+function streamAnswers(recorded: Recorded[], length: number, count: number, settle: boolean): void {
+  const last = recorded[recorded.length - 1]?.id ?? "";
+  const [epoch = "", tail = "0"] = last.split(":");
+  let seq = Number(tail);
+  let upstream = 0;
+  for (const { frame } of recorded) if ("upstream" in frame && typeof frame.upstream === "number") upstream = Math.max(upstream, frame.upstream);
+  const key = OPENED[0];
+  const session = key.slice("bench:".length);
+  const push = (frame: Record<string, unknown>) => {
+    seq++;
+    recorded.push({ id: `${epoch}:${seq}`, frame: { ...frame, seq } as Frame });
+  };
+  const random = seeded(7);
+  const words = "the ledger keeps every invoice by its number and the migration moves them in order, checking each total twice ";
+  for (let answer = 0; answer < count; answer++) {
+    const messageID = `msg_${session.slice(4)}_long${answer}`;
+    const partID = `prt_${session.slice(4)}_long${answer}_0`;
+    const created = 1_790_841_100_000 + answer * 100_000;
+    push({ type: "message", key, upstream: ++upstream, info: { id: messageID, sessionID: session, role: "assistant", time: { created } } });
+    let text = "";
+    while (text.length < length) {
+      const size = 8 + Math.floor(random() * 33);
+      const start = text.length % words.length;
+      const piece = (words + words).slice(start, start + size);
+      push({ type: "delta", key, messageID, partID, field: "text", delta: piece, offset: text.length });
+      text += piece;
+    }
+    if (settle || answer < count - 1) {
+      push({ type: "part", key, upstream: ++upstream, part: { id: partID, sessionID: session, messageID, type: "text", text, time: { start: created, end: created + 60_000 } } });
+    }
+  }
+}
+
 export type Step = { action: Action; state: SyncState; patches: readonly Patch[]; effects: readonly Effect[]; index: number };
+
+/** what the replay holds besides the journal: `pad` idle sessions in the fleet; `answers` long answers of `answer`
+    characters streamed after it, the last left unsettled when `settle` is false */
+export type ReplayOptions = { histories?: boolean; pad?: number; answer?: number; answers?: number; settle?: boolean };
 
 /** every action of the replay in order, with what the reducer made of it. a read the reducer asks for is answered at once,
     after the action that asked. without `histories` every read answers empty, so the threads hold only what streamed */
-export function* recordedSteps(recording: Recording, { histories = true, pad = 0 }: { histories?: boolean; pad?: number } = {}): Generator<Step> {
+export function* recordedSteps(recording: Recording, { histories = true, pad = 0, answer = 0, answers = 1, settle = true }: ReplayOptions = {}): Generator<Step> {
   const recorded = parseJournal(recording.journal);
   if (pad > 0) padFleet(recorded, pad);
+  if (answer > 0) streamAnswers(recorded, answer, answers, settle);
   let state = INITIAL_STATE;
   let index = 0;
   let clock = 1_000;

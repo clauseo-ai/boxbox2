@@ -6,6 +6,19 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **a streaming answer's saves store what it streamed.** indexeddb v5
+  saves a part's appended text as chunk records, folded into the page
+  when the part settles, the next message joins or a thread passes 256
+  chunks, and keeps the per-part baseline in a record of its own instead
+  of the head every save rewrites. saving a 24 kb answer as it streams
+  falls from 13.98 mb of clones to 0.18 mb (a 100 kb answer 97.9 mb to
+  0.99 mb), 10.8 mb of the old cost being the head. every load equals the
+  last committed save, key order included, across kills at every write,
+  two writers and upgrades from v4 and v3 (`sync/saves.test.ts`). after
+  another tab's save, a cold thread is read again from its host rather
+  than from pages this tab can no longer vouch for. a rollback to a v4
+  build runs without its cache.
+
 - **idle is a budget, with a bench.** `bench/idle.ts` (`just idle`, after
   `just build`) starts its own world on the dev ports, streams a fleet of
   ten threads beside a hundred done, and measures the built app in

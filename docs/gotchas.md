@@ -1743,3 +1743,8 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   12 hour rule (it drives the order and the `windowsInView` presence post) and the
   composer's offline word keep their own wakes while hidden, re-checked at least
   every 60 s since timers pause through a system sleep.
+- **a head rewritten on every save must stay small.** v4's thread head carried the
+  thread's baseline, a number per part, and cost more than the growing message itself
+  (10.8 of 13.98 mb over a 24 kb answer); v5 keeps it in `<key>#base`, written when it
+  changes. chunks of appended text are only good in the order they were appended: a
+  failed save's marks stay ahead of the ones made while it was in flight.

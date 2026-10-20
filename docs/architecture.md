@@ -366,7 +366,12 @@ save writes what the patches named and no more, and reads the meta in
 its own transaction first: when another writer (a second tab, or a page
 reloading over the last save of the one before) wrote since, it writes
 the fleet and the threads it names whole, since its memory of the disk
-is stale. the cursor is put last, and a save that throws part way is
+is stale. from then until it writes a thread whole, a cold thread's head
+is written from the head on disk (its pages are the other writer's, so the
+head keeps their count and is marked stale), and its pages are never read
+by the count in memory: opening it reads it from the daemon. a read of
+pages while the meta names a save this tab has not seen is refused the same
+way. the cursor is put last, and a save that throws part way is
 aborted. once a minute while the
 stream is up, `perf.sync` counts what the connection cost: frames,
 bytes received, patches posted and about their bytes, saves, records put
@@ -378,17 +383,29 @@ the build if a new event kind is not handled (`scars.md`:
 `message.removed` must be handled). it is pure and tested with recorded
 journals.
 
-**indexeddb layout** (v4): `meta` (cursor, epoch, build id), `fleet` (the
+**indexeddb layout** (v5): `meta` (cursor, epoch, build id), `fleet` (the
 model as a record per session, ask and host, one per other field, and an
 index of the fields and of each map's keys in order, so a session that
 changes writes that session alone and the fleet read back keeps its key
 order; v4 split the one record earlier versions wrote, in place, in the
-upgrade), `thread:<host:session>` a head and pages: the last message,
-the one a stream grows, alone in the last page, before it pages of 50,
-and what is left in pages of 32, 16, 8, 4, 2 and 1, so a delta rewrites
-one message and a new message rewrites a few small pages, never the
-fifty before it (`app/src/sync/cache.ts`, `layout`; pages written as 50
-to the end before v4 read as they are), `drafts` (a target's words) and `draftPhotos` (its photos, written only when the set changes), `outbox` (sends not yet echoed by client id, telemetry rows under `row:`, and this device's replies to asks under `ask:`, at most 200, the oldest dropped first: `app/src/sync/replies.ts`), `prefs`.
+upgrade), `thread:<host:session>` a head, a baseline, pages and chunks:
+the last message, the one a stream grows, alone in the last page, before
+it pages of 50, and what is left in pages of 32, 16, 8, 4, 2 and 1, so a
+change to a message rewrites that message and a new message rewrites a few
+small pages, never the fifty before it (`app/src/sync/cache.ts`, `layout`;
+pages written as 50 to the end before v4 read as they are). text that only
+grew at its end (the reducer's appends) rewrites nothing: each save puts
+the words added since the last one in a chunk record (message, part,
+field, the length it starts from, the words), a read folds the chunks into
+their messages, and the first save that writes any page of the thread (the
+part settling, the next message joining) or would pass 256 chunks folds
+them into their pages and drops them, so a streaming answer stores about
+what it streamed, not its length at every save. the head is written with
+every save of its thread and so holds no baseline (a number per part,
+which grows with the thread): the baseline has its own record, written
+when it changes. v5 moved each head's baseline out in place, in the
+upgrade; a v4 build after a rollback fails to open the newer database and
+runs without its cache. `drafts` (a target's words) and `draftPhotos` (its photos, written only when the set changes), `outbox` (sends not yet echoed by client id, telemetry rows under `row:`, and this device's replies to asks under `ask:`, at most 200, the oldest dropped first: `app/src/sync/replies.ts`), `prefs`.
 
 **what the cache keeps and lets go.** a thread is *opened* (the person
 opened it: `openedAt` is the time) or only *held* for another thread (a

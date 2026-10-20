@@ -1,8 +1,10 @@
 /* the worker's indexeddb cache (docs/architecture.md, indexeddb layout):
-   database `boxbox` v4 with `meta` (the cursor and counters), `fleet` (the
+   database `boxbox` v5 with `meta` (the cursor and counters), `fleet` (the
    model, a record per session, ask and host plus one per other field and an
-   index of their keys in order; v4, `fleetRecords`), `threads` (a head
-   record per thread plus its pages, `layout`),
+   index of their keys in order; v4, `fleetRecords`), `threads` (per thread a
+   head record, its baseline in a record of its own (v5), its pages
+   (`layout`) and the words streamed onto them since they were written, as
+   chunks (v5, `Chunk`)),
    `drafts` (the composer's words, one per target), `draftPhotos` (the same
    targets' photos, written only when the set changes; v3), `outbox` (sends
    the daemon has not echoed yet, by client id; v2; telemetry rows under
@@ -22,50 +24,91 @@
 
    a save writes what changed and no more: the sessions, asks and hosts a
    patch named, and a thread's pages from the first message that changed,
-   so a streaming thread rewrites its last message, not its last fifty. the
+   so a thread rewrites the messages that changed, not its last fifty. text
+   that only grew at its end (the reducer's appends) is not rewritten at
+   all: the words added since the last save go into a chunk record, which a
+   read folds back into its message, so a streaming answer costs each save
+   what it added, not what it has grown to. the chunks are folded into their
+   pages, and dropped, by the first save that writes any page of the thread
+   (a part settling, a message joining) or that would pass `CHUNKS`. the
    worker's `Saver` keeps one save in flight at most: what changes while it
    commits waits for the next, which writes all of it. */
 
-import type { Cold, Counters, Fleet, Patch, SyncState } from "./reducer";
+import type { Cold, Counters, Fleet, Patch, SyncState, Thread } from "./reducer";
 import { type Draft, joinDraft, type OutboxEntry, type Photo } from "./outbox";
 import type { RawEvent } from "./telemetry";
 import type { AskReply } from "./replies";
 import type { Cursor, Message } from "./protocol";
 
 const NAME = "boxbox";
-/** v4 split the fleet's one record into a record per entry (`fleetRecords`), in place (`open`) */
-const VERSION = 4;
+/** v4 split the fleet's one record into a record per entry (`fleetRecords`), in place (`open`); v5 moved each head's baseline
+    to a record of its own and added chunks, which a v4 build would not read, so a v4 build after a rollback runs without
+    its cache (its open fails on the newer version) rather than showing an answer cut short */
+const VERSION = 5;
 /** a telemetry row's key in the outbox store; a send's key is its client id, a uuid, which never starts with this */
 const ROW = "row:";
 /** a reply's record's key in the outbox store (replies.ts): `ask:` and its book key */
 const ASK = "ask:";
 const STORES = ["meta", "fleet", "threads", "drafts", "draftPhotos", "outbox", "prefs"] as const;
 export const PAGE = 50;
+/** the most chunk records a thread keeps before a save folds them into its pages: a read stays a few hundred small records
+    at worst, and a stream that never settles rewrites its message once per this many saves (51 s at one save per 200 ms),
+    not once per save */
+export const CHUNKS = 256;
 
 /** the fleet's fields kept as a record per entry; every other field is a record of its own */
 const ENTRIES = ["sessions", "asks", "hosts"] as const;
 type EntryField = (typeof ENTRIES)[number];
 const isEntryField = (field: unknown): field is EntryField => ENTRIES.some((name) => name === field);
 
+/** text that grew at its end since the last save: message `at`'s part `part`, its field `field`, from character `from` on,
+    where `from` is how long the text was when the last save read the state, so what the disk holds of it */
+export type Append = { at: number; part: number; field: string; from: number };
+
 /** what changed since the last save. `fleet`: the whole fleet (a reset, or a map replaced whole); `entries`: per map, the
     keys whose entry changed or went; `fields`: the fleet's other fields that changed; `threads`: per thread the first
-    message index that changed (Infinity when only the head record did) */
-export type Dirty = { fleet: boolean; entries: Record<EntryField, Set<string>>; fields: Set<string>; threads: Map<string, number> };
+    message index that changed (Infinity when only the head record did); `appends`: per thread, the texts that only grew,
+    by message, part and field, which a message rewritten anyway (at or past its thread's index) leaves unused */
+export type Dirty = {
+  fleet: boolean;
+  entries: Record<EntryField, Set<string>>;
+  fields: Set<string>;
+  threads: Map<string, number>;
+  appends: Map<string, Map<string, Append>>;
+};
 
-export const cleanDirty = (): Dirty => ({ fleet: false, entries: { sessions: new Set(), asks: new Set(), hosts: new Set() }, fields: new Set(), threads: new Map() });
+export const cleanDirty = (): Dirty => ({
+  fleet: false,
+  entries: { sessions: new Set(), asks: new Set(), hosts: new Set() },
+  fields: new Set(),
+  threads: new Map(),
+  appends: new Map(),
+});
 
 const isClean = (dirty: Dirty): boolean =>
-  !dirty.fleet && dirty.fields.size === 0 && dirty.threads.size === 0 && ENTRIES.every((field) => dirty.entries[field].size === 0);
+  !dirty.fleet && dirty.fields.size === 0 && dirty.threads.size === 0 && dirty.appends.size === 0 && ENTRIES.every((field) => dirty.entries[field].size === 0);
 
 /** a thread's records are to be written from message `from` on (0: all of them; Infinity: the head alone) */
 export function markThread(dirty: Dirty, key: string, from: number): void {
   dirty.threads.set(key, Math.min(from, dirty.threads.get(key) ?? from));
 }
 
+/** a text of a thread grew at its end: its head is written (its size grew) and the words past the earliest `from` marked */
+export function markAppend(dirty: Dirty, key: string, append: Append): void {
+  markThread(dirty, key, Number.POSITIVE_INFINITY);
+  let texts = dirty.appends.get(key);
+  if (!texts) dirty.appends.set(key, (texts = new Map()));
+  const id = `${append.at}/${append.part}/${append.field}`;
+  const had = texts.get(id);
+  if (!had || append.from < had.from) texts.set(id, append);
+}
+
 /** what the reducer's patches changed, from their paths alone, at whatever depth they name: `["fleet", "sessions", key, ...]`
-    is that session's record, `["threads", key, "messages", at, ...]` the thread's pages from message `at` */
+    is that session's record, `["threads", key, "messages", at, ...]` the thread's pages from message `at`, and an append to
+    `["threads", key, "messages", at, "parts", i, field]` that text's growth alone */
 export function markPatches(dirty: Dirty, patches: readonly Patch[]): void {
-  for (const { path } of patches) {
+  for (const patch of patches) {
+    const { path } = patch;
     const [root, field, key] = path;
     if (root === "fleet") {
       if (field === undefined) dirty.fleet = true;
@@ -73,9 +116,13 @@ export function markPatches(dirty: Dirty, patches: readonly Patch[]): void {
       else if (typeof key === "string") dirty.entries[field].add(key);
       else dirty.fleet = true;
     } else if (root === "threads" && typeof field === "string") {
-      const part = path[2];
+      const [, , part, at, parts, index, name] = path;
+      if ("append" in patch && path.length === 7 && part === "messages" && typeof at === "number" && parts === "parts" && typeof index === "number" && typeof name === "string") {
+        markAppend(dirty, field, { at, part: index, field: name, from: patch.from });
+        continue;
+      }
       // the head's own fields (status, trouble) leave every page as it was
-      const from = part === undefined ? 0 : part !== "messages" ? Number.POSITIVE_INFINITY : typeof path[3] === "number" ? path[3] : 0;
+      const from = part === undefined ? 0 : part !== "messages" ? Number.POSITIVE_INFINITY : typeof at === "number" ? at : 0;
       markThread(dirty, field, from);
     }
   }
@@ -87,6 +134,7 @@ function mergeDirty(into: Dirty, from: Dirty): void {
   for (const field of ENTRIES) for (const key of from.entries[field]) into.entries[field].add(key);
   for (const field of from.fields) into.fields.add(field);
   for (const [key, at] of from.threads) markThread(into, key, at);
+  for (const [key, texts] of from.appends) for (const append of texts.values()) markAppend(into, key, append);
 }
 
 /** about how many bytes a value takes to store: its strings by their length (read, never copied), 8 a number, and the names
@@ -200,17 +248,72 @@ export function layout(count: number): number[] {
 export type SaveStats = { puts: number; bytes: number };
 
 /** a head record is a cold thread's head, and nothing else: the reducer's `Cold` is the one shape, but for the lease, which
-    lives in memory only, so a page that is reloaded starts with every place of the held reserve free */
-type ThreadHead = Omit<Cold, "leased">;
+    lives in memory only, so a page that is reloaded starts with every place of the held reserve free, and the baseline,
+    which has a record of its own (v5): it is a number per part, as large as the thread has parts, and the head is
+    written with every save of its thread, the baseline only when it changed */
+type ThreadHead = Omit<Cold, "leased" | "baseline">;
+type Baseline = Cold["baseline"];
+/** a head as it may be read: one written before v5 carried its baseline (the upgrade moves it, `splitBaselines`) */
+type SavedHead = Partial<ThreadHead> & { baseline?: Baseline };
+
+/** the words a save added to a text that only grew at its end since its page was written: what follows its first `from`
+    characters. a read folds them into the message in key order (`fold`) */
+type Chunk = Append & { text: string };
+
+/** what this cache knows of a thread's records on disk: where its pages start (`layout`), how many chunks follow them, and
+    the messages they grow */
+type OnDisk = { starts: number[]; chunks: number; chunked: Set<number> };
 
 export type Booted = { cursor: Cursor | null; counters: Counters | null; fleet: Fleet | null; heads: Cold[] };
 
-const headKey = (key: string) => `${key}#head`;
+const HEAD = "#head";
+const headKey = (key: string) => `${key}${HEAD}`;
+const baseKey = (key: string) => `${key}#base`;
 const pageKey = (key: string, page: number) => `${key}#${page}`;
+/** a chunk's key sorts by its number, so a read of the range gets them in the order they were written */
+const chunkKey = (key: string, seq: number) => `${key}#+${String(seq).padStart(6, "0")}`;
+const chunkRange = (key: string) => IDBKeyRange.bound(`${key}#+`, `${key}#+\uffff`);
+/** every record of a thread: head, baseline, pages and chunks */
+const threadRange = (key: string) => IDBKeyRange.bound(`${key}#`, `${key}#\uffff`);
+
+/** the text an append names in a thread's messages, as it is now */
+const textAt = (messages: readonly Message[], append: Append): unknown => (messages[append.at]?.parts[append.part] as Record<string, unknown> | undefined)?.[append.field];
+
+/** the chunks, in order, onto the messages their pages hold; false when one does not fit (its text is not there, or not as
+    long as it starts from), which no save writes, and the thread is then read from the daemon */
+function fold(messages: Message[], chunks: readonly Chunk[]): boolean {
+  for (const chunk of chunks) {
+    const part = messages[chunk.at]?.parts[chunk.part] as Record<string, unknown> | undefined;
+    if (!part) return false;
+    const text = part[chunk.field];
+    // a text that was not there yet is created, at the end of its part's keys or where an undefined one stood, as the
+    // reducer's spread created it
+    if (text === undefined && chunk.from === 0) part[chunk.field] = chunk.text;
+    else if (typeof text === "string" && text.length === chunk.from) part[chunk.field] = text + chunk.text;
+    else return false;
+  }
+  return true;
+}
+
+/** the page of `starts` that holds message `at` */
+function pageOf(starts: readonly number[], at: number): number {
+  let page = 0;
+  while (page + 2 < starts.length && (starts[page + 1] ?? 0) <= at) page++;
+  return page;
+}
+
+/** two baselines alike down to the order of their keys */
+function sameBaseline(a: Baseline | undefined, b: Baseline): boolean {
+  if (a === b) return true;
+  if (!a) return false;
+  const keys = Object.keys(a);
+  const others = Object.keys(b);
+  return sameKeys(keys, others) && keys.every((key) => a[key] === b[key]);
+}
 
 /** a cold head as the record it was read from: one that never had a size is written without one, so it still reads as unsized */
 function headRecord(head: Cold): Partial<ThreadHead> {
-  const { leased: _lease, ...record } = head;
+  const { leased: _lease, baseline: _own, ...record } = head;
   if (record.sized) return record;
   const { bytes: _unknown, ...rest } = record;
   return rest;
@@ -220,14 +323,15 @@ function headRecord(head: Cold): Partial<ThreadHead> {
     of them (their count and size) and this page's recency, and is marked stale, so the thread is read again from the daemon
     when it is opened, as one the journal passed while it was cold. with no head on disk the pages are gone, and its
     restore finds a page missing and reads it afresh */
-function strangerHead(cold: Cold, disk: Partial<ThreadHead> | undefined): Partial<ThreadHead> {
+function strangerHead(cold: Cold, disk: SavedHead | undefined): Partial<ThreadHead> {
   const mine = headRecord(cold);
   if (!disk) return { ...mine, stale: true };
   return { ...disk, openedAt: cold.openedAt, heldAt: cold.heldAt, stale: true };
 }
 
-/** a head as it was saved, with what heads written before this build lack filled in; null for a record that is no head */
-function decodeHead(record: Partial<ThreadHead> | undefined): Cold | null {
+/** a head as it was saved, with its baseline and what heads written before this build lack filled in; null for a record
+    that is no head */
+function decodeHead(record: SavedHead | undefined, base: Baseline | undefined): Cold | null {
   if (!record || typeof record.key !== "string") return null;
   const pages = record.pages ?? 0;
   return {
@@ -237,7 +341,7 @@ function decodeHead(record: Partial<ThreadHead> | undefined): Cold | null {
     upstreamEpoch: record.upstreamEpoch ?? null,
     hydratedAt: record.hydratedAt ?? 0,
     lastUpstream: record.lastUpstream ?? 0,
-    baseline: record.baseline ?? {},
+    baseline: base ?? record.baseline ?? {},
     refetching: record.refetching ?? [],
     openedAt: record.openedAt ?? 0,
     heldAt: record.heldAt ?? 0,
@@ -276,13 +380,41 @@ function splitFleet(store: IDBObjectStore): void {
   };
 }
 
+/** v5's upgrade: each head written before carried its thread's baseline, which moves to a record of its own, so the head
+    left is the small one every save of its thread writes */
+function splitBaselines(store: IDBObjectStore): void {
+  const keys = store.getAllKeys();
+  keys.onsuccess = () => {
+    for (const id of keys.result.map(String)) {
+      if (!id.endsWith(HEAD)) continue;
+      const read = store.get(id);
+      read.onsuccess = () => {
+        const head = read.result as SavedHead | undefined;
+        if (!head || !("baseline" in head)) return;
+        const { baseline, ...rest } = head;
+        store.put(rest, id);
+        if (baseline !== undefined) store.put(baseline, baseKey(id.slice(0, -HEAD.length)));
+      };
+    }
+  };
+}
+
 /** what opening the database reports to its owner */
 export type OpenEvents = { blocked(): void; unblocked(): void; superseded(): void };
 
 export class Cache {
-  /** where each page of a thread starts (`layout`), for the threads whose pages this cache wrote or read, so a save rewrites
-      only the pages that changed; a thread missing here is written whole */
-  private readonly layouts = new Map<string, number[]>();
+  /** what this cache knows of each thread's pages and chunks on disk (`OnDisk`), for the threads whose records it wrote or
+      read, so a save rewrites only the pages that changed and chunks what only grew; a thread missing here is written
+      whole. an entry goes with its thread's records, and all of them when another writer saved */
+  private readonly known = new Map<string, OnDisk>();
+  /** each thread's baseline as its record on disk holds it, for the threads whose baseline this cache wrote or read; a
+      baseline missing here or unlike this is written */
+  private readonly bases = new Map<string, Baseline>();
+  /** the threads whose records on disk are this cache's own: read at boot, or written by it since another writer was last
+      seen. another writer's save clears it, and a thread joins again only when this cache writes it whole: until then its
+      cold head is written from the head on disk (`strangerHead`, read in the save's transaction) and its pages are not
+      read (`loadPages`), since the count this cache holds may not be theirs. an entry goes with its thread's records */
+  private readonly mine = new Set<string>();
   /** the fleet store's index as it is on disk; null until read or written, and a fleet saved then is written whole */
   private fleetIndex: FleetIndex | null = null;
   /** this cache, as the meta names the writer of the last save */
@@ -303,8 +435,13 @@ export class Cache {
       const request = indexedDB.open(NAME, VERSION);
       request.onupgradeneeded = (event) => {
         for (const store of STORES) if (!request.result.objectStoreNames.contains(store)) request.result.createObjectStore(store);
-        // a fleet saved whole before v4 is split where it lies, in the upgrade's own transaction, so the cache survives it
-        if (event.oldVersion > 0 && event.oldVersion < 4 && request.transaction) splitFleet(request.transaction.objectStore("fleet"));
+        // what an earlier version saved is rewritten where it lies, in the upgrade's own transaction, so the cache survives
+        // it: a fleet saved whole before v4 is split, and heads that carried their baselines before v5 let go of them
+        const upgrade = request.transaction;
+        if (event.oldVersion > 0 && upgrade) {
+          if (event.oldVersion < 4) splitFleet(upgrade.objectStore("fleet"));
+          if (event.oldVersion < 5) splitBaselines(upgrade.objectStore("threads"));
+        }
       };
       request.onblocked = () => {
         blocked = true;
@@ -335,12 +472,30 @@ export class Cache {
       done(fleetStore.getAll()) as Promise<unknown[]>,
       done(threads.getAllKeys()) as Promise<IDBValidKey[]>,
     ]);
-    const records = await Promise.all(keys.map(String).filter((id) => id.endsWith("#head")).map((id) => done(threads.get(id)) as Promise<Partial<ThreadHead> | undefined>));
+    const ids = keys.map(String);
+    const present = new Set(ids);
+    const records = await Promise.all(
+      ids
+        .filter((id) => id.endsWith(HEAD))
+        .map(async (id) => {
+          const base = baseKey(id.slice(0, -HEAD.length));
+          const [head, baseline] = await Promise.all([
+            done(threads.get(id)) as Promise<SavedHead | undefined>,
+            present.has(base) ? (done(threads.get(base)) as Promise<Baseline | undefined>) : undefined,
+          ]);
+          return { head, baseline };
+        }),
+    );
     const heads: Cold[] = [];
-    for (const record of records) {
-      const head = decodeHead(record);
+    // the heads are read in the transaction that reads the meta, so every one is the disk's as of the writer it names
+    this.mine.clear();
+    for (const { head: record, baseline } of records) {
+      const head = decodeHead(record, baseline);
       if (!head) continue;
       heads.push(head);
+      this.mine.add(head.key);
+      // the baseline the head was given is the one on disk, so a save of the same one writes nothing for it
+      if (baseline) this.bases.set(head.key, head.baseline);
     }
     this.seen = { writer: meta?.writer, generation: meta?.generation };
     const fleetRecordsRead = new Map<string, unknown>();
@@ -353,11 +508,20 @@ export class Cache {
     return { cursor: meta?.cursor ?? null, counters: meta?.counters ?? null, fleet: fleet ? { ...fleet, colours: fleet.colours ?? {} } : null, heads };
   }
 
-  /** a thread's messages from its pages, or null when a page the head counts is missing (the thread is read from the daemon) */
+  /** a thread's messages from its pages, with the chunks streamed onto them folded in, or null when a page the head counts
+      is missing, a chunk does not fit, or the records may be another writer's (the thread is read from the daemon): one
+      this cache does not own since another writer was seen, or any while the meta, read in the same transaction, names a
+      save this cache has not seen, as when a page reloads over the last save of the one before */
   async loadPages(head: Pick<Cold, "key" | "pages">): Promise<Message[] | null> {
-    const tx = this.db.transaction("threads", "readonly");
+    if (!this.mine.has(head.key)) return null;
+    const tx = this.db.transaction(["meta", "threads"], "readonly");
     const store = tx.objectStore("threads");
-    const pages = await Promise.all(Array.from({ length: head.pages }, (_, page) => done(store.get(pageKey(head.key, page))) as Promise<Message[] | undefined>));
+    const [meta, pages, chunks] = await Promise.all([
+      done(tx.objectStore("meta").get("sync")) as Promise<SyncMeta | undefined>,
+      Promise.all(Array.from({ length: head.pages }, (_, page) => done(store.get(pageKey(head.key, page))) as Promise<Message[] | undefined>)),
+      done(store.getAll(chunkRange(head.key))) as Promise<Chunk[]>,
+    ]);
+    if (meta?.writer !== this.seen.writer || meta?.generation !== this.seen.generation || !this.mine.has(head.key)) return null;
     const messages: Message[] = [];
     const starts: number[] = [];
     for (const page of pages) {
@@ -366,8 +530,9 @@ export class Cache {
       messages.push(...page);
     }
     starts.push(messages.length);
-    // the pages as they lie, whichever layout wrote them: the next save of this thread rewrites only what changes
-    this.layouts.set(head.key, starts);
+    if (!fold(messages, chunks)) return null;
+    // the pages and chunks as they lie, whichever layout wrote them: the next save of this thread rewrites only what changes
+    this.known.set(head.key, { starts, chunks: chunks.length, chunked: new Set(chunks.map((chunk) => chunk.at)) });
     return messages;
   }
 
@@ -385,10 +550,10 @@ export class Cache {
     read.onsuccess = () => {
       const meta = read.result as SyncMeta | undefined;
       const foreign = meta?.writer !== this.seen.writer || meta?.generation !== this.seen.generation;
-      // after another writer, a cold thread's pages on disk are that writer's: its head on disk is read first, in this
-      // transaction, so the head written still counts the pages that are there (`write`)
-      const coldKeys = foreign ? [...dirty.threads.keys()].filter((key) => !state.threads[key] && state.cold[key]) : [];
-      const disk = new Map<string, Partial<ThreadHead> | undefined>();
+      // after another writer, now or since, a cold thread's pages on disk may be that writer's: its head on disk is read
+      // first, in this transaction, so the head written still counts the pages that are there (`write`)
+      const coldKeys = [...dirty.threads.keys()].filter((key) => !state.threads[key] && state.cold[key] && (foreign || !this.mine.has(key)));
+      const disk = new Map<string, SavedHead | undefined>();
       const go = () => {
         try {
           after.kept = this.write(tx, state, dirty, meta, foreign, disk, stats);
@@ -401,7 +566,7 @@ export class Cache {
       for (const key of coldKeys) {
         const head = tx.objectStore("threads").get(headKey(key));
         head.onsuccess = () => {
-          disk.set(key, head.result as Partial<ThreadHead> | undefined);
+          disk.set(key, head.result as SavedHead | undefined);
           if (--left === 0) go();
         };
       }
@@ -419,7 +584,7 @@ export class Cache {
     dirty: Dirty,
     meta: SyncMeta | undefined,
     foreign: boolean,
-    disk: ReadonlyMap<string, Partial<ThreadHead> | undefined>,
+    disk: ReadonlyMap<string, SavedHead | undefined>,
     stats: SaveStats,
   ): () => void {
     const threads = tx.objectStore("threads");
@@ -429,54 +594,38 @@ export class Cache {
       stats.bytes += weight(value);
     };
     const fleetIndex = this.saveFleet(tx.objectStore("fleet"), state.fleet, dirty, put, foreign);
-    const layouts = new Map<string, number[] | null>();
+    /** per thread what is on disk once this commits (null: nothing), and the baseline its record holds then */
+    const known = new Map<string, OnDisk | null>();
+    const bases = new Map<string, Baseline>();
+    /** per thread whether its records on disk are this cache's own once this commits (`mine`) */
+    const owned = new Map<string, boolean>();
     for (const [key, from] of dirty.threads) {
       const thread = state.threads[key];
       if (!thread) {
         const cold = state.cold[key];
-        // a cold thread's pages stay as they are; only its head changed (recency, or the journal passed it)
+        // a cold thread's pages stay as they are; only its head changed (recency, or the journal passed it). after another
+        // writer, the baseline on disk stays with the head on disk, as the pages do
         if (cold) {
-          put(threads, foreign ? strangerHead(cold, disk.get(key)) : headRecord(cold), headKey(key));
+          const strange = foreign || !this.mine.has(key);
+          const theirs = strange ? disk.get(key) : undefined;
+          put(threads, strange ? strangerHead(cold, theirs) : headRecord(cold), headKey(key));
+          owned.set(key, !strange);
+          if (!theirs && !sameBaseline(strange ? undefined : this.bases.get(key), cold.baseline)) {
+            put(threads, cold.baseline, baseKey(key));
+            bases.set(key, cold.baseline);
+          }
           continue;
         }
-        threads.delete(IDBKeyRange.bound(`${key}#`, `${key}#\uffff`));
-        layouts.set(key, null);
+        threads.delete(threadRange(key));
+        known.set(key, null);
+        owned.set(key, false);
         continue;
       }
-      const starts = layout(thread.messages.length);
-      const pages = starts.length - 1;
-      const old = foreign ? undefined : this.layouts.get(key);
-      // pages laid out in a way this cache does not know go first, every one, so none is left past the new last page
-      if (!old) threads.delete(IDBKeyRange.bound(`${key}#`, `${key}#\uffff`));
-      // a page is kept when it holds the same messages as the one on disk and none of them changed
-      for (let page = 0; page < pages; page++) {
-        const start = starts[page] ?? 0;
-        const end = starts[page + 1] ?? start;
-        if (old && old[page] === start && old[page + 1] === end && end <= from) continue;
-        put(threads, thread.messages.slice(start, end), pageKey(key, page));
-      }
-      if (old) for (let page = pages; page < old.length - 1; page++) threads.delete(pageKey(key, page));
-      put(
-        threads,
-        {
-          key,
-          status: thread.status,
-          hydration: thread.hydration,
-          upstreamEpoch: thread.upstreamEpoch,
-          hydratedAt: thread.hydratedAt,
-          lastUpstream: thread.lastUpstream,
-          baseline: thread.baseline,
-          refetching: Object.keys(thread.refetching),
-          openedAt: thread.openedAt,
-          heldAt: thread.heldAt,
-          bytes: thread.bytes,
-          sized: true,
-          pages,
-          stale: false,
-        } satisfies ThreadHead,
-        headKey(key),
-      );
-      layouts.set(key, starts);
+      owned.set(key, true);
+      known.set(key, this.saveThread(threads, put, thread, from, dirty.appends.get(key), foreign ? undefined : this.known.get(key)));
+      // a thread written whole lost its baseline record with the rest
+      if (foreign || !this.known.get(key) || !sameBaseline(this.bases.get(key), thread.baseline)) put(threads, thread.baseline, baseKey(key));
+      bases.set(key, thread.baseline);
     }
     const generation = (meta?.generation ?? 0) + 1;
     put(tx.objectStore("meta"), { cursor: state.cursor, counters: state.counters, writer: this.writer, generation } satisfies SyncMeta, "sync");
@@ -484,12 +633,99 @@ export class Cache {
       this.seen = { writer: this.writer, generation };
       if (fleetIndex) this.fleetIndex = fleetIndex;
       // another writer may have rewritten any thread: only what this save wrote is known now
-      if (foreign) this.layouts.clear();
-      for (const [key, starts] of layouts) {
-        if (starts === null) this.layouts.delete(key);
-        else this.layouts.set(key, starts);
+      if (foreign) {
+        this.known.clear();
+        this.bases.clear();
+        this.mine.clear();
       }
+      for (const [key, own] of owned) {
+        if (own) this.mine.add(key);
+        else this.mine.delete(key);
+      }
+      for (const [key, onDisk] of known) {
+        if (onDisk) this.known.set(key, onDisk);
+        else {
+          this.known.delete(key);
+          this.bases.delete(key);
+        }
+      }
+      for (const [key, baseline] of bases) this.bases.set(key, baseline);
     };
+  }
+
+  /** a held thread's records: its pages from message `from` on, and only the words added to texts that only grew when no
+      page is written, as chunks; when a page is written the chunks are folded into theirs and go. `old` is what is on disk,
+      as far as this cache knows (undefined: nothing is known, and the thread is written whole). returns what is on disk
+      once this commits */
+  private saveThread(
+    threads: IDBObjectStore,
+    put: (store: IDBObjectStore, value: unknown, key: string) => void,
+    thread: Thread,
+    from: number,
+    appends: ReadonlyMap<string, Append> | undefined,
+    old: OnDisk | undefined,
+  ): OnDisk {
+    const { key, messages } = thread;
+    const starts = layout(messages.length);
+    const pages = starts.length - 1;
+    // records laid out in a way this cache does not know go first, every one, so none is left past the new last page
+    if (!old) threads.delete(threadRange(key));
+    // a page is kept when it holds the same messages as the one on disk and none of them changed
+    const writes = new Set<number>();
+    for (let page = 0; page < pages; page++) {
+      const start = starts[page] ?? 0;
+      const end = starts[page + 1] ?? start;
+      if (!(old && old.starts[page] === start && old.starts[page + 1] === end && end <= from)) writes.add(page);
+    }
+    // an append to a message at or past `from` is in a page written anyway; before it, no message moved since the last
+    // save, so its place still names it
+    const below = Math.min(from, messages.length);
+    const grown = [...(appends?.values() ?? [])].filter((append) => append.at < below);
+    const fits = grown.every((append) => {
+      const text = textAt(messages, append);
+      return typeof text === "string" && text.length >= append.from;
+    });
+    let chunks = old?.chunks ?? 0;
+    const chunked = new Set(old?.chunked);
+    if (old && writes.size === 0 && fits && chunks + grown.length <= CHUNKS) {
+      for (const append of grown) {
+        const text = textAt(messages, append) as string; // `fits` found a string at least `from` long
+        if (text.length === append.from) continue;
+        put(threads, { ...append, text: text.slice(append.from) } satisfies Chunk, chunkKey(key, chunks++));
+        chunked.add(append.at);
+      }
+    } else if (old) {
+      // the messages chunks grow are rewritten whole, so the chunks go
+      for (const at of [...chunked, ...grown.map((append) => append.at)]) if (at < below) writes.add(pageOf(starts, at));
+      if (chunks > 0) threads.delete(chunkRange(key));
+      chunks = 0;
+      chunked.clear();
+    }
+    for (const page of [...writes].sort((a, b) => a - b)) {
+      const start = starts[page] ?? 0;
+      put(threads, messages.slice(start, starts[page + 1] ?? start), pageKey(key, page));
+    }
+    if (old) for (let page = pages; page < old.starts.length - 1; page++) threads.delete(pageKey(key, page));
+    put(
+      threads,
+      {
+        key,
+        status: thread.status,
+        hydration: thread.hydration,
+        upstreamEpoch: thread.upstreamEpoch,
+        hydratedAt: thread.hydratedAt,
+        lastUpstream: thread.lastUpstream,
+        refetching: Object.keys(thread.refetching),
+        openedAt: thread.openedAt,
+        heldAt: thread.heldAt,
+        bytes: thread.bytes,
+        sized: true,
+        pages,
+        stale: false,
+      } satisfies ThreadHead,
+      headKey(key),
+    );
+    return { starts, chunks, chunked };
   }
 
   /** the fleet's records `dirty` names: every one when the fleet changed whole, none is on disk yet or another writer wrote
@@ -602,7 +838,9 @@ export class Cache {
   async clear(): Promise<void> {
     const tx = this.db.transaction([...STORES], "readwrite");
     for (const store of STORES) tx.objectStore(store).clear();
-    this.layouts.clear();
+    this.known.clear();
+    this.bases.clear();
+    this.mine.clear();
     this.fleetIndex = null;
     this.seen = { writer: undefined, generation: undefined };
     await committed(tx);
@@ -681,7 +919,10 @@ export class Saver {
           }
         },
         () => {
-          mergeDirty(this.dirty, dirty);
+          // what was marked meanwhile joins what failed, after it: appends that create a field are written, and so folded on
+          // a read, in the order they were marked, which is the order of the part's keys in memory
+          mergeDirty(dirty, this.dirty);
+          this.dirty = dirty;
           this.schedule();
         },
       )

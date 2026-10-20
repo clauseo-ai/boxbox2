@@ -42,7 +42,8 @@ function watchReads() {
     return originals.get.call(this, query);
   };
   proto.getAll = function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["getAll"]>) {
-    reads.push({ call: `${this.name}.getAll`, key: "" });
+    const [query] = args;
+    reads.push({ call: `${this.name}.getAll`, key: query instanceof IDBKeyRange ? `${String(query.lower)}..${String(query.upper)}` : "" });
     return originals.getAll.apply(this, args);
   };
   proto.getAllKeys = function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore["getAllKeys"]>) {
@@ -81,7 +82,7 @@ async function saveAll(...threads: Thread[]) {
 }
 
 describe("the cache at boot", () => {
-  test("reads the heads of every thread and none of their pages", async () => {
+  test("reads the heads of every thread and their baselines, and none of their pages or chunks", async () => {
     await saveAll(thread("bench:a", PAGE * 3), thread("bench:b", PAGE * 2 + 1), thread("bench:c", 4));
     open().close();
     cache = await Cache.open();
@@ -91,12 +92,12 @@ describe("the cache at boot", () => {
     expect(booted.cursor).toEqual({ epoch: "j1", seq: 7 });
     const pages = (count: number) => layout(count).length - 1;
     expect(booted.heads.map((h) => [h.key, h.pages]).sort()).toEqual([["bench:a", pages(PAGE * 3)], ["bench:b", pages(PAGE * 2 + 1)], ["bench:c", pages(4)]]);
-    const pageReads = watch.reads.filter((r) => r.call === "threads.get" && !r.key.endsWith("#head"));
+    const pageReads = watch.reads.filter((r) => r.call === "threads.get" && !r.key.endsWith("#head") && !r.key.endsWith("#base"));
     expect(pageReads).toEqual([]);
     expect(watch.reads.some((r) => r.call === "threads.getAll")).toBe(false);
   });
 
-  test("a thread's pages are read when it is wanted, only its own, and come back as saved", async () => {
+  test("a thread's pages and chunks are read when it is wanted, only its own, and come back as saved", async () => {
     const a = thread("bench:a", PAGE * 2 + 3);
     await saveAll(a, thread("bench:b", PAGE * 4));
     const booted = await open().loadBoot();
@@ -104,7 +105,11 @@ describe("the cache at boot", () => {
     const back = await open().loadPages(booted.heads.find((h) => h.key === "bench:a") as NonNullable<(typeof booted.heads)[number]>);
     watch.stop();
     expect(back).toEqual(a.messages);
-    expect(watch.reads.map((r) => r.key).sort()).toEqual(Array.from({ length: layout(PAGE * 2 + 3).length - 1 }, (_, page) => `bench:a#${page}`));
+    expect(watch.reads.filter((r) => r.call === "threads.get").map((r) => r.key).sort()).toEqual(Array.from({ length: layout(PAGE * 2 + 3).length - 1 }, (_, page) => `bench:a#${page}`));
+    expect(watch.reads.filter((r) => r.call !== "threads.get")).toEqual([
+      { call: "meta.get", key: "sync" },
+      { call: "threads.getAll", key: "bench:a#+..bench:a#+\uffff" },
+    ]);
   });
 
   test("a page the head counts but the cache lacks reads as null, so the thread is read from the daemon", async () => {
