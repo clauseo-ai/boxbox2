@@ -6,6 +6,17 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the worker posts the ui what changed.** a session the server sends
+  whole again is diffed against the one held and reaches the ui's store
+  leaf by leaf (a changed array item goes whole), streamed text crosses as
+  the words added rather than the whole part, and coalescing keeps key
+  order inside a session entry. over the recorded replay with a long
+  answer, bytes posted to the ui fall from 5.17 mb to 0.38 mb and applying
+  them from 3.6 ms to 1.4 ms; the ui's store at every apply and the
+  worker's final state hash the same as on the build before
+  (`sync/wire.test.ts`). the hydration buffer and the refetch holds get
+  128 mb byte caps, sixteen frames at the server's frame cap.
+
 - **repo colours are given by the server, and a person can choose one.**
   the first time the fleet shows a session of a repo with no colour, the
   repo gets the colour its machine's repos wear least (its old hash colour

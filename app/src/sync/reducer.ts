@@ -125,8 +125,13 @@ export type Thread = {
   baseline: Record<string, number>;
   /** entries that arrived while a hydration was in flight */
   buffer: ThreadEntry[];
+  /** what `buffer` holds, as `entryBytes` counts it, for its byte cap (BUFFER_BYTES). absent is none: a thread made
+      outside the reducer holds nothing waiting */
+  bufferBytes?: number;
   /** message id to the entries held while that message is fetched again */
   refetching: Record<string, Held[]>;
+  /** what `refetching` holds across its messages, counted the same way, for its byte cap (HELD_BYTES); absent is none */
+  heldBytes?: number;
   /** when the person last opened it (ms), for eviction; 0 for a thread that is only held for another (`hold`) */
   openedAt: number;
   /** when it was last held for another thread (ms): orders the held-only threads for eviction, released ones first */
@@ -198,8 +203,21 @@ export function viewOf(thread: Thread): ThreadView {
 
 export type PathSegment = string | number;
 
-/** one change for the ui's store: set `value` at `path`; undefined deletes the key */
-export type Patch = { path: readonly PathSegment[]; value: unknown };
+/** one change for the ui's store: set `value` at `path` (undefined deletes the key), or, for text that grew at its end
+    (a streamed part), `append` what came after the string's first `from` characters. an append carries the new words and
+    not the whole text, so a long answer costs the wire and the ui's store what each delta added, not what it has grown to */
+export type Patch = SetPatch | AppendPatch;
+export type SetPatch = { path: readonly PathSegment[]; value: unknown };
+export type AppendPatch = { path: readonly PathSegment[]; append: string; from: number };
+
+export const isAppend = (patch: Patch): patch is AppendPatch => "append" in patch;
+
+/** the string an append makes of what is at its path: the first `from` characters, then the words it adds. the worker sends
+    it only where the text is exactly `from` long, so the ui joins two strings and slices nothing */
+export function appended(current: unknown, patch: AppendPatch): string {
+  if (typeof current !== "string") return patch.append;
+  return (current.length === patch.from ? current : current.slice(0, patch.from)) + patch.append;
+}
 
 export type Effect =
   | { type: "reconnect" }
@@ -254,6 +272,18 @@ export const UNFIT_CAP = 64;
 export const BYTE_CAP = 150 * 1024 * 1024;
 /** entries one thread may hold while hydrating; past it the hydration starts over from a newer read */
 export const BUFFER_CAP = 20_000;
+/** the largest frame the server passes on (`FRAME_CAP`, server/src/upstream/watcher.rs): a tool part with 4 mb of image
+    attachments, whole */
+export const SERVER_FRAME_BYTES = 8 * 1024 * 1024;
+/** the bytes those entries may hold beside their count: sixteen frames at the server's largest, so no read a stream can
+    outlast in seconds comes near it, only one that hangs while images keep arriving. past it the hydration starts over
+    from a newer read, as at the count */
+export const BUFFER_BYTES = 16 * SERVER_FRAME_BYTES;
+/** the bytes one thread may hold for its messages being fetched again (`Thread.refetching`), sixteen of the server's
+    largest frames: a refetch answers in about a second, but one that keeps coming back short while its message streams
+    would hold every delta for as long as it streams. past it the held entries and the refetches are dropped and the
+    thread is read again whole, which is what a reset does and covers everything they held */
+export const HELD_BYTES = 16 * SERVER_FRAME_BYTES;
 
 /** the mutable working set of one reduction; the inputs are never touched */
 class Work {
@@ -383,7 +413,7 @@ const assignmentOf = (colour: RepoColourEntry): ColourAssignment => ({ auto: col
 const askKey = (host: string, id: string) => `${host}:${id}`;
 
 function rehydrate(work: Work, thread: Thread): Thread {
-  const next: Thread = { ...thread, status: "hydrating", hydration: work.nextRead(), buffer: [], refetching: {} };
+  const next: Thread = { ...thread, status: "hydrating", hydration: work.nextRead(), buffer: [], bufferBytes: 0, refetching: {}, heldBytes: 0 };
   work.effects.push({ type: "hydrate", key: thread.key, hydration: next.hydration });
   work.patch(["threads", thread.key, "status"], "hydrating");
   return next;
@@ -410,9 +440,12 @@ function entry(work: Work, state: SyncState, frame: Entry, epoch: string | undef
       return { ...next, fleet: hostRemoved(work, next.fleet, frame.host) };
     case "host.reset":
       return hostReset(work, next, frame.host, frame.sessions, frame.asks);
-    case "session":
-      work.patch(["fleet", "sessions", frame.session.key], frame.session);
+    case "session": {
+      const before = next.fleet.sessions[frame.session.key];
+      if (before) changed(work, ["fleet", "sessions", frame.session.key], before, frame.session);
+      else work.patch(["fleet", "sessions", frame.session.key], frame.session);
       return { ...next, fleet: { ...next.fleet, sessions: { ...next.fleet.sessions, [frame.session.key]: frame.session } } };
+    }
     case "session.removed": {
       const { [frame.key]: _removed, ...sessions } = next.fleet.sessions;
       work.patch(["fleet", "sessions", frame.key], undefined);
@@ -496,12 +529,80 @@ function staleAll(work: Work, cold: Record<string, Cold>, which: (key: string) =
   return next;
 }
 
+/* —— a session entry, sent whole again —— */
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** two parsed json values are the same, keys in the same order */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!sameJson(a[i], b[i])) return false;
+    return true;
+  }
+  const keys = Object.keys(a);
+  const others = Object.keys(b);
+  if (keys.length !== others.length) return false;
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i] as string; // i is inside keys
+    if (key !== others[i] || !sameJson((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
+  }
+  return true;
+}
+
+/** changing `before` into `after` in place keeps `after`'s key order: the keys they share come first, in the same order,
+    and the new ones after them (a deleted key leaves the rest where they were, an added one goes to the end) */
+function keepsOrder(before: Record<string, unknown>, after: Record<string, unknown>): boolean {
+  const order = Object.keys(after);
+  let at = 0;
+  for (const key of Object.keys(before)) {
+    if (!(key in after)) continue;
+    if (order[at] !== key) return false;
+    at++;
+  }
+  return true;
+}
+
+/** the patches that make the ui's copy of `before` into `after`, touching only what differs. the server sends a busy
+    session's whole entry up to five times a second (its info, status, needs and a tail of twelve items) when one tail
+    item grew, so a reader of anything else would wake for nothing. an object changes key by key where that leaves its
+    keys in `after`'s order, else it is set whole; an array is set whole when its length changed or most of its items did
+    (a tail that moved on), else each changed item is set whole: an item the ui holds on to (the stage's review need) is
+    never changed under it, a changed one is a new one, as when the whole entry was replaced. the ui ends deep-equal to
+    `after`, key order included */
+function changed(work: Work, path: readonly PathSegment[], before: unknown, after: unknown): void {
+  if (isRecord(before) && isRecord(after) && keepsOrder(before, after)) {
+    for (const key of Object.keys(before)) if (!(key in after)) work.patch([...path, key], undefined);
+    for (const key of Object.keys(after)) {
+      const was = before[key];
+      const now = after[key];
+      // most of an entry is numbers and strings as they were: the path is built only for what differs or nests
+      if (Object.is(was, now)) continue;
+      if (typeof now !== "object" || now === null || typeof was !== "object" || was === null) work.patch([...path, key], now);
+      else changed(work, [...path, key], was, now);
+    }
+    return;
+  }
+  if (Array.isArray(before) && Array.isArray(after) && before.length === after.length) {
+    const differ: number[] = [];
+    for (let i = 0; i < after.length; i++) if (!sameJson(before[i], after[i])) differ.push(i);
+    if (differ.length * 2 <= after.length) {
+      for (const i of differ) work.patch([...path, i], after[i]);
+      return;
+    }
+  }
+  if (!sameJson(before, after)) work.patch(path, after);
+}
+
 /* —— transcripts —— */
 
 function threadEntry(work: Work, thread: Thread, frame: ThreadEntry): Thread {
   if (thread.status === "hydrating") {
-    if (thread.buffer.length >= BUFFER_CAP) return rehydrate(work, thread);
-    return { ...thread, buffer: [...thread.buffer, frame] };
+    const bufferBytes = (thread.bufferBytes ?? 0) + entryBytes(frame);
+    if (thread.buffer.length >= BUFFER_CAP || bufferBytes > BUFFER_BYTES) return rehydrate(work, thread);
+    return { ...thread, buffer: [...thread.buffer, frame], bufferBytes };
   }
   switch (frame.type) {
     case "message":
@@ -512,7 +613,7 @@ function threadEntry(work: Work, thread: Thread, frame: ThreadEntry): Thread {
     case "message.removed":
       return upstreamGate(work, thread, frame.upstream, (t) => removeMessage(work, t, frame.messageID));
     case "delta":
-      if (holding(thread, frame.messageID)) return hold(thread, frame.messageID, { kind: "delta", frame });
+      if (holding(thread, frame.messageID)) return hold(work, thread, frame.messageID, { kind: "delta", frame });
       return delta(work, thread, frame);
     default:
       return unreachable(frame);
@@ -579,13 +680,50 @@ const messageIndex = (thread: Thread, id: string) => thread.messages.findIndex((
 
 const holding = (thread: Thread, messageID: string) => thread.refetching[messageID] !== undefined;
 
-function hold(thread: Thread, messageID: string, entry: Held): Thread {
+/** what a delta, an info or a message's removal weighs beside the words it carries: its ids, field and offset */
+const ENTRY_ENVELOPE = 160;
+
+/** a transcript entry's size as the caps on what waits count it: a delta its words, a part as the thread counts it */
+function entryBytes(frame: ThreadEntry): number {
+  switch (frame.type) {
+    case "delta":
+      return frame.delta.length + ENTRY_ENVELOPE;
+    case "part":
+      return partBytes(frame.part);
+    case "message":
+      return jsonWeight(frame.info);
+    case "message.removed":
+      return ENTRY_ENVELOPE;
+    default:
+      return unreachable(frame);
+  }
+}
+
+function heldBytes(entry: Held): number {
+  switch (entry.kind) {
+    case "info":
+      return jsonWeight(entry.info);
+    case "part":
+      return partBytes(entry.part);
+    case "delta":
+      return entryBytes(entry.frame);
+    default:
+      return unreachable(entry);
+  }
+}
+
+const listBytes = (entries: readonly Held[]): number => entries.reduce((n, entry) => n + heldBytes(entry), 0);
+
+/** keeps an entry for a message being fetched again; past the byte cap the thread is read again instead (HELD_BYTES) */
+function hold(work: Work, thread: Thread, messageID: string, entry: Held): Thread {
   const held = thread.refetching[messageID] ?? [];
-  return { ...thread, refetching: { ...thread.refetching, [messageID]: [...held, entry] } };
+  const bytes = (thread.heldBytes ?? 0) + heldBytes(entry);
+  if (bytes > HELD_BYTES) return rehydrate(work, thread);
+  return { ...thread, refetching: { ...thread.refetching, [messageID]: [...held, entry] }, heldBytes: bytes };
 }
 
 function applyInfo(work: Work, thread: Thread, info: MessageInfo): Thread {
-  if (holding(thread, info.id)) return hold(thread, info.id, { kind: "info", info });
+  if (holding(thread, info.id)) return hold(work, thread, info.id, { kind: "info", info });
   return upsertInfo(work, thread, info);
 }
 
@@ -611,10 +749,11 @@ function removeMessage(work: Work, thread: Thread, id: string): Thread {
   if (messages.length === thread.messages.length && !holding(thread, id)) return thread;
   const gone = thread.messages.find((m) => m.info.id === id);
   // a refetch still in flight for it finds nothing waiting and is dropped
-  const { [id]: _gone, ...refetching } = thread.refetching;
-  if (messages.length === thread.messages.length) return { ...thread, refetching };
+  const { [id]: dropped, ...refetching } = thread.refetching;
+  const heldBytes = (thread.heldBytes ?? 0) - (dropped ? listBytes(dropped) : 0);
+  if (messages.length === thread.messages.length) return { ...thread, refetching, heldBytes };
   work.patch(["threads", thread.key, "messages"], messages);
-  return grown({ ...thread, messages, refetching }, gone ? -messageBytes(gone) : 0);
+  return grown({ ...thread, messages, refetching, heldBytes }, gone ? -messageBytes(gone) : 0);
 }
 
 /** a file part that is not an image, held without its bytes (docs/composer.md, attachments: any file): a pdf a person sent
@@ -636,7 +775,7 @@ const slimMessage = (message: Message): Message => (message.parts.some((p) => p.
 function applyPart(work: Work, thread: Thread, sent: Part, resumed: boolean): Thread {
   const part = slimPart(sent);
   const entry: Held = { kind: "part", part, resumed };
-  if (holding(thread, part.messageID)) return hold(thread, part.messageID, entry);
+  if (holding(thread, part.messageID)) return hold(work, thread, part.messageID, entry);
   const at = messageIndex(thread, part.messageID);
   if (at < 0) return startRefetch(work, thread, part.messageID, [entry]);
   const held = (thread.messages[at] as Message).parts.find((p) => p.id === part.id); // at came from findIndex
@@ -690,23 +829,25 @@ function delta(work: Work, thread: Thread, frame: DeltaEntry): Thread {
   if (text !== undefined && typeof text !== "string") return thread;
   const had = text ?? "";
   const end = frame.offset + frame.delta.length;
-  let next: string;
+  let added: string;
   if (frame.offset === had.length) {
-    next = had + frame.delta;
+    added = frame.delta;
   } else if (end <= had.length) {
     work.count(end <= (thread.baseline[frame.partID] ?? 0) ? "covered" : "duplicates");
     return thread;
   } else if (frame.offset < had.length) {
-    next = had + frame.delta.slice(had.length - frame.offset);
+    added = frame.delta.slice(had.length - frame.offset);
   } else {
     return startRefetch(work, thread, frame.messageID, [held]);
   }
+  const next = had + added;
   const parts = [...message.parts];
   parts[index] = { ...part, [frame.field]: next } as Part;
   const messages = [...thread.messages];
   messages[at] = { info: message.info, parts };
-  work.patch(["threads", thread.key, "messages", at, "parts", index, frame.field], next);
-  return grown({ ...thread, messages }, next.length - had.length);
+  // only the words past the end go to the ui, so a delta costs what it adds however long the text has grown
+  work.patches.push({ path: ["threads", thread.key, "messages", at, "parts", index, frame.field], append: added, from: had.length });
+  return grown({ ...thread, messages }, added.length);
 }
 
 /** the part a first delta creates: text, still streaming, until the whole part arrives and replaces it */
@@ -718,10 +859,12 @@ function bornText(message: Message, frame: DeltaEntry): Part {
     answer is merged under everything held, and a gap that is still open then asks again */
 function startRefetch(work: Work, thread: Thread, messageID: string, entries: Held[]): Thread {
   const pending = thread.refetching[messageID];
-  if (pending) return { ...thread, refetching: { ...thread.refetching, [messageID]: [...pending, ...entries] } };
+  const heldBytes = (thread.heldBytes ?? 0) + listBytes(entries);
+  if (heldBytes > HELD_BYTES) return rehydrate(work, thread);
+  if (pending) return { ...thread, refetching: { ...thread.refetching, [messageID]: [...pending, ...entries] }, heldBytes };
   work.count("refetches");
   work.effects.push({ type: "refetch", key: thread.key, messageID, hydration: thread.hydration });
-  return { ...thread, refetching: { ...thread.refetching, [messageID]: entries } };
+  return { ...thread, refetching: { ...thread.refetching, [messageID]: entries }, heldBytes };
 }
 
 function baselineOf(messages: readonly Message[], into: Record<string, number> = {}): Record<string, number> {
@@ -743,7 +886,9 @@ function fresh(work: Work, key: string, openedAt: number, heldAt: number, leased
     messages: [],
     baseline: {},
     buffer: [],
+    bufferBytes: 0,
     refetching: {},
+    heldBytes: 0,
     openedAt,
     heldAt,
     leased,
@@ -838,7 +983,9 @@ function restored(work: Work, state: SyncState, action: Extract<Action, { type: 
     messages: action.messages ?? [],
     baseline: action.messages ? head.baseline : {},
     buffer: [],
+    bufferBytes: 0,
     refetching: Object.fromEntries(head.refetching.map((id) => [id, []])),
+    heldBytes: 0,
     openedAt: head.openedAt,
     heldAt: head.heldAt,
     leased: head.leased,
@@ -971,7 +1118,9 @@ function hydrated(work: Work, state: SyncState, action: Extract<Action, { type: 
     messages: action.messages,
     baseline: baselineOf(action.messages),
     buffer: [],
+    bufferBytes: 0,
     refetching: {},
+    heldBytes: 0,
     bytes: action.bytes ?? sizeOf(action.messages),
     trouble: null,
   };
@@ -1008,11 +1157,12 @@ function refetched(work: Work, state: SyncState, action: Extract<Action, { type:
   const waiting = held.refetching[action.messageID];
   if (!waiting) return state;
   const { [action.messageID]: _done, ...refetching } = held.refetching;
-  let thread: Thread = { ...held, refetching };
+  let thread: Thread = { ...held, refetching, heldBytes: (held.heldBytes ?? 0) - listBytes(waiting) };
   if (action.message !== null) {
     thread = mergeMessage(work, thread, action.message);
     thread = { ...thread, baseline: baselineOf([action.message], thread.baseline) };
-    for (const entry of waiting) thread = reapply(work, thread, action.messageID, entry);
+    // a thread that passed the held cap meanwhile is being read again whole, which covers what is left
+    for (const entry of waiting) if (thread.hydration === held.hydration) thread = reapply(work, thread, action.messageID, entry);
   }
   return { ...state, threads: { ...state.threads, [action.key]: thread } };
 }
@@ -1049,7 +1199,7 @@ function mergeMessage(work: Work, thread: Thread, snapshot: Message): Thread {
 
 /** one entry that waited for a snapshot. a gap that reopens the refetch holds everything after it for the next answer */
 function reapply(work: Work, thread: Thread, messageID: string, entry: Held): Thread {
-  if (holding(thread, messageID)) return hold(thread, messageID, entry);
+  if (holding(thread, messageID)) return hold(work, thread, messageID, entry);
   switch (entry.kind) {
     case "info":
       return upsertInfo(work, thread, entry.info);
@@ -1064,22 +1214,113 @@ function reapply(work: Work, thread: Thread, messageID: string, entry: Held): Th
 
 /* —— the patch queue —— */
 
-const pathKey = (path: readonly PathSegment[]) => path.map(String).join("\u0000");
+/** the paths a backwards pass has met, one level per segment. `set`: a later patch set the value here, so earlier ones
+    here and below are overwritten; `revived` when that set gave it a value; `slot`: where in the output that value is;
+    `settled` once nothing earlier at this path can matter (a delete before the set was kept); `run`: the place of a later
+    append at this path still open to merge */
+type Seen = { set: boolean; revived: boolean; settled: boolean; slot: number; run: number; next: Map<string, Seen> | null };
 
-/** drops every patch a later one overwrites (the same path or a prefix of it), keeping order. the worker
-    calls it once per frame, so a burst of deltas becomes one text patch */
+const seen = (): Seen => ({ set: false, revived: false, settled: false, slot: -1, run: -1, next: null });
+
+/** where a key sits in its object is decided when it is created: a set alone leaves it where it is, a delete and a set
+    move it to the end. inside a session entry (`changed` adds and deletes keys there) a value set twice lands where the
+    first set put the key, and the last delete before a set is kept, so the ui's keys read in the worker's order.
+    shallower paths (a session, an ask, a thread) coalesce as they always did: the ui drops a thread's caches on its
+    delete, and the fleet's maps keep the order they had */
+const KEEPS_ORDER = 4;
+
+/** drops every patch a later set overwrites (the same path or a prefix of it), keeping order, and joins the appends to one
+    path into one, or into the set before them. the worker calls it once per frame, so a burst of deltas becomes one append;
+    the ui calls it again over what waits for its frame. a segment is matched by its string, so 3 and "3" are one */
 export function coalesce(patches: readonly Patch[]): Patch[] {
-  const seen = new Set<string>();
-  const kept: Patch[] = [];
+  const root = seen();
+  const kept: Array<Patch | null> = [];
   for (let i = patches.length - 1; i >= 0; i--) {
     const patch = patches[i] as Patch; // i is inside the array
+    let node = root;
     let overwritten = false;
-    for (let depth = 1; depth <= patch.path.length && !overwritten; depth++) {
-      overwritten = seen.has(pathKey(patch.path.slice(0, depth)));
+    let depth = 0;
+    for (const segment of patch.path) {
+      const name = String(segment);
+      let child = node.next?.get(name);
+      if (!child) {
+        child = seen();
+        (node.next ??= new Map()).set(name, child);
+      }
+      node = child;
+      depth++;
+      if (node.set) {
+        overwritten = true;
+        break;
+      }
     }
-    if (overwritten) continue;
-    seen.add(pathKey(patch.path));
-    kept.push(patch);
+    if (overwritten) {
+      if (depth === patch.path.length && patch.path.length >= KEEPS_ORDER && node.revived && !node.settled) settle(kept, node, patch);
+      continue;
+    }
+    const later = node.run >= 0 ? (kept[node.run] as AppendPatch) : null; // a run is only ever an append's place
+    if (isAppend(patch)) {
+      if (!later) {
+        node.run = kept.length;
+        kept.push(patch);
+      } else if (later.from < patch.from) {
+        // the later one rewrote from before this one began: this one changes nothing it leaves
+      } else {
+        // each append starts where the text ends (the worker sends no other), so the later one starts where this one ends
+        const keep = later.from - patch.from;
+        const head = keep >= patch.append.length ? patch.append : patch.append.slice(0, Math.max(0, keep));
+        // the joined append takes the earlier one's place, which is where a missing text would have been created
+        kept[node.run] = null;
+        node.run = kept.length;
+        kept.push({ path: patch.path, append: head + later.append, from: patch.from });
+      }
+      continue;
+    }
+    // an empty path is a no-op for the store, and overwrites nothing
+    if (patch.path.length === 0) {
+      kept.push(patch);
+      continue;
+    }
+    node.set = true;
+    if (later) {
+      // the set and the appends after it become one set in the set's place, where it may have created the key; after a
+      // delete the key is created by the first append, so the set stays in that append's place
+      const value: Patch = { path: patch.path, value: appended(patch.value, later) };
+      if (patch.value === undefined) {
+        kept[node.run] = value;
+        node.slot = node.run;
+      } else {
+        kept[node.run] = null;
+        node.slot = kept.length;
+        kept.push(value);
+      }
+      node.revived = true;
+      if (patch.value === undefined && patch.path.length >= KEEPS_ORDER) settle(kept, node, patch);
+    } else {
+      node.slot = kept.length;
+      kept.push(patch);
+      node.revived = patch.value !== undefined;
+    }
   }
-  return kept.reverse();
+  const out: Patch[] = [];
+  for (let i = kept.length - 1; i >= 0; i--) {
+    const patch = kept[i];
+    if (patch) out.push(patch);
+  }
+  return out;
+}
+
+/** an earlier patch at a path whose value a later set gives: a delete is kept (the key moves to the end, as applying each
+    in turn moves it) and nothing before it matters; a set or an append may be what created the key, so the value moves
+    back to its place */
+function settle(kept: Array<Patch | null>, node: Seen, earlier: Patch): void {
+  if (!isAppend(earlier) && earlier.value === undefined) {
+    kept.push(earlier);
+    node.settled = true;
+    return;
+  }
+  const value = kept[node.slot] ?? null;
+  kept[node.slot] = null;
+  node.slot = kept.length;
+  kept.push(value);
 }

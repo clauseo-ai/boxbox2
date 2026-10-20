@@ -82,7 +82,11 @@ order.
 3. **worker to ui.** the worker applies events to its indexeddb cache and
    posts **patches** to the ui thread, coalesced to one message per
    animation frame. the ui never parses the stream and never talks to
-   indexeddb.
+   indexeddb. a patch costs what changed: a session the server sends
+   whole again is compared with the one held and patched leaf by leaf
+   (an array item that changed goes whole, so nothing the ui holds
+   changes under it), and a delta posts only the words it adds, as an
+   append the ui joins to the text it holds.
 
 **cold launch** reads the cache (fleet model plus the open thread's pages)
 and paints on the first frame, then the worker resumes the stream from the
@@ -183,6 +187,7 @@ owner; every map has an eviction rule. the caps:
 | upstream sse line buffer | 8 mb per frame (a tool part's 4 mb of image attachments, whole) | the frame is logged and skipped, the stream survives |
 | transcript hydration proxy | streamed, never buffered whole; gzip on the wire (`http/compress.rs`) | n/a |
 | worker cache (indexeddb) and the threads in its memory | 40 opened threads, 16 held-only threads beside them, and 150 mb for both, by the size of each thread's json (a read's body, then every change applied) | the count caps evict their own kind, longest unused first; the byte cap evicts held-only threads first, then opened ones longest ago first, never the thread on stage or the one the open or read is for (the indexeddb layout, above) |
+| worker entries waiting on a read: a hydration's buffer, and what waits for a message fetched again | the buffer 20,000 entries or 128 mb, what waits for refetches 128 mb per thread (each sixteen frames at the server's 8 mb frame cap), by the size of each entry's words (a part as the thread counts it) | the thread is read again whole, which covers everything that waited |
 | pty relay | 256 kb each way | the socket is closed; the relay redials with the cursor |
 | media store (m9) | `[media] max_bytes`, 2 GiB unless set; 64 MiB a file; 4 uploads at once, 1 MiB buffered each, owned by the media task; 2 copies per connection in flight and 64 queued, 1 MiB buffered each, queued by the source and written by the media task (`agents.md`, buffers and caps) | least recently used first, never pinned media or media under 24 hours old; an evicted id answers 410 (`agents.md`, media). a fifth upload answers 503; a full copy queue defers the copy, never marks it missing |
 | socket source buffers (m9, per openclaw or hermes connection) | reader channel 4096 frames or 16 mb; seen index 200 rows of 24 bytes for 2,000 threads (9.2 mb); live text 8 runs of 256 kb; 256 events per session held during its first read; 10,000 thread ids; 256 sends being reconciled; requests 4 in flight and 8 queued (`agents.md`, buffers and caps) | the reader sheds at half and stops reading when full; the seen index and id map evict least recently used; a verb past the request queue answers 503 `agent-busy` |

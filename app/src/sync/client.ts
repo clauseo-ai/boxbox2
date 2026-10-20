@@ -13,7 +13,7 @@ import { applyPatches, boardCompose, boardFocus, boardGone, boardHere, bootSync,
 import type { Emit, FromWorker, Outgoing, Query, StreamStatus, SyncCounters, ToWorker } from "./messages";
 import type { BoardFrame } from "./protocol";
 import { type Draft, type DraftMessage, type Photo, photosNotFitted, takeBackDraft } from "./outbox";
-import { coalesce, type Patch } from "./reducer";
+import { PatchQueue } from "./queue";
 import type { AskReply } from "./replies";
 import { mintId } from "./telemetry";
 
@@ -25,7 +25,7 @@ const waiting = new Map<number, (value: unknown) => void>();
 /** unsends waiting for the worker's word, by `key messageID` */
 type Unsent = { ok: boolean; message: string | null; returned: boolean };
 const unsending = new Map<string, (result: Unsent) => void>();
-let queued: Patch[] = [];
+const queue = new PatchQueue();
 let frame: number | undefined;
 let sampled = 0;
 /* the rows this thread emitted and the worker has not yet reported sent: on the way out they go by beacon, since a
@@ -48,21 +48,18 @@ function onMessage(event: MessageEvent<FromWorker>) {
       // absence; nothing paints while hidden, so apply at once, and otherwise on the ui's own frame,
       // so two messages paint once.
       // the queue is coalesced as it grows, bounded by the paths it touches, not by the time away
+      queue.push(message.patches);
       if (document.visibilityState === "hidden") {
-        applyPatches(coalesce([...queued, ...message.patches]));
-        queued = [];
+        applyPatches(queue.take());
         return;
       }
-      queued = coalesce([...queued, ...message.patches]);
       // one patch in twenty-five for the open thread is timed from its arrival here to the frame after it painted:
       // the worker-to-glyph part of the stream budget (perf.thread, event)
       const open = state.openThread;
       const timed = open !== null && frame === undefined && ++sampled % 25 === 0 && message.patches.some((p) => p.path[0] === "threads" && p.path[1] === open) ? { at: performance.now(), key: open } : null;
       frame ??= requestAnimationFrame(() => {
         frame = undefined;
-        const patches = queued;
-        queued = [];
-        applyPatches(patches);
+        applyPatches(queue.take());
         if (timed) requestAnimationFrame(() => { const ms = performance.now() - timed.at; emit("perf.thread", { what: "event" }, { ms: Math.round(ms), ok: ms <= 150, surface: "thread", session: timed.key }); });
       });
       return;
@@ -177,7 +174,7 @@ function detach() {
   window.removeEventListener("pageshow", onPageShow);
   if (frame !== undefined) cancelAnimationFrame(frame);
   frame = undefined;
-  queued = [];
+  queue.clear();
   for (const resolve of waiting.values()) resolve(null);
   waiting.clear();
   for (const resolve of unsending.values()) resolve({ ok: false, message: "not connected", returned: false });
@@ -348,7 +345,7 @@ function ask(query: Query): Promise<unknown> {
 /** the utf-16 length of the text parts painted for the open thread, read from the dom nodes */
 function painted(): number {
   let length = 0;
-  for (const node of document.querySelectorAll('[aria-label="transcript"] [data-part-text]')) length += node.textContent?.length ?? 0;
+  document.querySelectorAll('[aria-label="transcript"] [data-part-text]').forEach((node) => (length += node.textContent?.length ?? 0));
   return length;
 }
 

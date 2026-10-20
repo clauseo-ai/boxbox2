@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import type { Entry, FleetSnapshot, Frame, Message, Part, SessionEntry } from "./protocol";
 import think from "./fixtures/think-turn.json";
 import { inDaemonOrder, inDaemonOrderAll, placeBefore, positionOf } from "./order";
-import { type Action, coalesce, INITIAL_STATE, reduce, type Result, type SyncState } from "./reducer";
+import { type Action, appended, coalesce, INITIAL_STATE, isAppend, type Patch, type PathSegment, reduce, type Result, SERVER_FRAME_BYTES, type SetPatch, type SyncState } from "./reducer";
+import { PatchQueue } from "./queue";
 
 const EPOCH = "j1";
 const KEY = "bench:ses_1";
@@ -176,7 +177,7 @@ describe("a read that fails", () => {
   test("the read that lands clears it, in the view it patches", () => {
     const { state, results } = run(opened(), [failing(), { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, messages: [] }]);
     expect(state.threads[KEY]?.trouble).toBeNull();
-    const view = results[1]?.patches.find((p) => p.path.length === 2)?.value as Record<string, unknown>;
+    const view = (results[1]?.patches.find((p) => p.path.length === 2) as SetPatch | undefined)?.value as Record<string, unknown>;
     expect("trouble" in view).toBe(false);
   });
 
@@ -205,6 +206,58 @@ describe("deltas", () => {
     expect(fetched.state.threads[KEY]?.refetching).toEqual({});
   });
 
+  // images at the server's largest frame: the most a legitimate stream sends at once
+  const frameSized = `data:image/png;base64,${"x".repeat(SERVER_FRAME_BYTES - 200)}`;
+  const image = (n: number, messageID = "msg_2"): Part => ({ id: `prt_img${String(n).padStart(2, "0")}`, sessionID: "ses_1", messageID, type: "file", mime: "image/png", url: frameSized }) as Part;
+  const images = (n: number, from: number, upstream = 100) => Array.from({ length: n }, (_, i): Entry => ({ type: "part", seq: from + i, key: KEY, upstream: upstream + i, part: image(i) }));
+
+  test("what waits for a refetch: fifteen of the server's largest frames wait and apply on the answer as they always did", () => {
+    const journal = streamingJournal(0);
+    const holed = [journal[0], journal[1], journal[2], journal[4]].map((e, i) => ({ ...(e as Entry), seq: i + 1 }));
+    const waiting = run(openThread(), holed.map((e) => frame(e))).state;
+    const under = run(waiting, images(15, 5).map((e) => frame(e)));
+    expect(under.results.flatMap((r) => r.effects)).toEqual([]);
+    expect(under.state.threads[KEY]?.status).toBe("live");
+    expect(under.state.threads[KEY]?.refetching.msg_2?.length).toBe(16);
+    const answered = reduce(under.state, { type: "refetched", key: KEY, hydration: 1, messageID: "msg_2", message: message("msg_2", [text("prt_1", "hello wörld 🙂")]) });
+    expect(answered.effects).toEqual([]);
+    expect(answered.state.threads[KEY]?.messages[0]?.parts.map((p) => p.id)).toEqual(["prt_1", ...Array.from({ length: 15 }, (_, i) => image(i).id)]);
+    expect(partText(answered.state)).toBe("hello wörld 🙂 again");
+    expect(answered.state.threads[KEY]?.heldBytes).toBe(0);
+  });
+
+  test("what waits for a refetch has a byte cap: past it the thread is read again whole", () => {
+    const journal = streamingJournal(0);
+    const holed = [journal[0], journal[1], journal[2], journal[4]].map((e, i) => ({ ...(e as Entry), seq: i + 1 }));
+    const waiting = run(openThread(), holed.map((e) => frame(e))).state;
+    const over = run(waiting, images(17, 5).map((e) => frame(e)));
+    const at = over.results.findIndex((r) => r.effects.length > 0);
+    expect(at).toBe(16);
+    expect(over.results[at]?.effects).toEqual([{ type: "hydrate", key: KEY, hydration: 2 }]);
+    expect(over.results[at]?.patches).toEqual([{ path: ["threads", KEY, "status"], value: "hydrating" }]);
+    expect(over.state.threads[KEY]?.refetching).toEqual({});
+    expect(over.state.threads[KEY]?.heldBytes).toBe(0);
+  });
+
+  test("what waits for a hydration: fifteen of the server's largest frames wait and apply when the read lands", () => {
+    const hydrating = run(INITIAL_STATE, [reset(), { type: "open", key: KEY, at: 1 }]).state;
+    const under = run(hydrating, images(15, 1).map((e) => frame(e)));
+    expect(under.results.flatMap((r) => r.effects)).toEqual([]);
+    expect(under.state.threads[KEY]?.buffer.length).toBe(15);
+    const landed = reduce(under.state, { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 5, messages: [message("msg_2")], bytes: 100 });
+    expect(landed.effects).toEqual([]);
+    expect(landed.state.threads[KEY]?.messages[0]?.parts.length).toBe(15);
+  });
+
+  test("what waits for a hydration has a byte cap beside its count: past it the read starts over", () => {
+    const hydrating = run(INITIAL_STATE, [reset(), { type: "open", key: KEY, at: 1 }]).state;
+    const over = run(hydrating, images(17, 1).map((e) => frame(e)));
+    expect(over.results.findIndex((r) => r.effects.length > 0)).toBe(16);
+    expect(over.results[16]?.effects).toEqual([{ type: "hydrate", key: KEY, hydration: 2 }]);
+    expect(over.state.threads[KEY]?.buffer).toEqual([]);
+    expect(over.state.threads[KEY]?.bufferBytes).toBe(0);
+  });
+
   test("offsets count utf-16 units, so an emoji is two", () => {
     const journal = streamingJournal(0);
     const { state } = run(openThread(), journal.map((e) => frame(e)));
@@ -224,7 +277,7 @@ describe("deltas", () => {
 });
 
 describe("the patch queue", () => {
-  test("a burst of deltas becomes one text patch, and order survives", () => {
+  test("a burst of deltas becomes one append of what they added, and order survives", () => {
     const { results } = run(openThread(), streamingJournal(0).map((e) => frame(e)));
     const patches = coalesce(results.flatMap((r) => r.patches));
     expect(patches.map((p) => p.path.join("/"))).toEqual([
@@ -232,7 +285,151 @@ describe("the patch queue", () => {
       `threads/${KEY}/messages/0/parts/0`,
       `threads/${KEY}/messages/0/parts/0/text`,
     ]);
-    expect(patches[2]?.value).toBe("hello wörld 🙂 again");
+    expect(patches[2]).toEqual({ path: ["threads", KEY, "messages", 0, "parts", 0, "text"], append: "hello wörld 🙂 again", from: 0 });
+  });
+
+  test("a delta's patch carries only the words it adds, from where the text ended", () => {
+    const { results } = run(openThread(), streamingJournal(0).map((e) => frame(e)));
+    expect(results.slice(2).map((r) => r.patches)).toEqual([
+      [{ path: ["threads", KEY, "messages", 0, "parts", 0, "text"], append: "hello ", from: 0 }],
+      [{ path: ["threads", KEY, "messages", 0, "parts", 0, "text"], append: "wörld 🙂", from: 6 }],
+      [{ path: ["threads", KEY, "messages", 0, "parts", 0, "text"], append: " again", from: 14 }],
+    ]);
+  });
+
+  test("appends after a set join it, and a later set drops the appends before it", () => {
+    const at = ["threads", KEY, "messages", 0, "parts", 0, "text"] as const;
+    expect(coalesce([{ path: at, value: "ab" }, { path: at, append: "c", from: 2 }, { path: at, append: "d", from: 3 }])).toEqual([{ path: at, value: "abcd" }]);
+    expect(coalesce([{ path: at, append: "c", from: 2 }, { path: at, value: "xy" }])).toEqual([{ path: at, value: "xy" }]);
+    expect(coalesce([{ path: ["threads", KEY], value: { key: KEY } }, { path: at, append: "c", from: 0 }])).toEqual([{ path: ["threads", KEY], value: { key: KEY } }, { path: at, append: "c", from: 0 }]);
+    expect(coalesce([{ path: at, append: "c", from: 2 }, { path: ["threads", KEY], value: undefined }])).toEqual([{ path: ["threads", KEY], value: undefined }]);
+    // a key deleted, then created again by an append: it lands after a key set in between, as applying each in turn puts it
+    const x = ["fleet", "sessions", "k", "b", "x"] as const;
+    const w = ["fleet", "sessions", "k", "b", "w"] as const;
+    expect(coalesce([{ path: x, value: undefined }, { path: w, value: 1 }, { path: x, append: "t", from: 0 }])).toEqual([
+      { path: x, value: undefined },
+      { path: w, value: 1 },
+      { path: x, value: "t" },
+    ]);
+  });
+
+  test("coalesced, a run of sets and appends leaves what applying each in turn leaves", () => {
+    let seed = 11;
+    const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const paths: PathSegment[][] = [["a"], ["a", "x"], ["a", "x", "t"], ["a", "y", "t"], ["b", 0, "t"], ["b", "0", "t"], ["b"]];
+    const apply = (root: Record<string, unknown>, patches: readonly Patch[]) => {
+      for (const patch of patches) {
+        let node: Record<string | number, unknown> = root;
+        for (const segment of patch.path.slice(0, -1)) {
+          const child = node[segment];
+          node = (typeof child === "object" && child !== null ? child : (node[segment] = {})) as Record<string | number, unknown>;
+        }
+        const last = patch.path[patch.path.length - 1] as PathSegment; // every path here has a segment
+        if (isAppend(patch)) node[last] = appended(node[last], patch);
+        else if (patch.value === undefined) delete node[last];
+        else node[last] = structuredClone(patch.value);
+      }
+      return root;
+    };
+    for (let round = 0; round < 500; round++) {
+      // the worker's appends start where the text ends, so lengths are tracked as the patches are made
+      const lengths = new Map<string, number>();
+      const patches: Patch[] = [];
+      for (let n = 1 + Math.floor(random() * 12); n > 0; n--) {
+        const path = paths[Math.floor(random() * paths.length)] as PathSegment[]; // inside the list
+        const leaf = String(path[path.length - 1]) === "t";
+        for (const key of [...lengths.keys()]) if (key.startsWith(path.map(String).join("/")) && key !== path.map(String).join("/")) lengths.delete(key);
+        const key = path.map(String).join("/");
+        if (leaf && lengths.has(key) && random() < 0.7) {
+          const from = lengths.get(key) ?? 0;
+          const append = "w".repeat(1 + Math.floor(random() * 3));
+          patches.push({ path, append, from });
+          lengths.set(key, from + append.length);
+        } else if (leaf) {
+          const value = "s".repeat(Math.floor(random() * 4));
+          patches.push({ path, value });
+          lengths.set(key, value.length);
+        } else {
+          patches.push({ path, value: random() < 0.2 ? undefined : { t: "v" } });
+          for (const k of [...lengths.keys()]) if (k.startsWith(`${key}/`)) lengths.delete(k);
+        }
+      }
+      const base = () => ({ a: { x: { t: "q" }, y: { t: "" } }, b: { 0: { t: "r" } } });
+      expect(apply(base(), coalesce(patches))).toEqual(apply(base(), patches));
+    }
+  });
+
+  // inside a session entry, where the reducer patches leaves: key order counts too (a key created, deleted and set again),
+  // and the ui's queue coalesces as it grows
+  test("coalesced through the ui's queue, inside a session entry, the store ends as applying each in turn, key order included", () => {
+    const at = ["fleet", "sessions", "k"] as const;
+    const paths: PathSegment[][] = [
+      [...at, "info"],
+      [...at, "info", "a"],
+      [...at, "info", "a", "t"],
+      [...at, "info", "b"],
+      [...at, "info", "c"],
+      [...at, "info", "d"],
+      [...at, "tail", 0],
+      [...at, "tail", "1"],
+      [...at, "status"],
+    ];
+    const base = () => ({ fleet: { sessions: { k: { info: { a: { t: "q" }, b: 1, c: 2 }, tail: [{ x: 1 }, { x: 2 }], status: null as unknown } } } });
+    const walk = (root: Record<string, unknown>, path: readonly PathSegment[], make: boolean) => {
+      let node: Record<string | number, unknown> | undefined = root;
+      for (const segment of path.slice(0, -1)) {
+        const child: unknown = node[segment];
+        if (typeof child !== "object" || child === null) {
+          if (!make) return undefined;
+          node[segment] = {};
+        }
+        node = node[segment] as Record<string | number, unknown>;
+      }
+      return node;
+    };
+    const apply = (root: Record<string, unknown>, patch: Patch) => {
+      const node = walk(root, patch.path, true) as Record<string | number, unknown>; // made on the way
+      const last = patch.path[patch.path.length - 1] as PathSegment; // every path here has a segment
+      if (isAppend(patch)) node[last] = appended(node[last], patch);
+      else if (patch.value === undefined) delete node[last];
+      else node[last] = structuredClone(patch.value);
+    };
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      let s = seed;
+      const random = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+      for (let round = 0; round < 60; round++) {
+        const reference = base();
+        const patches: Patch[] = [];
+        const count = round % 20 === 0 ? 1500 : 1 + Math.floor(random() * 30);
+        for (let n = 0; n < count; n++) {
+          const path = paths[Math.floor(random() * paths.length)] as PathSegment[]; // inside the list
+          const roll = random();
+          // the reducer patches only under objects the ui already holds: a patch never relies on the store making a parent
+          const node = walk(reference, path, false);
+          if (!node) continue;
+          const current = node[path[path.length - 1] as PathSegment]; // every path here has a segment
+          let patch: Patch;
+          if (typeof current === "string" && roll < 0.5) patch = { path, append: "w".repeat(1 + Math.floor(random() * 3)), from: current.length };
+          else if (roll < 0.35) patch = { path, value: undefined };
+          else if (roll < 0.6) patch = { path, value: "s".repeat(Math.floor(random() * 3)) };
+          else if (roll < 0.8) patch = { path, value: { t: "v", n: Math.floor(random() * 3) } };
+          else patch = { path, value: Math.floor(random() * 5) };
+          patches.push(patch);
+          apply(reference, patch);
+        }
+        // the worker coalesces per post, the ui queues posts and takes them at a frame
+        const queue = new PatchQueue();
+        const ui = base();
+        let from = 0;
+        while (from < patches.length) {
+          const size = 1 + Math.floor(random() * 40);
+          queue.push(structuredClone(coalesce(patches.slice(from, from + size))));
+          from += size;
+          if (random() < 0.3 || from >= patches.length) for (const patch of queue.take()) apply(ui, patch);
+        }
+        expect(JSON.stringify(ui)).toBe(JSON.stringify(reference));
+      }
+    }
   });
 
   test("a later write to a prefix drops the earlier deeper ones", () => {
@@ -249,6 +446,90 @@ describe("the patch queue", () => {
 });
 
 describe("the fleet", () => {
+  test("a session sent whole again patches only what changed in it, and the ui's copy ends equal to it, key order included", () => {
+    const item = (n: number, words = `step ${n}`) => ({ partID: `prt_${n}`, messageID: "msg_1", kind: "text", role: "assistant", text: words });
+    const first: SessionEntry = { ...session(), status: { type: "busy", queued: 0, since: 5 } as SessionEntry["status"], tail: [item(1), item(2), item(3)] as SessionEntry["tail"] };
+    const start = run(INITIAL_STATE, [reset(0, snapshot([first]))]).state;
+    const tick = (entry: SessionEntry, seq: number) => reduce(start, frame({ type: "session", seq, session: entry }));
+    const at = ["fleet", "sessions", KEY];
+    const apply = (patches: readonly Patch[]) => {
+      const copy = structuredClone({ sessions: { [KEY]: first } }) as Record<string, unknown>;
+      for (const patch of patches) {
+        let node = copy as Record<string | number, unknown>;
+        for (const segment of patch.path.slice(1, -1)) node = node[segment] as Record<string | number, unknown>;
+        const last = patch.path[patch.path.length - 1] as PathSegment; // every patch here has a path
+        if (isAppend(patch)) node[last] = appended(node[last], patch);
+        else if (patch.value === undefined) delete node[last];
+        else node[last] = structuredClone(patch.value);
+      }
+      return JSON.stringify(copy);
+    };
+    const cases: Array<[SessionEntry, Patch[]]> = [
+      // the same entry again: nothing
+      [structuredClone(first), []],
+      // the last tail item grew and the time moved: two leaves, the item whole
+      [
+        { ...structuredClone(first), info: { ...first.info, time: { created: 1, updated: 9 } }, tail: [item(1), item(2), item(3, "step 3 and more")] as SessionEntry["tail"] },
+        [
+          { path: [...at, "info", "time", "updated"], value: 9 },
+          { path: [...at, "tail", 2], value: item(3, "step 3 and more") },
+        ],
+      ],
+      // the tail moved on: every item changed, so the array goes whole
+      [{ ...structuredClone(first), tail: [item(2), item(3), item(4)] as SessionEntry["tail"] }, [{ path: [...at, "tail"], value: [item(2), item(3), item(4)] }]],
+      // a key gone and a key new at the end: deleted and added in place
+      [
+        { ...structuredClone(first), status: { type: "busy", since: 5, attempt: 2 } as unknown as SessionEntry["status"] },
+        [
+          { path: [...at, "status", "queued"], value: undefined },
+          { path: [...at, "status", "attempt"], value: 2 },
+        ],
+      ],
+      // keys that changed order: the object goes whole, so its keys read in the server's order
+      [{ ...structuredClone(first), status: { since: 5, type: "busy", queued: 0 } as unknown as SessionEntry["status"] }, [{ path: [...at, "status"], value: { since: 5, type: "busy", queued: 0 } }]],
+      // a status that ended
+      [{ ...structuredClone(first), status: null }, [{ path: [...at, "status"], value: null }]],
+    ];
+    cases.forEach(([entry, expected]) => {
+      const { patches } = tick(entry, 1);
+      expect(patches).toEqual(expected);
+      expect(apply(patches)).toBe(JSON.stringify({ sessions: { [KEY]: entry } }));
+    });
+  });
+
+  test("ticks coalesced into one post leave the ui's copy as the last tick, key order included", () => {
+    const first = session();
+    const start = run(INITIAL_STATE, [reset(0, snapshot([first]))]).state;
+    const { title, ...untitled } = first.info;
+    const extra = (info: Record<string, unknown>) => ({ ...first, info }) as unknown as SessionEntry;
+    const runs: SessionEntry[][] = [
+      // a key deleted, then set again: it goes to the end
+      [extra(untitled), extra({ ...untitled, title })],
+      // two keys created, then the first changed: they stay in the order they were created
+      [extra({ ...first.info, revert: "a", share: "b" }), extra({ ...first.info, revert: "c", share: "b" })],
+      // a key deleted, set again, and deleted once more
+      [extra(untitled), extra({ ...untitled, title }), extra(untitled)],
+    ];
+    for (const ticks of runs) {
+      const { state, results } = run(start, ticks.map((entry, i) => frame({ type: "session", seq: i + 1, session: entry })));
+      const ui = structuredClone({ ...first }) as Record<string, unknown>;
+      for (const patch of coalesce(results.flatMap((r) => r.patches))) {
+        let node = ui as Record<string | number, unknown>;
+        for (const segment of patch.path.slice(3, -1)) node = node[segment] as Record<string | number, unknown>;
+        const last = patch.path[patch.path.length - 1] as PathSegment; // a session's patches name a field
+        if (isAppend(patch)) node[last] = appended(node[last], patch);
+        else if (patch.value === undefined) delete node[last];
+        else node[last] = structuredClone(patch.value);
+      }
+      expect(JSON.stringify(ui)).toBe(JSON.stringify(state.fleet.sessions[KEY]));
+    }
+  });
+
+  test("a session the fleet did not hold is one patch, whole", () => {
+    const added = session("bench:ses_2");
+    const { patches } = reduce(run(INITIAL_STATE, [reset()]).state, frame({ type: "session", seq: 1, session: added }));
+    expect(patches).toEqual([{ path: ["fleet", "sessions", "bench:ses_2"], value: added }]);
+  });
   test("sessions, asks and order follow their entries", () => {
     const added = session("bench:ses_2");
     const { state } = run(run(INITIAL_STATE, [reset()]).state, [
@@ -409,7 +690,7 @@ describe("parts held in the daemon's order", () => {
     const [reasoning] = journalOf(first.state, [partE(3, typed(partId(6, 0), "reasoning", "a", m))]);
     const before = reduce(first.state, reasoning as Action);
     expect(before.patches.map((p) => p.path.join("/"))).toEqual([path(-1)]);
-    expect((before.patches[0]?.value as Part[]).map((p) => p.type)).toEqual(["reasoning", "text"]);
+    expect(((before.patches[0] as SetPatch | undefined)?.value as Part[]).map((p) => p.type)).toEqual(["reasoning", "text"]);
     const [running] = journalOf(before.state, [partE(4, tool(partId(6, 2), m, "running"))]);
     const after = reduce(before.state, running as Action);
     expect(after.patches.map((p) => p.path.join("/"))).toEqual([path(2)]);

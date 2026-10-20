@@ -1706,3 +1706,12 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
 - **measure the blank, not a proxy.** both checks now count frames a pinned stage shows next to none of its thread
   under its bar (`data-empties`, `data-blank`), and the foot-room story's drop is of the first box whose top was in
   view, which is what the reader sees move (with no foot room at all it still counts 10 drops).
+
+## a quiet window cost a fifth of a core (the perf lane)
+
+- **session entries reach the ui's store leaf by leaf.** `state.fleet.sessions[key]`
+  and its unchanged parts keep their identity across ticks, so an effect has to read
+  the field that changes; one that read only the session object, or a status, ran
+  on every tick before and now runs only when that field moves (`home.tsx`'s
+  streaming label was one). a changed array item (a tail line, a need) is always a
+  new object, never changed in place.

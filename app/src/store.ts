@@ -10,7 +10,7 @@ import { evictions, type RepoIcon } from "./ui/repo-mark/icons";
 import type { Link, PtyInfo, Shell, TerminalRef } from "./ui/term/types";
 import type { StreamStatus, UiSync } from "./sync/messages";
 import type { Draft, OutboxView } from "./sync/outbox";
-import { EMPTY_FLEET, type Fleet, type Patch, type ThreadView } from "./sync/reducer";
+import { appended, EMPTY_FLEET, type Fleet, isAppend, type Patch, type ThreadView } from "./sync/reducer";
 import { type AskReply, keepReply, replyKey, restoreReplies } from "./sync/replies";
 import { createThreadCaches } from "./ui/thread/memo-cache";
 
@@ -310,10 +310,10 @@ export function setDraft(key: string, draft: Draft | null): void {
   );
 }
 
-/** applies one frame's patches: each sets a value at a path, undefined deletes it */
+/** applies one frame's patches: each sets a value at a path (undefined deletes it), or adds words to the text there */
 export function applyPatches(patches: readonly Patch[]): void {
   // a thread the worker let go (evicted, or the cache reset): what is kept for it goes too
-  for (const patch of patches) if (patch.path.length === 2 && patch.path[0] === "threads" && patch.value === undefined) threadCaches.dropThread(String(patch.path[1]));
+  for (const patch of patches) if (patch.path.length === 2 && patch.path[0] === "threads" && !isAppend(patch) && patch.value === undefined) threadCaches.dropThread(String(patch.path[1]));
   setState(
     produce((draft) => {
       for (const patch of patches) setPath(draft as unknown as Record<string, unknown>, patch);
@@ -323,7 +323,8 @@ export function applyPatches(patches: readonly Patch[]): void {
 
 type Node = Record<string | number, unknown>;
 
-function setPath(root: Node, { path, value }: Patch): void {
+function setPath(root: Node, patch: Patch): void {
+  const path = patch.path;
   let node = root;
   for (let i = 0; i < path.length - 1; i++) {
     const segment = path[i] as string | number; // i stops before the last segment
@@ -336,8 +337,9 @@ function setPath(root: Node, { path, value }: Patch): void {
   }
   const last = path[path.length - 1];
   if (last === undefined) return;
-  if (value === undefined) delete node[last];
-  else node[last] = value;
+  if (isAppend(patch)) node[last] = appended(node[last], patch);
+  else if (patch.value === undefined) delete node[last];
+  else node[last] = patch.value;
 }
 
 export function setStream(stream: StreamStatus): void {
