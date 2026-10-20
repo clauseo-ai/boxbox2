@@ -934,9 +934,11 @@ in `scars.md`.
   v1's `bb_session`; never set one to the other (`docs/deploy.md`).
 - **rustls brings c.** reqwest's rustls uses aws-lc, and sqlite is bundled
   c too, so a linux release needs a c toolchain for its target; cross
-  compilers make that fragile. rule: each architecture builds natively in
-  `ops/release/Dockerfile` (alpine, musl, static), on a native ci runner or
-  under the docker host's emulation, never cross-compiled.
+  compilers make that fragile. rule: the github release builds each
+  architecture natively in `ops/release/Dockerfile` (alpine, musl, static).
+  a mac cross-compiles only with zig (`ops/release/zig.sh`, decision 83),
+  whose clang and bundled musl build that c for the target; a gcc or clang
+  cross toolchain set up by hand stays out.
 - **rpassword prints its prompt before it turns echo off.** a script that
   answers a password prompt the instant it appears (a pty driver, an
   `expect` script) gets its answer echoed back to the terminal; a person

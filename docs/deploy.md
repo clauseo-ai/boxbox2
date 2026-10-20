@@ -408,8 +408,8 @@ linux ones; `boxbox upgrade` reads any of them.
   `ops/release/Dockerfile`: `rust:1.92.0-alpine`, musl, every library
   linked in. a static binary runs on any distribution whatever its glibc
   (a dynamic binary ferried to a machine with an older glibc fails to start). each
-  architecture builds natively, never cross-compiled; a foreign one runs
-  under the docker host's emulation. the build context is an allowlist, so
+  architecture builds natively; a foreign one runs under the docker
+  host's emulation. the build context is an allowlist, so
   local-only directories and `node_modules` never enter it, and the tarball is packed
   with fixed owners and the commit's time. a release comes from a
   committed tree; `--allow-dirty` rehearses one and marks it `-dirty`.
@@ -422,6 +422,16 @@ linux ones; `boxbox upgrade` reads any of them.
   metadata, and rewrites `SHA256SUMS` over every tarball in
   `target/dist`. run it after `just release`, which starts `target/dist`
   afresh. the release workflow does not build it yet.
+- **cross-compiled on a mac** by `ops/release/zig.sh` (`just release-zig
+  [arch]`), for a deploy that should not wait on emulation: the same
+  static musl tarballs, `install.sh` and `SHA256SUMS` in `target/dist`,
+  built with zig's clang and musl through `cargo-zigbuild` (`brew install
+  zig cargo-zigbuild`, `rustup target add x86_64-unknown-linux-musl`).
+  an x86_64 release that takes about 25 minutes under emulation on an
+  apple silicon mac takes minutes. zig is not pinned the way the image
+  is, so these bytes are that mac's own; tagged releases still come from
+  the workflow (decision 83). copy `target/dist` to the machine and run
+  `boxbox upgrade --from <dir>` there (`--force` for the same version).
 - **published** by `.github/workflows/release.yml` on a tag `v<version>`:
   `just check`, a native build on an x86_64 and an arm64 runner, each
   installed with `install.sh` on its own architecture and run, then one

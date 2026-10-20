@@ -74,6 +74,10 @@ release *flags:
 release-mac *flags:
     ops/release/mac.sh {{ flags }}
 
+# the linux release cross-compiled on this mac with zig, minutes instead of emulation (docs/deploy.md, releases)
+release-zig *flags:
+    ops/release/zig.sh {{ flags }}
+
 # the release binary with the app embedded
 build:
     cd app && bunx vite build
