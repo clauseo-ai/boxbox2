@@ -2,7 +2,7 @@
    copies; everything that changes it is an action here. the sync worker
    owns the stream and posts patches into this same store (sync/client.ts). */
 
-import { batch } from "solid-js";
+import { batch, createSignal } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import type { components } from "./api/boxbox";
 import { api, type HostStatus, type PushKind } from "./api/client";
@@ -311,14 +311,27 @@ export function setDraft(key: string, draft: Draft | null): void {
 }
 
 /** applies one frame's patches: each sets a value at a path (undefined deletes it), or adds words to the text there */
+/* one beat per applied batch that wrote any session (or the fleet whole): what a reader that wants "the fleet moved" reads,
+   in place of walking every session to be woken by each (home's streaming label) */
+const [sessionsBeat, setSessionsBeat] = createSignal(0);
+export { sessionsBeat };
+
 export function applyPatches(patches: readonly Patch[]): void {
-  // a thread the worker let go (evicted, or the cache reset): what is kept for it goes too
-  for (const patch of patches) if (patch.path.length === 2 && patch.path[0] === "threads" && !isAppend(patch) && patch.value === undefined) threadCaches.dropThread(String(patch.path[1]));
-  setState(
-    produce((draft) => {
-      for (const patch of patches) setPath(draft as unknown as Record<string, unknown>, patch);
-    }),
-  );
+  let sessions = false;
+  for (const patch of patches) {
+    const [top, second] = patch.path;
+    // a thread the worker let go (evicted, or the cache reset): what is kept for it goes too
+    if (top === "threads" && patch.path.length === 2 && !isAppend(patch) && patch.value === undefined) threadCaches.dropThread(String(second));
+    else if (top === "fleet" && (second === undefined || second === "sessions")) sessions = true;
+  }
+  batch(() => {
+    setState(
+      produce((draft) => {
+        for (const patch of patches) setPath(draft as unknown as Record<string, unknown>, patch);
+      }),
+    );
+    if (sessions) setSessionsBeat((n) => n + 1);
+  });
 }
 
 type Node = Record<string | number, unknown>;

@@ -25,7 +25,7 @@ import { flip, insetOf, installMotionProperties, play, prefersReducedMotion, set
 import { birth } from "../../motion/fly";
 import { FADE, SHEET, SNAP } from "../../motion/springs";
 import { composeHost, focusPlan, holdsWords, type Over } from "../../board/requests";
-import { boardCompose, boardFocus, openFocus, releaseFocus, setWindowsInView, state } from "../../store";
+import { boardCompose, boardFocus, openFocus, releaseFocus, sessionsBeat, setWindowsInView, state } from "../../store";
 import { type ThreadPlace, closeThread, openThread, placeInUrl } from "../../sync/client";
 import type { Ask } from "../../sync/protocol";
 import { extraOf } from "../inbox/extra";
@@ -35,16 +35,20 @@ import { colourMap } from "../window/colours";
 import { colourStyle } from "../window/repo";
 import { clockOf, type WindowView, windowView } from "../window/view";
 import { type Arrangement, Window } from "../window/window";
-import { sameOrder, windowKeys } from "./membership";
+import { createWindowKeys, sameOrder } from "./membership";
+import { createClock } from "../clock";
+import { keyed, sessionKeys } from "../fleet-index";
+import { createViews } from "./views";
+import { watchStreaming } from "./streaming";
 import { ClearDone, handCleared } from "../window/clear";
 import { coveredBy, type StageLayer } from "./layers";
 import { openVerdict } from "./stage-open";
 import { createCaughtUp } from "../caught-up";
 import { repoRootOf } from "../composer/place";
-import { moveEdge } from "./edge";
+import type { EdgeMove } from "./edge";
 import { Folded, FoldToggle, WINDOWS_ID } from "./fold";
 import { strayView } from "./layers";
-import { AskSheet, NewThreadSheet, warmOn, whenLoaded } from "../later";
+import { AskSheet, type Edge, edgeIfLoaded, NewThreadSheet, warmEdge, warmOn, whenLoaded } from "../later";
 import { arrive, leave, unveil, veil } from "./parts";
 import { doing, launchPainted, startPerf, tapped, watchTransition } from "./perf";
 import { type Beside, detailsPlace } from "./windows";
@@ -103,12 +107,13 @@ export function Home(props: HomeProps) {
   const wide = () => arrangement() === "rail" && size().width >= 1400;
 
   /* —— time, the stream, and whether motion is honest —— */
-  const [now, setNow] = createSignal(props.at ?? Date.now());
-  const clock = setInterval(() => {
-    if (!offline() && props.at === undefined) setNow(Date.now());
-  }, 1000);
-  onCleanup(() => clearInterval(clock));
   const [offline, setOffline] = createSignal(false);
+  /* the footers' clock and the 12 hour rule's: it holds while offline, and stops while the page is hidden except to reach
+     the moment a window's 12 hours run out (ui/clock.ts). the rule reads the clock, so it is made after it and handed back
+     here: until it is, there is no moment to reach */
+  let windowWake: () => number | undefined = () => undefined;
+  const at = props.at;
+  const now = at !== undefined ? () => at : createClock({ held: offline, wake: () => windowWake() });
   // the replay after a (re)connect has landed (ui/caught-up.ts, which the stage waits on too)
   const caughtUp = createCaughtUp();
   createEffect(() => {
@@ -126,7 +131,9 @@ export function Home(props: HomeProps) {
   const motion = () => caughtUp() && visible() && !offline();
 
   /* —— which windows, in which order; a reorder waits for calm —— */
-  const target = createMemo(() => windowKeys(state.fleet, now()), [], { equals: sameOrder });
+  const membership = createWindowKeys(() => state.fleet, now);
+  windowWake = membership.wake;
+  const target = membership.keys;
   const [order, setOrder] = createSignal<string[]>(untrack(target));
   /** which window the deck is on: the index the scroll settled at */
   const [pagerOn, setPagerOn] = createSignal(0);
@@ -200,7 +207,15 @@ export function Home(props: HomeProps) {
     for (const ask of Object.values(state.fleet.asks)) (by[ask.key] ??= []).push(ask);
     return by;
   });
-  const hosts = createMemo(() => new Set(Object.values(state.fleet.sessions).map((s) => s.host)).size);
+  /* each window's view in a memo of its own (views.ts): the slot's reconcile, the summary and the stage read it, and a frame
+     of one thread makes that thread's view alone */
+  const viewsOf = createViews(order, asksBy, (key, asks) => {
+    const entry = state.fleet.sessions[key];
+    return entry ? windowView(entry, asks, colourMap(), extraOf(entry)) : null;
+  });
+  const fleetKeys = sessionKeys(() => state.fleet);
+  const sessionHosts = keyed(fleetKeys, (key) => state.fleet.sessions[key]?.host);
+  const hosts = createMemo(() => new Set(sessionHosts().filter((host) => host !== undefined)).size);
 
   /* —— in view: presence, and where motion is spent —— */
   let winsEl: HTMLDivElement | undefined;
@@ -528,7 +543,12 @@ export function Home(props: HomeProps) {
       return;
     }
     setMoving(kind);
-    const handle = moveEdge({
+    const settled = () => {
+      edgeMove = null;
+      setMoving(null);
+      after();
+    };
+    const move: EdgeMove = {
       card: stageEl,
       lift: liftEl,
       rim: { ring: rimEl, cap: capEl },
@@ -536,14 +556,25 @@ export function Home(props: HomeProps) {
       grow,
       layout,
       ...columns,
-      settled: () => {
-        edgeMove = null;
-        setMoving(null);
-        after();
-      },
-    });
-    // a move that finished before it returned (reduced motion) has nothing left to stop
-    if (moving() !== null) edgeMove = handle;
+      settled,
+    };
+    const start = (edge: Edge) => {
+      const handle = edge.moveEdge(move);
+      // a move that finished before it returned (reduced motion) has nothing left to stop
+      if (moving() !== null) edgeMove = handle;
+    };
+    /* the motion is a chunk of its own (later.ts), warmed when the page is idle and at the toggle's pointerdown, so it
+       starts in this task as it always did; a fold that beat the warming starts the moment the chunk lands, already
+       marked as moving so no other move starts on it. stopped while it loads, it finishes at once, as a move does; a
+       chunk that does not come lays the stage out where the move would have ended */
+    const loaded = edgeIfLoaded();
+    if (loaded) return start(loaded);
+    let stopped = false;
+    edgeMove = { stop: () => ((stopped = true), layout(true), settled()) };
+    warmEdge().then(
+      (edge) => !stopped && start(edge),
+      () => !stopped && (layout(true), settled()),
+    );
   };
   /* —— the details below the inspector's width (windows.ts, detailsPlace): docked where the column keeps its least width, a
      sheet where it does not. the open rail gives way first: details that fit only beside the folded rail fold it while they
@@ -1122,9 +1153,8 @@ export function Home(props: HomeProps) {
     const count = order().length;
     if (count > 0 || caughtUp()) launchPainted(state.stream.state !== "live", count);
   });
-  createEffect(() => {
-    if (Object.values(state.fleet.sessions).some((s) => s.status?.type === "busy")) doing("streaming", 2000);
-  });
+  /* long tasks are filed as streaming for 2 s after any write to the sessions while one of them works (streaming.ts) */
+  watchStreaming(() => state.fleet, sessionsBeat, fleetKeys, () => doing("streaming", 2000));
 
   let barEl: HTMLElement | undefined;
   let pagerEl: HTMLDivElement | undefined;
@@ -1142,8 +1172,7 @@ export function Home(props: HomeProps) {
   };
 
   function viewOf(key: string): WindowView | null {
-    const entry = state.fleet.sessions[key];
-    return entry ? windowView(entry, asksBy()[key] ?? [], colourMap(), extraOf(entry)) : null;
+    return viewsOf(key);
   }
   /** what a stage layer draws: its window's view, or for an agent the fleet does not hold, its parent's view under the
       agent's key and the name of the row that opened it (its session id when the row had none) */

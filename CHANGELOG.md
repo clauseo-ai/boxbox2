@@ -6,6 +6,20 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **home and the stage re-read only the sessions a frame names.** each
+  session is read in a memo of its own, home's window list re-runs on the
+  clock only when a thread's 12 hours run out, each window's view is its
+  own memo, and the stage's children and kin read a parent index; over
+  3000 steps with 300 sessions, memo time falls from 11.8 s to 0.13 s and
+  window views built from 994,482 to 2,919, with outputs equal to the old
+  code kept verbatim in the tests. the live strip moves its marks in place
+  (12 nodes made per tick, now none). the one second clocks of home, the
+  composer and the stage stop while the page is hidden and land on the
+  tick an always running clock would show when it returns; the 12 hour
+  rule and the offline word keep their own wakes. the fold's motion and
+  the plus menu's rows load when idle and on pointerdown, so the first
+  load is 118.4 kb of 120 kb.
+
 - **a streaming reply costs what changed.** a reply is painted in units
   cut at blocks nothing written later can change (raw html, a link
   definition, a footnote or a fence inside a list or quote stop the

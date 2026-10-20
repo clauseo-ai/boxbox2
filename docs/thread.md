@@ -850,7 +850,9 @@ steps between two of the agent's texts is one group, and the group is that
 run's timeline. the turn tape that sat under a heavy turn is gone; its
 lanes live on, scaled down, as each group's strip. the model is
 `groups.ts` (pure, exported for home's windows), the view `GroupView` and
-`strip.tsx`.
+`strip.tsx`. live, the strip's shapes are new every second, so its marks,
+spans and tracks are held by their place in each list (`lane.ts`): a tick
+moves their elements in place and makes none again.
 
 ```
  ›  6 steps · read 3, ran 2, edited 1                 1 min
@@ -1677,7 +1679,7 @@ object identity, because the running turn is still a new object on every
 delta. the last turn is live while it has no
 `time.completed` or the session's status is `busy` or `retry`; a clock
 ticks each second only then, or while any of the turn's agents still
-works (`ctx.tick`, the agent rows' clock; `ctx.now`
+works, and never while the page is hidden (`ui/clock.ts`) (`ctx.tick`, the agent rows' clock; `ctx.now`
 stays the sign that the turn itself runs). the clock is not part of the
 context the stage shares (`data.ctx`: the children, the asks by call id,
 the thinking setting, and the mail turns an agent row finds its report in):

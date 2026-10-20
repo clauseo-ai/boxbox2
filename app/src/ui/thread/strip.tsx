@@ -9,24 +9,27 @@
    the geometry is groups.ts's; this only places it. a mark's modifiers carry
    the mk- prefix: a bare "bar" picked up home.css's `.home .bar` (the home
    bar: relative, padded, raised), and the running bar drew as a tall block
-   over the rows on a desktop home. */
+   over the rows on a desktop home.
+
+   live, every second makes new shapes, so the lane's pieces are held by
+   their place in the list (lane.ts), not by the shapes: a tick moves each
+   mark, span and track in place and makes no element again. */
 
 import { For, Show, createMemo } from "solid-js";
 import { type Strip, stripShapes } from "./groups";
+import { at, lane } from "./lane";
 import "./thread.css";
 
 /** the strip as a picture: no control of its own (a home window draws it inside its own button) */
 export function StripLane(props: { strip: Strip; now?: number | undefined }) {
   const shapes = createMemo(() => stripShapes(props.strip, props.now));
-  const at = (left: number, width?: number) => ({ left: `${left}%`, ...(width !== undefined ? { width: `${width}%` } : {}) });
-  /* a stretch after a folded quiet one starts 3 px on, so the tracks break there */
-  const track = (left: number, width: number) => (left > 0 ? { left: `calc(${left}% + 3px)`, width: `calc(${width}% - 3px)` } : at(left, width));
+  const pieces = lane(shapes);
   return (
     <div class="strip-lane" aria-hidden="true">
-      <For each={shapes().tracks}>{(t) => <><i class="strip-track" style={track(t.left, t.width)} /><i class="strip-bed" style={track(t.left, t.width)} /></>}</For>
+      <For each={pieces.tracks()}>{(t) => <><i class="strip-track" style={t.style()} /><i class="strip-bed" style={t.style()} /></>}</For>
       <Show when={shapes().wash}>{(w) => <i class="strip-wash" style={at(0, w())} />}</Show>
-      <For each={shapes().thoughts}>{(t) => <i class="strip-think" style={at(t.left, t.width)} />}</For>
-      <For each={shapes().marks}>{(m) => <i class={`strip-mk mk-${m.kind}${m.bar ? " mk-bar" : ""}${m.running ? " mk-running" : ""}${m.bad ? " mk-bad" : ""}`} style={at(m.left, m.width)} />}</For>
+      <For each={pieces.thoughts()}>{(t) => <i class="strip-think" style={t.style()} />}</For>
+      <For each={pieces.marks()}>{(m) => <i class={m.class()} style={m.style()} />}</For>
       <Show when={shapes().head !== undefined}><i class="strip-head" style={at(shapes().head ?? 0)} /></Show>
     </div>
   );

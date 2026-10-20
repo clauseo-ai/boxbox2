@@ -10,6 +10,7 @@ import { type AgentRow, type FactLine, type Spend, agentState, cachedShare, cont
 import type { Turn } from "./model";
 import { clock, clockDur, dur, isBad, n, plural } from "./rows";
 import { Close } from "../close";
+import { warmEdgeOn } from "../later";
 import "./details.css";
 
 /** the repo's palette, set inline on what sits outside the stage (the inspector) so its accents are the thread's */
@@ -325,7 +326,7 @@ export function FactsButton(props: { facts: FactLine; open: () => void }) {
     on the left (docs/design.md, the thread menu and details) */
 export function DetailsToggle(props: { expanded: boolean; controls: string; shortcut: boolean; onClick: () => void }) {
   return (
-    <button class="round details-toggle" aria-label="details" aria-expanded={props.expanded ? "true" : "false"} aria-controls={props.controls} aria-keyshortcuts={props.shortcut ? "]" : undefined} onClick={() => props.onClick()}>
+    <button class="round details-toggle" aria-label="details" aria-expanded={props.expanded ? "true" : "false"} aria-controls={props.controls} aria-keyshortcuts={props.shortcut ? "]" : undefined} onPointerDown={warmEdgeOn} onClick={() => props.onClick()}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path class="pane" d="M14.5 4.5H17a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3h-2.5z" /><rect x="4" y="4.5" width="16" height="15" rx="3" /><path d="M14.5 4.5v15" /></svg>
     </button>
   );

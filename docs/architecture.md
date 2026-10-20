@@ -309,7 +309,16 @@ why solid:
   memo discipline and lost (`scars.md`: the perf layer).
 - **stores that take patches.** the worker sends path patches; solid's
   store applies them with structural sharing and wakes only the
-  components that read those paths.
+  components that read those paths. a reading over the whole fleet keeps
+  that promise only if it reads each session in a memo of its own
+  (`ui/fleet-index.ts`): `Object.values(state.fleet.sessions)` in one memo
+  reads every session, so any frame re-ran it over all of them. home's
+  window list, host count, views and streaming label and the stage's
+  agents and kin are built that way, and cost the session a frame names.
+  the screens' one second clocks (`ui/clock.ts`) stop while the page is
+  hidden, ticking only to reach a moment logic named (home's 12 hours,
+  the composer's offline word), and come back on the tick a clock that
+  never stopped would show.
 - **small**: the framework is about 7 kb. the whole app's first load
   budget is 120 kb of script, compressed, and `index.html` has 12 kb of its
   own, compressed (it carries the providers' marks as an inline sprite);
@@ -321,8 +330,10 @@ why solid:
   and highlight engines, what follows a copy, a photo's clamping), and
   the surfaces that open at a press (`app/src/ui/later.ts`: the
   new-thread sheet, home's answer sheet, the model menu, the effort dial,
-  the queue's list, a report's sheet, the file reader), which open
-  through `whenLoaded` so none opens onto nothing.
+  the plus menu's rows, the queue's list, a report's sheet, the file
+  reader), which open through `whenLoaded` so none opens onto nothing,
+  and the stage card's edge in motion (`home/edge.ts`), which runs only at
+  a fold and starts in the fold's own task once warmed.
 
 what it beat: react (virtual dom diffing on every delta, and v1's scar
 history), svelte 5 (a close second with similar fine-grained runes; solid

@@ -13,6 +13,7 @@ import { openSuffix } from "../window/clear";
 import { type WindowView, windowName } from "../window/view";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { BoardKey, boardWords } from "../../board/lazy";
+import { warmEdgeOn } from "../later";
 import { state } from "../../store";
 import { markOf, stateWords } from "./swatch";
 import { type Beside, toggleName, type WindowsState } from "./windows";
@@ -70,6 +71,7 @@ export function FoldToggle(props: { form: Beside; state: WindowsState; onToggle:
       aria-controls={WINDOWS_ID}
       aria-keyshortcuts={props.state === "hidden" ? "Meta+Shift+F [" : "["}
       title={toggleName(props.form, props.state)}
+      onPointerDown={warmEdgeOn}
       onClick={() => props.onToggle()}
     >
       <Show when={props.form === "strip"} fallback={<SidebarGlyph open={open()} />}>

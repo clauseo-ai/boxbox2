@@ -41,16 +41,17 @@ import { ContextRing } from "./context";
 import { EffortMeter } from "./dial";
 import { scaleOf } from "./effort";
 import { favorites, refreshFavorites, toggleFavorite } from "./favorites";
-import { Icon, type IconName } from "./icons";
+import { Icon } from "./icons";
 import { MarkGlyph } from "./mark";
 import { providerKey } from "./marks";
-import { EffortDial, ModelMenu, warm, whenLoaded } from "../later";
+import { EffortDial, ModelMenu, ToolsMenu, warm, whenLoaded } from "../later";
 import { type CommandChoice, commands, ensureModels, files } from "./reads";
 import { modelName } from "../model-name";
+import { createClock } from "../clock";
 import { type Dropped, fileDrop, isPhoto, sortDrop, withMention, withWords } from "./drop";
 import { inlineRuns } from "./inline";
 import { QueueStrip, type QueueVerb } from "./queue";
-import { type Agent, type Card, compactionWords, compactMeta, contextFill, DRAFTS_FULL, DROP_LINE, effortChoices, fateLine, type ListState, liveLine, menuOf, menuQuery, type Mount, placeholder, sendWord, tailPrint, typedAnswers, withFile } from "./words";
+import { type Agent, type Card, compactionWords, contextFill, DRAFTS_FULL, DROP_LINE, effortChoices, fateLine, type ListState, liveLine, menuOf, menuQuery, type Mount, placeholder, sendWord, tailPrint, typedAnswers, withFile } from "./words";
 import "./composer.css";
 
 /** a draft past this many lines offers the full stage */
@@ -115,15 +116,15 @@ export function Composer(props: ComposerProps) {
   /** how many questions the ask waiting on this thread holds: words typed here answer each of them */
   const questionCount = createMemo(() => { const ask = asks().find((a) => a.kind === "question"); return ask ? questionsOf(ask).length : 1; });
 
-  const [now, setNow] = createSignal(Date.now());
+  /* the offline word's clock, and the compaction line's: it stops while the page is hidden, except to reach the moment the
+     stream has been down long enough to say offline (ui/clock.ts) */
+  const now = createClock({ wake: () => (state.stream.state === "down" ? Math.floor(state.stream.since + OFFLINE_AFTER_MS) + 1 : undefined) });
   const agent = createMemo<Agent>(() => {
     if (state.stream.state === "down" && now() - state.stream.since > OFFLINE_AFTER_MS) return "offline";
     if (asks().some((ask) => ask.kind === "question")) return "wants";
     const status = entry()?.status;
     return status && status.type !== "idle" ? "working" : "idle";
   });
-  const tick = setInterval(() => setNow(Date.now()), 1000);
-  onCleanup(() => clearInterval(tick));
 
   const [focused, setFocused] = createSignal(false);
   const [steering, setSteering] = createSignal(false);
@@ -967,69 +968,23 @@ export function Composer(props: ComposerProps) {
             />
           </Show>
           <Show when={menu() === "tools"}>
-            <button type="button" class="cz-option tool" role="menuitem" aria-label="add a photo" onPointerDown={(e) => e.preventDefault()} onClick={() => { setMenu(null); picker?.click(); }}>
-              <ToolTile icon="photo" />
-              <b>photo</b>
-              <em>{MAX_ATTACHMENTS} at most</em>
-            </button>
-            <button type="button" class="cz-option tool" role="menuitem" aria-label="add a file" onPointerDown={(e) => e.preventDefault()} onClick={() => { setMenu(null); filePicker?.click(); }}>
-              <ToolTile icon="doc" />
-              <b>file</b>
-              <em>pdf, text or json</em>
-            </button>
-            <button type="button" class="cz-option tool" role="menuitem" aria-label="commands" onPointerDown={(e) => e.preventDefault()} onClick={() => { setText(`/${draft().text.replace(/^[/!]/, "")}`); setMenu("/"); }}>
-              <ToolTile icon="command" />
-              <b>commands</b>
-              <em>this directory's</em>
-            </button>
-            <button type="button" class="cz-option tool" role="menuitem" aria-label="mention a file" onPointerDown={(e) => e.preventDefault()} onClick={() => { const t = `${draft().text}${draft().text && !draft().text.endsWith(" ") ? " " : ""}@`; setText(t); setMenu("@"); readFiles(t); }}>
-              <ToolTile icon="file" />
-              <b>mention</b>
-              <em>a file on {host()}</em>
-            </button>
-            <button type="button" class="cz-option tool" role="menuitem" aria-label="run in the shell" onPointerDown={(e) => e.preventDefault()} onClick={() => { setText(`!${draft().text.replace(/^[/!]/, "")}`); setMenu("!"); }}>
-              <ToolTile icon="terminal" />
-              <b>shell</b>
-              <em>runs on {host()}</em>
-            </button>
-            <Show when={props.target.kind === "session"}>
-              <button
-                type="button"
-                class="cz-option tool"
-                role="menuitem"
-                aria-label={`compact the thread${fill() ? `, the context is ${fill()?.percent}% full` : ""}`}
-                aria-disabled={compacting() || agent() !== "idle" ? "true" : undefined}
-                title={fill()?.words}
-                onPointerDown={(e) => e.preventDefault()}
-                onClick={startCompact}
-              >
-                <ToolTile icon="compact" />
-                <span class="cz-tool-text">
-                  <b>compact</b>
-                  <small>summarises the thread so far to free the context</small>
-                </span>
-                <em class="cz-ctx">
-                  <Show when={agent() === "idle" && !compacting() ? fill() : null}>{(f) => <ContextRing fill={f()} />}</Show>
-                  {compactMeta(agent(), compacting(), fill())}
-                </em>
-              </button>
-            </Show>
-            <Show when={props.agents}>
-              {(agents) => (
-                <button type="button" class="cz-option tool" role="menuitem" aria-label={`agents, ${agents().count}`} onPointerDown={(e) => e.preventDefault()} onClick={() => { setMenu(null); agents().open(); }}>
-                  <ToolTile icon="agents" />
-                  <b>agents</b>
-                  <em>{agents().count ? `${agents().count} started` : "none yet"}</em>
-                </button>
-              )}
-            </Show>
-            <Show when={tall() && !full()}>
-              <button type="button" class="cz-option tool" role="menuitem" aria-label="write on the full stage" onPointerDown={(e) => e.preventDefault()} onClick={() => { setMenu(null); setFull(true); }}>
-                <ToolTile icon="expand" />
-                <b>full stage</b>
-                <em>the draft as the page</em>
-              </button>
-            </Show>
+            <ToolsMenu
+              host={host()}
+              session={props.target.kind === "session"}
+              agents={props.agents}
+              expand={tall() && !full()}
+              fill={fill()}
+              compacting={compacting()}
+              agent={agent()}
+              onPhoto={() => { setMenu(null); picker?.click(); }}
+              onFile={() => { setMenu(null); filePicker?.click(); }}
+              onCommands={() => { setText(`/${draft().text.replace(/^[/!]/, "")}`); setMenu("/"); }}
+              onMention={() => { const t = `${draft().text}${draft().text && !draft().text.endsWith(" ") ? " " : ""}@`; setText(t); setMenu("@"); readFiles(t); }}
+              onShell={() => { setText(`!${draft().text.replace(/^[/!]/, "")}`); setMenu("!"); }}
+              onCompact={startCompact}
+              onAgents={() => { setMenu(null); props.agents?.open(); }}
+              onExpand={() => { setMenu(null); setFull(true); }}
+            />
           </Show>
         </div>
       </Show>
@@ -1129,8 +1084,13 @@ export function Composer(props: ComposerProps) {
             type="button"
             aria-label={props.mount === "sheet" ? "add a photo to the new thread" : "add to the message"}
             aria-expanded={props.mount === "sheet" ? undefined : menu() === "tools" ? "true" : "false"}
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={(event) => (props.mount === "sheet" ? picker?.click() : toggleMenu("tools", event.detail === 0))}
+            onPointerDown={(e) => (e.preventDefault(), props.mount === "sheet" || void warm("ToolsMenu").catch(() => undefined))}
+            onClick={(event) => {
+              if (props.mount === "sheet") return picker?.click();
+              const byKey = event.detail === 0;
+              if (menu() === "tools") toggleMenu("tools", byKey);
+              else whenLoaded("ToolsMenu", () => toggleMenu("tools", byKey));
+            }}
           >
             <Icon name="plus" />
           </button>
@@ -1193,15 +1153,6 @@ function FileTile(props: { file: Photo; onRemove: () => void }) {
         <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 2.5l5 5M7.5 2.5l-5 5" /></svg>
       </button>
     </div>
-  );
-}
-
-/** a tool row's icon, in its quiet tile */
-function ToolTile(props: { icon: IconName }) {
-  return (
-    <span class="cz-tile" aria-hidden="true">
-      <Icon name={props.icon} />
-    </span>
   );
 }
 

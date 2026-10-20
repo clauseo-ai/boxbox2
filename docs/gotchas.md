@@ -1736,3 +1736,10 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   prefixed and unprefixed property at the delay (checked in a wkwebview), so a new
   fading glass layer follows the same pattern rather than `visibility`, which would
   change focus and the accessibility tree.
+- **a scratch script under /tmp that imports app code gets a second solid-js.** it
+  resolves solid from its own directory, and reactivity silently breaks between the
+  two copies (memos never rerun). symlink `app/node_modules` next to the script.
+- **a clock that stops while hidden must not stop logic that names a moment.** home's
+  12 hour rule (it drives the order and the `windowsInView` presence post) and the
+  composer's offline word keep their own wakes while hidden, re-checked at least
+  every 60 s since timers pause through a system sleep.

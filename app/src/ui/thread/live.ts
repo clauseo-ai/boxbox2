@@ -5,7 +5,7 @@
    needs from around it: the pending asks by call id, the agents' child
    sessions for the tape, and the clock while a turn runs. */
 
-import { type Accessor, createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup, runWithOwner, untrack } from "solid-js";
+import { type Accessor, createMemo, createRoot, createSignal, getOwner, onCleanup, runWithOwner, untrack } from "solid-js";
 import type { Message } from "../../sync/protocol";
 import type { ReadTrouble } from "../../sync/read";
 import type { AskReply } from "../../sync/replies";
@@ -20,6 +20,8 @@ import { number, record, string } from "./wire";
 import type { Kin } from "./details-model";
 import { repoRootOf } from "../composer/place";
 import { repoColour } from "../window/colours";
+import { createClock } from "../clock";
+import { parentIndex } from "../fleet-index";
 import type { RepoColour } from "../window/repo";
 
 /** a repo palette as the stage reads it (design.md, colour): the same colour the window, the composer and the
@@ -77,6 +79,16 @@ function spawnedIn(items: readonly Item[]): readonly string[] {
   return found;
 }
 
+/* the agents a turn's spawn rows name, by the turn: a turn that did not change is read once */
+const spawnedBy = new WeakMap<Turn, readonly string[]>();
+function spawnedOf(turn: Turn): readonly string[] {
+  let found = spawnedBy.get(turn);
+  if (!found) { found = spawnsOf(turn).flatMap((s) => (s.agent?.child ? [s.agent.child] : [])); spawnedBy.set(turn, found); }
+  return found;
+}
+
+const sameKin = (a: readonly Kin[], b: readonly Kin[]): boolean => a === b || (a.length === b.length && a.every((x, i) => { const y = b[i]; return y !== undefined && x.id === y.id && x.parent === y.parent && x.title === y.title && x.at === y.at && x.cost === y.cost && x.gone === y.gone; }));
+
 const sameChild = (a: Child | undefined, b: Child | undefined): boolean => a === b || (a !== undefined && b !== undefined && a.steps === b.steps && a.ms === b.ms && a.items === b.items && a.held === b.held && a.state === b.state && a.since === b.since && a.created === b.created && a.title === b.title);
 
 export function createThreadData(key: Accessor<string>, thinking: Accessor<"open" | "rows">, caches?: ThreadCaches, turnsOptions?: TurnsOptions): ThreadData {
@@ -128,11 +140,13 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
      rows name, for a child the fleet has let go. each is summarised once, in a memo of its own, and only a child that
      changed hands out a new summary (docs/thread.md, agents). where each is now comes from the fleet (its status, and the
      asks pending on it); what it did, from its thread, which is held only when it is wanted (below) */
+  /* the fleet's sessions by parent, kept per session (ui/fleet-index.ts): a frame of any one session no longer walks them all */
+  const parents = parentIndex(() => state.fleet);
+  const fleetChildren = (id: string): readonly string[] => parents().get(`${host()}\0${id}`) ?? [];
   const childKeys = createMemo(() => {
-    const keys = new Set<string>();
     const me = key().slice(host().length + 1);
-    for (const entry of Object.values(state.fleet.sessions)) if (entry.host === host() && entry.info.parentID === me) keys.add(entry.key);
-    for (const t of turns()) for (const s of spawnsOf(t)) if (s.agent?.child) keys.add(`${host()}:${s.agent.child}`);
+    const keys = new Set<string>(fleetChildren(me));
+    for (const t of turns()) for (const child of spawnedOf(t)) keys.add(`${host()}:${child}`);
     return [...keys].sort();
   }, [], { equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]) });
   const owner = getOwner();
@@ -205,11 +219,13 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
   const kin = createMemo<readonly Kin[]>(() => {
     const me = key().slice(host().length + 1);
     if (!session()) return [];
-    const under = new Map<string, Set<string>>();
-    const add = (parent: string, child: string) => { const set = under.get(parent) ?? new Set<string>(); set.add(child); under.set(parent, set); };
-    for (const entry of Object.values(state.fleet.sessions)) { const p = entry.info.parentID; if (entry.host === host() && p) add(p, entry.key.slice(host().length + 1)); }
-    for (const t of turns()) for (const s of spawnsOf(t)) if (s.agent?.child) add(me, s.agent.child);
+    /* the fleet's children of a parent first, in the fleet's order, then the ones the rows name: the order the walk meets them in */
+    const extra = new Map<string, string[]>();
+    const add = (parent: string, child: string) => { const list = extra.get(parent); if (list) list.push(child); else extra.set(parent, [child]); };
+    for (const t of turns()) for (const child of spawnedOf(t)) add(me, child);
     for (const [id, child] of children()) for (const grand of spawnedIn(child.items)) add(id, grand);
+    const cut = host().length + 1;
+    const under = { get: (parent: string): ReadonlySet<string> => new Set([...fleetChildren(parent).map((k) => k.slice(cut)), ...(extra.get(parent) ?? [])]) };
     const out: Kin[] = [];
     const seen = new Set<string>([me]);
     const queue: Array<[string, string]> = [...(under.get(me) ?? [])].map((id) => [me, id]);
@@ -225,7 +241,7 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
       for (const next of under.get(id) ?? []) queue.push([id, next]);
     }
     return out;
-  });
+  }, [], { equals: sameKin });
 
   const working = createMemo(() => {
     const last = turns().at(-1);
@@ -234,13 +250,9 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
   });
   /* agents at work under this thread: its held children in a turn, or the daemon's own count while it waits on them */
   const agentsWorking = createMemo(() => { const s = session()?.status; return (s?.type === "idle" && (s.parked?.agents ?? 0) > 0) || [...children().values()].some((c) => c.state === "working"); });
-  const [now, setNow] = createSignal(Date.now());
-  createEffect(() => {
-    if (!working() && !agentsWorking()) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    onCleanup(() => clearInterval(timer));
-  });
+  /* the working clock: it runs while a turn or an agent under it does, from the moment it starts, and stops while the page is
+     hidden, since nothing but the screen reads it (ui/clock.ts) */
+  const now = createClock({ active: () => working() || agentsWorking() });
 
   /* the context a row is painted in, without the clock: it changes when a child, an ask, a report or the thinking setting does,
      never for a delta to the running turn nor for a second passing (the clock is `now`, handed to the turns that show it) */
