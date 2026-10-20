@@ -25,6 +25,10 @@ openclaw-smoke:
 probes port *asks:
     bun probes/run.ts {{ port }} {{ asks }}
 
+# the idle-cost run: cpu, heap and bytes of the built app while a fleet streams (home, a thread, hidden); needs `just build`
+idle *flags:
+    bun bench/idle.ts {{ flags }}
+
 # the boxbox dev server on 3001 against the dev daemon: rust rebuilt on change, vite proxied
 dev:
     bun scripts/dev.ts

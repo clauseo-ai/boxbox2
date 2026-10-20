@@ -1918,6 +1918,33 @@ iphone as installed pwas, over the tailnet.
 | reloads | none needed; `app.boot reason=reload` trends to 0 | common on mac and phone |
 | client memory after 8 hours open | under 150 mb heap | unmeasured |
 
+what the app costs while nobody touches it (2026-10-20). the field number
+behind these: the installed app at about 20% of a core with the display
+asleep, receiving about 21 kb/s. the gate is `bench/idle.ts` (`just idle`,
+`verification.md`, the idle run): ten threads streaming and a hundred done,
+three minutes a mode, in chromium over cdp. chromium is not the webkit
+people run, so the targets are judged as before and after on one machine,
+and the baseline is that run on main (f8f04d1), two runs; merged is b2a43eb
+(the wire, cache, render and reactive work), two runs on a loaded machine.
+
+| budget | target | baseline | merged | field kind |
+|---|---|---|---|---|
+| home visible while the fleet streams: main thread busy | 3% of a core | 4.7%, 4.8% | 4.0%, 2.9% | `perf.sync` (the work's volume); busy time has none yet (`open.md`) |
+| home visible: main thread allocation | 6 mb/s | 12.8, 15.2 mb/s | 1.3, 1.3 mb/s | `perf.sync`; allocation has none yet (`open.md`) |
+| a thread open while its reply streams: long tasks | none over 50 ms | none | none | `perf.longtask` |
+| a thread open while its reply streams: main thread busy | 8% of a core | 13.0%, 12.6% | 14.7%, 12.6% | `perf.sync`, `perf.longtask` |
+| page hidden while the fleet streams: main thread busy | 2% of a core | 4.6%, 3.9% | 1.6%, 2.1% | `perf.sync` |
+| the sync worker, every mode | 2% of a core | under 1% | under 1.5% | `perf.sync` (saves, puts, bytes put) |
+| heap, page and worker, every mode | the floor after gc grows under 5 mb a window; the page's peak under 64 mb | flat; peak 42 mb | flat; peak 30 mb | `perf.sync`; the heap has none yet (`open.md`) |
+| home visible: main thread per worker post | 2.5 ms, 1.1 layouts | 16.3 ms, 1.2 | 1.8 to 2.1 ms, 1.0 | `perf.sync` (patches posted) |
+| a thread streaming: main thread per worker post | 3 ms | 4.4 ms | 3.4 to 4.1 ms | `perf.sync` (patches posted) |
+| dom writes that change nothing, every mode | 0 a minute | 131,757 a minute on home (one run) | about 1,200 to 2,100 a minute on home | none (`bench/idle.ts` only) |
+
+the per-minute rows compare builds only at similar worker posts a minute
+and machine load: how often the worker posts sets how many frames,
+layouts and paints the main thread does. the per-post rows and the dom
+writes do not move with it.
+
 for voice and media (2026-10-15), each with its `perf.*` kind (new kinds,
 added to `telemetry/schema.ts` with the work, never renamed after):
 

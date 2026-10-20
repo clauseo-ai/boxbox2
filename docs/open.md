@@ -630,6 +630,23 @@ it is verified`. closed items move to the bottom with the commit.
   tested, not driven live (`openclaw_pairing`'s last clause) · a live run
   that revokes with `devices revoke` on the lan bench.
 
+### left open by the perf gates lane (2026-10-20)
+
+- [perf] the idle budgets' main thread busy time, allocation rate and heap
+  have no field kind: `perf.sync` carries the worker's volume and
+  `perf.longtask` the long tasks, but a quiet page burning a core, or a
+  heap that climbs over hours, shows only in `bench/idle.ts`. fix shape: a
+  minute row from the page (task time while visible and hidden,
+  `performance.memory` where it exists). · the kind's rows over an idle
+  hour on the installed app match the bench's shape
+
+- [perf] the idle budgets are judged in chromium; webkit, where people run
+  the app, is unmeasured by script (playwright's webkit is not installed
+  and has no readable trace, and the run fakes hidden because headless
+  chromium never reports it). · web inspector's timelines and activity
+  monitor on the installed mac app with the display asleep, before and
+  after, against the same fleet
+
 ### housekeeping
 
 - the real drive makes one scratch haiku session per run on 4097 under

@@ -319,6 +319,12 @@ why solid:
   hidden, ticking only to reach a moment logic named (home's 12 hours,
   the composer's offline word), and come back on the tick a clock that
   never stopped would show.
+- **idle is a budget.** with a fleet streaming and nobody touching it,
+  the page's main thread, the sync worker and the heap each have a
+  target (`design.md`, buttery as numbers: what the app costs while
+  nobody touches it), gated by `bench/idle.ts` (`verification.md`, the
+  idle run) and watched in the field by `perf.sync`, the worker's minute
+  of frames, patches posted and indexeddb bytes put.
 - **small**: the framework is about 7 kb. the whole app's first load
   budget is 120 kb of script, compressed, and `index.html` has 12 kb of its
   own, compressed (it carries the providers' marks as an inline sprite);

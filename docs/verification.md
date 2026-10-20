@@ -288,6 +288,114 @@ rows or a performance trace, raw rows printed.
 | client memory | 8 hour soak with the fleet active | heap under 150 mb |
 | server memory | 8 hour soak, 3 hosts | steady rss 64 mb |
 | reloads | `app.boot reason=reload` over the soak | 0 needed |
+| idle cost, home visible | `bench/idle.ts` mode `home`, 3 minutes with the fleet streaming; field: `perf.sync` | main thread 3% of a core, 6 mb/s allocated |
+| idle cost, a thread streaming | `bench/idle.ts` mode `thread`; field: `perf.sync`, `perf.longtask` | no long task over 50 ms, main thread 8% of a core |
+| idle cost, hidden | `bench/idle.ts` mode `hidden`; field: `perf.sync` | main thread 2% of a core |
+| idle cost, worker and memory | `bench/idle.ts`, every mode; field: `perf.sync` | worker 2% of a core; page and worker heap floors grow under 5 mb a window; page peak 64 mb |
+| idle cost per worker post | `bench/idle.ts` modes `home` and `thread`; field: `perf.sync` (patches posted) | home 2.5 ms and 1.1 layouts a post; a streaming thread 3 ms a post |
+| dom writes that change nothing | `bench/idle.ts`, every mode (a MutationObserver) | 0 a minute |
+
+the per-minute rows compare builds only at similar worker posts a minute
+and similar load: the post rate sets how many frames, layouts and paints
+there are (reading the rendering numbers, below). the per-post rows and
+the dom-write row do not move with it, so they are the gate between runs
+on a busy machine.
+
+### the idle run
+
+`just build && just idle` (`bun bench/idle.ts`; `--minutes 3 --warm 20
+--streams 10 --done 100 --only home,thread,hidden`, `--keep-traces` keeps
+the traces under /tmp/boxbox-idle). it owns its world as `bench/windows.ts`
+does, on the dev ports (the pinned daemon on 4840, the bench model on 4841,
+the release binary on 3001; `IDLE_DAEMON_PORT`, `IDLE_BOXBOX_PORT` move
+them; `CMX2_REPO` names the cmx2 checkout), refuses ports that answer, and
+stops everything it started, printing what still listens (nothing). the
+fleet is ten threads streaming a word every 60 ms for the whole run (five
+do a window's worth of tool work first), their prompts sent 20 ms apart
+from one start so their words fall the same way against the server's
+200 ms session ticks every run, a hundred done, and one quiet
+thread. a counting proxy in front of boxbox sees every byte the page and
+its worker receive. each mode loads the page fresh, settles 20 s, then
+measures with a chromium trace in 30 s chunks (a busy page traces at about
+2 mb/s): main thread busy (the union of top-level tasks, cross-checked
+against `Performance.getMetrics` TaskDuration, within 4%) split by self
+time into script, style, layout, paint and gc; long tasks from the trace
+and a `longtask` observer; the sync worker's busy time and gc; each
+thread's heap floor after gc and allocation rate from the gc events (the
+worker's heap is readable no other way); worker posts a minute and, per
+post, main thread ms, layouts and paints; frames a second; the dom writes
+a minute from a MutationObserver (by kind, by nearest class, and those
+that set the value already there); the load average at each mode's start
+and end; the page heap every 5 s; the
+renderer's and all of chrome's cpu from `SystemInfo.getProcessInfo`;
+bytes received. it prints one `IDLE_RAW` json line per mode, a summary
+table, the build id and commit, and each budget (`design.md`, buttery as
+numbers), exiting 1 when one is missed. `--minutes 10 --only home` is the
+ten minute flat-heap check.
+
+what it cannot answer: it is headless chromium, not webkit (playwright's
+webkit is not installed here and has no readable trace), so absolute
+numbers are not an iphone's; chromium also writes indexeddb in its browser
+process, so the worker's share is smaller than webkit's (the chrome column
+counts every process). headless chromium never reports a page hidden, and
+minimising a window under automation does not either, so `hidden`
+overrides `document.visibilityState` and `document.hidden` and fires
+`visibilitychange`: the app takes its hidden path while the browser keeps
+producing frames, the worst case and, by the investigation, perhaps the
+field case of a mac whose display is asleep.
+
+the baseline, main f8f04d1, 2026-10-20, chrome for testing 155, a mac mini
+(the second of two runs; the first within 0.7 points of core in every mode):
+
+| mode | main % core | script | style | layout | paint | gc ms/min | long > 50 ms | worker % | renderer % | chrome % | page heap start, peak, end mb | alloc mb/s | kb/s in |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| home | 4.8 | 2083 | 36 | 235 | 158 | 50 | 0 | 0.6 | 8.5 | 14.0 | 34, 42, 28 | 15.2 | 140 |
+| thread | 12.6 | 3623 | 423 | 1610 | 896 | 89 | 0 | 0.8 | 22.0 | 37.7 | 22, 35, 29 | 22.8 | 155 |
+| hidden | 3.9 | 1671 | 31 | 214 | 133 | 39 | 0 | 0.6 | 6.8 | 11.3 | 38, 40, 38 | 12.8 | 142 |
+
+after the wire, cache, render and reactive work (b2a43eb, main merged at
+35917b7), 2026-10-21, two runs, both with load averages of 10 to 17 from
+other work on the machine:
+
+| mode | main % core | script | style | layout | paint | gc ms/min | long > 50 ms | worker % | renderer % | chrome % | page heap start, peak, end mb | alloc mb/s | kb/s in |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| home | 4.0, 2.9 | 927, 660 | 65, 113 | 622, 415 | 342, 209 | 23, 20 | 0 | 1.4, 1.1 | 8.4, 6.0 | 15.7, 11.3 | 24, 27, 18; 22, 30, 21 | 1.3, 1.3 | 140 |
+| thread | 14.7, 12.6 | 2600, 2169 | 792, 777 | 2595, 2150 | 1472, 1231 | 73, 71 | 0 | 1.2, 1.1 | 24.6, 22.1 | 43.7, 40.5 | 20, 25, 19; 22, 27, 21 | 6.5, 6.4 | 155 |
+| hidden | 1.6, 2.1 | 367, 517 | 29, 39 | 217, 307 | 121, 164 | 11, 14 | 0 | 0.7, 1.0 | 3.7, 4.9 | 7.8, 9.8 | 16, 26, 20; 16, 27, 17 | 1.2, 1.3 | 142 |
+
+against the budgets: home allocation met (15 to 1.3 mb/s); home busy met
+in one run and missed in the other (4.0%, 2.9%); hidden busy met in one
+run and missed in the other (1.6%, 2.1%); a streaming thread is
+unchanged and missed (12.6 to 14.7% against 8%); no long tasks, the
+worker under 2%, heap floors flat and peaks under 64 mb in every run.
+script fell by a half to three quarters in every mode; layout and paint
+per minute rose.
+
+**reading the rendering numbers.** frames, layouts and paints follow how
+often the worker posts patches. each post costs one animation frame, one
+layout and one paint on the main thread. that rate is not fixed by the
+code: one build, f8f04d1, posted 300 times a minute in one home run and
+1,199 in another, and every build since has done the same, so per minute
+layout and paint can rise while each frame gets cheaper. the main
+thread's cost per post went from 5 to 16 ms on f8f04d1 to 1.5 to 2 ms on
+35917b7 (a home run per merge, 2026-10-21). in the thread mode both builds
+lay out on every frame (about 58 a second, 0.4 to 0.6 ms each). so compare
+builds on the per-step counts and frames a second, which the run now
+prints with the load average at the start and end of each mode, and on
+the dom writes per minute (a MutationObserver: by kind, by the nearest
+class, and how many set the value already there). f8f04d1 rewrote
+`aria-label` on every window's clear button about 2,150 times a second,
+each time to the same value; every attribute write the merged build makes
+also sets the same value, about 1,200 a minute on `.pill`.
+
+a third merged run with the streams' fixed offsets and the per-post
+numbers (load 7 to 18): home 3.6% of a core at 1,013 posts a minute, 2.2
+ms, 1.0 layouts and 2.0 paints a post; a streaming thread 10.6% at 2,048
+posts a minute, 3.1 ms, 1.6 layouts and 5.0 paints a post; hidden 1.4% at
+429 posts a minute, 2.0 ms a post. same-value attribute writes: 1,049 a
+minute on home (`aria-label` on `.pill`), 2,571 on a thread (`.tb-facts`
+and `.pill`), 481 hidden. budgets missed: home busy, thread busy, thread
+per post (3.1 against 3 ms) and the dom writes; the rest met.
 
 ## the board trace (m6)
 

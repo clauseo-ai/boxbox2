@@ -6,6 +6,20 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **idle is a budget, with a bench.** `bench/idle.ts` (`just idle`, after
+  `just build`) starts its own world on the dev ports, streams a fleet of
+  ten threads beside a hundred done, and measures the built app in
+  chromium for three minutes each with home visible, a thread open while
+  its reply streams, and the page hidden: main-thread, worker and
+  renderer time, layouts and paints per worker post, heap after gc,
+  allocation, bytes received and attribute writes that set the value
+  already there. the streams start on fixed offsets so runs compare.
+  `docs/design.md` and `docs/verification.md` hold the idle budgets
+  (home main thread 3% of a core, a streaming thread 8%, hidden 2%, no
+  same-value writes) with `perf.sync` as their field row; the build
+  after the perf lane meets the heap, allocation and worker budgets and
+  misses the streaming thread's, which the next pass works on.
+
 - **home and the stage re-read only the sessions a frame names.** each
   session is read in a memo of its own, home's window list re-runs on the
   clock only when a thread's 12 hours run out, each window's view is its
