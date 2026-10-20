@@ -59,6 +59,24 @@ export function agentState(a: AgentRow): string {
   return s === "working" ? "working" : s === "wants" ? "wants you" : s === "parked" ? "parked" : s === "gone" ? "archived" : a.reported ? "reported" : a.child.held ? plural(a.child.steps, "step") : "no report";
 }
 
+/* ---------- a list's rows, kept ---------- */
+
+/** `next` with each row that says what the row of the same key in `prev` said put back as that row, and `prev` itself when
+    every row is: a keyed list (solid's For) drawn from rows worked out again on every frame then keeps the nodes of the rows
+    that did not change and makes again only the ones that did. rows compare by their own fields, which must be plain values */
+export function kept<T extends object>(next: readonly T[], prev: readonly T[] | undefined, keyOf: (row: T) => string): readonly T[] {
+  if (!prev) return next;
+  const before = new Map(prev.map((row) => [keyOf(row), row]));
+  let all = next.length === prev.length;
+  const out = next.map((row, i) => {
+    const old = before.get(keyOf(row));
+    const same = old !== undefined && Object.keys(row).length === Object.keys(old).length && Object.entries(row).every(([k, v]) => (old as Record<string, unknown>)[k] === v);
+    if (!same || old !== prev[i]) all = false;
+    return same ? old : row;
+  });
+  return all ? prev : out;
+}
+
 /* ---------- the files it changed ---------- */
 
 export type FileChange = { path: string; dir: string; base: string; add: number; del: number };

@@ -1112,11 +1112,12 @@ export function Home(props: HomeProps) {
   /* —— the bar's line —— */
   /** a thread is on the stage and its layer renders: only then is what is under it inert. `open()` alone is not enough
       (the thread may have left the fleet while the stream was down, and a layer is drawn only for an entry), or the deck
-      is inert under nothing until the stream catches up */
-  const staged = () => {
+      is inert under nothing until the stream catches up. a memo, so the inert it sets is written when it flips and not
+      again on every new view of the thread on the stage */
+  const staged = createMemo(() => {
     const key = open();
     return key !== null && layers().some((layer) => layer.key === key) && viewOf(key) !== null;
-  };
+  });
   const views = createMemo(() => order().map(viewOf).filter((v): v is WindowView => v !== null));
   const summary = createMemo(() => {
     const all = views();

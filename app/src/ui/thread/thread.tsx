@@ -590,7 +590,9 @@ const RECENT_CHUNKS = 12;
     while the reply streams on. while the text streams its caret sits at the end of the last thing written */
 export function Markdown(props: { text: string; caret?: boolean | undefined; class: string; ref?: ((el: HTMLDivElement) => void) | undefined }) {
   const el = <div /> as HTMLDivElement;
-  createRenderEffect(() => { el.className = props.class; });
+  /* a memo, so the class is set when it changes: a streaming row's class is worked out again on every word */
+  const className = createMemo(() => props.class);
+  createRenderEffect(() => { el.className = className(); });
   const surface = painter(el, useContext(CachesContext)?.htmlFor());
   surface.paint(props.text, props.caret === true);
   props.ref?.(el);

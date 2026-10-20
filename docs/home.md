@@ -635,6 +635,20 @@ guesses.
   animation of transform and opacity whose `currentTime` rises frame by
   frame while its computed opacity and transform change (0 and
   `scale(.9)` to 1 and none, about 34 frames).
+- **writes that change nothing.** the `writes` stories
+  (`ui/home/stories/writes.stories.tsx`) run the whole app at home and at a
+  thread with its composer while a seeded fleet of 300 streams under it
+  (`fixtures/fleet-sim.ts`, a step every 50 ms), a reply streams into the
+  open thread and the person types. a MutationObserver
+  (`writes-probe.ts`) counts every attribute and text write and the ones
+  that set the value already there; after every batch the windows' clear
+  names and the bar's "clear N" are read against the store, a window is
+  renamed now and then and the reply settles at the end, so a change that
+  does happen is on the page in its own batch.
+  `bun .ladle/shots.ts --prefix writes--` fails on any same-value write or
+  stale name. a single dynamic attribute in solid is set again whenever its
+  effect runs, equal or not, so a name worked out from a view or a list
+  that is new on every frame reads through a memo.
 - **the board's digits.** `bun test app/src/sync/protocol.test.ts
   app/src/store-board.test.ts app/src/board`: board frames are taken
   without a seq and leave the cursor and the reducer's state as they were,

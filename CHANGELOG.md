@@ -6,6 +6,17 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **home and the thread set an attribute only when it changes.** while a
+  fleet streamed, window clear names, the clear pill, the facts line, the
+  answer's class and the dock's inert were set again to the same value
+  about 27,000 times a minute, each one a style and accessibility pass;
+  now none. the details' model and file rows and the ruler's marks keep
+  their nodes instead of being rebuilt on every update, and the
+  composer's model glyph is no longer made again on every keystroke. the
+  `writes--` stories stream 300 sessions and a reply while someone types
+  and fail on any same-value write or a name that lags the store
+  (`.ladle/shots.ts`).
+
 - **a streaming answer's saves store what it streamed.** indexeddb v5
   saves a part's appended text as chunk records, folded into the page
   when the part settles, the next message joins or a thread passes 256

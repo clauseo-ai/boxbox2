@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionInfo } from "../../sync/protocol";
-import { type AgentRow, type Kin, cachedShare, contextOf, factsOf, figure, filesChanged, modelsOf, percentWords, ranOf, spend, spendOf, spentOf, summaryOf, switches, tokensIn } from "./details-model";
+import { type AgentRow, type Kin, cachedShare, contextOf, factsOf, figure, filesChanged, kept, modelsOf, percentWords, ranOf, spend, spendOf, spentOf, summaryOf, switches, tokensIn } from "./details-model";
 import type { Turn } from "./model";
 
 /** a turn with only what the details read */
@@ -177,5 +177,42 @@ describe("spendOf", () => {
 
   test("the facts line says the whole tree's spend", () => {
     expect(factsOf(turns, info(), 0.25)?.text).toBe("$0.75");
+  });
+});
+
+describe("kept", () => {
+  const key = (f: { path: string }) => f.path;
+  test("gives back the list it had when every row says the same, so a keyed list keeps every node", () => {
+    const turns = [turn("a", 1, { files: new Map([["src/a.ts", { add: 1, del: 0 }], ["src/b.ts", { add: 2, del: 1 }]]) })];
+    const before = filesChanged(turns).files;
+    const again = filesChanged(turns).files;
+    expect(again).not.toBe(before);
+    expect(kept(again, before, key)).toBe(before);
+  });
+  test("keeps the rows that did not change and takes the ones that did, in the new order, equal to the new list", () => {
+    const before = [{ path: "a", add: 1 }, { path: "b", add: 2 }, { path: "c", add: 3 }];
+    const next = [{ path: "c", add: 3 }, { path: "b", add: 5 }, { path: "d", add: 1 }];
+    const out = kept(next, before, key);
+    expect(out).toEqual(next);
+    expect(out[0]).toBe(before[2]);
+    expect(out[1]).toBe(next[1]);
+    expect(out[2]).toBe(next[2]);
+  });
+  test("a row with a field more or less is a new row, and a first list is the list itself", () => {
+    const before = [{ path: "a", add: 1 }];
+    const next = [{ path: "a", add: 1, extra: true }];
+    expect(kept(next, before, key)[0]).toBe(next[0]);
+    expect(kept(before, undefined, key)).toBe(before);
+  });
+  test("a model list worked out again from the same turns is the same list", () => {
+    const turns = [turn("a", 1, { model: "anthropic/claude", cost: 1 } as Partial<Turn>), turn("b", 2, { model: "openai/gpt", effort: "high", cost: 2 } as Partial<Turn>)];
+    const k = (m: { model: string; effort?: string }) => `${m.model}\u0000${m.effort ?? ""}`;
+    const before = modelsOf(turns);
+    expect(kept(modelsOf(turns), before, k)).toBe(before);
+    const more = modelsOf([...turns, turn("c", 3, { model: "openai/gpt", effort: "high", cost: 1 } as Partial<Turn>)]);
+    const out = kept(more, before, k);
+    expect(out).toEqual(more);
+    expect(out[0]).not.toBe(before[0]);
+    expect(out[1]).toBe(before[1]);
   });
 });

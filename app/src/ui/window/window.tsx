@@ -104,6 +104,9 @@ export function Window(props: WindowProps) {
   // the earned chip lasts until the state changes, not until the next view (a tail line, a clock): `on` runs on every
   // notification of what it reads, so the state goes through a memo that notifies only when it differs
   const viewState = createMemo(() => props.view.state);
+  /* a memo, so the name is set when it changes: the binding alone set it again on every new view of this window and on every
+     order or title change across the fleet (the suffixes' map is new each time), the same string each time */
+  const clearLabel = createMemo(() => clearName(props.view, props.showHost, clearSuffix(props.view.key)));
   createEffect(on(viewState, () => setEarned(null), { defer: true }));
   // a refusal to clear ("it is working, so it stays") is true until the window's state moves on: the same memo, or the
   // next clock tick would take it away
@@ -264,7 +267,7 @@ export function Window(props: WindowProps) {
         </span>
         <span class="clk">{footClock(props.view, props.now)}</span>
         <Show when={clearable(props.view)}>
-          <button class="wclear" type="button" aria-label={clearName(props.view, props.showHost, clearSuffix(props.view.key))} onClick={() => void clearThreads([props.view.key], "window")}>
+          <button class="wclear" type="button" aria-label={clearLabel()} onClick={() => void clearThreads([props.view.key], "window")}>
             clear
           </button>
         </Show>

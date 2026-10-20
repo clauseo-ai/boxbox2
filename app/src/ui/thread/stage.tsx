@@ -1153,7 +1153,8 @@ export function Stage(props: StageProps) {
             <div class="stage-dock-room" aria-hidden="true" />
           </div>
           <div ref={rulerEl} class="ruler" classList={{ show: rulerShown(), drag: rulerDrag() !== null }} role="slider" aria-label="jump to a turn" aria-valuemin={1} aria-valuemax={prompts().length} aria-valuenow={cur() + 1} tabIndex={0} onPointerDown={rulerDown} onPointerMove={rulerMove} onPointerUp={rulerUp} onPointerCancel={rulerUp} style={{ "--gap": `${Math.max(4, Math.min(9, (scroller?.clientHeight ?? 600) / Math.max(1, prompts().length) - 0.5))}px` }}>
-            <For each={prompts()}>{(t, j) => <b classList={{ "k-cur": j() === cur(), "k-ask": t.items.some((x) => x.k === "step" && x.family === "ask") }} />}</For>
+            {/* by place, not by turn: the marks are alike and the turns are new objects on every frame, so a keyed list made them all again */}
+            <Index each={prompts()}>{(t, j) => <b classList={{ "k-cur": j === cur(), "k-ask": t().items.some((x) => x.k === "step" && x.family === "ask") }} />}</Index>
           </div>
           <Show when={rulerCard()}>{(c) => (
             <div class="rcard on" aria-hidden="true" style={{ top: `${(rulerEl.children[c().k]?.getBoundingClientRect().top ?? 0) - rulerEl.parentElement!.getBoundingClientRect().top + 4}px` }}>

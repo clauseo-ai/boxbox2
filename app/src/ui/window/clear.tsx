@@ -105,10 +105,12 @@ export async function clearThreads(keys: readonly string[], source: ClearSource)
 /** the bar's pill: every done or idle thread off home at once. nothing is drawn when there is none */
 export function ClearDone(props: { views: readonly WindowView[] }) {
   const keys = () => doneKeys(props.views);
+  /* the count is a memo, so the name is set when it changes and not again on every new list of views */
+  const count = createMemo(() => keys().length);
   return (
-    <Show when={keys().length > 0}>
-      <button class="pill" type="button" data-clears="done" aria-label={doneName(keys().length)} onClick={() => void clearThreads(keys(), "done")}>
-        {doneLabel(keys().length)}
+    <Show when={count() > 0}>
+      <button class="pill" type="button" data-clears="done" aria-label={doneName(count())} onClick={() => void clearThreads(keys(), "done")}>
+        {doneLabel(count())}
       </button>
     </Show>
   );

@@ -6,7 +6,7 @@
 
 import { For, type JSX, Show, createMemo, createUniqueId } from "solid-js";
 import type { SessionInfo } from "../../sync/protocol";
-import { type AgentRow, type FactLine, type Spend, agentState, cachedShare, contextOf, figure, type filesChanged, modelsOf, percentWords, ranOf, spend, switches, tokensIn } from "./details-model";
+import { type AgentRow, type FactLine, type Spend, agentState, cachedShare, contextOf, figure, type FileChange, type filesChanged, kept, type ModelUse, modelsOf, percentWords, ranOf, spend, switches, tokensIn } from "./details-model";
 import type { Turn } from "./model";
 import { clock, clockDur, dur, isBad, n, plural } from "./rows";
 import { Close } from "../close";
@@ -185,7 +185,9 @@ function Details(props: { data: DetailsData }) {
   const steps = createMemo(() => ran().reduce((n, t) => n + t.items.filter((x) => x.k === "step").length, 0));
   const context = createMemo(() => contextOf(info()));
   const cached = () => { const i = info(); return i && cachedShare(i.tokens) !== null ? percentWords(i.tokens.cache.read, i.tokens.input + i.tokens.cache.read) : null; };
-  const models = createMemo(() => modelsOf(props.data.turns));
+  /* the turns are new on every frame of a running thread: the rows that say the same keep their nodes (kept) */
+  const models = createMemo<readonly ModelUse[]>((prev) => kept(modelsOf(props.data.turns), prev, (m) => `${m.model}\u0000${m.effort ?? ""}`));
+  const fileRows = createMemo<readonly FileChange[]>((prev) => kept(files().files, prev, (f) => f.path));
   const total = createMemo(() => models().reduce((n, m) => n + m.cost, 0));
   const working = () => props.data.agents.filter((a) => a.child.state === "working").length;
   let spendDialog: HTMLDialogElement | undefined;
@@ -267,7 +269,7 @@ function Details(props: { data: DetailsData }) {
       <Section title="files changed" sum={files().files.length ? <>{plural(files().files.length, "file")}, <span class="add">+{n(files().add)}</span> <span class="del">-{n(files().del)}</span></> : undefined}>
         <Show when={files().files.length} fallback={<p class="dt-empty">no files changed yet</p>}>
           <ul class="dt-list">
-            <For each={files().files}>{(f) => (
+            <For each={fileRows()}>{(f) => (
               <li class="dt-row dt-file">
                 {/* the folder is one line cut from its start; the name is whole, wrapping when it must, because the
                     end of a name is what tells two files apart */}
@@ -314,8 +316,10 @@ function TurnsList(props: TurnsData) {
 
 /** the line under the title that says the model, the context and the spend, and opens the details */
 export function FactsButton(props: { facts: FactLine; open: () => void }) {
+  /* the facts are a new object on every frame of a streaming thread; the name is set when it changes */
+  const name = createMemo(() => props.facts.name);
   return (
-    <button class="tb-facts" aria-label={props.facts.name} onClick={() => props.open()}>
+    <button class="tb-facts" aria-label={name()} onClick={() => props.open()}>
       <span>{props.facts.text}</span>
       <svg viewBox="0 0 8 12" aria-hidden="true"><path d="M1.5 1.5 6 6l-4.5 4.5" /></svg>
     </button>

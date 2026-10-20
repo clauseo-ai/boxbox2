@@ -1750,3 +1750,8 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   (10.8 of 13.98 mb over a 24 kb answer); v5 keeps it in `<key>#base`, written when it
   changes. chunks of appended text are only good in the order they were appended: a
   failed save's marks stay ahead of the ones made while it was in flight.
+- **solid sets a single dynamic attribute again whenever its effect runs, equal or
+  not.** a name built from a view, a facts object or a list that is new every frame
+  re-set `aria-label` on every window 2,150 times a second; such a value reads through
+  a memo, which compares before it writes. the `writes--` stories count same-value
+  writes and fail on any.
