@@ -6,6 +6,22 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the worker writes only what changed to indexeddb.** one save commits
+  at a time and the next gathers everything asked for meanwhile (16 saves
+  queued at peak against a 1 s disk, now 2); the fleet is kept as a record
+  per session, ask and host with an index of key order (database v4, the
+  old whole-fleet record split in place on upgrade); a streaming thread's
+  last message is a page of its own, so a delta writes one message. over
+  the recorded replay, bytes written fall from 63.9 mb to 6.0 mb (98.5 mb
+  to 6.8 mb with 305 sessions), and every load equals the state saved
+  (`sync/saves.test.ts`). a second tab or a reload that saved in between
+  is detected in the save's own transaction, and that save writes the
+  fleet and its threads whole. the stall check is one timer against the
+  last byte's time, a frame over 32 mb drops the connection with a growing
+  backoff, and `perf.sync` reports frames, bytes, patches and writes once
+  a minute. a rollback to the build before cannot open v4 and runs without
+  its cache.
+
 - **the worker posts the ui what changed.** a session the server sends
   whole again is diffed against the one held and reaches the ui's store
   leaf by leaf (a changed array item goes whole), streamed text crosses as

@@ -1715,3 +1715,12 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   on every tick before and now runs only when that field moves (`home.tsx`'s
   streaming label was one). a changed array item (a tail line, a need) is always a
   new object, never changed in place.
+- **indexeddb v4 marks what to write from patch paths.** the fleet is a record per
+  entry plus an index of key order, and a thread's last message is a page of its own;
+  a patch path is what marks a record, so a new patch shape must still start with
+  `fleet/<map>/<key>` or `threads/<key>/messages/<n>`, or its change never reaches disk.
+- **two pages write one database.** a second tab, or a reload overlapping the old page's
+  last save, writes between this page's saves; what a page remembers of the layout
+  (page starts, the key index) is only good while it wrote last. each save reads the
+  meta record (writer id and a counter) in its own transaction and rewrites whole
+  after another writer.

@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Cache, cleanDirty, PAGE } from "./cache";
+import { Cache, cleanDirty, layout, PAGE } from "./cache";
 import type { Message } from "./protocol";
 import { INITIAL_STATE, type SyncState, type Thread } from "./reducer";
 
@@ -89,7 +89,8 @@ describe("the cache at boot", () => {
     const booted = await open().loadBoot();
     watch.stop();
     expect(booted.cursor).toEqual({ epoch: "j1", seq: 7 });
-    expect(booted.heads.map((h) => [h.key, h.pages]).sort()).toEqual([["bench:a", 3], ["bench:b", 3], ["bench:c", 1]]);
+    const pages = (count: number) => layout(count).length - 1;
+    expect(booted.heads.map((h) => [h.key, h.pages]).sort()).toEqual([["bench:a", pages(PAGE * 3)], ["bench:b", pages(PAGE * 2 + 1)], ["bench:c", pages(4)]]);
     const pageReads = watch.reads.filter((r) => r.call === "threads.get" && !r.key.endsWith("#head"));
     expect(pageReads).toEqual([]);
     expect(watch.reads.some((r) => r.call === "threads.getAll")).toBe(false);
@@ -103,7 +104,7 @@ describe("the cache at boot", () => {
     const back = await open().loadPages(booted.heads.find((h) => h.key === "bench:a") as NonNullable<(typeof booted.heads)[number]>);
     watch.stop();
     expect(back).toEqual(a.messages);
-    expect(watch.reads.map((r) => r.key).sort()).toEqual(["bench:a#0", "bench:a#1", "bench:a#2"]);
+    expect(watch.reads.map((r) => r.key).sort()).toEqual(Array.from({ length: layout(PAGE * 2 + 3).length - 1 }, (_, page) => `bench:a#${page}`));
   });
 
   test("a page the head counts but the cache lacks reads as null, so the thread is read from the daemon", async () => {

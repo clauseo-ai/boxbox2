@@ -11,7 +11,7 @@
    wire is asked, and reach the ui as that thread's patch. */
 
 import { Backoff } from "./backoff";
-import { Cache, cleanDirty, type Dirty } from "./cache";
+import { Cache, type SaveStats, Saver, weight } from "./cache";
 import type { Emit, FromWorker, StreamStatus, SyncCounters, ToWorker, UiSync } from "./messages";
 import { inDaemonOrderAll } from "./order";
 import { formatCursor, type Message, parseCursor, PROTOCOL, routeFrame, splitKey } from "./protocol";
@@ -31,7 +31,7 @@ import {
 import { readTranscript } from "./read";
 import { type AskReply, keepReply, replyKey, restoreReplies } from "./replies";
 import { Sender } from "./sender";
-import { SseParser, type SseFrame } from "./sse";
+import { FRAME_CAP, SseOverflow, SseParser, type SseFrame } from "./sse";
 import { Telemetry } from "./telemetry";
 
 /** the worker's own global surface. this module only ever runs as the dedicated worker client.ts starts,
@@ -47,6 +47,8 @@ const scope = globalThis as unknown as WorkerScope;
 /** a reader aborts after this long without a byte; the server writes a heartbeat every 15 s */
 const STALL_MS = 45_000;
 const SAVE_DEBOUNCE_MS = 200;
+/** how often the worker says what its connection cost it (`perf.sync`) */
+const TALLY_MS = 60_000;
 /** patches wait for the next animation frame, or this long where a worker has none or the tab is hidden */
 const FRAME_FALLBACK_MS = 50;
 /** a message asked for again within this long of its last ask is coming back stale, so it waits before it is fetched */
@@ -71,7 +73,8 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-class Sync {
+/** exported for its tests; the worker runs the one the `start` message makes */
+export class Sync {
   private state: SyncState = INITIAL_STATE;
   private cache: Cache | null = null;
   private readonly telemetry: Telemetry;
@@ -95,9 +98,14 @@ class Sync {
   private frameHandle: number | undefined;
   private frameTimer: ReturnType<typeof setTimeout> | undefined;
 
-  private dirty: Dirty = cleanDirty();
-  private saveTimer: ReturnType<typeof setTimeout> | undefined;
-  private saving: Promise<void> = Promise.resolve();
+  private readonly saver = new Saver(
+    () => this.cache,
+    () => this.state,
+    SAVE_DEBOUNCE_MS,
+    (stats) => this.tallySave(stats),
+  );
+  /** what the connection cost since `since`, told once a minute while it is up (`perf.sync`): counts and sizes, no content */
+  private tally = { since: 0, frames: 0, received: 0, posts: 0, patches: 0, posted: 0, saves: 0, puts: 0, stored: 0 };
 
   /** hydrations and refetches in flight, so an effect repeated before its answer does not fetch twice */
   private readonly fetching = new Set<string>();
@@ -117,7 +125,13 @@ class Sync {
   private boardSeen = false;
 
   /** `board`: this device may sit beside a board, so its stream asks for board frames (docs/board.md) */
-  constructor(device: string, deviceClass: ConstructorParameters<typeof Telemetry>[1], private readonly board = false) {
+  /** `frameCap`: the most text one sse frame may hold (sse.ts), smaller only in tests */
+  constructor(
+    device: string,
+    deviceClass: ConstructorParameters<typeof Telemetry>[1],
+    private readonly board = false,
+    private readonly frameCap = FRAME_CAP,
+  ) {
     this.telemetry = new Telemetry(
       device,
       deviceClass,
@@ -221,14 +235,14 @@ class Sync {
       const ordered = inDaemonOrderAll(messages);
       if (ordered.from !== null) {
         messages = ordered.messages;
-        this.dirty.threads.set(head.key, Math.min(ordered.from, this.dirty.threads.get(head.key) ?? ordered.from));
-        this.scheduleSave();
+        this.saver.markThread(head.key, ordered.from);
+        this.saver.schedule();
       }
     }
     // a head written before heads carried a size is measured now, once, from what was read; the thread is saved with it
     const bytes = messages && !head.sized ? JSON.stringify(messages).length : head.bytes;
     // and its head is written with it, so the next restore finds a size and measures nothing
-    if (messages && !head.sized) this.dirty.threads.set(head.key, this.dirty.threads.get(head.key) ?? Number.POSITIVE_INFINITY);
+    if (messages && !head.sized) this.saver.markThread(head.key, Number.POSITIVE_INFINITY);
     this.dispatch({ type: "restored", key: head.key, messages, ...(messages && !head.sized ? { bytes } : {}) }, quiet);
     this.telemetry.emit("perf.cache", { what: "restore", threads: 1, messages: messages?.length ?? 0, bytes }, { ms: Math.round(performance.now() - started), ok: messages !== null });
   }
@@ -240,19 +254,19 @@ class Sync {
     if (action.type === "restored") {
       // what came back from the cache is what the cache holds: only a thread that starts over is written, and its head alone
       // changes otherwise (a read that begins again)
-      if (action.messages === null) this.dirty.threads.set(action.key, 0);
-      else if (result.effects.length > 0) this.dirty.threads.set(action.key, this.dirty.threads.get(action.key) ?? Number.POSITIVE_INFINITY);
+      if (action.messages === null) this.saver.markThread(action.key, 0);
+      else if (result.effects.length > 0) this.saver.markThread(action.key, Number.POSITIVE_INFINITY);
       if (!quiet && result.patches.length > 0) {
         this.pending.push(...result.patches);
         this.scheduleFrame();
       }
     } else if (result.patches.length > 0) {
       if (!quiet) this.pending.push(...result.patches);
-      this.markDirty(result.patches);
+      this.saver.mark(result.patches);
       if (!quiet) this.scheduleFrame();
     }
     for (const effect of result.effects) this.run(effect);
-    this.scheduleSave();
+    this.saver.schedule();
   }
 
   /* —— the stream —— */
@@ -270,13 +284,14 @@ class Sync {
       this.life.signal.addEventListener("abort", stop, { once: true });
       const connectsBefore = this.stats.connects;
       let signedOut = false;
+      let overflowed = false;
       try {
         const headers: Record<string, string> = { accept: "text/event-stream" };
         if (this.state.cursor) headers["last-event-id"] = formatCursor(this.state.cursor);
         // the app always asks for the repo colours, which travel beside the journal (protocol.ts, `ColourFrame`)
         const res = await fetch(this.board ? "/api/stream?colours=1&board=1" : "/api/stream?colours=1", { headers, signal: connection.signal, credentials: "same-origin", cache: "no-store" });
         if (res.status === 401) signedOut = true;
-        else if (res.ok && res.body) await this.read(res.body, connection);
+        else if (res.ok && res.body) overflowed = (await this.read(res.body, connection)) === "overflow";
       } catch {
         /* aborted, refused or dropped: the connection is over either way */
       } finally {
@@ -294,36 +309,78 @@ class Sync {
       this.wentDown();
       // a stream that went live and then dropped is the network, not a failing server: the next dial
       // starts from the floor, so a flaky link resumes in under a second; only dials that never
-      // reach the hello back off (design.md: no "offline" for a resume under 5 s)
-      if (this.stats.connects > connectsBefore) backoff.reset();
+      // reach the hello back off (design.md: no "offline" for a resume under 5 s). a frame past the parser's cap is not the
+      // network: the server sends it again on the next dial, so that dial backs off like one that never went live
+      if (this.stats.connects > connectsBefore && !overflowed) backoff.reset();
       const delay = this.reconnectNow ? 0 : backoff.nextDelay();
       this.reconnectNow = false;
       await sleep(delay, this.life.signal);
     }
   }
 
-  private async read(body: ReadableStream<Uint8Array>, connection: AbortController): Promise<void> {
-    const parser = new SseParser();
+  /** reads one connection's frames until it ends; "overflow" when it was dropped for a frame past the cap */
+  private async read(body: ReadableStream<Uint8Array>, connection: AbortController): Promise<"overflow" | undefined> {
+    const parser = new SseParser(this.frameCap);
     const reader = body.getReader();
-    let stall = setTimeout(() => connection.abort(), STALL_MS);
+    // one timer watches the time of the last byte, and is armed again only when it fires: a chunk costs a clock read, not
+    // a timer cleared and a timer set, and the stream still drops STALL_MS after its last byte
+    let lastByte = performance.now();
+    let stall: ReturnType<typeof setTimeout> | undefined;
+    const watch = () => {
+      const quiet = performance.now() - lastByte;
+      if (quiet >= STALL_MS) connection.abort();
+      else stall = setTimeout(watch, STALL_MS - quiet);
+    };
+    stall = setTimeout(watch, STALL_MS);
+    this.tallyStart();
     try {
       for (;;) {
         const { done, value } = await reader.read();
-        if (done) return;
-        clearTimeout(stall);
-        stall = setTimeout(() => connection.abort(), STALL_MS);
+        if (done) return undefined;
+        lastByte = performance.now();
+        this.tally.received += value.byteLength;
+        if (lastByte - this.tally.since >= TALLY_MS) this.tallyEmit(lastByte);
         for (const frame of parser.push(value)) {
           this.onFrame(frame);
-          if (connection.signal.aborted) return;
+          if (connection.signal.aborted) return undefined;
         }
       }
+    } catch (error) {
+      // a frame past the parser's cap: no well-formed stream sends one, so the connection is dropped, said once, and resumed
+      // from the cursor like any drop
+      if (!(error instanceof SseOverflow)) throw error;
+      this.telemetry.emit("perf.sync", { what: "overflow", received: error.held });
+      connection.abort();
+      return "overflow";
     } finally {
       clearTimeout(stall);
+      this.tallyEmit(performance.now());
       reader.cancel().catch(() => undefined);
     }
   }
 
+  /* —— what the connection costs (`perf.sync`) —— */
+
+  private tallyStart(): void {
+    this.tally = { since: performance.now(), frames: 0, received: 0, posts: 0, patches: 0, posted: 0, saves: 0, puts: 0, stored: 0 };
+  }
+
+  /** the window so far, when anything came in it, and a new window from `now` */
+  private tallyEmit(now: number): void {
+    const { since, ...counts } = this.tally;
+    // a worker that stopped (a sign-out) writes no more rows
+    if (counts.received > 0 && !this.life.signal.aborted) this.telemetry.emit("perf.sync", { what: "minute", ...counts }, { ms: Math.round(now - since) });
+    this.tallyStart();
+  }
+
+  private tallySave(stats: SaveStats): void {
+    this.tally.saves++;
+    this.tally.puts += stats.puts;
+    this.tally.stored += stats.bytes;
+  }
+
   private onFrame(sse: SseFrame): void {
+    this.tally.frames++;
     const routed = routeFrame(sse.data, this.board, true);
     if (!routed) return;
     // so is a colour frame: the reducer takes it as an action of its own, never as an entry
@@ -352,7 +409,8 @@ class Sync {
     this.sender.frame(frame);
     if (resetting) this.replayDone(false);
     else if (frame.type !== "hello") {
-      this.stream = { ...this.stream, lastEventAt: Date.now() };
+      // the status the ui holds is a copy (`setStream` posts it), so the worker's own is changed in place, not made anew per frame
+      this.stream.lastEventAt = Date.now();
       if (this.replay) {
         this.replay.count++;
         if (frame.seq >= this.replay.head) this.replayDone(true);
@@ -453,11 +511,11 @@ class Sync {
         void this.refetch(effect.key, effect.messageID, effect.hydration);
         return;
       case "evicted":
-        this.dirty.threads.set(effect.key, 0);
+        this.saver.markThread(effect.key, 0);
         this.telemetry.emit("perf.cache", { what: "evict", threads: 1, bytes: effect.bytes, opened: effect.opened ? 1 : 0, cap: effect.cap });
         return;
       case "head":
-        this.dirty.threads.set(effect.key, this.dirty.threads.get(effect.key) ?? Number.POSITIVE_INFINITY);
+        this.saver.markThread(effect.key, Number.POSITIVE_INFINITY);
         return;
       default:
         effect satisfies never;
@@ -575,44 +633,17 @@ class Sync {
     if (this.pending.length === 0) return;
     const patches = coalesce(this.pending);
     this.pending = [];
+    this.tally.posts++;
+    this.tally.patches += patches.length;
+    this.tally.posted += weight(patches);
     post({ type: "patches", patches });
   }
 
   /* —— the cache —— */
 
-  private markDirty(patches: readonly Patch[]): void {
-    for (const { path } of patches) {
-      if (path[0] === "fleet") {
-        this.dirty.fleet = true;
-      } else if (path[0] === "threads" && typeof path[1] === "string") {
-        const index = path[2] === "messages" && typeof path[3] === "number" ? path[3] : path[2] === "status" ? Number.POSITIVE_INFINITY : 0;
-        this.dirty.threads.set(path[1], Math.min(index, this.dirty.threads.get(path[1]) ?? Number.POSITIVE_INFINITY));
-      }
-    }
-  }
-
-  private scheduleSave(): void {
-    if (this.saveTimer === undefined && this.cache) this.saveTimer = setTimeout(() => this.save(), SAVE_DEBOUNCE_MS);
-  }
-
-  /** writes the cursor and what changed, from the state as it is now; saves run one after another */
+  /** writes the cursor and what changed, from the state as it is when the write starts (`Saver`) */
   save(): Promise<void> {
-    clearTimeout(this.saveTimer);
-    this.saveTimer = undefined;
-    const cache = this.cache;
-    if (!cache) return Promise.resolve();
-    const state = this.state;
-    const dirty = this.dirty;
-    this.dirty = cleanDirty();
-    this.saving = this.saving.then(() =>
-      cache.save(state, dirty).catch(() => {
-        // the write failed whole, so everything it held is still to write
-        this.dirty.fleet ||= dirty.fleet;
-        for (const [key, from] of dirty.threads) this.dirty.threads.set(key, Math.min(from, this.dirty.threads.get(key) ?? from));
-        this.scheduleSave();
-      }),
-    );
-    return this.saving;
+    return this.saver.save();
   }
 
   /** the page is hidden or leaving: everything goes out now */
@@ -646,7 +677,7 @@ class Sync {
     this.life.abort();
     this.connection?.abort();
     clearTimeout(this.frameTimer);
-    clearTimeout(this.saveTimer);
+    this.saver.stop();
     if (this.frameHandle !== undefined) scope.cancelAnimationFrame?.(this.frameHandle);
     this.telemetry.stop();
   }
@@ -663,7 +694,7 @@ class Sync {
     this.replies = {};
     this.stop();
     await this.telemetry.flush();
-    await this.saving;
+    await this.saver.idle();
     await this.cache?.clear().catch(() => undefined);
     this.cache?.close();
     this.cache = null;

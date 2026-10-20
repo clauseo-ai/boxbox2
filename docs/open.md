@@ -8,6 +8,23 @@ it is verified`. closed items move to the bottom with the commit.
 
 ### bugs you can hit
 
+- [sync] a failed save's retry can run after the worker stopped: the
+  failure handler re-arms the save after `stop()`, so on sign-out a save
+  can commit after `cache.clear()` and leave the old account's data on
+  disk (the same before the perf lane). fix shape: `stop()` cancels the
+  retry and the saver refuses once stopped. · a cache whose next put
+  fails, then sign-out: the database is not empty afterwards
+  (`sync/worker.ts`, `sync/cache.ts` `Saver`)
+
+- [sync] a session removed and added again inside one ui post keeps its
+  old place in the ui's `fleet.sessions` while the worker has it last;
+  settings' repo colours, settings' repo list and the composer's sheet
+  list repos in that insertion order, which shows when two repos have
+  equal timestamps (the same before the perf lane; coalesce keeps order
+  only 4 or more segments deep). · coalesce a delete and a set of
+  `fleet.sessions.<k>` in one post and compare key order with applying
+  each in turn (`sync/reducer.ts` coalesce)
+
 - [board] a board focus or compose the app drops still answers 204 to the
   daemon: the server relays the frame and answers before any window acts,
   so a focus that reaches only hidden windows (another tab, minimised), one

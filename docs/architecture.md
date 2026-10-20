@@ -187,6 +187,8 @@ owner; every map has an eviction rule. the caps:
 | upstream sse line buffer | 8 mb per frame (a tool part's 4 mb of image attachments, whole) | the frame is logged and skipped, the stream survives |
 | transcript hydration proxy | streamed, never buffered whole; gzip on the wire (`http/compress.rs`) | n/a |
 | worker cache (indexeddb) and the threads in its memory | 40 opened threads, 16 held-only threads beside them, and 150 mb for both, by the size of each thread's json (a read's body, then every change applied) | the count caps evict their own kind, longest unused first; the byte cap evicts held-only threads first, then opened ones longest ago first, never the thread on stage or the one the open or read is for (the indexeddb layout, above) |
+| worker sse frame buffer (`app/src/sync/sse.ts`) | 32 mb of text for one frame, four times the largest the server forwards | the connection is dropped, `perf.sync` says `overflow`, and the stream resumes from the cursor with a growing backoff |
+| worker saves | one committing and one waiting, whatever the disk's speed | a save asked for while one commits joins the one waiting |
 | worker entries waiting on a read: a hydration's buffer, and what waits for a message fetched again | the buffer 20,000 entries or 128 mb, what waits for refetches 128 mb per thread (each sixteen frames at the server's 8 mb frame cap), by the size of each entry's words (a part as the thread counts it) | the thread is read again whole, which covers everything that waited |
 | pty relay | 256 kb each way | the socket is closed; the relay redials with the cursor |
 | media store (m9) | `[media] max_bytes`, 2 GiB unless set; 64 MiB a file; 4 uploads at once, 1 MiB buffered each, owned by the media task; 2 copies per connection in flight and 64 queued, 1 MiB buffered each, queued by the source and written by the media task (`agents.md`, buffers and caps) | least recently used first, never pinned media or media under 24 hours old; an evicted id answers 410 (`agents.md`, media). a fifth upload answers 503; a full copy queue defers the copy, never marks it missing |
@@ -333,7 +335,25 @@ cursor, the reducer and indexeddb. it reads the stream with `fetch` and a
 `ReadableStream` reader rather than `EventSource`, so it controls
 `Last-Event-ID`, the byte-level stall timer and backoff itself. json
 parsing and storage writes never touch the ui thread, so scrolling and
-typing stay smooth while a busy fleet streams.
+typing stay smooth while a busy fleet streams. the stall timer is one
+timer that reads the time of the last byte when it fires, not a timer
+set again per chunk, and the parser holds at most 32 mb of text for one
+frame (four times the largest the server forwards): past it the
+connection is dropped, a `perf.sync` row says so, and the stream resumes
+from the cursor, backing off as a dial that never went live does, since
+the server sends the same frame again. saves are 200 ms after the first change and one at a
+time: what changes while a save commits waits for the next, which writes
+all of it from the state as it is then, so a slow disk (a mac with its
+display asleep) costs fewer, larger writes and never a queue of them. a
+save writes what the patches named and no more, and reads the meta in
+its own transaction first: when another writer (a second tab, or a page
+reloading over the last save of the one before) wrote since, it writes
+the fleet and the threads it names whole, since its memory of the disk
+is stale. the cursor is put last, and a save that throws part way is
+aborted. once a minute while the
+stream is up, `perf.sync` counts what the connection cost: frames,
+bytes received, patches posted and about their bytes, saves, records put
+and about their bytes.
 
 **the reducer** is one exhaustive function over the journal's event
 union, generated from the server's types; the typescript compiler fails
@@ -341,8 +361,17 @@ the build if a new event kind is not handled (`scars.md`:
 `message.removed` must be handled). it is pure and tested with recorded
 journals.
 
-**indexeddb layout**: `meta` (cursor, epoch, build id), `fleet` (the
-model), `thread:<host:session>` pages of 50 messages, `drafts` (a target's words) and `draftPhotos` (its photos, written only when the set changes), `outbox` (sends not yet echoed by client id, telemetry rows under `row:`, and this device's replies to asks under `ask:`, at most 200, the oldest dropped first: `app/src/sync/replies.ts`), `prefs`.
+**indexeddb layout** (v4): `meta` (cursor, epoch, build id), `fleet` (the
+model as a record per session, ask and host, one per other field, and an
+index of the fields and of each map's keys in order, so a session that
+changes writes that session alone and the fleet read back keeps its key
+order; v4 split the one record earlier versions wrote, in place, in the
+upgrade), `thread:<host:session>` a head and pages: the last message,
+the one a stream grows, alone in the last page, before it pages of 50,
+and what is left in pages of 32, 16, 8, 4, 2 and 1, so a delta rewrites
+one message and a new message rewrites a few small pages, never the
+fifty before it (`app/src/sync/cache.ts`, `layout`; pages written as 50
+to the end before v4 read as they are), `drafts` (a target's words) and `draftPhotos` (its photos, written only when the set changes), `outbox` (sends not yet echoed by client id, telemetry rows under `row:`, and this device's replies to asks under `ask:`, at most 200, the oldest dropped first: `app/src/sync/replies.ts`), `prefs`.
 
 **what the cache keeps and lets go.** a thread is *opened* (the person
 opened it: `openedAt` is the time) or only *held* for another thread (a

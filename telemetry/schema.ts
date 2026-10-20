@@ -238,6 +238,20 @@ export const EVENTS = {
     },
   },
 
+  "perf.sync": {
+    doc: "what the sync worker's stream connection cost it, in counts and sizes, never content (docs/architecture.md, the sync worker). minute: one row a minute while the stream is up, and one for the part of a minute when it closes; ms is the window, and an idle fleet should cost little in it. overflow: a frame passed the parser's cap (32 mb of text, four times the largest the server forwards), so the connection was dropped and resumed from its cursor; a well-formed stream never sends one.",
+    props: {
+      what: { type: "TEXT", doc: "which row", values: ["minute", "overflow"], required: true },
+      frames: { type: "INTEGER", doc: "minute: sse frames received (journal, colour and board frames)." },
+      received: { type: "INTEGER", doc: "minute: bytes read off the stream. overflow: the characters the parser held at the cap." },
+      posts: { type: "INTEGER", doc: "minute: patch messages posted to the ui thread (one a frame at most)." },
+      patches: { type: "INTEGER", doc: "minute: patches in them, after coalescing." },
+      posted: { type: "INTEGER", doc: "minute: about how many bytes those patches carried (strings by length, 8 a number)." },
+      saves: { type: "INTEGER", doc: "minute: indexeddb saves committed (one in flight at most)." },
+      puts: { type: "INTEGER", doc: "minute: indexeddb records those saves put." },
+      stored: { type: "INTEGER", doc: "minute: about how many bytes those records held, by the same estimate as posted." },
+    },
+  },
   "perf.media": {
     doc: "media paints and serves (docs/design.md, voice and media; docs/agents.md, media). card and viewer are the app's: an image card's image painted within 300 ms of entering the view, the viewer opened within its spring; ok = 1 inside the budget. serve is the server's: GET /api/media/{id} from the request to the answer's head (the index read, the file opened), one row per play or open (a whole file, a range from byte 0, or a refusal), never one per scrub; ok = 1 when the file was served (200, 206, 304), 0 for a refusal (400, 404, 410, 416, 503).",
     props: {

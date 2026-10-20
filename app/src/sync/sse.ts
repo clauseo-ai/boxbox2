@@ -7,7 +7,26 @@
    lines join with `\n`; comments (`:`) are counted and dropped, since the
    worker's stall timer watches bytes, not frames. a frame with no data is
    not dispatched; the server never sends one, and every cursor the worker
-   keeps comes from an entry it applied, never from a bare id. */
+   keeps comes from an entry it applied, never from a bare id.
+
+   what the parser holds (the line not yet ended and the data lines of the
+   frame not yet dispatched) has a cap, FRAME_CAP. past it the parser drops
+   what it holds and throws `SseOverflow`, and the worker drops the
+   connection and resumes from its cursor. */
+
+/** the most text one frame may hold, in utf-16 units (never more than its utf-8 bytes): four times the largest frame the server
+    forwards, an upstream frame at its 8 mb cap (docs/architecture.md, the caps), so a well-formed stream never reaches it */
+export const FRAME_CAP = 32 * 1024 * 1024;
+
+/** a frame passed the parser's cap; `held` is what the parser held when it did */
+export class SseOverflow extends Error {
+  constructor(
+    readonly held: number,
+    cap: number,
+  ) {
+    super(`an sse frame passed ${cap} characters`);
+  }
+}
 
 export type SseFrame = {
   /** the frame's `id:` field, when it had one */
@@ -21,10 +40,14 @@ export class SseParser {
   private data: string[] = [];
   private id: string | undefined;
   private hasData = false;
+  /** the length of `data`'s lines, so the frame's size is known without joining them */
+  private dataLength = 0;
   /** comment lines seen, heartbeats among them */
   comments = 0;
 
-  /** feeds bytes as they arrived and returns the frames they completed */
+  constructor(private readonly cap = FRAME_CAP) {}
+
+  /** feeds bytes as they arrived and returns the frames they completed; throws `SseOverflow` past the cap */
   push(chunk: Uint8Array): SseFrame[] {
     this.buffer += this.decoder.decode(chunk, { stream: true });
     const frames: SseFrame[] = [];
@@ -35,6 +58,14 @@ export class SseParser {
       this.line(raw.endsWith("\r") ? raw.slice(0, -1) : raw, frames);
     }
     this.buffer = this.buffer.slice(start);
+    const held = this.buffer.length + this.dataLength;
+    if (held > this.cap) {
+      this.buffer = "";
+      this.data = [];
+      this.dataLength = 0;
+      this.hasData = false;
+      throw new SseOverflow(held, this.cap);
+    }
     return frames;
   }
 
@@ -42,6 +73,7 @@ export class SseParser {
     if (line === "") {
       if (this.hasData) frames.push({ id: this.id, data: this.data.join("\n") });
       this.data = [];
+      this.dataLength = 0;
       this.hasData = false;
       this.id = undefined;
       return;
@@ -56,6 +88,7 @@ export class SseParser {
     if (value.startsWith(" ")) value = value.slice(1);
     if (field === "data") {
       this.data.push(value);
+      this.dataLength += value.length;
       this.hasData = true;
     } else if (field === "id") {
       this.id = value;

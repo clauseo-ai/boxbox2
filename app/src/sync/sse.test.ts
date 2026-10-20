@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { SseParser, type SseFrame } from "./sse";
+import { FRAME_CAP, SseOverflow, SseParser, type SseFrame } from "./sse";
 
 const encoder = new TextEncoder();
 
@@ -48,5 +48,31 @@ describe("the sse parser", () => {
     expect(parser.push(encoder.encode("id: e1:9\n\n"))).toEqual([]);
     expect(parser.push(encoder.encode("data: half"))).toEqual([]);
     expect(parser.push(encoder.encode("\n\n"))).toEqual([{ id: undefined, data: "half" }]);
+  });
+
+  test("a frame up to the cap is read whole, split anywhere, and one past it throws once and holds nothing after", () => {
+    const cap = 64;
+    const frame = `id: e1:3\ndata: ${"x".repeat(cap - 26)}\ndata: ${"y".repeat(9)}\n\n`;
+    const bytes = encoder.encode(frame);
+    for (let at = 0; at <= bytes.length; at++) {
+      const parser = new SseParser(cap);
+      expect([...parser.push(bytes.slice(0, at)), ...parser.push(bytes.slice(at))]).toEqual([{ id: "e1:3", data: `${"x".repeat(cap - 26)}\n${"y".repeat(9)}` }]);
+    }
+    const parser = new SseParser(cap);
+    parser.push(encoder.encode(`data: ${"x".repeat(cap - 10)}\n`));
+    let thrown: unknown = null;
+    try {
+      parser.push(encoder.encode(`data: ${"y".repeat(20)}`));
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(SseOverflow);
+    expect((thrown as SseOverflow).held).toBeGreaterThan(cap);
+    // what it held is gone: the next frame is read on its own (the worker drops the connection anyway)
+    expect(parser.push(encoder.encode("\n\ndata: z\n\n"))).toEqual([{ id: undefined, data: "z" }]);
+  });
+
+  test("the cap is far past the largest frame the server forwards", () => {
+    expect(FRAME_CAP).toBeGreaterThanOrEqual(4 * 8 * 1024 * 1024);
   });
 });
