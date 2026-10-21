@@ -138,6 +138,7 @@ server sends a snapshot and the worker replaces its cache in one step.
 | installing on a server, https, upgrades | [deploy.md](deploy.md) |
 | what boxbox asks of cmx2 | [cmx2-asks.md](cmx2-asks.md) |
 | agents beyond cmx2: contract 2 beside an isolated contract 1, the agent source seam, what a source journals, the transcript cache, capabilities, the routes, media, sends that end uncertain, the runs window, identity | [agents.md](agents.md) |
+| the device protocol that replaces contract 1 (spec, not built yet): interest, patches, catch-up, full resume on restart, paged thread reads, the summary, media references, the build packages | [protocol.md](protocol.md) |
 | the openclaw connection: pairing, sync, the method allowlist, the test gateway, its mapping | [openclaw.md](openclaw.md) |
 | how changes are verified | [verification.md](verification.md), [board-verification.md](board-verification.md) |
 | known bugs | [open.md](open.md) |
