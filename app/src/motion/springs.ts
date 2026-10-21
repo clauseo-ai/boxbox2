@@ -53,10 +53,8 @@ export const SNAP: Spring = spring(380, 32);
 export const SHEET: Spring = spring(250, 27);
 /** content swaps */
 export const FADE: Curve = { easing: "cubic-bezier(.2, .8, .2, 1)", duration: 160 };
-/** a streamed word settling from a 5 px blur */
+/** a streamed word fading in */
 export const SETTLE: Curve = { easing: "cubic-bezier(.2, .7, .2, 1)", duration: 360 };
-/** the blur a streamed word settles from */
-export const SETTLE_BLUR_PX = 5;
 /** under reduced motion, content swaps keep a short fade and nothing else moves */
 export const REDUCED_FADE: Curve = { easing: "linear", duration: 120 };
 /** the one sweep of light an earned moment makes across a window */

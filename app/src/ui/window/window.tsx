@@ -287,7 +287,7 @@ function Line(props: { line: TailLine; live: boolean }) {
       for (let above = el.previousElementSibling; above; above = above.previousElementSibling) {
         play(above, [{ transform: `translateY(${lift}px)` }, { transform: "none" }], SNAP);
       }
-      play(el, [{ opacity: 0, transform: "translateY(8px)", filter: "blur(4px)" }, { opacity: 1, transform: "none", filter: "blur(0)" }], SNAP, { fill: "backwards" });
+      play(el, [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], SNAP, { fill: "backwards" });
     });
   };
   return (

@@ -1131,7 +1131,7 @@ export function Home(props: HomeProps) {
     return { wants, rest };
   });
 
-  /* a count that changes in front of you settles in from the soft blur, as a streamed word does; the line as it was
+  /* a count that changes in front of you fades in, as a streamed word does; the line as it was
      painted, or as the screen came up, does not move */
   const upAt = performance.now();
   const partIn = (el: HTMLElement) => settle(el, motion() && performance.now() - upAt > 800);

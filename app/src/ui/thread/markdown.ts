@@ -38,9 +38,9 @@ export const plain = (md: string): string =>
 export const render = (md: string): string => (engine ? engine.whole(md) : cutHtml(plain(md)));
 
 /** the sanitised html of text that has settled, kept by its text in the store's cache (memo-cache.ts): a thread opened again, or a
-    turn painted again, does not run marked and the sanitiser over an answer it has already read. the text a reply is still writing
+    turn painted again (or a far turn's stand-in, far-turn.tsx), does not run marked and the sanitiser over an answer it has already read. the text a reply is still writing
     is never kept, since each frame's is its own */
-function settled(md: string, cache: HtmlMemo | undefined): string {
+export function settledHtml(md: string, cache: HtmlMemo | undefined): string {
   // a huge text is bounded when it is painted and kept in no cache: its key alone would be megabytes
   if (md.length > BIG) return render(md);
   const held = cache?.get(md);
@@ -200,12 +200,12 @@ export function painter(surface: HTMLElement, html?: HtmlMemo, whole = false): P
 
   /** the html of the text in units: the reply being written in its own, settled text as one, from the store's cache when it has it */
   const unitsOf = (md: string, withCaret: boolean): string[] => {
-    if (!engine || whole) return [withCaret ? render(md) : settled(md, html)];
+    if (!engine || whole) return [withCaret ? render(md) : settledHtml(md, html)];
     if (withCaret) return (stream ??= engine.stream()).units(md);
     const was = stream;
     stream = undefined;
     // a reply that has just settled is made of the units it streamed in, all of them made already
-    return was ? settledFrom(md, was, html) : [settled(md, html)];
+    return was ? settledFrom(md, was, html) : [settledHtml(md, html)];
   };
 
   /** the blocks of the units in order, each made only when its html is not what stands at its place; returns the units as painted */

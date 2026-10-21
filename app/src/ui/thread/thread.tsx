@@ -3,17 +3,19 @@
    growing at its end. state that is the reader's (which rows are open) lives
    here; everything about the turn comes from the model. */
 
-import { type Accessor, For, Index, type JSX, Show, createComputed, createContext, createEffect, createMemo, createRenderEffect, createSignal, on, onCleanup, onMount, untrack, useContext } from "solid-js";
+import { type Accessor, For, lazy, Index, type JSX, Show, createComputed, createContext, createEffect, createMemo, createRenderEffect, createSignal, on, onCleanup, onMount, untrack, useContext } from "solid-js";
 import { cutMiddle, typeWord } from "../composer/files";
 import { type Copying, CopyButton } from "./copy-button";
 import { commandLabel, outputLabel, replyLabel } from "./copy-names";
 import { boundedPlain, newestOf, openLabel } from "./big-text";
+import { pacer } from "./pace";
 import { painter } from "./markdown";
 import { type Picture, type Say, type Turn, spawnsOf } from "./model";
 import { flip, installMotion, rise } from "./motion";
 import { type Entry, type Live, ledgerOf, namesOf, sameCtxFor } from "./ledger";
 import { type Label, NONE, type Names, createNames, sameList } from "./names";
 import { type ThreadCaches, cacheKey, weighTurn } from "./memo-cache";
+import { longPrompt } from "./far";
 import { type StageWindow, moveTo } from "./stage-window";
 import { COPY_OUTPUT_CAP, DIFF_PREVIEW, DIFF_WHOLE, cleanOutput, wholeLines } from "./evidence";
 import { type Bed, type Body, type DiffLine, type FileLine, type Inline, type Result, type RowCtx, type RowModel, clock, clockDur, clockS, dur, firstSentence, n, pictureNames, plural } from "./rows";
@@ -74,7 +76,7 @@ function turnNames(turn: Accessor<string>, labels: Accessor<readonly Label[]>): 
 /** what tells one turn's own controls (its tape, its report's buttons) from another turn's with the same words: where the turn stands on
     the page, ", turn 12". no two controls share a name (docs/thread.md, accessibility), and these have no label of their own to count
     the way rows do. a story of one turn has no page, and no ordinal */
-function useOrdinal(id: Accessor<string>): Accessor<string> {
+export function useOrdinal(id: Accessor<string>): Accessor<string> {
   const names = useContext(NamesContext);
   return () => { const at = names ? names.order().indexOf(id()) : -1; return at < 0 ? "" : `, turn ${at + 1}`; };
 }
@@ -456,14 +458,17 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
      second tap takes it back to the box (the native client's decision 21). the row's head still opens and closes the row */
   const [whole, setWhole] = createSignal(false);
   const [boxOver, setBoxOver] = createSignal(false);
-  createEffect(() => {
-    void props.live?.text; void props.live?.out?.length;
+  const followBox = () => {
     if (!liveEl) return;
     if (whole() && props.live?.text !== undefined) { setBoxOver(false); liveEl.classList.remove("over"); return; }
     liveEl.scrollTop = liveEl.scrollHeight;
     const over = liveEl.scrollTop > 2;
     liveEl.classList.toggle("over", over);
     setBoxOver(over);
+  };
+  createEffect(() => {
+    void props.live?.text; void props.live?.out?.length; void whole();
+    followBox();
   });
   const toggleWhole = () => { follow?.hold(); setWhole(!whole()); };
   /* an agent's row on screen is a reason to hold its child's thread (live.ts, `want`): its step count and its lane come from it */
@@ -520,7 +525,7 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
             <Show when={props.cur && props.live} fallback={<Show when={props.m.body}>{(b) => <BodyView b={b()} root={() => flipRoot(rowEl)} now={props.now} row={props.name ?? props.m.label} />}</Show>}>{(l) => (
               <Show when={l().text !== undefined} fallback={<div ref={liveEl} class="live-out"><Show when={l().diff} fallback={<BedView bed={{ lines: l().out ?? [" "] }} />}>{(d) => <DiffView lines={d()} />}</Show></div>}>
                 <div class="live-thought">
-                  <div ref={liveEl} class={`live-text ${l().streaming ? "caret" : ""} ${whole() ? "whole" : ""}`}><Streamed text={l().text ?? ""} whole={whole()} /></div>
+                  <div ref={liveEl} class={`live-text ${l().streaming ? "caret" : ""} ${whole() ? "whole" : ""}`}><Streamed text={l().text ?? ""} whole={whole()} onPaint={followBox} /></div>
                   <button class="live-door" aria-expanded={whole() ? "true" : "false"} aria-label={whole() ? "the whole thought" : "the thought being written"} title={whole() ? "shows only its newest lines" : "shows the whole thought"} onClick={toggleWhole}>
                     <Show when={boxOver() && !whole()}><i class="live-more" aria-hidden="true" /></Show>
                   </button>
@@ -534,30 +539,34 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
   );
 }
 
-/** a streamed thought's words: what is there stays put and what arrives enters with the blur settle (design.md, motion). a text
+/** a streamed thought's words: what is there stays put and what arrives fades in (design.md, motion). a text
     that does not carry on from the last one is painted whole with no motion, as is the first text a row paints, so a
     thread opened mid-stream never animates (replay never animates) */
-function Streamed(props: { text: string; /** the whole thought, not the box's newest lines */ whole?: boolean }) {
+function Streamed(props: { text: string; /** the whole thought, not the box's newest lines */ whole?: boolean; /** the box grew between batches */ onPaint?: () => void }) {
   type Chunk = { text: string; fresh: boolean };
   /* the box follows the newest line, so a thought of megabytes shows its last few thousand characters and nothing else (big-text.ts);
      whole, it shows as much of it as a page lays out (its bound) */
   const newest = () => (props.whole ? boundedPlain(props.text).shown : newestOf(props.text));
-  const [chunks, setChunks] = createSignal<Chunk[]>([{ text: newest(), fresh: false }]);
-  let shown = newest();
-  /* a render effect, so the words are in the box before the box follows them (the effects after it) */
-  createRenderEffect(on(newest, (text) => {
-    if (text === shown) return;
-    if (text.startsWith(shown)) {
-      const grown = [...chunks(), { text: text.slice(shown.length), fresh: true }];
+  const first = untrack(newest);
+  const [chunks, setChunks] = createSignal<Chunk[]>([{ text: first, fresh: false }]);
+  /* a batch is revealed over the frames after it (pace.ts); a text that does not carry on is in the box at once, before the box follows
+     it (the effects after this render effect) */
+  const pace = pacer(first, {
+    append: (piece) => {
+      const grown = [...chunks(), { text: piece, fresh: true }];
       /* the settled words fold into one chunk, so a long reply never holds hundreds of spans */
       setChunks(grown.length > MAX_CHUNKS ? [{ text: grown.slice(0, -RECENT_CHUNKS).map((c) => c.text).join(""), fresh: false }, ...grown.slice(-RECENT_CHUNKS)] : grown);
-    } else setChunks([{ text, fresh: false }]);
-    shown = text;
-  }, { defer: true }));
+      props.onPaint?.();
+    },
+    replace: (text) => setChunks([{ text, fresh: false }]),
+  });
+  createRenderEffect(on(newest, (text) => pace.set(text), { defer: true }));
+  onCleanup(() => pace.dispose());
   return <For each={chunks()}>{(c) => <span classList={{ w: c.fresh }}>{c.text}</span>}</For>;
 }
 const MAX_CHUNKS = 64;
-const RECENT_CHUNKS = 12;
+/* a fold makes the words it takes plain, so the chunks kept are the ones a frame a piece can still be fading in (360 ms at 60 fps) */
+const RECENT_CHUNKS = 24;
 
 /** the agent's markdown painted as it stands: the answer's own sanitised markdown, so what a said row says reads the way the
     answer will. a streaming text changes more than once a frame at times and one parse of the newest is all the eye gets, so
@@ -791,12 +800,12 @@ export function Ledger(props: { turn: Turn; ctx: RowCtx; live?: boolean; /** row
 /* ---------- what started the turn, and what it came to ---------- */
 
 /** the bubble clamps at six lines, which the first thousand characters more than fill: the rest of a long prompt is not made into text the page must lay out */
-const CLAMPED_CHARS = 1200;
+export const CLAMPED_CHARS = 1200;
 
 export function YouBubble(props: { turn: Turn }) {
   /* ten messages of one length have ten controls with the same words: the turn tells them apart (AGENTS.md, accessibility: unique names) */
   const ordinal = useOrdinal(() => props.turn.id);
-  const long = () => props.turn.prompt.length > 300 || props.turn.prompt.split("\n").length > 6;
+  const long = () => longPrompt(props.turn.prompt);
   const [all, setAll] = createSignal(false);
   let el!: HTMLDivElement;
   const follow = useContext(FollowContext);
@@ -932,6 +941,9 @@ export const SettleContext = createContext<Settle>();
 /** true while the stage lands a thread it has just opened: what is painted then is not a live event and does not move */
 export const LandingContext = createContext<() => boolean>();
 
+/** a far turn's text-only stand-in (far-turn.tsx), a chunk of its own: fetched when the first turn is let go */
+const StandIn = lazy(() => import("./far-turn").then((m) => ({ default: m.StandIn })));
+
 export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?: number }) {
   let el!: HTMLElement;
   const t = () => props.turn;
@@ -941,6 +953,8 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
   /* an older turn is an empty box until the stage's window fills it, and stays filled (stage-window.ts); with no window, always */
   const filled = () => win === undefined || win.filled(t().id);
   const boxHeight = createMemo(() => (win === undefined ? 0 : win.height(t())));
+  /* a turn that was filled and is far: its stand-in (far-turn.tsx), until it comes back within range, focus goes into it or a pointer comes over it */
+  const far = createMemo(() => win?.far(t().id));
   /* what a reader watches arrive rises in: the rows of a turn that runs in front of them, and what its settle adds. what is
      painted when a thread lands does not (the rows ask LandingContext) */
   const [watched, setWatched] = createSignal(live());
@@ -981,8 +995,8 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
   /* a message that waits and has nothing of its own yet takes no room: the composer's queue shows it */
   const waits = () => (t().by === "queued" || t().by === "steer") && !t().items.length && !t().answer;
   return (
-    <section ref={el} class="turn" data-turn={t().id} data-waits={waits() ? "" : undefined} data-pending={filled() ? undefined : ""} data-gist={filled() ? undefined : firstSentence(t().prompt).slice(0, 90)} style={filled() ? undefined : { height: `${boxHeight()}px` }}>
-      <Show when={filled()}>
+    <section ref={el} class="turn" data-turn={t().id} data-waits={waits() ? "" : undefined} data-pending={filled() ? undefined : ""} data-gist={filled() ? undefined : firstSentence(t().prompt).slice(0, 90)} data-far={far() ? "" : undefined} style={filled() ? undefined : { height: `${far()?.height ?? boxHeight()}px` }}>
+      <Show when={filled()} fallback={<Show when={far()}>{(f) => <StandIn turn={t()} ctx={ctx()} far={f()} refill={() => win?.refill(t().id)} />}</Show>}>
         <Show when={t().by === "mail"}><ReportCard turn={t()} /></Show>
         <Show when={t().by === "compaction" || t().by === "notice"}><MarkLine turn={t()} /></Show>
         {/* a message that waits (queued, or a steer waiting for the step in flight) is the composer's queue's, never a bubble here: it

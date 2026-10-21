@@ -35,7 +35,7 @@ is binding the same way (AGENTS.md, design law).
   a second (the replay after a connect lands in that second), the page is
   visible, and the stream is not offline. everything else paints in place.
   reduced motion makes springs instant, keeps a 120 ms fade for content
-  swaps and turns the blur and the sweep off, in `play` itself.
+  swaps and turns the word fade and the sweep off, in `play` itself.
 - **the calm laws.** a reorder waits while a finger is down and lands 1 s
   after the last release or scroll, on the snap spring (flip, measured
   once); on the deck the window in view keeps its place. a question that
@@ -114,8 +114,8 @@ is binding the same way (AGENTS.md, design law).
   the springs' own rest threshold; the law's "about 420" and "about 560"
   are rounded from the same constants.
 - **the tick draws by clip**, left to right, since the law allows only
-  transform, opacity, clip-path and filter to animate. **streamed words settle by blur and opacity**
-  alone: they are inline so they wrap with the prose, and transform does
+  transform, opacity, clip-path and filter to animate. **streamed words fade in by opacity**
+  alone (no blur since 2026-10-21; a new tail line rises 8 px as it fades, with no blur either): they are inline so they wrap with the prose, and transform does
   not apply to inline boxes.
 - **the bar's line is one phrase** ("ledger wants you, 2 working, 1
   done"): where the bar is narrow it wraps between its parts, each part
@@ -595,7 +595,7 @@ guesses.
 
 | gap | what home does meanwhile | where it closes |
 |---|---|---|
-| ~~a window tail never takes deltas~~ | closed: the fleet folds `message.part.delta` into the tail; a session's entry goes out at most every 500 ms (it was 200) while only streamed text moves it (`model::TAIL_EVERY_MS`), flushed by the actor's clock, and the new words settle in by blur | |
+| ~~a window tail never takes deltas~~ | closed: the fleet folds `message.part.delta` into the tail; a session's entry goes out at most every 500 ms (it was 200) while only streamed text moves it (`model::TAIL_EVERY_MS`), flushed by the actor's clock, and the new words fade in | |
 | ~~a tail item has no role~~ | closed: `TailItem.role` (`user`, `assistant`); your prompt is its own line on the right, its first 280 characters kept, and a prompt still queued stays out of the tail | |
 | ~~cmx2's synthetic parts enter the tail~~ | closed: `tail_item` skips `synthetic: true`, as the stage does | |
 | ~~no failure on a session (`session.error`)~~ | closed by m4: an open fault need feeds `Extra.failure` (`app/src/ui/inbox/extra.ts`) | |

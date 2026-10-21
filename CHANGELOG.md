@@ -6,6 +6,19 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **streamed words fade in, and far turns are light.** every blur-in
+  became an opacity fade with the same 360 ms timing (the thinking box,
+  home window prose and summary counts; a window's new tail line keeps
+  its 8 px rise and loses its blur). the thinking box reveals each 100 ms
+  batch in word-ended pieces over the next frames, under reduced motion
+  too, and keeps fading past 16 kb: a 40,000-character thought made 3,404
+  whole repaints, now 6. a filled turn more than 6 screens away with no
+  focus, selection or open row becomes a text-only stand-in at its
+  measured height and fills again on focus, pointer or nearness: a far
+  turn goes from 260 elements to 42, a 56-turn thread from 14,688 to
+  4,644; screen readers lose a far turn's buttons, sliders, timestamps
+  and step rows until it comes near.
+
 - **the first load is 115.9 kb of its 120 kb budget** (it was 120.0). what
   runs only after the server answers (notifications, prefs, presence, the
   perf emitter) and five surfaces that open at a press (the spend dialog,

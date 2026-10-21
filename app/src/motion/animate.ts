@@ -4,7 +4,7 @@
    - only transform (and its individual `scale`), opacity, clip-path and filter
      animate. `play` takes keyframes of those and nothing else, by type.
    - reduced motion: springs become instant, content swaps keep a 120 ms
-     fade, the sweep and the blur are off.
+     fade, the sweep and the word fade are off.
    - live motion only for live events: a caller passes `live: false` for
      anything painted from cache or replay, or offscreen, and gets the end
      state at once.
@@ -12,7 +12,7 @@
      after one mutation), never inside a frame loop. */
 
 import { type Accessor, createSignal } from "solid-js";
-import { type Curve, FADE, REDUCED_FADE, SETTLE, SETTLE_BLUR_PX, SHEET, SNAP, type Spring, SWEEP, motionProperties } from "./springs";
+import { type Curve, FADE, REDUCED_FADE, SETTLE, SHEET, SNAP, type Spring, SWEEP, motionProperties } from "./springs";
 
 /** what a keyframe may touch */
 export type Frame = {
@@ -82,7 +82,7 @@ export function play(el: Element, frames: Frame[], curve: Spring | Curve, option
     playing(
       el,
       reduced()
-        ? // a content swap keeps a short fade; springs land at once; decoration (the sweep, the blur) is off
+        ? // a content swap keeps a short fade; springs land at once; decoration (the sweep, the word fade) is off
           el.animate(onlyOpacity(frames), { duration: REDUCED_FADE.duration, easing: REDUCED_FADE.easing, fill })
         : el.animate(frames as Keyframe[], { duration: curve.duration, easing: curve.easing, delay, fill, ...(pseudoElement ? { pseudoElement } : {}) }),
     );
@@ -162,15 +162,12 @@ export function flip(elements: Iterable<Element>, mutate: () => void, curve: Spr
   }
 }
 
-/** a streamed word (or run of words) settling in from a soft blur. words are inline, so they wrap with the
-    prose; transform does not apply to inline boxes, so the settle is the blur and the opacity alone */
+/** a streamed word (or run of words) fading in. words are inline, so they wrap with the prose; transform does not
+    apply to inline boxes, and a blur gave every arriving run a layer of its own, so the settle is opacity alone */
 export function settle(el: Element, live: boolean): void {
   play(
     el,
-    [
-      { opacity: 0, filter: `blur(${SETTLE_BLUR_PX}px)` },
-      { opacity: 1, filter: "blur(0)" },
-    ],
+    [{ opacity: 0 }, { opacity: 1 }],
     SETTLE,
     { live, fill: "backwards" },
   );

@@ -1,7 +1,8 @@
 /* the log mounted progressively (docs/thread.md, budgets): the stage's side of windowing.ts. every turn is a box of its own on the
-   page; an older one is empty, at a remembered or estimated height, until it comes within a few screens of the view, and once
-   filled it stays filled: nothing a reader did in it (focus, a selection, an open row, a code block's scroll, words typed) is
-   ever taken away by the window. the cost of that is that a box above the reader's eye changes height when it fills in, so this
+   page; an older one is empty, at a remembered or estimated height, until it comes within a few screens of the view. once filled it
+   stays filled while it is near, or holds anything of the reader's (focus, a selection, an open row, a code block's scroll, words
+   typed: far.ts); a filled turn farther than FAR_SCREENS that holds none of it becomes a text-only stand-in at the height it measured,
+   and is filled again before it comes back into view (far.ts, far-dom.ts, far-turn.tsx). the cost of that is that a box above the reader's eye changes height when it fills in, so this
    file is also the one owner of where the view is, with the end's pin (pin.ts): a fill is made with the reader's anchor taken
    first and put back in the same task, before anything is painted, and a height that changes for any other reason (a late
    highlight, an image) is put back the same way from the frame's resize report. native scroll anchoring is off on the scroller
@@ -12,9 +13,13 @@ import { createStore, unwrap } from "solid-js/store";
 import { carried, whenLanded } from "../../motion/animate";
 import { layoutTop } from "./ask-landing";
 import { HEIGHT_BYTES, type ThreadCaches, cacheKey } from "./memo-cache";
+import { FAR_AFTER_MS, FAR_SCREENS, type FarTurn } from "./far";
 import { type Turn, spawnsOf } from "./model";
 import type { Pin } from "./pin";
 import { type Near, REACH_SCREENS, SETTLE_MS, alwaysFilled, around, between, calibrate, estimateHeight, firstUnder, keepAt, nextFills, slotAtTop, travel, widthBucket } from "./windowing";
+
+/** what reads a turn for the reader's things (far-dom.ts), fetched when the first turn waits to be let go */
+let farDom: typeof import("./far-dom") | undefined;
 
 /** a screen and a half of turns is there before the first frame, from the end: what the reader lands on is not painted empty */
 const FIRST_SCREENS = 1;
@@ -25,6 +30,10 @@ const SAMPLES = 40;
 export type StageWindow = {
   /** a turn's rows are mounted */
   filled(id: string): boolean;
+  /** a turn that was filled and is far from the view: its text-only stand-in's height and the copy controls it held (far.ts) */
+  far(id: string): FarTurn | undefined;
+  /** fills a turn now (a stand-in that focus went into, or a pointer came over), with the reader's place kept */
+  refill(id: string): void;
   /** how tall the empty box of a turn is: what it measured when it was last seen at this width, else an estimate */
   height(turn: Turn): number;
   /** a turn's box, which the window watches: filled by the loop, measured when it changes. answers what stops it */
@@ -91,7 +100,15 @@ export function moveTo(scroller: HTMLElement, target: () => number): void {
 
 export function createStageWindow(options: StageWindowOptions): StageWindow {
   const { pin } = options;
-  const [filled, setFilled] = createStore<Record<string, true | undefined>>({});
+  /* true: filled. "far": was filled, and is a stand-in while it is far (far.ts) */
+  const [filled, setFilled] = createStore<Record<string, true | "far" | undefined>>({});
+  const farTurns = new Map<string, FarTurn>();
+  /** what each filled turn measured last, as laid out: the height its stand-in is made at */
+  const sizes = new Map<string, number>();
+  /** the turns the far observer says are past FAR_SCREENS, and those of them that wait to be let go */
+  const away = new Set<string>();
+  const letting = new Set<string>();
+  let farTimer: ReturnType<typeof setTimeout> | undefined;
   const slots = new Map<string, HTMLElement>();
   const owner = new Map<Element, { id: Accessor<string>; turn: Accessor<Turn> }>();
   const near = new Set<string>();
@@ -286,11 +303,49 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
 
   /* ---------- filling ---------- */
   const fill = (wanted: readonly string[]): boolean => {
-    const fresh = wanted.filter((id) => !filled[id]);
+    const fresh = wanted.filter((id) => filled[id] !== true);
     if (!fresh.length) return false;
     keeping(() => batch(() => { for (const id of fresh) setFilled(id, true); }));
-    for (const id of fresh) slots.get(id)?.removeAttribute("data-waiting");
+    for (const id of fresh) {
+      farTurns.delete(id);
+      slots.get(id)?.removeAttribute("data-waiting");
+      /* a turn filled where it is far (a reveal before a move) is let go again if the view does not come to it */
+      if (away.has(id)) letGoSoon(id);
+    }
     return true;
+  };
+  /* ---------- far turns (far.ts) ---------- */
+  const letGoSoon = (id: string): void => {
+    letting.add(id);
+    farTimer ??= setTimeout(letGo, FAR_AFTER_MS);
+  };
+  /** lets go of the turns that have been far a while and hold nothing of the reader's, a few a task, while the view is still. a turn is
+      made a stand-in at the height it measured, so nothing on the page moves; the place is kept all the same */
+  function letGo(): void {
+    farTimer = undefined;
+    const s = scroller();
+    if (!s) return;
+    if (moving() || travelling || held || carried(s)) { farTimer = setTimeout(letGo, FAR_AFTER_MS); return; }
+    const dom = farDom;
+    if (!dom) { void import("./far-dom").then((m) => { farDom = m; if (!gone) farTimer ??= setTimeout(letGo, 0); }, () => undefined); return; }
+    const keep = must();
+    const ready = dom.pick(letting, (id) => {
+      const el = slots.get(id);
+      const turn = el ? owner.get(el)?.turn : undefined;
+      return el && turn && filled[id] === true && away.has(id) && !keep.has(id) ? { el, prompt: untrack(turn).prompt, height: sizes.get(id) ?? el.offsetHeight } : undefined;
+    });
+    if (ready.length) keeping(() => batch(() => { for (const [id, far] of ready) { farTurns.set(id, far); setFilled(id, "far"); } }));
+    if (letting.size) farTimer = setTimeout(letGo, 50);
+  }
+  /** the stand-ins within a screen above the view and two below it are filled now, in the scroll's own task, before the frame paints: a
+      scrollbar dragged or a jump goes farther in a frame than the far observer reports in time */
+  const refillNear = (): void => {
+    const s = scroller();
+    if (!s || !farTurns.size) return;
+    const order = ids().filter((id) => slots.has(id));
+    if (!order.length) return;
+    const from = indexAt(s, order, s.scrollTop - s.clientHeight), to = indexAt(s, order, s.scrollTop + 2 * s.clientHeight);
+    fill(order.slice(from, to + 1).filter((id) => filled[id] === "far"));
   };
   const must = (): ReadonlySet<string> => alwaysFilled(ids(), options.live(), options.asking());
   /* what has to be there: the newest turns, the running turn, a turn that asks. read as it changes, and made before the frame that
@@ -357,7 +412,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
   /* a turn that left the page is forgotten */
   createEffect(() => {
     const here = new Set(idList());
-    for (const id of Object.keys(untrack(() => unwrap(filled)))) if (!here.has(id)) setFilled(id, undefined);
+    for (const id of Object.keys(untrack(() => unwrap(filled)))) if (!here.has(id)) { setFilled(id, undefined); farTurns.delete(id); sizes.delete(id); }
   });
 
   let touching = false;
@@ -400,7 +455,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
     const waiting = candidates.some((c) => !c.filled && !picks.includes(c.index));
     for (const id of seeing) {
       const box = slots.get(id);
-      if (box) box.toggleAttribute("data-waiting", holding && filled[id] !== true);
+      if (box) box.toggleAttribute("data-waiting", holding && filled[id] === undefined);
     }
     if (!waiting) { blind = 0; return; }
     if (landing && s) { tickLanding?.(); tickLanding = whenLanded(s, () => { tickLanding = undefined; wake(); }); return; }
@@ -413,11 +468,14 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
     blind = 0;
     wake();
   }
-  onCleanup(() => { cancelAnimationFrame(frame); clearTimeout(settle); clearTimeout(heldTimer); tickLanding?.(); endTravel(false); });
+  /* a window taken down sets no timer when the chunk it was fetching arrives */
+  let gone = false;
+  onCleanup(() => { gone = true; cancelAnimationFrame(frame); clearTimeout(settle); clearTimeout(heldTimer); clearTimeout(farTimer); tickLanding?.(); endTravel(false); });
 
   /* ---------- the observers ---------- */
   let nearWatch: IntersectionObserver | undefined;
   let seeingWatch: IntersectionObserver | undefined;
+  let farWatch: IntersectionObserver | undefined;
   let sizeWatch: ResizeObserver | undefined;
   const watchers = (): void => {
     const root = scroller();
@@ -430,17 +488,30 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
     };
     nearWatch = new IntersectionObserver(note(near), { root, rootMargin: `${REACH_SCREENS * 100}% 0px` });
     seeingWatch = new IntersectionObserver(note(seeing), { root, rootMargin: "0px" });
+    /* a filled turn that goes past FAR_SCREENS waits to be let go; a stand-in that comes back within it is filled */
+    farWatch = new IntersectionObserver((entries) => {
+      const back: string[] = [];
+      for (const e of entries) {
+        const id = owner.get(e.target)?.id();
+        if (!id) continue;
+        if (e.isIntersecting) { away.delete(id); letting.delete(id); if (filled[id] === "far") back.push(id); }
+        else { away.add(id); if (filled[id] === true) letGoSoon(id); }
+      }
+      fill(back);
+    }, { root, rootMargin: `${FAR_SCREENS * 100}% 0px` });
     /* what a frame's layout changed, read after layout and before paint: a turn that is filled has a height to remember, and the
        reader's place is put back for whatever moved above it (a late highlight, an image). a fill the loop made has already put it back */
     sizeWatch = new ResizeObserver((entries) => {
-      for (const e of entries) { const id = owner.get(e.target)?.id(); if (id && filled[id]) remember(id, e.contentRect.height); }
+      for (const e of entries) { const id = owner.get(e.target)?.id(); if (id && filled[id] === true) { remember(id, e.contentRect.height); sizes.set(id, e.contentRect.height); } }
       restore();
     });
   };
-  onCleanup(() => { nearWatch?.disconnect(); seeingWatch?.disconnect(); sizeWatch?.disconnect(); nearWatch = seeingWatch = undefined; sizeWatch = undefined; });
+  onCleanup(() => { nearWatch?.disconnect(); seeingWatch?.disconnect(); farWatch?.disconnect(); sizeWatch?.disconnect(); nearWatch = seeingWatch = farWatch = undefined; sizeWatch = undefined; });
 
   const api: StageWindow = {
     filled: (id) => filled[id] === true,
+    far: (id) => (filled[id] === "far" ? farTurns.get(id) : undefined),
+    refill: (id) => { fill([id]); },
     height: heightFor,
     slot(el, id, turn) {
       watchers();
@@ -451,14 +522,18 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
       slots.set(at, el);
       nearWatch?.observe(el);
       seeingWatch?.observe(el);
+      farWatch?.observe(el);
       sizeWatch?.observe(el);
       return () => {
         owner.delete(el);
         if (slots.get(at) === el) slots.delete(at);
         near.delete(at);
         seeing.delete(at);
+        away.delete(at);
+        letting.delete(at);
         nearWatch?.unobserve(el);
         seeingWatch?.unobserve(el);
+        farWatch?.unobserve(el);
         sizeWatch?.unobserve(el);
       };
     },
@@ -491,6 +566,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
     scrolled(reader) {
       if (reader && touched) lastScroll = performance.now();
       capture();
+      refillNear();
       if (near.size) { clearTimeout(settle); settle = setTimeout(wake, SETTLE_MS + 10); }
     },
     touch(down) {
@@ -501,7 +577,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
     },
     keep: keeping,
     steady: () => !(touched && moving()) && travelling === null,
-    counts: () => ({ filled: Object.values(filled).filter(Boolean).length, turns: options.turns().length }),
+    counts: () => ({ filled: Object.values(filled).filter((v) => v === true).length, turns: options.turns().length }),
   };
   return api;
 }

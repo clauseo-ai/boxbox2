@@ -1,6 +1,6 @@
 /* streamed prose that settles in (docs/design.md, motion law): what was
    already painted stays one plain text node; words that arrive while the
-   window is live join as one span that settles from a 5 px blur, then fold
+   window is live join as one span that fades in, opacity only, then fold
    into the plain text once they have settled. prose shows its last two
    sentences, so a new sentence can push the oldest out at the front while
    words arrive at the end: what stays keeps its place and only the new

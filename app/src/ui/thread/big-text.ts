@@ -97,11 +97,13 @@ export function boundedPlain(text: string): { shown: string; hidden: number } {
     `boundedPlain`, its start and its end) */
 export const openLabel = (length: number): string => (length <= PLAIN_HEAD + PLAIN_TAIL ? `show all ${numbers.format(length)} characters` : `show the start and the end of ${numbers.format(length)} characters`);
 
-/** the last `PLAIN_TAIL` characters of a text that is long, from a word: a box that follows the newest line of what is being written
-    shows nothing else */
+/** the last `PLAIN_TAIL` characters of a text that is long, and up to one `NEWEST_STEP` more, from a word: a box that follows the newest
+    line of what is being written shows nothing else. the start moves in steps, not with every delta: the box appends what carries on from
+    what it shows, so a start that moved each time repainted 8 KB whole on most frames and its words stopped fading in */
+export const NEWEST_STEP = 4 * 1024;
 export function newestOf(text: string): string {
   if (text.length <= PLAIN_TAIL * 2) return cutRuns(text);
-  const start = text.length - PLAIN_TAIL;
+  const start = Math.floor((text.length - PLAIN_TAIL) / NEWEST_STEP) * NEWEST_STEP;
   const word = text.indexOf(" ", start);
   return cutRuns(text.slice(word >= 0 && word - start < 200 ? word + 1 : start));
 }

@@ -1761,8 +1761,10 @@ sampled to a rest threshold, snap settles in 467 ms and sheet
 in 508 ms (`app/src/motion/springs.ts`).
 
 plus two short curves: content swaps fade in 160 ms
-(`cubic-bezier(.2,.8,.2,1)`), and streamed words settle from a 5 px blur in
-360 ms.
+(`cubic-bezier(.2,.8,.2,1)`), and streamed words fade in over 360 ms, by
+opacity alone (2026-10-21: the 5 px blur they once settled from is gone
+everywhere, the thinking box and home's windows alike; a blur gave every
+arriving run a layer of its own).
 
 the rest of the vocabulary is small and lives beside the springs in
 `app/src/motion/springs.ts`. nothing else in the app picks a duration or an
@@ -1799,8 +1801,8 @@ motion pass.
   forever" stands, and the connection has no pulse for the same reason.
 - **the composer.** focus lifts the window's shadow (it moves and brightens
   on the snap spring, so nothing paints per frame); a message you send settles
-  into the queue from slightly small; the counts in home's summary line settle
-  from the soft blur when they change in front of you.
+  into the queue from slightly small; the counts in home's summary line fade
+  in when they change in front of you.
 - **recording a voice note** (2026-10-15; `composer.md`, voice, files and
   assistants). a press on the mic key turns the composer into the
   recorder in one content swap (the fade curve): the words and the chips
@@ -1852,9 +1854,10 @@ motion pass.
 - **only transform (and its individual `scale`), opacity, clip-path and filter
   animate.** never width, height, top or left in a live screen.
 - **streaming.** deltas are coalesced to one paint per frame; a thought's
-  words enter with the blur settle; the reply renders as markdown as it
+  words fade in, each 100 ms batch revealed over the frames after it in
+  pieces that end at a word, within 80 ms (thread.md, live); the reply renders as markdown as it
   streams, its caret at the end of its last text (raw markup on screen is
-  worse than words without the blur, thread.md, live); the caret is the
+  worse than words without the fade, thread.md, live); the caret is the
   only thing that blinks: 530 ms on and 530 off, by opacity, steady under
   reduced motion.
 
@@ -1898,7 +1901,7 @@ paint; anything forever (no pulsing dots, no shimmer skeletons, no
 spinners; working is shown by the clock and the tail moving).
 
 **reduced motion.** springs become instant, content swaps keep a 120 ms
-fade, the sweep and blur are off.
+fade, the sweep and the word fade are off.
 
 ## buttery, as numbers
 

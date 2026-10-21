@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { marked } from "marked";
-import { CHUNK, HEAD, PLAIN_HEAD, PLAIN_TAIL, RUN_HEAD, RUN_MAX, TAIL, boundedPlain, boundedText, cutHtml, cutRuns, hasLongRun, newestOf, notShown, openLabel } from "./big-text";
+import { CHUNK, HEAD, PLAIN_HEAD, PLAIN_TAIL, RUN_HEAD, RUN_MAX, TAIL, boundedPlain, boundedText, cutHtml, cutRuns, hasLongRun, NEWEST_STEP, newestOf, notShown, openLabel } from "./big-text";
 import { chunksOf } from "./big-pieces";
 
 const prose = "this is a paragraph of the agent's prose with `code` and **bold** words, long enough to read like a real one. ";
@@ -121,10 +121,31 @@ describe("plain words that are long", () => {
   test("a box that follows the newest line of a long thought shows the last of it, from a word", () => {
     const text = prose.repeat(100_000);
     const newest = newestOf(text);
-    expect(newest.length).toBeLessThanOrEqual(PLAIN_TAIL);
+    expect(newest.length).toBeLessThanOrEqual(PLAIN_TAIL + NEWEST_STEP);
     expect(text.endsWith(newest)).toBe(true);
     expect(text[text.length - newest.length - 1]).toBe(" ");
     expect(newestOf("a short thought")).toBe("a short thought");
+  });
+  /* the box appends what carries on from what it shows and repaints whole what does not (thread.tsx, Streamed). a start that moved with
+     every delta made nearly every frame past 16 KB a whole repaint of 8 KB, and the words there stopped fading in */
+  test("a thought streamed past 16 KB carries on from what the box shows, all but a few times", () => {
+    const words = prose.split(" ");
+    let text = "";
+    let shown = newestOf(text);
+    let whole = 0;
+    let appends = 0;
+    for (let i = 0; text.length < 40_000; i++) {
+      text += `${words[i % words.length]} `;
+      const next = newestOf(text);
+      if (next === shown) continue;
+      if (next.startsWith(shown)) appends++;
+      else whole++;
+      shown = next;
+      expect(text.endsWith(next)).toBe(true);
+      if (text.length > PLAIN_TAIL * 2) expect(next.length).toBeGreaterThanOrEqual(PLAIN_TAIL - 200);
+    }
+    expect(appends).toBeGreaterThan(1000);
+    expect(whole).toBeLessThan(50);
   });
 });
 

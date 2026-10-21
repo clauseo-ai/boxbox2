@@ -269,7 +269,7 @@ row, and a story:
 | text, user, `mail` kind `message` (a note from another agent) | | the report chip, "note from worker_a"; its sheet says "wrote at" |
 | text, user, `mail` kind `job` or `system`, or `notice` | | the mark line |
 | text, user, `synthetic` | | not shown (context the daemon added) |
-| text, assistant | streaming | the said row with a caret at the end; words arrive with the blur settle; in a running turn it is the window's newest row, from the announcement of the part |
+| text, assistant | streaming | the said row with a caret at the end; words arrive unanimated (the thinking box fades its words in); in a running turn it is the window's newest row, from the announcement of the part |
 | text, assistant | settled | the said row; the last one after the last step is the answer, as markdown |
 | reasoning | streaming | live: "thinking" with a running clock, its text in a 112 px box that follows the newest line; a tap on the box shows the whole thought, growing as it is written, and a second takes it back to the box |
 | reasoning | settled | the thought row, folded with its neighbours |
@@ -963,7 +963,14 @@ growing at its end, and the run going on now is at the live edge:
 - **the newest row is open** with its live body: a thought streams into a
   112 px box that fills from the top and then follows its newest line
   under a fade; a command shows its last 2 kb of output the same way; an
-  edit shows its diff. a tap on a thought's box shows the whole thought
+  edit shows its diff. the box holds a long thought's last 8 to 12 kb: its
+  start moves in 4 kb steps, so what arrives always carries on from what it
+  shows and fades in at any length (it once moved with every delta, and past
+  16 kb repainted the box whole on most frames, with no fade). text comes
+  in 100 ms batches; the box reveals each batch over the frames that follow,
+  in pieces that end at a word, finishing in 80 ms, before the next batch is
+  due, so a batch never lands as one clump (under reduced motion too, with
+  no fade). the answer, said rows and reports are not paced. a tap on a thought's box shows the whole thought
   (the native client's decision 21): it grows as it is written, with no
   box, and a second tap takes it back to the box. the control lies over
   the box ("the thought being written", "the whole thought",
@@ -992,7 +999,7 @@ growing at its end, and the run going on now is at the live edge:
   a list said mid-turn is a list. at the settle the trailing reply steps
   into the answer's type in place, with the same structure, so only its
   size changes, once, and it fades up 10 px. a thought's words keep the
-  blur settle; the reply gave it up, because raw `**` and `-` on screen
+  fade (once a blur settle, opacity only since 2026-10-21); the reply gave it up, because raw `**` and `-` on screen
   were the worse defect.
 - **a pending ask** is its row, open, at its place; while it is out of
   view the pinned line above the dock carries it.
@@ -1835,14 +1842,36 @@ and every query by turn keep working), and the rows, groups, bubble and
 answer of a turn are mounted into its box when the turn comes near. the
 design, and what each part of it says:
 
-- **mount once.** a turn that is not filled is an empty box of a remembered
-  or estimated height; once filled it stays filled for the life of the
-  stage. nothing is unmounted, so focus, a selection, an open row, a code
-  block's scroll and words typed into an ask are never lost to the window by
-  construction. the cost is that a long scroll through a thread ends with
-  the thread mounted, which is what the earlier design (it unmounted) tried
-  to avoid: the dom is bounded when a thread opens and as far as the reader
-  has gone, and not past it.
+- **mount once, and let far turns go to text.** a turn that is not filled is
+  an empty box of a remembered or estimated height, and a turn never filled
+  stays that box. a filled turn more than six screens from the view
+  (`FAR_SCREENS`, far.ts) that has been out of range a second, with no
+  focus, no selection, nothing expanded (a row, a group, a mark's summary),
+  no sheet or picture open, no "copied", no field, no bubble opened whole and
+  no box scrolled inside it (`holdsReader`, far-dom.ts), and is not one of the always
+  filled, becomes a text-only stand-in at the height it measured
+  (`data-far`, `StandIn` in far-turn.tsx): the prompt as a paragraph, the
+  files sent, what was said and the answer as the sanitised html they
+  settled to (markdown.ts, `settledHtml`, from the store's cache: fences
+  plain under their language word), each folded group as its line, a row that is no control as its
+  words. screen readers lose its buttons, sliders, step rows, pictures, diffs
+  and clocks until it comes near (owner's decision, 2026-10-21); its copy
+  controls stay as hidden marks, so their namesakes below keep their names
+  (copy-run.ts), and its rows' labels stay said to the register (names.ts).
+  it is filled again when the far observer says it is back within six
+  screens, in the scroll's own task when a scroll lands within a screen of
+  it (a dragged scrollbar, a jump), when focus goes into it (a link in its
+  text: the same link in its rows takes the focus), when a pointer comes
+  over it and on any fill or reveal; it is let go a few a task while the
+  view is still, never under a finger or a move. both files are chunks of
+  their own, fetched when the first turn is let go, so the first load
+  carries only the window's side. the same height means
+  nothing moves, and the place is kept around it all the same. measured on
+  `stage-far--long-thread` (56 turns, 117,410 px, 390 wide): 40 screenshots
+  down the thread and back are pixel identical to before; a stand-in is 42
+  elements where the turn was 261 (the thread 4,644 where it was 14,688 with
+  the view in the middle); a refilled turn's accessibility snapshot equals
+  the one from before. turns that stay filled keep everything, as before.
 - **always filled.** the live turn, the newest three turns, and any turn
   that holds a pending ask (an ask is never an empty box, and its row is
   there to land on). the first frame also fills from the end until the
@@ -1975,7 +2004,8 @@ design, and what each part of it says:
 - **replay never animates.** a box that fills in later is not a live row: it
   does not rise, as nothing painted from cache or hydration does.
 - **names.** the names are unique across what is mounted (`names.ts`): a turn
-  that is not filled says no labels and counts for nothing, and a turn that
+  that is not filled says no labels and counts for nothing (a stand-in keeps
+  what it said, and its copy controls as hidden marks), and a turn that
   fills above shifts its namesakes below it by one, as "again" and "third
   time" always read the page as it stands. an empty box is not a control and
   has no name.

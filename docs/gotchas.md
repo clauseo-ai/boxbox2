@@ -1780,3 +1780,6 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   gzipped, hyper and the kernel hold more behind it (about 155 kb of compressed bytes, 4.3 mb of
   frames, for a client that never reads), so a stalled client is cut later in frames but still
   bounded in memory.
+- **anything that takes controls out of a turn leaves `[data-copy-held]` marks.** copy names
+  the controls below it by position (copy-run.ts renameAll), so a far turn's stand-in that
+  dropped its copy buttons without the marks shifted every copy name under it.

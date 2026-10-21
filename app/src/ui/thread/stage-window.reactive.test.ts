@@ -282,3 +282,152 @@ describe.skipIf(!reactive)("a thread opening while its layer is carried in", () 
     r.dispose();
   });
 });
+
+/* far turns (docs/thread.md, the window: far turns): a filled turn more than six screens from the view that holds nothing of the reader's is
+   let go to a text-only stand-in at the height it measured, and filled again when it comes back within range. the far observer is told here
+   what the browser would say */
+describe.skipIf(!reactive)("a filled turn far from the view", () => {
+  const farRig = (own: { pinned?: boolean } = {}) => {
+    const watchers: Array<{ margin: string; report: (entries: unknown[]) => void }> = [];
+    const was = g["IntersectionObserver"];
+    g["IntersectionObserver"] = class { constructor(report: (entries: unknown[]) => void, o: { rootMargin: string }) { watchers.push({ margin: o.rootMargin, report }); } observe() {} unobserve() {} disconnect() {} };
+    const r = rig(own);
+    g["IntersectionObserver"] = was;
+    const far = watchers.find((w) => w.margin === "600% 0px");
+    const report = (i: number, inRange: boolean) => far?.report([{ target: r.boxes[i], isIntersecting: inRange }]);
+    /* what is laid out: every box's top and the scroll position, the numbers the reader's place is read from */
+    const layout = () => ({ top: r.s.scrollTop, boxes: r.boxes.map((b) => (b as { getBoundingClientRect: () => { top: number; height: number } }).getBoundingClientRect()) });
+    return { ...r, report, layout, hasFar: far !== undefined };
+  };
+  /* the wait runs out. what reads the turns is a chunk of its own (far-dom.ts), which the window fetches the first time a turn is let go, and
+     a first fetch settles in its own time, not in a count of ticks: it is fetched here first, so the window's fetch is of a module already
+     in and settles before the next turn of the event loop; then the window is given turns of the loop (real ones, which fake timers leave
+     alone) to run the timers it sets */
+  const wait = async (ms = 1000) => {
+    await import("./far-dom");
+    jest.advanceTimersByTime(ms);
+    for (let i = 0; i < 5; i++) { await new Promise((done) => setImmediate(done)); jest.advanceTimersByTime(60); }
+  };
+  const away = async (r: ReturnType<typeof farRig>, ...turns: number[]) => {
+    for (const i of turns) { r.win.reveal(`t${i}`); r.report(i, false); }
+    await wait();
+  };
+  test("becomes a stand-in at the height it measured once it has been past six screens a while, and nothing laid out moves", async () => {
+    jest.useFakeTimers();
+    const r = farRig();
+    expect(r.hasFar).toBe(true);
+    r.s.scrollTop = 200 * TURN + 120;
+    r.win.scrolled(false);
+    r.win.reveal("t100");
+    r.win.reveal("t150");
+    r.win.scrolled(false);
+    const before = r.layout();
+    const writes = r.places.length;
+    r.report(100, false);
+    r.report(150, false);
+    expect(r.win.far("t100")).toBeUndefined();
+    await wait();
+    expect(r.win.filled("t100")).toBe(false);
+    expect(r.win.far("t100")).toEqual({ height: TURN, copies: [] });
+    expect(r.win.far("t150")).toEqual({ height: TURN, copies: [] });
+    // its neighbours were never reported far, and stay filled
+    expect(r.isFilled(99)).toBe(true);
+    expect(r.layout()).toEqual(before);
+    // any write puts the view back where it is: the real pin writes nothing for that (pin.ts, place)
+    expect(r.places.slice(writes).every((p) => Math.abs(p - before.top) < 0.5)).toBe(true);
+    expect(r.win.counts().filled).toBe(r.filled());
+    r.dispose();
+  });
+  test("is filled again when it comes back within range, at the same height, with the anchor where it was", async () => {
+    jest.useFakeTimers();
+    const r = farRig();
+    r.s.scrollTop = 200 * TURN + 120;
+    r.win.scrolled(false);
+    await away(r, 150);
+    const height = r.win.far("t150")?.height;
+    const before = r.layout();
+    const writes = r.places.length;
+    r.report(150, true);
+    expect(r.win.filled("t150")).toBe(true);
+    expect(r.win.far("t150")).toBeUndefined();
+    expect(height).toBe((r.boxes[150] as { offsetHeight: number }).offsetHeight);
+    expect(r.layout()).toEqual(before);
+    expect(r.places.slice(writes).every((p) => Math.abs(p - before.top) < 0.5)).toBe(true);
+    r.dispose();
+  });
+  test("a scroll that lands near a stand-in fills it in the scroll's own task, before the frame paints", async () => {
+    jest.useFakeTimers();
+    const r = farRig();
+    r.s.scrollTop = 200 * TURN;
+    r.win.scrolled(false);
+    await away(r, 100);
+    expect(r.win.far("t100")).toBeDefined();
+    // a scrollbar dragged there: the far observer has not reported yet
+    r.s.scrollTop = 100 * TURN + 200;
+    r.win.scrolled(true);
+    expect(r.win.filled("t100")).toBe(true);
+    expect(r.s.scrollTop).toBe(100 * TURN + 200);
+    r.dispose();
+  });
+  test("a reveal fills a stand-in, as it fills an empty box", async () => {
+    jest.useFakeTimers();
+    const r = farRig();
+    r.s.scrollTop = 200 * TURN;
+    await away(r, 100);
+    expect(r.win.far("t100")).toBeDefined();
+    r.win.reveal("t100");
+    expect(r.win.filled("t100")).toBe(true);
+    r.dispose();
+  });
+  test("one that comes back before the wait is over is never let go", async () => {
+    jest.useFakeTimers();
+    const r = farRig();
+    r.s.scrollTop = 200 * TURN;
+    r.win.reveal("t100");
+    r.report(100, false);
+    jest.advanceTimersByTime(500);
+    r.report(100, true);
+    await wait(2000);
+    expect(r.win.filled("t100")).toBe(true);
+    expect(r.win.far("t100")).toBeUndefined();
+    r.dispose();
+  });
+  test("the newest turns are never let go, and a turn never filled stays an empty box", async () => {
+    jest.useFakeTimers();
+    const r = farRig();
+    r.report(N - 1, false);
+    r.report(50, false);
+    await wait(2000);
+    expect(r.win.filled(`t${N - 1}`)).toBe(true);
+    expect(r.win.far(`t${N - 1}`)).toBeUndefined();
+    expect(r.win.filled("t50")).toBe(false);
+    expect(r.win.far("t50")).toBeUndefined();
+    r.dispose();
+  });
+  test("nothing is let go while a finger is on the glass: it waits for the view to be still", async () => {
+    jest.useFakeTimers();
+    const r = farRig();
+    r.s.scrollTop = 200 * TURN;
+    r.win.reveal("t100");
+    r.report(100, false);
+    r.win.touch(true);
+    await wait(3000);
+    expect(r.win.filled("t100")).toBe(true);
+    r.win.touch(false);
+    await wait(3000);
+    expect(r.win.far("t100")).toBeDefined();
+    r.dispose();
+  });
+  test("a view at the end that follows it stays at the end when a turn above is let go and filled again", async () => {
+    jest.useFakeTimers();
+    const r = farRig({ pinned: true });
+    r.s.scrollTop = N * TURN - VIEW;
+    await away(r, 100);
+    expect(r.win.far("t100")).toBeDefined();
+    expect(r.s.scrollTop).toBe(N * TURN - VIEW);
+    r.report(100, true);
+    expect(r.win.filled("t100")).toBe(true);
+    expect(r.s.scrollTop).toBe(N * TURN - VIEW);
+    r.dispose();
+  });
+});
