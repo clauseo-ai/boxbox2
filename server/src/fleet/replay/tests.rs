@@ -1028,3 +1028,4 @@ fn protocol3_the_home_overview_pace_changes_only_how_often_a_thread_goes_out() {
 }
 
 mod proofs;
+mod restart;

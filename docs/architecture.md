@@ -64,10 +64,13 @@ order.
 </p>
 
 1. **daemon to server.** each upstream watcher holds `(epoch, seq)` per
-   host in memory only. a restart reads each host fresh. within a run it resumes `/global/event` with `Last-Event-ID`
+   host. the fleet keeps, per connection, the cursor whose effects its
+   model holds and writes it to `boxbox.db` with them (full resume,
+   below), so a restart resumes each host from that cursor with
+   `compact=1` and no host read. within a run it resumes `/global/event` with `Last-Event-ID`
    (cmx2-asks a1) and drops any event at or below its high-water mark.
    it asks for cmx2's stream switches (`coalesce=100`, `types=` the kinds
-   the source translates, `compact=1`, `gzip=1`; `upstream/watcher.rs`),
+   the source translates, `compact=1`, `gzip=1`, `rev=1`; `upstream/watcher.rs`),
    which an older daemon ignores; every request to a daemon takes gzip, and
    reqwest decodes an answer by its `Content-Encoding`, so a compressed
    and a plain answer read the same.
@@ -77,9 +80,14 @@ order.
    rest reads that carry `x-cmx2-seq` (a2) and applies only later events.
    that read is quiet: it journals only what moved (a gone thread
    removed, each thread whole, which the encoder drops when unchanged,
-   gone asks settled), then a `thread.reset` for every thread it held
-   (`protocol.md`, section 10, the quiet re-read). no merge heuristics
-   exist anywhere.
+   gone asks settled), then a `thread.reset` only for a held thread whose
+   `transcriptRev` moved or that has none to judge by; a thread whose
+   revision held still but that was busy across the gap gets its newest
+   messages read and journaled whole instead, and the tails of those
+   threads are read again (`protocol.md`, section 10, the quiet
+   re-read). each thread's `srev` comes only from events the fleet
+   journaled, session infos it applied, and reads it folded in itself
+   whose seq the stream had reached. no merge heuristics exist anywhere.
 2. **server to browser.** the fleet actor runs each change the model
    makes through one encoder (`fleet/encode.rs`: thread and order
    patches, text deltas in 100 ms batches, finished text once) and
@@ -94,9 +102,20 @@ order.
    catch-up from the cursor (each key that moved once, whole; tombstones;
    per interest key its compacted transcript or `thread.stale`; then
    `caught`; `fleet/catchup.rs`, `fleet/keys.rs`), never a replay of
-   the ring. no cursor, a cursor from another epoch (the server restarted
-   with a new ring) or one below the tombstone floor gets `reset` with
-   the journaled fleet instead. every frame ready when the socket takes bytes
+   the ring. no cursor, a cursor from another epoch (the server's kept
+   state was lost or failed its check at start) or one below the
+   tombstone floor gets `reset` with the journaled fleet instead.
+   **full resume** (`fleet/persist.rs`, `protocol.md` section 10): the
+   actor marks each key dirty as it journals it or a source moves its
+   model state, and every second takes one batch (the dirty rows, new
+   tombstones, head, reserved mark, every cursor) to its own writer;
+   marks clear only on the writer's `ok`, one batch in flight. a batch
+   unanswered for 10 s, a dirty set past 16 MiB or a head near the
+   reserved mark stops source intake until the answer (backpressure on
+   the daemons). a clean stop writes `clean = 1` inside 5 s and the next
+   start keeps the epoch and head, so a connected device's catch-up is
+   empty; a crash starts at the reserved mark with every key whole once
+   and every thread's versions there. every frame ready when the socket takes bytes
    goes out in one write (up to 64 kb), and a client that sends
    `Accept-Encoding: gzip` gets the stream through its own gzip context,
    sync-flushed after each write so nothing waits to decode

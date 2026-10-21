@@ -46,7 +46,7 @@ pub struct ThreadKeys {
 
 /// the thread's newest turn, as `rv` counts it: it starts at the newest
 /// user message that is not queued; a queued prompt joins it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct Turn {
     /// the message that starts it; none before the first one is seen.
     start: Option<String>,
@@ -169,6 +169,21 @@ struct Gone {
     /// for a settled ask: the entry that raised it.
     raised: u64,
     change: Change,
+}
+
+/// `stream_gone.kind` by `gone_key`'s number.
+const GONE_KINDS: [&str; 3] = ["agent", "thread", "ask"];
+
+/// a tombstone as `stream_gone` keeps it.
+#[derive(Debug, Clone)]
+pub struct Grave {
+    pub kind: &'static str,
+    pub key: String,
+    pub seq: u64,
+    pub at: i64,
+    pub raised: u64,
+    /// the removal or settlement a catch-up sends, as json.
+    pub body: String,
 }
 
 /// which key a tombstone is for.
@@ -418,6 +433,119 @@ impl StreamKeys {
         }
         since.order = (self.order > cursor).then_some(self.order);
         since
+    }
+
+    /// a thread's place, its newest-turn tracking as json beside it.
+    #[must_use]
+    pub fn thread_row(&self, key: &str) -> Option<(&ThreadKeys, Option<String>)> {
+        let t = self.threads.get(key)?;
+        Some((t, serde_json::to_string(&t.turn).ok()))
+    }
+
+    #[must_use]
+    pub fn agent(&self, key: &str) -> Option<&Kept<Agent>> {
+        self.agents.get(key)
+    }
+
+    #[must_use]
+    pub fn ask(&self, agent: &str, id: &str) -> Option<&Kept<Ask>> {
+        self.asks.get(&(agent.to_owned(), id.to_owned()))
+    }
+
+    /// the order's newest entry, 0 before any.
+    #[must_use]
+    pub fn order_seq(&self) -> u64 {
+        self.order
+    }
+
+    /// every key held: threads, agents, open asks.
+    #[must_use]
+    pub fn held_keys(&self) -> (Vec<String>, Vec<String>, Vec<(String, String)>) {
+        (
+            self.threads.keys().cloned().collect(),
+            self.agents.keys().cloned().collect(),
+            self.asks.keys().cloned().collect(),
+        )
+    }
+
+    /// the tombstones newer than `seq`, as `stream_gone` keeps them.
+    pub fn graves_after(&self, seq: u64) -> impl Iterator<Item = Grave> + '_ {
+        self.gone
+            .iter()
+            .filter(move |g| g.seq > seq)
+            .filter_map(|g| {
+                let (kind, key) = gone_key(&g.change)?;
+                let body = serde_json::to_string(&g.change).ok()?;
+                Some(Grave {
+                    kind: GONE_KINDS[usize::from(kind)],
+                    key,
+                    seq: g.seq,
+                    at: g.at,
+                    raised: g.raised,
+                    body,
+                })
+            })
+    }
+
+    /// a thread as its row kept it.
+    pub fn restore_thread(
+        &mut self,
+        key: String,
+        seq: u64,
+        versions: [u64; 3],
+        turn: Option<&str>,
+    ) {
+        let [v, rv, reset_seq] = versions;
+        let turn = turn
+            .and_then(|t| serde_json::from_str(t).ok())
+            .unwrap_or_default();
+        self.threads.insert(
+            key,
+            ThreadKeys {
+                seq,
+                v,
+                rv,
+                reset_seq,
+                turn,
+            },
+        );
+    }
+
+    pub fn restore_agent(&mut self, kept: Kept<Agent>) {
+        self.agents.insert(kept.body.key.clone(), kept);
+    }
+
+    pub fn restore_ask(&mut self, kept: Kept<Ask>) {
+        self.asks
+            .insert((kept.body.agent.clone(), kept.body.id.clone()), kept);
+    }
+
+    pub fn restore_order(&mut self, seq: u64) {
+        self.order = seq;
+    }
+
+    /// the tombstones as `stream_gone` kept them, oldest first, and the floor.
+    pub fn restore_graves(&mut self, graves: Vec<(u64, i64, u64, Change)>, floor: u64) {
+        self.gone = graves
+            .into_iter()
+            .map(|(seq, at, raised, change)| Gone {
+                seq,
+                at,
+                raised,
+                change,
+            })
+            .collect();
+        self.gone_floor = floor;
+    }
+
+    /// after a crash every thread's versions move to `seq` (the reserved
+    /// mark), so each revalidation misses once and no stale copy can win a
+    /// 304 (`docs/protocol.md`, section 10).
+    pub fn versions_to(&mut self, seq: u64) {
+        for t in self.threads.values_mut() {
+            t.v = seq;
+            t.rv = seq;
+        }
     }
 
     /// a floor as if older tombstones had gone, for the tests.

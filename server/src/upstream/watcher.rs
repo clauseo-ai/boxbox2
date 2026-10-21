@@ -55,10 +55,12 @@ const EVENTS: &str = "/global/event";
 /// them and sends today's stream, which reads the same): text deltas merged
 /// into 100 ms batches, only the kinds the source translates
 /// (`translate::CONSUMED`; heartbeats and `stream.reset` always pass),
-/// a resume compacted to the latest state per key, and gzip. the request
+/// a resume compacted to the latest state per key, gzip, and each
+/// session's transcript revision on its session and transcript events
+/// (`docs/protocol.md`, section 14a). the request
 /// takes gzip through the client's own `Accept-Encoding`, and whether the
 /// answer is compressed is read from its `Content-Encoding`, never assumed.
-const SWITCHES: &str = "coalesce=100&compact=1&gzip=1";
+const SWITCHES: &str = "coalesce=100&compact=1&gzip=1&rev=1";
 
 /// the event stream's route with its switches.
 fn events_route() -> String {
@@ -127,6 +129,10 @@ pub(super) struct Watcher {
     /// the last daemon event passed to the fleet; `None` until the host
     /// has been read, and again after a reset.
     cursor: Option<Cursor>,
+    /// what the last frame was, beside its seq: a heartbeat, or an event
+    /// the daemon numbered none (it sends those to live streams only).
+    beat: bool,
+    unnumbered: bool,
 }
 
 impl Watcher {
@@ -149,7 +155,21 @@ impl Watcher {
             shutdown,
             backoff,
             cursor: None,
+            beat: false,
+            unnumbered: false,
         }
+    }
+
+    /// starts from a cursor `boxbox.db` kept (`docs/protocol.md`, section
+    /// 10): the fleet holds the host's state as of it, so the stream resumes
+    /// with `compact=1` and no host read. a cursor the daemon cannot replay
+    /// from answers `stream.reset`, and the quiet re-read follows.
+    pub(super) fn resuming(mut self, cursor: Option<Cursor>) -> Self {
+        if let Some(cursor) = &cursor {
+            info!(host = %self.name, cursor = %cursor, "resuming from the cursor the store kept");
+        }
+        self.cursor = cursor;
+        self
     }
 
     pub(super) async fn run(mut self) {
@@ -245,6 +265,19 @@ impl Watcher {
         self.status.send_modify(|status| status.connects += 1);
         self.set_connection(Connection::Connected, None).await;
 
+        // a stream from a cursor replays what followed it compacted, so a session info can come ahead of the entry
+        // that carried its revision's event: the fleet judges revisions once the replay is caught up
+        self.emit(None, SourceEvent::Replaying)
+            .await
+            .map_err(|_| SessionError::FleetStopped)?;
+        let from = self.cursor.as_ref().map_or(0, |c| c.seq);
+        let until = self.head().await;
+        let mut caught = false;
+        if until.is_some_and(|head| head <= from) {
+            caught = true;
+            self.caught_up().await?;
+        }
+        let mut moved = false;
         let mut stream = response.bytes_stream();
         let mut decoder = Decoder::new(FRAME_CAP);
         let mut items = Vec::new();
@@ -258,11 +291,32 @@ impl Watcher {
             };
             decoder.push(&chunk, &mut items);
             for item in std::mem::take(&mut items) {
-                if let Some(seq) = self.frame(item).await?
+                let seq = self.frame(item).await?;
+                if let Some(seq) = seq
                     && first_seq.is_none()
                 {
                     first_seq = Some(seq);
                     info!(host = %self.name, resume_from = %resume_from, first_seq = seq, "resumed: the first event after the cursor arrived");
+                }
+                let (beat, unnumbered) = (
+                    std::mem::take(&mut self.beat),
+                    std::mem::take(&mut self.unnumbered),
+                );
+                if caught {
+                    continue;
+                }
+                // caught up: past the head read at the open, a frame only live streams get, or a heartbeat
+                // after a beat with no replayed event (a replay writes without pause)
+                let reached = seq.zip(until).is_some_and(|(seq, head)| seq >= head);
+                if reached || unnumbered || (beat && !moved) {
+                    caught = true;
+                    self.caught_up().await?;
+                }
+                if beat {
+                    moved = false;
+                }
+                if seq.is_some() {
+                    moved = true;
                 }
             }
         }
@@ -294,7 +348,11 @@ impl Watcher {
         self.counters.decoded.fetch_add(1, Ordering::Relaxed);
         let event = decoded.event;
         match event.kind() {
-            EventKind::ServerConnected | EventKind::ServerHeartbeat | EventKind::GlobalDisposed => {
+            EventKind::ServerHeartbeat => {
+                self.beat = true;
+                return Ok(None);
+            }
+            EventKind::ServerConnected | EventKind::GlobalDisposed => {
                 return Ok(None);
             }
             EventKind::StreamReset => {
@@ -309,29 +367,30 @@ impl Watcher {
             }
             _ => {}
         }
-        let seq = match (event.seq(), event.epoch()) {
-            (Some(seq), Some(epoch)) => {
-                let seq = u64::try_from(seq).unwrap_or(0);
-                if let Some(held) = &self.cursor {
-                    if held.epoch != epoch {
-                        return Err(SessionError::EpochChanged {
-                            held: held.epoch.clone(),
-                            got: epoch.to_owned(),
-                        });
-                    }
-                    if seq <= held.seq {
-                        self.counters.duplicates.fetch_add(1, Ordering::Relaxed);
-                        debug!(host = %self.name, seq, cursor = held.seq, kind = event.kind().as_str(), "event at or below the cursor dropped");
-                        return Ok(None);
-                    }
+        let seq = if let (Some(seq), Some(epoch)) = (event.seq(), event.epoch()) {
+            let seq = u64::try_from(seq).unwrap_or(0);
+            if let Some(held) = &self.cursor {
+                if held.epoch != epoch {
+                    return Err(SessionError::EpochChanged {
+                        held: held.epoch.clone(),
+                        got: epoch.to_owned(),
+                    });
                 }
-                self.cursor = Some(Cursor {
-                    epoch: epoch.to_owned(),
-                    seq,
-                });
-                Some(seq)
+                if seq <= held.seq {
+                    self.counters.duplicates.fetch_add(1, Ordering::Relaxed);
+                    debug!(host = %self.name, seq, cursor = held.seq, kind = event.kind().as_str(), "event at or below the cursor dropped");
+                    return Ok(None);
+                }
             }
-            _ => None,
+            self.cursor = Some(Cursor {
+                epoch: epoch.to_owned(),
+                seq,
+            });
+            Some(seq)
+        } else {
+            // the daemon numbers none of these (deltas, a streaming part resent): it sends them to live streams only
+            self.unnumbered = true;
+            None
         };
         debug!(
             host = %self.name,
@@ -353,6 +412,35 @@ impl Watcher {
                 .map_err(|_| SessionError::FleetStopped)?;
         }
         Ok(seq)
+    }
+
+    /// the replay is caught up: the fleet judges the revisions it held.
+    async fn caught_up(&self) -> Result<(), SessionError> {
+        debug!(host = %self.name, cursor = %self.cursor_text(), "the replay is caught up");
+        self.emit(None, SourceEvent::CaughtUp)
+            .await
+            .map_err(|_| SessionError::FleetStopped)
+    }
+
+    /// the daemon's head as a small read says it (`x-cmx2-seq`): what a
+    /// replay from the cursor holds at most; none when it cannot be read.
+    async fn head(&self) -> Option<u64> {
+        const ROUTE: &str = "/session/status?parked=true";
+        let answer = timeout(ANSWER_TIMEOUT, get(&self.client, &self.host, ROUTE).send())
+            .await
+            .ok()?
+            .ok()?;
+        let head = answer
+            .headers()
+            .get("x-cmx2-seq")
+            .and_then(|v| v.to_str().ok())
+            .and_then(Cursor::parse)
+            .map(|c| c.seq);
+        drop(answer);
+        if head.is_none() {
+            debug!(host = %self.name, "the head could not be read; the replay is caught up at its first quiet beat");
+        }
+        head
     }
 
     /// the fleet hears that a frame was skipped, so no transcript read made

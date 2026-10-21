@@ -85,6 +85,12 @@ export const SessionInfo = Type.Object(
 				{ description: "an armed revert: the files are back as they were before messageID" },
 			),
 		),
+		transcriptRev: Type.Optional(
+			Type.Integer({
+				description:
+					"the session's transcript revision: 0 for a new session, persisted with it, and moved on (never back) in the same transaction as every write that changes what GET /session/:id/message answers, streamed text aside: a message landed or updated, a part created or replaced, a message removed (taken back, a queued prompt that failed, a provisional message swapped for its committed one, a revert made permanent), a revert and its undo, a compaction summary. status, idle, model, title, archive, message.part.delta and a shell's tail leave it. on every rest answer that returns a session; on session.created and session.updated only for a stream that asks with rev=1. imported history stays at 0, and a session that had history before the revision existed starts at 0 too: 0 does not mean empty, and a client with no revision stored for a session reads it",
+			}),
+		),
 	},
 	{ description: "opencode-compatible session info plus cmx2's fields" },
 );
@@ -122,7 +128,7 @@ const partBase = { id: Type.String(), sessionID: Type.String(), messageID: Type.
 const ToolTime = Type.Object({ start: Type.Optional(Type.Union([Type.Number(), Type.Null()])), end: Type.Optional(Type.Number()) }, { additionalProperties: true });
 const ToolInput = Type.Record(Type.String(), Type.Unknown());
 export const ToolStateRunning = Type.Object(
-	{ status: Type.Literal("running"), input: ToolInput, time: Type.Optional(ToolTime), metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "while a shell runs, output holds the last 2 kb, updated at most once a second" })) },
+	{ status: Type.Literal("running"), input: ToolInput, time: Type.Optional(ToolTime), metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "while a shell runs, output holds the last 2 kb, updated at most once a second, and progress counts those updates from 1 (a tail with a lower progress than one already applied is older and can be dropped: progress frames carry no seq)" })) },
 	{ additionalProperties: true },
 );
 export const ToolStatePending = Type.Object({ status: Type.Literal("pending"), input: ToolInput }, { additionalProperties: true });
@@ -318,6 +324,7 @@ export const AgentInfo = Type.Object(
 		files: Type.Array(Type.String(), { description: "paths it wrote or edited" }),
 		lastTask: Type.Optional(Type.String()),
 		lastReport: Type.Optional(Type.String()),
+		why: Type.Optional(Type.String({ description: "why the spawner picked this model and effort; for people reading the tree, never sent to the helper" })),
 		pending: Type.Integer({ description: "mailbox items not yet in its transcript" }),
 		tokens: Type.Number({ description: "input, output and cache-write tokens it has spent" }),
 		contextTokens: Type.Optional(Type.Number({ description: "input, cache read and cache write of its last step: how big its context is now" })),
@@ -356,6 +363,7 @@ const attemptShape = {
 	to_effort: Type.String(),
 	from_label: Type.Union([Type.String(), Type.Null()], { description: "the model label the earlier helper ran under" }),
 	to_label: Type.String(),
+	why: Type.Optional(Type.String()),
 };
 
 export const WorktreeInfo = Type.Object(
@@ -511,8 +519,8 @@ export const EVENTS = {
 		hash: Type.String(),
 	}),
 
-	"message.updated": event("a message was created or finished", { ...sid, info: MessageInfo }),
-	"message.part.updated": event("a part was created or changed (a tool call running, then completed). every text and reasoning part of a streaming message is announced when it starts, before its first delta: this event with empty text and streaming true, logged like any other, in content order; its final update carries the whole text, no streaming, and time {start, end}, and is published when that part's block ends (a reasoning part when the reply begins), not when the step does; the step's end publishes it again, the same text and time.end", { ...sid, part: Part }),
+	"message.updated": event("a message was created or finished", { ...sid, info: MessageInfo, rev: Type.Optional(Type.Integer({ description: "the session's transcriptRev after this write; only on a stream that asks with rev=1" })) }),
+	"message.part.updated": event("a part was created or changed (a tool call running, then completed). every text and reasoning part of a streaming message is announced when it starts, before its first delta: this event with empty text and streaming true, logged like any other, in content order; its final update carries the whole text, no streaming, and time {start, end}, and is published when that part's block ends (a reasoning part when the reply begins), not when the step does; the step's end publishes it again, the same text and time.end. a running shell's output tail (state.metadata.output on its running tool part, at most once a second, numbered by state.metadata.progress) goes out unnumbered and is not logged; reads carry the latest tail and a resume gets it at its seam, not every tick, so a client that buffers frames until its read lands orders tails by progress, not by seq", { ...sid, part: Part, rev: Type.Optional(Type.Integer({ description: "the session's transcriptRev after this write; only on a stream that asks with rev=1" })) }),
 	"message.part.delta": event("streamed text for a text or reasoning part that was announced (a message.part.updated with streaming true); never sent to a part that was not", {
 		...sid,
 		messageID: Type.String(),
@@ -528,7 +536,7 @@ export const EVENTS = {
 		additions: Type.Optional(Type.Number({ description: "lines this edit or write added, counted against the file as it was before and as it is after the formatter; the same numbers as the tool part's metadata.filediff. absent from a revert's event, and from a change too big to diff (the part has no filediff either)" })),
 		deletions: Type.Optional(Type.Number({ description: "lines this edit or write removed" })),
 	}),
-	"message.removed": event("a queued prompt was taken back before the model saw it", { ...sid, messageID: Type.String() }),
+	"message.removed": event("a message left the transcript's reads: a queued prompt taken back before the model saw it or that failed to start, a provisional message swapped for its committed one, or a message a revert made permanent", { ...sid, messageID: Type.String(), rev: Type.Optional(Type.Integer({ description: "the session's transcriptRev after this write; only on a stream that asks with rev=1" })) }),
 	"command.executed": event("a / command ran as a prompt", { ...sid, name: Type.String(), arguments: Type.String(), clientID: Type.Optional(Type.String()) }),
 
 	"pty.created": event("a terminal opened", { info: PtyInfo }),
@@ -631,6 +639,44 @@ export interface RouteDef {
 	also?: { status: number; response: TSchema; description: string };
 }
 
+/** an event stream's opt-in switches: a client that asks for none gets the stream as it always was; a daemon before them ignores them */
+const StreamQuery = Type.Object({
+	after: Type.Optional(Type.String({ description: "a resume cursor (<epoch>:<seq>) when the client cannot send Last-Event-ID; Last-Event-ID wins" })),
+	coalesce: Type.Optional(
+		Type.Literal("100", {
+			description:
+				"merge each part's message.part.delta text into 100 ms batches: one delta per part per batch, with the offset of its first delta and the text of all of them, split at the frame cap as any delta is. every other frame (status, asks, part starts and ends, heartbeats) goes at once, after the pending deltas of every part, so order holds. offsets stay contiguous and the reassembled text is the same",
+		}),
+	),
+	types: Type.Optional(
+		Type.String({
+			description:
+				"comma-separated event types: send only these, live and on a resume's replay. server.heartbeat and stream.reset always pass; server.connected comes only when listed. each heartbeat on such a stream carries an id: <epoch>:<seq> of the last logged event the stream has passed, sent or filtered out, so Last-Event-ID moves on through events it did not ask for and a resume does not expire for them. a resume resends each part still streaming once in full as message.part.updated: a stream that takes message.part.delta without message.part.updated gets the deltas after it at the offset they continue from, with no text before them, so ask for both",
+		}),
+	),
+	compact: Type.Optional(
+		Type.Literal("1", {
+			description:
+				"on a resume from a cursor (and the catch-up after a stream is held at the cap), skip the state events between the first and the last of each key instead of sending every event since the cursor. the keys: session.updated per session, session.status per session and status type (busy, idle, retry: a status is never skipped for a later one of another type, so busy then idle both come), message.updated per message, message.part.updated per part, project.updated per project. the first and the last of each key always come, so a message's first message.updated still comes before its parts; one between them is skipped only when the last has every field it had. every other event is kept, and everything in seq order; the final state equals a full replay's for a client that upserts or merges state. live events are never compacted",
+		}),
+	),
+	rev: Type.Optional(
+		Type.Literal("1", {
+			description:
+				"the transcript revision on the events that move or carry it: properties.rev (the session's revision after the write) on message.updated, message.part.updated and message.removed, and transcriptRev as the last field of the session info on session.created and session.updated. each logged message.updated, message.part.updated and message.removed moves its session's revision by one; an unnumbered message.part.updated (a shell's tail, a streaming part resent at a resume's seam) carries the revision as it stands. a stream that does not ask gets the events without them, byte for byte",
+		}),
+	),
+	gzip: Type.Optional(
+		Type.Literal("1", {
+			description:
+				"with Accept-Encoding: gzip, the stream is gzip (content-encoding: gzip): one gzip stream per subscriber, flushed after every batch (the frames of one turn of the daemon's loop), so each frame decodes as soon as its batch arrives. the stall cap counts the compressed bytes. without Accept-Encoding: gzip the stream stays plain",
+		}),
+	),
+});
+
+/** how json answers are encoded: told in the openapi document's description */
+export const ENCODING = "json answers over 1 kb are gzipped (content-encoding: gzip) when the request's accept-encoding takes gzip; the decoded bytes are the same. event streams are gzipped only when they ask for it (gzip=1)";
+
 const Effort = Type.Union(["low", "medium", "high", "xhigh", "max"].map((e) => Type.Literal(e)));
 const ListQuery = {
 	directory: Type.Optional(Type.String()),
@@ -676,14 +722,15 @@ const TextBody = Type.Object({
 const KeptChoice = { model: Type.Optional(Type.String({ description: "provider/model-id the prompt will run on" })), effort: Type.Optional(Type.String()), agent: Type.Optional(Type.String()) };
 const MessageWithParts = Type.Object({ info: MessageInfo, parts: Type.Array(Part) });
 const Seq = { "x-cmx2-seq": "the cursor (<epoch>:<seq>) of the last event this state includes; apply only events after it" };
+const Rev = { "x-cmx2-rev": "the session's transcriptRev the body reflects, read with the body and x-cmx2-seq in one step: at least the revision of the last counted event at or before that cursor (a heal of the rows from the transcript, or a landing that failed part way, moves it with no event)" };
 const Queued = Type.Object({ queued: Ok, messageID: Type.String({ description: "the provisional id; unsend takes it back" }) });
 const Busy = [409];
 const Settle = Type.Object({ by: Type.Optional(Type.String({ description: "who is answering, shown to the next client that tries (default: the x-cmx2-client header, else the user agent)" })), clientID: ClientID });
 
 export const ROUTES: RouteDef[] = [
 	{ method: "GET", path: "/global/health", operationId: "health", summary: "liveness and version", response: Type.Object({ healthy: Ok, version: Type.String(), name: Type.Literal("cmx2"), contract: Type.Integer(), pid: Type.Integer() }) },
-	{ method: "GET", path: "/global/event", operationId: "globalEvents", summary: "every event on the host, wrapped in {directory, project, payload}", response: "sse" },
-	{ method: "GET", path: "/event", operationId: "events", summary: "events for one directory, bare payloads", response: "sse", scoped: true },
+	{ method: "GET", path: "/global/event", operationId: "globalEvents", summary: "every event on the host, wrapped in {directory, project, payload}. the query switches are opt-in; a stream that asks for none is unchanged", query: StreamQuery, response: "sse" },
+	{ method: "GET", path: "/event", operationId: "events", summary: "events for one directory, bare payloads. the query switches are opt-in; a stream that asks for none is unchanged", query: StreamQuery, response: "sse", scoped: true },
 	{
 		method: "GET",
 		path: "/global/fs",
@@ -898,6 +945,7 @@ export const ROUTES: RouteDef[] = [
 			behavior_version: Type.Optional(Type.Union([Type.Literal("subagent_v1"), Type.Literal("subagent_v2")])),
 			budget_tokens: Type.Optional(Type.Integer({ minimum: 1, description: "tokens one dispatch may spend before it stops with a partial report" })),
 			directory: Type.Optional(Type.String({ description: "where the agent works instead of the spawner's directory, such as a checkout" })),
+			why: Type.Optional(Type.String({ description: "why the spawner picked this model and effort; for people reading the tree, never sent to the helper" })),
 		}),
 		response: Type.Object({ agents: Type.Array(AgentInfo) }),
 		status: 201,
@@ -949,9 +997,9 @@ export const ROUTES: RouteDef[] = [
 		summary: "messages oldest first; with limit, the newest page, and x-next-cursor for the page before it. the newest page ends with the message being streamed, if any, with every text and reasoning part it has started, in content order, typed, its text so far, marked streaming with time.start (a part whose block has ended reads final: the whole text, time with end, no streaming)",
 		query: Type.Object({ limit: Type.Optional(Type.String()), before: Type.Optional(Type.String()) }),
 		response: Type.Array(MessageWithParts),
-		headers: { "x-next-cursor": "pass as before for the older page", ...Seq },
+		headers: { "x-next-cursor": "pass as before for the older page", ...Seq, ...Rev },
 	},
-	{ method: "GET", path: "/session/:sessionID/message/:messageID", operationId: "getMessage", summary: "one message with its parts; the message being streamed reads with every text and reasoning part it has started (typed, in content order, text so far, marked streaming; a part whose block has ended reads final)", response: MessageWithParts, headers: Seq },
+	{ method: "GET", path: "/session/:sessionID/message/:messageID", operationId: "getMessage", summary: "one message with its parts; the message being streamed reads with every text and reasoning part it has started (typed, in content order, text so far, marked streaming; a part whose block has ended reads final)", response: MessageWithParts, headers: { ...Seq, ...Rev } },
 	{
 		method: "POST",
 		path: "/session/:sessionID/prompt",
@@ -1099,7 +1147,7 @@ export const ROUTES: RouteDef[] = [
 	{ method: "POST", path: "/session/:sessionID/abort", operationId: "abort", summary: "stop the running turn", response: Ok },
 	{ method: "GET", path: "/session/:sessionID/steps", operationId: "steps", summary: "per-step telemetry", response: Type.Array(StepRow) },
 	{ method: "GET", path: "/session/:sessionID/prefix", operationId: "prefix", summary: "the recorded prefix bytes and hash", response: Type.Object({ hash: Type.String(), bytes: Type.String() }) },
-	{ method: "GET", path: "/session/:sessionID/requests", operationId: "requests", summary: "summaries of the last 200 model requests (prefix hash, markers, gates)", response: Type.Array(Type.Record(Type.String(), Type.Unknown())) },
+	{ method: "GET", path: "/session/:sessionID/requests", operationId: "requests", summary: "summaries of the last 50 model requests (prefix hash, markers, gates)", response: Type.Array(Type.Record(Type.String(), Type.Unknown())) },
 	{ method: "GET", path: "/session/:sessionID/messages", operationId: "transcript", summary: "the engine transcript as the model sees it (pi's message shapes), for evals and debugging", response: Type.Array(Type.Record(Type.String(), Type.Unknown())) },
 	{
 		method: "GET",

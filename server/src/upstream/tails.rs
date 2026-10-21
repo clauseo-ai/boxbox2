@@ -42,6 +42,10 @@ const BODY_CAP: usize = 4 * 1024 * 1024;
 /// messages asked for: a tail cannot need more messages than it has
 /// items; then, when those were too large, the last few.
 const LIMITS: [usize; 2] = [TAIL_ITEMS, 3];
+/// the quiet re-read's newest messages (`docs/protocol.md`, section 10):
+/// doubled until the page holds the newest assistant message, since a
+/// queued prompt can sit behind a streaming answer.
+const NEWEST_LIMITS: [usize; 4] = [8, 16, 32, 64];
 
 #[derive(Debug, thiserror::Error)]
 enum TailError {
@@ -101,11 +105,21 @@ pub async fn run(
                 reads.spawn(async move {
                     // the gate is never closed, so a permit always comes
                     let Ok(permit) = gate.acquire_owned().await else { return };
-                    let event = match read(&client, &config, &request).await {
-                        Ok(read) => SourceEvent::TailRead(Box::new(read)),
-                        Err(error) => {
-                            warn!(host = %request.host, session = %request.session, %error, "tail read failed");
-                            SourceEvent::TailUnread { thread: request.session.clone(), reason: error.to_string() }
+                    let event = if request.newest {
+                        match newest(&client, &config, &request).await {
+                            Ok(read) => SourceEvent::NewestRead(Box::new(read)),
+                            Err(error) => {
+                                warn!(host = %request.host, session = %request.session, %error, "newest messages read failed");
+                                unread(&request, &error)
+                            }
+                        }
+                    } else {
+                        match read(&client, &config, &request).await {
+                            Ok(read) => SourceEvent::TailRead(Box::new(read)),
+                            Err(error) => {
+                                warn!(host = %request.host, session = %request.session, %error, "tail read failed");
+                                unread(&request, &error)
+                            }
                         }
                     };
                     let message = unsequenced(&request.host, event);
@@ -141,14 +155,18 @@ async fn answer_unread(fleet: &mpsc::Sender<Upstream>, request: &TailRequest, er
     warn!(host = %request.host, session = %request.session, %error, "tail read not taken");
     // a stopped fleet means the server is stopping
     let _ = fleet
-        .send(unsequenced(
-            &request.host,
-            SourceEvent::TailUnread {
-                thread: request.session.clone(),
-                reason: error.to_string(),
-            },
-        ))
+        .send(unsequenced(&request.host, unread(request, error)))
         .await;
+}
+
+/// a read that did not happen, as the fleet hears it.
+fn unread(request: &TailRequest, error: &TailError) -> SourceEvent {
+    let (thread, reason) = (request.session.clone(), error.to_string());
+    if request.newest {
+        SourceEvent::NewestUnread { thread, reason }
+    } else {
+        SourceEvent::TailUnread { thread, reason }
+    }
 }
 
 /// a tail event for the cmx2 agent of `host`: its connection, carrying no
@@ -184,6 +202,31 @@ async fn read(
     Err(TailError::TooLarge)
 }
 
+/// a thread's newest messages, enough of them to hold the newest
+/// assistant message (or the whole transcript, or 64).
+async fn newest(
+    client: &reqwest::Client,
+    host: &HostConfig,
+    request: &TailRequest,
+) -> Result<TailRead, TailError> {
+    if !is_segment(&request.session) {
+        return Err(TailError::NotAnId(request.session.clone()));
+    }
+    let mut last = None;
+    for limit in NEWEST_LIMITS {
+        let read = page(client, host, request, limit).await?;
+        let holds_reply = read
+            .messages
+            .iter()
+            .any(|m| m.info.role == crate::wire::Role::Assistant);
+        if holds_reply || read.messages.len() < limit {
+            return Ok(read);
+        }
+        last = Some(read);
+    }
+    last.ok_or(TailError::TooLarge)
+}
+
 async fn page(
     client: &reqwest::Client,
     host: &HostConfig,
@@ -207,6 +250,7 @@ async fn page(
             .and_then(|v| v.to_str().ok())
             .and_then(Cursor::parse)
             .ok_or(TailError::NoSeq)?;
+        let rev = revision_header(response.headers());
         let mut body = Vec::new();
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
@@ -222,8 +266,8 @@ async fn page(
             epoch: cursor.epoch.clone(),
             seq: cursor.seq,
         };
-        let read =
-            translate::tail(request.session.clone(), stamp, &body).map_err(TailError::Decode)?;
+        let read = translate::tail(request.session.clone(), stamp, rev, &body)
+            .map_err(TailError::Decode)?;
         Ok((cursor, read))
     };
     let (cursor, read) = timeout(READ_TIMEOUT, answer)
@@ -241,6 +285,15 @@ async fn page(
         "tail read"
     );
     Ok(read)
+}
+
+/// the transcript revision a message read reflects (`x-cmx2-rev`,
+/// `docs/protocol.md` section 14a); none from a daemon that predates it.
+pub(crate) fn revision_header(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    headers
+        .get("x-cmx2-rev")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok())
 }
 
 /// a daemon id as one path segment; anything that could step out of it is

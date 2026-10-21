@@ -105,6 +105,9 @@ impl Replay {
                 persist: mpsc::channel(1).0,
                 ack: None,
             },
+            persist: super::persist::Persist::detached(),
+            cursors: std::collections::HashMap::new(),
+            unasked: Vec::new(),
         };
         Self {
             actor,
@@ -232,7 +235,7 @@ impl Replay {
                     epoch: cursor.epoch,
                     seq: cursor.seq,
                 };
-                let read = translate::tail(thread.to_owned(), stamp, body.get().as_bytes())
+                let read = translate::tail(thread.to_owned(), stamp, None, body.get().as_bytes())
                     .map_err(|e| format!("tail body of {key}: {e}"))?;
                 let (sender, agent) = source(host);
                 sender.envelope(&agent, None, SourceEvent::TailRead(Box::new(read)))
@@ -504,6 +507,86 @@ impl Replay {
 
     pub fn head(&self) -> u64 {
         self.actor.journal.head()
+    }
+
+    /// a window's tail read is out (a replay restarts only where none is:
+    /// its answer is a later step, which a restarted model does not wait for).
+    pub fn tail_reads_out(&self) -> bool {
+        self.actor.model.tail_reads_out()
+    }
+
+    /// what the actor's clock does at a clean stop: every pending delta
+    /// into the journal.
+    pub fn stop(&mut self, at: i64) {
+        crate::test_clock::set(Some(at));
+        let pending = self.actor.encoder.flush();
+        self.actor.journal_all(pending);
+        crate::test_clock::set(None);
+    }
+
+    /// one batch of the actor's dirty rows, committed to `connection` and
+    /// answered `ok`, as the writer does every second (`persist.rs`).
+    /// answers how many rows it wrote.
+    pub fn persist(&mut self, connection: &mut rusqlite::Connection, clean: bool) -> usize {
+        let batch = self.actor.take_batch(clean);
+        let (id, rows) = (batch.id, batch.writes.len());
+        super::persist::write(connection, &batch).expect("the batch commits");
+        let ok = self.actor.persist.acknowledged(
+            &super::persist::Ack { id, result: Ok(()) },
+            std::time::Instant::now(),
+        );
+        assert!(ok, "the batch was in flight");
+        rows
+    }
+
+    /// the actor started again from what `connection` holds, as a server
+    /// restart does (`persist::start`): its streams are gone, and the tables
+    /// the store keeps beside the stream (needs, marks, clears, colours)
+    /// are carried over as the store would keep them.
+    pub fn restart(&mut self, connection: &rusqlite::Connection) -> super::persist::Resumed {
+        let stored = super::persist::load(connection).expect("the stream tables read");
+        let mut resumed = super::persist::start(stored);
+        let mut model = super::Model::new();
+        model.carry_tables(&mut self.actor.model);
+        let broken = model.resume(std::mem::take(&mut resumed.model));
+        assert_eq!(broken, 0, "every kept model row decodes");
+        self.actor.model = model;
+        self.actor.journal = Journal::resumed(resumed.epoch.clone(), resumed.head);
+        self.actor.encoder = std::mem::take(&mut resumed.encoder);
+        self.actor.keys = std::mem::take(&mut resumed.keys);
+        self.actor.persist = super::persist::Persist::new(resumed.reserved, resumed.graves, None);
+        self.actor.cursors = std::mem::take(&mut resumed.cursors);
+        self.actor.live.clear();
+        self.actor.board = None;
+        if resumed.rewrite {
+            self.actor.mark_all();
+        }
+        self.actor.started(resumed.how, &resumed.broken.threads);
+        // the reader is not running; a newest read asked again has no answer on the tape
+        while self.tails.try_recv().is_ok() {}
+        resumed
+    }
+
+    /// the tail clock fires once at `at`.
+    pub fn flush_tails(&mut self, at: i64) {
+        crate::test_clock::set(Some(at));
+        self.actor.flush_tails();
+        crate::test_clock::set(None);
+    }
+
+    /// one recorded upstream input fed again, as a source re-delivers what
+    /// follows a cursor after a crash.
+    ///
+    /// # Errors
+    /// the input is not an upstream one, or does not decode.
+    pub fn redeliver(&mut self, step: &Step) -> Result<(), String> {
+        let input: Input =
+            serde_json::from_value(serde_json::to_value(&step.input).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        crate::test_clock::set(Some(step.at));
+        let result = self.upstream(input);
+        crate::test_clock::set(None);
+        result
     }
 
     pub fn floor(&self) -> u64 {

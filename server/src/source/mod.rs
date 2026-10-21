@@ -88,13 +88,18 @@ pub enum SourceEvent {
         client_id: String,
         state: SendOutcome,
     },
+    /// `rev`, here and on `Part` and `MessageRemoved`: the source's
+    /// transcript revision after this write (`docs/protocol.md`, section
+    /// 14a), when it numbers its transcripts.
     Message {
         thread: String,
         message: Box<Message>,
+        rev: Option<u64>,
     },
     Part {
         thread: String,
         part: Box<Part>,
+        rev: Option<u64>,
     },
     /// streamed text for a part; `offset` is utf-16 units before it.
     Delta {
@@ -108,6 +113,7 @@ pub enum SourceEvent {
     MessageRemoved {
         thread: String,
         message: String,
+        rev: Option<u64>,
     },
     Reactions {
         thread: String,
@@ -147,6 +153,20 @@ pub enum SourceEvent {
         thread: String,
         reason: String,
     },
+    /// a thread's newest messages, read by the quiet re-read after a gap
+    /// whose transcript revision held still (`docs/protocol.md`, section 10).
+    NewestRead(Box<TailRead>),
+    /// those could not be read; the thread is reset instead.
+    NewestUnread {
+        thread: String,
+        reason: String,
+    },
+    /// the stream opened from a cursor and replays what followed it,
+    /// compacted (cmx2's `compact=1`): a session info may come ahead of the
+    /// entry that carried its revision's event.
+    Replaying,
+    /// the replay is caught up: what follows is live, in order.
+    CaughtUp,
     /// the source dropped an event it could not read (over the frame cap,
     /// undecodable, or lacking what it decoded with): whatever it changed is
     /// unknown here. it changes nothing shown; a transcript read stamped
@@ -181,6 +201,10 @@ impl SourceEvent {
             Self::ReviewSettled { .. } => "review.settled",
             Self::TailRead(_) => "tail.read",
             Self::TailUnread { .. } => "tail.unread",
+            Self::NewestRead(_) => "newest.read",
+            Self::NewestUnread { .. } => "newest.unread",
+            Self::Replaying => "replaying",
+            Self::CaughtUp => "caught.up",
             Self::Skipped => "skipped",
         }
     }
@@ -214,7 +238,9 @@ pub struct AgentFacts {
 
 /// a thread as its source knows it: everything on contract 2's `Thread`
 /// that is not boxbox's own (activity, tail, needs, read and clears are).
-#[derive(Clone, Debug)]
+/// its serde form is what `boxbox.db` keeps of it across a restart.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct ThreadFacts {
     /// the thread id, unique within its agent: `[A-Za-z0-9_-]{1,128}`
     /// (cmx2 ids also allow `.`).
@@ -238,11 +264,16 @@ pub struct ThreadFacts {
     pub vcs: Option<Vcs>,
     pub changes: Option<Changes>,
     pub browse_only: bool,
+    /// the source's transcript revision as this info says it (cmx2's
+    /// `transcriptRev`, `docs/protocol.md` section 14a); none for a source
+    /// or a daemon that does not number transcripts.
+    pub rev: Option<u64>,
     /// archived on the agent: it leaves the fleet.
     pub archived: bool,
     /// cmx2 only: the session's info as the daemon wrote it, which an
     /// adopted thread's row in `boxbox.db` keeps (`fleet/adopted.rs`), so
     /// rows written before protocol 3 still load. the fleet holds no copy.
+    #[serde(skip)]
     pub raw: Option<Box<RawValue>>,
 }
 
@@ -322,6 +353,8 @@ pub struct TailRead {
     /// the event the read includes up to; none when the source does not
     /// number its events (the read is then newer than anything before it).
     pub upstream: Option<Stamp>,
+    /// the transcript revision the read reflects (cmx2's `x-cmx2-rev`).
+    pub rev: Option<u64>,
     pub messages: Vec<MessageWithParts>,
 }
 

@@ -649,11 +649,14 @@ it is verified`. closed items move to the bottom with the commit.
   digest and journal one unchanged re-send. · a test where an older
   turn's message is re-sent after 4,096 newer ones and nothing is
   journaled.
-- [sync] full resume on restart (`protocol.md` section 10) is not built:
-  the stream keys and patch bases live in memory only (`fleet/keys.rs`
-  is shaped for `stream_keys` and `stream_gone`), so a restart is a new
-  epoch and every device takes a `reset`. · restart the dev server and a
-  stream resumes with a catch-up, not a reset.
+- [sync] full resume keeps no window tail read in flight and no encoder
+  digests (finished text, unchanged re-sends): after a restart a tail
+  being read is asked again on its thread's next change, and the first
+  re-send of a part goes whole. · `fleet/model/state.rs` (`floor`).
+- [sync] an openclaw connection's own cursors (`source_cursors`) are not
+  written in the stream's batches: after a restart its source reads the
+  agent afresh, which the quiet re-read takes with no revision, so each
+  of its threads gets one `thread.reset`. · `docs/agents.md` section 3.
 - [sync] the home, thread and switch goldens in `server/goldens/protocol3/`
   are built by the test from the journal, not recorded from the server's
   own interest switch. · a golden recorded through

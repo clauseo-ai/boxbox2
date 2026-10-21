@@ -758,9 +758,11 @@ and columns come as migrations after the current six (`store/schema.rs`):
   `openclaw.md` owns what each means). the journal is memory and a source
   gets no acknowledgement from the fleet actor, so a cursor row is written
   after the changes it covers were sent into the fleet channel. a crash
-  between the two replays an idempotent read, and a restart is a new
-  journal epoch that every client re-reads anyway (until protocol 3's
-  full resume is built, `protocol.md` section 10). pruned with
+  between the two replays an idempotent read. full resume
+  (`protocol.md` section 10) keeps the journal's epoch, but these cursors
+  are not in its batches: a restarted openclaw source reads its agent
+  afresh, and the quiet re-read resets each of its threads once (no
+  transcript revision vouches for them). pruned with
   `thread_ids` (section 3).
 - `source_secrets (connection, name, value)`: a gateway device key pair,
   its device token and the connection's instance id (openclaw's, with

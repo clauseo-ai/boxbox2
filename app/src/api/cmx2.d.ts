@@ -26,7 +26,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** every event on the host, wrapped in {directory, project, payload} */
+        /** every event on the host, wrapped in {directory, project, payload}. the query switches are opt-in; a stream that asks for none is unchanged */
         get: operations["globalEvents"];
         put?: never;
         post?: never;
@@ -43,7 +43,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** events for one directory, bare payloads */
+        /** events for one directory, bare payloads. the query switches are opt-in; a stream that asks for none is unchanged */
         get: operations["events"];
         put?: never;
         post?: never;
@@ -801,7 +801,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** summaries of the last 200 model requests (prefix hash, markers, gates) */
+        /** summaries of the last 50 model requests (prefix hash, markers, gates) */
         get: operations["requests"];
         put?: never;
         post?: never;
@@ -1269,7 +1269,7 @@ export type components = {
             } & {
                 [key: string]: unknown;
             };
-            /** @description while a shell runs, output holds the last 2 kb, updated at most once a second */
+            /** @description while a shell runs, output holds the last 2 kb, updated at most once a second, and progress counts those updates from 1 (a tail with a lower progress than one already applied is older and can be dropped: progress frames carry no seq) */
             metadata?: {
                 [key: string]: unknown;
             };
@@ -1627,6 +1627,8 @@ export type components = {
                     deletions: number;
                 };
             };
+            /** @description the session's transcript revision: 0 for a new session, persisted with it, and moved on (never back) in the same transaction as every write that changes what GET /session/:id/message answers, streamed text aside: a message landed or updated, a part created or replaced, a message removed (taken back, a queued prompt that failed, a provisional message swapped for its committed one, a revert made permanent), a revert and its undo, a compaction summary. status, idle, model, title, archive, message.part.delta and a shell's tail leave it. on every rest answer that returns a session; on session.created and session.updated only for a stream that asks with rev=1. imported history stays at 0, and a session that had history before the revision existed starts at 0 too: 0 does not mean empty, and a client with no revision stored for a session reads it */
+            transcriptRev?: number;
         };
         /** @description opencode-shaped message info; assistant messages add modelID, providerID, cost, tokens, finish, variant (effort) */
         MessageInfo: {
@@ -2041,6 +2043,8 @@ export type components = {
                             deletions: number;
                         };
                     };
+                    /** @description the session's transcript revision: 0 for a new session, persisted with it, and moved on (never back) in the same transaction as every write that changes what GET /session/:id/message answers, streamed text aside: a message landed or updated, a part created or replaced, a message removed (taken back, a queued prompt that failed, a provisional message swapped for its committed one, a revert made permanent), a revert and its undo, a compaction summary. status, idle, model, title, archive, message.part.delta and a shell's tail leave it. on every rest answer that returns a session; on session.created and session.updated only for a stream that asks with rev=1. imported history stays at 0, and a session that had history before the revision existed starts at 0 too: 0 does not mean empty, and a client with no revision stored for a session reads it */
+                    transcriptRev?: number;
                 };
             };
             /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
@@ -2375,13 +2379,15 @@ export type components = {
             properties: {
                 sessionID: string;
                 info: components["schemas"]["MessageInfo"];
+                /** @description the session's transcriptRev after this write; only on a stream that asks with rev=1 */
+                rev?: number;
             };
             /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
             seq?: number;
             /** @description logged events only: names the store the seq belongs to */
             epoch?: string;
         };
-        /** @description a part was created or changed (a tool call running, then completed). every text and reasoning part of a streaming message is announced when it starts, before its first delta: this event with empty text and streaming true, logged like any other, in content order; its final update carries the whole text, no streaming, and time {start, end}, and is published when that part's block ends (a reasoning part when the reply begins), not when the step does; the step's end publishes it again, the same text and time.end */
+        /** @description a part was created or changed (a tool call running, then completed). every text and reasoning part of a streaming message is announced when it starts, before its first delta: this event with empty text and streaming true, logged like any other, in content order; its final update carries the whole text, no streaming, and time {start, end}, and is published when that part's block ends (a reasoning part when the reply begins), not when the step does; the step's end publishes it again, the same text and time.end. a running shell's output tail (state.metadata.output on its running tool part, at most once a second, numbered by state.metadata.progress) goes out unnumbered and is not logged; reads carry the latest tail and a resume gets it at its seam, not every tick, so a client that buffers frames until its read lands orders tails by progress, not by seq */
         Event_message_part_updated: {
             id: string;
             /**
@@ -2392,6 +2398,8 @@ export type components = {
             properties: {
                 sessionID: string;
                 part: components["schemas"]["Part"];
+                /** @description the session's transcriptRev after this write; only on a stream that asks with rev=1 */
+                rev?: number;
             };
             /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
             seq?: number;
@@ -2443,7 +2451,7 @@ export type components = {
             /** @description logged events only: names the store the seq belongs to */
             epoch?: string;
         };
-        /** @description a queued prompt was taken back before the model saw it */
+        /** @description a message left the transcript's reads: a queued prompt taken back before the model saw it or that failed to start, a provisional message swapped for its committed one, or a message a revert made permanent */
         Event_message_removed: {
             id: string;
             /**
@@ -2454,6 +2462,8 @@ export type components = {
             properties: {
                 sessionID: string;
                 messageID: string;
+                /** @description the session's transcriptRev after this write; only on a stream that asks with rev=1 */
+                rev?: number;
             };
             /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
             seq?: number;
@@ -2869,6 +2879,8 @@ export type components = {
                     files: string[];
                     lastTask?: string;
                     lastReport?: string;
+                    /** @description why the spawner picked this model and effort; for people reading the tree, never sent to the helper */
+                    why?: string;
                     /** @description mailbox items not yet in its transcript */
                     pending: number;
                     /** @description input, output and cache-write tokens it has spent */
@@ -2929,6 +2941,8 @@ export type components = {
                     files: string[];
                     lastTask?: string;
                     lastReport?: string;
+                    /** @description why the spawner picked this model and effort; for people reading the tree, never sent to the helper */
+                    why?: string;
                     /** @description mailbox items not yet in its transcript */
                     pending: number;
                     /** @description input, output and cache-write tokens it has spent */
@@ -2989,6 +3003,8 @@ export type components = {
                     files: string[];
                     lastTask?: string;
                     lastReport?: string;
+                    /** @description why the spawner picked this model and effort; for people reading the tree, never sent to the helper */
+                    why?: string;
                     /** @description mailbox items not yet in its transcript */
                     pending: number;
                     /** @description input, output and cache-write tokens it has spent */
@@ -3160,6 +3176,7 @@ export type components = {
                 /** @description the model label the earlier helper ran under */
                 from_label: string | null;
                 to_label: string;
+                why?: string;
             };
             /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
             seq?: number;
@@ -3186,6 +3203,7 @@ export type components = {
                 /** @description the model label the earlier helper ran under */
                 from_label: string | null;
                 to_label: string;
+                why?: string;
             };
             /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
             seq?: number;
@@ -3396,7 +3414,14 @@ export interface operations {
     };
     globalEvents: {
         parameters: {
-            query?: never;
+            query?: {
+                after?: string;
+                coalesce?: "100";
+                types?: string;
+                compact?: "1";
+                rev?: "1";
+                gzip?: "1";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3443,7 +3468,14 @@ export interface operations {
     };
     events: {
         parameters: {
-            query?: never;
+            query?: {
+                after?: string;
+                coalesce?: "100";
+                types?: string;
+                compact?: "1";
+                rev?: "1";
+                gzip?: "1";
+            };
             header?: {
                 /** @description the directory to scope to; x-opencode-directory is accepted too */
                 "x-cmx2-directory"?: string;
@@ -4855,6 +4887,8 @@ export interface operations {
                             files: string[];
                             lastTask?: string;
                             lastReport?: string;
+                            /** @description why the spawner picked this model and effort; for people reading the tree, never sent to the helper */
+                            why?: string;
                             /** @description mailbox items not yet in its transcript */
                             pending: number;
                             /** @description input, output and cache-write tokens it has spent */
@@ -4948,6 +4982,8 @@ export interface operations {
                     budget_tokens?: number;
                     /** @description where the agent works instead of the spawner's directory, such as a checkout */
                     directory?: string;
+                    /** @description why the spawner picked this model and effort; for people reading the tree, never sent to the helper */
+                    why?: string;
                 };
             };
         };
@@ -4982,6 +5018,8 @@ export interface operations {
                             files: string[];
                             lastTask?: string;
                             lastReport?: string;
+                            /** @description why the spawner picked this model and effort; for people reading the tree, never sent to the helper */
+                            why?: string;
                             /** @description mailbox items not yet in its transcript */
                             pending: number;
                             /** @description input, output and cache-write tokens it has spent */
@@ -5426,6 +5464,8 @@ export interface operations {
                     "x-next-cursor"?: string;
                     /** @description the cursor (<epoch>:<seq>) of the last event this state includes; apply only events after it */
                     "x-cmx2-seq"?: string;
+                    /** @description the session's transcriptRev the body reflects, read with the body and x-cmx2-seq in one step: at least the revision of the last counted event at or before that cursor (a heal of the rows from the transcript, or a landing that failed part way, moves it with no event) */
+                    "x-cmx2-rev"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5591,6 +5631,8 @@ export interface operations {
                 headers: {
                     /** @description the cursor (<epoch>:<seq>) of the last event this state includes; apply only events after it */
                     "x-cmx2-seq"?: string;
+                    /** @description the session's transcriptRev the body reflects, read with the body and x-cmx2-seq in one step: at least the revision of the last counted event at or before that cursor (a heal of the rows from the transcript, or a landing that failed part way, moves it with no event) */
+                    "x-cmx2-rev"?: string;
                     [name: string]: unknown;
                 };
                 content: {

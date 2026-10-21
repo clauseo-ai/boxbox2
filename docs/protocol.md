@@ -678,8 +678,11 @@ devices saw. the start then:
   rule, and converge.
 
 sqlite runs in wal with `synchronous=normal`: a process crash loses no
-acknowledged batch; a power loss may lose the last one, which the same
-rules cover.
+acknowledged batch; a power loss may lose every batch since the last wal
+checkpoint, always back to an older, consistent prefix (each batch is one
+transaction), which the same rules cover: the cursor still matches its
+states, and the reserved mark is stale only if more than 500,000 entries
+were issued since that checkpoint.
 
 ### the cmx2 cursors
 
@@ -733,6 +736,45 @@ with its cursor, the epoch matches, the catch-up is empty, `caught`. no
 reset, no read. a crash: the same, plus every key once whole, plus one
 missed 304 per thread it opens. a cmx2 gap past retention: a reset only
 for threads whose transcript really changed.
+
+**as built** (`fleet/persist.rs`, `fleet/model/state.rs`, migration 11):
+`stream_keys` also keeps `raised` (an ask's first entry, for the "raised
+and settled since the cursor" rule) and `turn` (the newest-turn ids `rv`
+counts by), and `seq = 0` marks a key the model holds that the journal
+never told; `stream_gone` also keeps `raised` and `body` (the removal or
+settlement a catch-up sends). the start check decodes each body into its
+wire type and encodes it again; a byte that differs, or a row that does
+not decode, mints the new epoch. a start that must rewrite (a crash,
+another encoder, a failed check) marks every key dirty and leaves the
+stored `encoder` until that first batch commits. a key's catch-up from a
+`since` at or past its `v` is empty, so a restart's empty ring makes no
+key stale that did not move. the order row's model also keeps the sends
+waiting for their message, the asks being answered and each thread's last
+stop, so needs judge a turn across a restart as without one; a window tail
+read in flight is not kept (asked again on the thread's next change). a
+tail read moves `srev` only when its `x-cmx2-seq` is at or below the seq
+the stream has applied (section 14a: the journal then holds every write it
+reflects).
+
+a clean restart's catch-up is not quite empty: the watcher's reconnect
+moves the agent's `connection.since`, one `agent` entry per host. a crash
+start journals, before any stream is served, every agent, thread, ask and
+the order whose model state differs from its stored body (read marks,
+clears and needs reach their own tables at once, the stream's batch up to
+a second later), so a reset and `GET /api/fleet` serve them. a model row
+that does not decode (state structs default every field a later build
+adds) drops its host's cursor, and its thread is journaled removed until
+that host's read brings it back. the newest-message reads a quiet re-read
+asked for are kept in the thread's row and asked again at start. cmx2
+moves `transcriptRev` with no counted event for a revert armed or undone,
+rows healed from the transcript file and a landing that failed part way,
+and says so only with `session.updated`: a session info whose revision is
+past the thread's `srev` resets the thread. while a stream from a cursor
+applies its compact replay (which keeps only each key's last update, so a
+session info can come ahead of the entry that carried its revision's
+event), that judgement waits until the replay is caught up (past the head
+a small read gave at the open, a frame only live streams get, or a quiet
+heartbeat) and compares with the revision the replay's events reached.
 
 ## 11. thread reads
 
@@ -982,9 +1024,8 @@ manifest, so every other cmx2 client keeps today's stream byte for byte
 rest answers over 1 kb are gzipped when asked. heartbeat stays 10 s; the
 server's 45 s stall rule is unchanged.
 
-the first four switches exist on cmx2's branch `cmx2/cmx2-stream` with
-these names; `rev=1` is the cmx2 rev package (section 18). the pin moves
-to a cmx2 commit that has them, deliberately, as `AGENTS.md` says.
+all five switches are in cmx2 0.9.0, the pinned commit (`cmx2.pin`), with
+`transcriptRev` and `x-cmx2-rev` as section 14a says.
 **the server never depends on them.** a daemon that does not know a
 switch ignores the query parameter, so the server keeps everything it
 needs on its own side: its own 100 ms delta merge (section 8), its own

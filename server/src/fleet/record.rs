@@ -339,7 +339,10 @@ fn upstream_input(message: &Upstream) -> Option<Input> {
             key: format!("{connection}:{thread}"),
             reason: reason.clone(),
         }),
-        SourceEvent::Skipped | SourceEvent::Agents(_) => None,
+        SourceEvent::Skipped
+        | SourceEvent::Agents(_)
+        | SourceEvent::Replaying
+        | SourceEvent::CaughtUp => None,
         _ => {
             let held = take(
                 connection,

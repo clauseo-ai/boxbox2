@@ -173,8 +173,11 @@ async fn run(config: Config) -> Result<(), StartupError> {
     refuse_agent_keys(&config, &store).await?;
     // the fleet asks for window tails; the upstream side reads them
     let (tails, tail_requests) = tokio::sync::mpsc::channel(fleet::TAIL_REQUESTS);
+    // the stream as it was kept: clean = 0 is written before anything is served
+    let resumed = fleet::persist::resume(&store).await?;
+    let cursors = resumed.cursors.clone();
     let (push, pusher, fleet, fleet_task) = start_fleet(
-        &config, &store, &client, &telemetry, build, tails, &shutdown,
+        &config, &store, &client, &telemetry, build, tails, resumed, &shutdown,
     )
     .await?;
     let (media, media_task) = open_media(&config, &store, &telemetry, &shutdown).await?;
@@ -183,7 +186,7 @@ async fn run(config: Config) -> Result<(), StartupError> {
         config.hosts.clone(),
         &config.connections(),
         paired,
-        upstream::source::Shared::new(media.clone()),
+        upstream::source::Shared::resuming(media.clone(), cursors),
         client.clone(),
         fleet.upstream(),
         tail_requests,
@@ -300,6 +303,10 @@ async fn open_media(
 
 /// push first, since the fleet hands it notices and hears from it who is
 /// looking; then the fleet, with the needs and read marks the store kept.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "everything the fleet starts with arrives once, at startup"
+)]
 async fn start_fleet(
     config: &Config,
     store: &store::Store,
@@ -307,6 +314,7 @@ async fn start_fleet(
     telemetry: &telemetry::Sender,
     build: String,
     tails: tokio::sync::mpsc::Sender<fleet::model::TailRequest>,
+    resumed: fleet::persist::Resumed,
     shutdown: &CancellationToken,
 ) -> Result<(push::Push, JoinHandle<()>, fleet::Fleet, JoinHandle<()>), StartupError> {
     let (looking_tx, looking) = tokio::sync::watch::channel(Vec::new());
@@ -332,6 +340,7 @@ async fn start_fleet(
             adopted: restored.adopted,
             colours: restored.colours,
             tails,
+            resumed,
         },
         shutdown.clone(),
     );

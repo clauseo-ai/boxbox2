@@ -387,6 +387,18 @@ wrote after the upgrade is lost with it (clears and adopted threads, and also
 prefs, read marks and needs written since), and the threads' own history,
 which lives on the daemons, is not touched.
 
+schema 11 (full resume, `protocol.md` section 10) only adds tables, so a
+rollback past it loses nothing: with the service stopped, drop them and set
+the version back, then put the old binary in place. the old binary never
+read the stream state; devices take one `reset` from its new epoch.
+
+```sh
+launchctl bootout "user/$(id -u)/dev.boxbox.serve"
+sqlite3 ~/.local/share/boxbox/boxbox.db "DROP TABLE stream_meta; DROP TABLE stream_keys; DROP TABLE stream_gone; DROP TABLE upstream_cursors; PRAGMA user_version = 10;"
+mv ~/.local/bin/boxbox.previous ~/.local/bin/boxbox
+launchctl bootstrap "user/$(id -u)" ~/Library/LaunchAgents/dev.boxbox.serve.plist
+```
+
 ### off the mac entirely
 
 ```sh

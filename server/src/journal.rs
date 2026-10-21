@@ -104,6 +104,16 @@ impl Journal {
         }
     }
 
+    /// a journal that goes on from `head` in `epoch` after a restart: its
+    /// ring is empty, and the next entry is `head + 1`.
+    #[must_use]
+    pub fn resumed(epoch: String, head: u64) -> Self {
+        Self {
+            head,
+            ..Self::new(epoch)
+        }
+    }
+
     #[must_use]
     pub fn epoch(&self) -> &str {
         &self.epoch

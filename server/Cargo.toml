@@ -48,7 +48,7 @@ rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", 
 rustls-platform-verifier = "0.7"
 rust-embed = { version = "8.12", features = ["interpolate-folder-path", "mime-guess"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1.0.151", features = ["raw_value"] }
+serde_json = { version = "1.0.151", features = ["float_roundtrip", "raw_value"] }
 sha2 = "0.11"
 subtle = "2.6"
 tar = { version = "0.4", default-features = false }

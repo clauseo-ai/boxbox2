@@ -1813,3 +1813,11 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   normalised to 8 turns and tagged the whole thread like `?turns=8`.
 - **the board trace proxy inflates gzip** to record frames; replays reach the daemon's own
   inflater only because the proxy passes the gzip through untouched.
+- **reqwest strips content-encoding once it decodes.** the watcher cannot see whether a cmx2
+  daemon gzipped its stream; test with `.no_gzip()` when the header matters.
+- **migration 11 cannot be rolled back in place without losing the saved stream state.** the
+  lossless way back is in docs/deploy.md: drop the four tables, set user_version 10, then the
+  old binary.
+- **a compact replay can carry a session info ahead of the event that moved its revision.**
+  judge transcript revisions only once the replay is caught up, or every busy thread resets
+  after a restart.

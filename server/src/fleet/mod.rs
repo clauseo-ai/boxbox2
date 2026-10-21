@@ -48,6 +48,7 @@ pub mod encode;
 pub mod keys;
 pub mod model;
 pub mod needs;
+pub mod persist;
 pub mod read;
 #[cfg(feature = "record")]
 pub mod record;
@@ -395,6 +396,8 @@ pub struct Wiring {
     pub colours: Colours,
     /// where window tails to read go (`upstream/tails.rs`).
     pub tails: mpsc::Sender<TailRequest>,
+    /// the stream as `boxbox.db` kept it (`persist::resume`).
+    pub resumed: persist::Resumed,
 }
 
 /// what `boxbox.db` kept for the fleet.
@@ -841,27 +844,42 @@ pub fn spawn(
 ) -> (Fleet, JoinHandle<()>) {
     let (upstream_tx, upstream) = mpsc::channel(UPSTREAM_CAPACITY);
     let (commands_tx, commands) = mpsc::channel(COMMAND_CAPACITY);
-    let epoch = format!("{:012x}", rand::random::<u64>() & 0xffff_ffff_ffff);
     let (persist, persisted) = mpsc::channel(PERSIST_CAPACITY);
-    tokio::spawn(persister(wiring.store, persisted));
+    tokio::spawn(persister(wiring.store.clone(), persisted));
+    // the stream's own batches: one in flight, each answered (`persist.rs`)
+    let (batch_tx, batch_rx) = mpsc::channel(1);
+    let (acks_tx, acks) = mpsc::channel(1);
+    tokio::spawn(persist::writer(wiring.store, batch_rx, acks_tx));
+    let resumed = wiring.resumed;
+    let (open_needs, clears, colours) = (
+        wiring.needs.open_count(),
+        wiring.clears.len(),
+        wiring.colours.len(),
+    );
+    let mut model = Model::restored(
+        wiring.needs,
+        wiring.reads,
+        wiring.clears,
+        wiring.adopted,
+        wiring.colours,
+    );
+    let broken = model.resume(resumed.model);
     info!(
-        epoch,
-        open_needs = wiring.needs.open_count(),
-        clears = wiring.clears.len(),
-        colours = wiring.colours.len(),
+        epoch = resumed.epoch,
+        head = resumed.head,
+        how = ?resumed.how,
+        sessions = model.session_count(),
+        broken,
+        open_needs,
+        clears,
+        colours,
         "journal started"
     );
-    let actor = Actor {
-        model: Model::restored(
-            wiring.needs,
-            wiring.reads,
-            wiring.clears,
-            wiring.adopted,
-            wiring.colours,
-        ),
-        journal: Journal::new(epoch),
-        encoder: Encoder::new(),
-        keys: StreamKeys::new(),
+    let mut actor = Actor {
+        model,
+        journal: Journal::resumed(resumed.epoch, resumed.head),
+        encoder: resumed.encoder,
+        keys: resumed.keys,
         live: Vec::new(),
         board: None,
         build,
@@ -872,8 +890,15 @@ pub fn spawn(
             persist,
             ack: None,
         },
+        persist: persist::Persist::new(resumed.reserved, resumed.graves, Some(batch_tx)),
+        cursors: resumed.cursors,
+        unasked: Vec::new(),
     };
-    let task = tokio::spawn(actor.run(upstream, commands, wiring.looking, shutdown));
+    if resumed.rewrite || broken > 0 {
+        actor.mark_all();
+    }
+    actor.started(resumed.how, &resumed.broken.threads);
+    let task = tokio::spawn(actor.run(upstream, commands, acks, wiring.looking, shutdown));
     (
         Fleet {
             upstream: upstream_tx,
@@ -965,6 +990,14 @@ struct Actor {
     build: String,
     tails: mpsc::Sender<TailRequest>,
     outside: Outside,
+    /// dirty marks and the one batch in flight (`persist.rs`).
+    persist: persist::Persist,
+    /// threads whose newest messages could not be asked for: reset once
+    /// the step's effects are carried out.
+    unasked: Vec<String>,
+    /// each connection's cursor whose effects the model holds: its epoch
+    /// from the last host read, its seq the newest event applied.
+    cursors: std::collections::HashMap<String, Cursor>,
 }
 
 /// where the model's effects go.
@@ -1048,17 +1081,52 @@ impl Actor {
         mut self,
         mut upstream: mpsc::Receiver<Upstream>,
         mut commands: mpsc::Receiver<Command>,
+        mut acks: mpsc::Receiver<persist::Ack>,
         mut looking: watch::Receiver<Vec<Looking>>,
         shutdown: CancellationToken,
     ) {
         let mut watching = true;
+        let mut tick = tokio::time::interval(persist::TICK);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut stopped_at: Option<std::time::Instant> = None;
         loop {
             let due = self.model.tail_due();
             let deltas_due = self.encoder.due();
             let board_due = self.board.as_ref().and_then(board::Projection::due);
+            let now = std::time::Instant::now();
+            // the byte cap and the reserved mark (`persist.rs`): source events wait in their channel
+            let intake = self.persist.intake_open(self.journal.head(), now);
+            match (intake, stopped_at) {
+                (false, None) => {
+                    warn!(
+                        dirty_bytes = self.persist.dirty_bytes(),
+                        waiting = self.persist.in_flight(),
+                        head = self.journal.head(),
+                        "source intake stops until the stream state is written"
+                    );
+                    stopped_at = Some(now);
+                }
+                (true, Some(at)) => {
+                    info!(
+                        ms = u64::try_from(at.elapsed().as_millis()).unwrap_or(u64::MAX),
+                        "source intake resumes"
+                    );
+                    stopped_at = None;
+                }
+                _ => {}
+            }
             tokio::select! {
                 biased;
                 () = shutdown.cancelled() => break,
+                Some(ack) = acks.recv() => {
+                    self.persist.acknowledged(&ack, std::time::Instant::now());
+                }
+                _ = tick.tick() => {
+                    if self.persist.due(self.journal.head()) {
+                        let batch = self.take_batch(false);
+                        self.send_batch(batch).await;
+                    }
+                }
                 // a client waiting on its page is served before the next event
                 Some(command) = commands.recv() => self.command(command),
                 // ahead of the events, so a stream of them cannot starve held text
@@ -1074,13 +1142,14 @@ impl Actor {
                     // push has stopped: the server is going down
                     Err(_) => watching = false,
                 },
-                Some(message) = upstream.recv() => self.upstream(message),
+                Some(message) = upstream.recv(), if intake => self.upstream(message),
                 else => break,
             }
         }
         // a clean stop: the text still waiting for its batch goes before the streams' last frames
         let pending = self.encoder.flush();
         self.journal_all(pending);
+        self.stop_clean(&mut acks).await;
         info!(
             head = self.journal.head(),
             entries = self.journal.len(),
@@ -1108,9 +1177,19 @@ impl Actor {
                 key,
                 client_id,
                 device,
-            } => self.model.arm(&key, &client_id, device),
-            Command::Answering { host, ask, device } => self.model.answering(&host, &ask, device),
-            Command::OwnAction { key } => self.model.own_action(&key),
+            } => {
+                // the order row keeps the sends, answers and stops (`model/state.rs`)
+                self.persist.mark(persist::Key::Order);
+                self.model.arm(&key, &client_id, device);
+            }
+            Command::Answering { host, ask, device } => {
+                self.persist.mark(persist::Key::Order);
+                self.model.answering(&host, &ask, device);
+            }
+            Command::OwnAction { key } => {
+                self.persist.mark(persist::Key::Order);
+                self.model.own_action(&key);
+            }
             Command::MarkRead {
                 key,
                 device,
@@ -1140,6 +1219,8 @@ impl Actor {
                 thread,
                 reply,
             } => {
+                self.persist
+                    .mark(persist::Key::Thread(model::session_key(&host, &thread.id)));
                 let changes = self.model.adopt_thread(&host, *thread);
                 self.publish_all(changes);
                 let _ = reply.send(());
@@ -1162,6 +1243,7 @@ impl Actor {
                 let _ = reply.send(self.model.places(&host));
             }
             Command::Unadopt { key } => {
+                self.persist.mark(persist::Key::Thread(key.clone()));
                 let changes = self.model.unadopt(&key);
                 self.publish_all(changes);
             }
@@ -1247,48 +1329,74 @@ impl Actor {
         record::upstream(now, &message);
         self.model.at(now);
         let changes = match message {
-            Upstream::HostRemoved(host) => self.model.host_removed(&host),
+            Upstream::HostRemoved(host) => {
+                self.mark_host(&host);
+                self.cursors.remove(&host);
+                self.model.host_removed(&host)
+            }
             Upstream::Source {
                 connection,
                 agent,
                 seq,
                 event,
-            } => match event {
-                SourceEvent::Connection(status) => {
-                    if let Some(projection) = &mut self.board {
-                        projection.connection_moved();
-                    }
-                    self.model.connection(status)
+            } => {
+                self.mark_event(&connection, &agent, seq, &event);
+                let read = matches!(event, SourceEvent::Snapshot(_));
+                if read {
+                    self.mark_host(&agent);
                 }
-                SourceEvent::Snapshot(read) => {
-                    let (epoch, sessions) = (read.epoch.clone(), read.threads.len());
-                    let changes = self.model.agent_read(&agent, *read);
-                    info!(
-                        host = %agent,
-                        epoch = epoch.as_deref().unwrap_or("-"),
-                        sessions,
-                        "fleet replaced the host from its reads"
-                    );
-                    changes
+                let changes = self.source_event(&agent, seq, event);
+                if read {
+                    self.mark_host(&agent);
                 }
-                SourceEvent::TailRead(read) => self.model.tail(&agent, *read),
-                SourceEvent::TailUnread { thread, reason } => {
-                    let key = model::session_key(&agent, &thread);
-                    warn!(
-                        session = key,
-                        reason,
-                        "a window's tail could not be read; it shows what streams, and is read again when its host is"
-                    );
-                    self.model.tail_failed(&key);
-                    return;
-                }
-                event => {
-                    let _ = connection;
-                    self.model.source(&agent, seq, event)
-                }
-            },
+                changes
+            }
         };
         self.publish_all(changes);
+    }
+
+    fn source_event(&mut self, agent: &str, seq: Option<u64>, event: SourceEvent) -> Vec<Change> {
+        let agent = agent.to_owned();
+        match event {
+            SourceEvent::Connection(status) => {
+                if let Some(projection) = &mut self.board {
+                    projection.connection_moved();
+                }
+                self.model.connection(status)
+            }
+            SourceEvent::Snapshot(read) => {
+                let (epoch, sessions) = (read.epoch.clone(), read.threads.len());
+                let changes = self.model.agent_read(&agent, *read);
+                info!(
+                    host = %agent,
+                    epoch = epoch.as_deref().unwrap_or("-"),
+                    sessions,
+                    "fleet replaced the host from its reads"
+                );
+                changes
+            }
+            SourceEvent::TailRead(read) => self.model.tail(&agent, *read),
+            SourceEvent::NewestRead(read) => self.model.newest_read(&agent, *read),
+            SourceEvent::NewestUnread { thread, reason } => {
+                let key = model::session_key(&agent, &thread);
+                warn!(
+                    session = key,
+                    reason, "a thread's newest messages could not be read after a gap; it is reset"
+                );
+                self.model.newest_failed(&key)
+            }
+            SourceEvent::TailUnread { thread, reason } => {
+                let key = model::session_key(&agent, &thread);
+                warn!(
+                    session = key,
+                    reason,
+                    "a window's tail could not be read; it shows what streams, and is read again when its host is"
+                );
+                self.model.tail_failed(&key);
+                Vec::new()
+            }
+            event => self.model.source(&agent, seq, event),
+        }
     }
 
     fn looking(&mut self, devices: Vec<Looking>) {
@@ -1313,6 +1421,260 @@ impl Actor {
     fn flush_deltas(&mut self) {
         let due = self.encoder.flush_due(crate::now_ms());
         self.journal_all(due);
+    }
+
+    /// one batch of every dirty row, the new tombstones, the head, the
+    /// reserved mark and every cursor, taken in this one step
+    /// (`docs/protocol.md`, section 10).
+    fn take_batch(&mut self, clean: bool) -> persist::Batch {
+        let head = self.journal.head();
+        let dirty = self.persist.dirty_keys();
+        let writes: Vec<persist::Write> = dirty
+            .iter()
+            .map(|key| persist::row(key, &self.model, &self.keys, &self.encoder))
+            .collect();
+        let (bytes, sizes) = persist::sized(&writes, &dirty);
+        if bytes > persist::BATCH_BYTES {
+            warn!(
+                bytes,
+                rows = writes.len(),
+                cap = persist::BATCH_BYTES,
+                "a stream state batch passed its cap"
+            );
+        }
+        let mut cursors: Vec<(String, Cursor)> = self
+            .cursors
+            .iter()
+            .map(|(c, at)| (c.clone(), at.clone()))
+            .collect();
+        cursors.sort_by(|a, b| a.0.cmp(&b.0));
+        let batch = persist::Batch {
+            id: self.persist.next_id(),
+            epoch: self.journal.epoch().to_owned(),
+            head,
+            reserved: self.persist.next_reserved(head),
+            clean,
+            gone_floor: self.keys.gone_floor(),
+            writes,
+            graves: self
+                .keys
+                .graves_after(self.persist.graves_written())
+                .collect(),
+            cursors,
+            bytes,
+        };
+        self.persist.taken(&batch, sizes, std::time::Instant::now());
+        batch
+    }
+
+    /// hands a batch to the writer: the channel holds one, and none is in
+    /// flight when a batch is taken, so this does not wait.
+    async fn send_batch(&mut self, batch: persist::Batch) {
+        let Some(writer) = &self.persist.batches else {
+            return;
+        };
+        if writer.send(batch).await.is_err() {
+            error!("the stream state writer has stopped; nothing more is written");
+        }
+    }
+
+    /// the last batch with `clean = 1`, once every earlier one is answered,
+    /// inside `persist::SHUTDOWN_BUDGET`; past it the next start takes the
+    /// crash path.
+    async fn stop_clean(&mut self, acks: &mut mpsc::Receiver<persist::Ack>) {
+        if self.persist.batches.is_none() {
+            return;
+        }
+        let deadline = tokio::time::Instant::now() + persist::SHUTDOWN_BUDGET;
+        while self.persist.in_flight() {
+            let Ok(Some(ack)) = tokio::time::timeout_at(deadline, acks.recv()).await else {
+                warn!(
+                    "a stream state batch was not answered inside the shutdown budget; the next start takes the crash path"
+                );
+                return;
+            };
+            self.persist.acknowledged(&ack, std::time::Instant::now());
+        }
+        let batch = self.take_batch(true);
+        let (id, rows) = (batch.id, batch.writes.len());
+        self.send_batch(batch).await;
+        match tokio::time::timeout_at(deadline, acks.recv()).await {
+            Ok(Some(ack))
+                if ack.id == id && self.persist.acknowledged(&ack, std::time::Instant::now()) =>
+            {
+                info!(
+                    head = self.journal.head(),
+                    rows, "the stream stopped clean; a restart resumes from here"
+                );
+            }
+            _ => warn!(
+                "the last stream state batch was not written inside the shutdown budget; the next start takes the crash path"
+            ),
+        }
+    }
+
+    /// what a start journals before any stream is served
+    /// (`docs/protocol.md`, section 10): the threads whose kept model rows
+    /// did not decode leave (their hosts are read again and bring them back
+    /// reset); after a crash, every key whose state moved past its kept body
+    /// goes out (read marks, clears and needs reach their own tables at once,
+    /// the stream's batch up to a second later); and the newest-message reads
+    /// a quiet re-read left out are asked again.
+    fn started(&mut self, how: persist::How, lost: &[String]) {
+        self.model.at(crate::now_ms());
+        let mut changes: Vec<Change> = lost
+            .iter()
+            .filter(|key| self.keys.thread(key).is_some() || self.encoder.base(key).is_some())
+            .map(|key| Change::ThreadRemoved { key: key.clone() })
+            .collect();
+        if how == persist::How::Crash {
+            changes.extend(self.differences());
+        }
+        if !changes.is_empty() {
+            info!(
+                entries = changes.len(),
+                "the start journals what moved past the kept state"
+            );
+        }
+        self.model.ask_newest_again();
+        self.publish_all(changes);
+    }
+
+    /// each agent, thread, open ask and the order whose model state differs
+    /// from the body the journal last told, as the whole change the encoder
+    /// patches against it.
+    fn differences(&self) -> Vec<Change> {
+        let fleet = self.model.snapshot();
+        let mut changes = Vec::new();
+        for agent in fleet.agents {
+            if self.keys.agent(&agent.key).map(|k| &k.body) != Some(&agent) {
+                changes.push(Change::Agent { agent });
+            }
+        }
+        for thread in fleet.threads {
+            if self.encoder.base(&thread.key) != Some(&thread) {
+                changes.push(Change::Thread { thread });
+            }
+        }
+        for ask in fleet.asks {
+            if self.keys.ask(&ask.agent, &ask.id).map(|k| &k.body) != Some(&ask) {
+                changes.push(Change::Ask { ask });
+            }
+        }
+        if self.encoder.order_base() != Some(fleet.order.as_slice()) {
+            changes.push(Change::Order { keys: fleet.order });
+        }
+        changes
+    }
+
+    /// every row goes in the next batch: a crash start, another encoder.
+    fn mark_all(&mut self) {
+        let (threads, agents, asks) = self.model.held_keys();
+        let (more_threads, more_agents, more_asks) = self.keys.held_keys();
+        for key in threads.into_iter().chain(more_threads) {
+            self.persist.mark(persist::Key::Thread(key));
+        }
+        for key in agents.into_iter().chain(more_agents) {
+            self.persist.mark(persist::Key::Agent(key));
+        }
+        for (agent, id) in asks.into_iter().chain(more_asks) {
+            self.persist.mark(persist::Key::Ask(agent, id));
+        }
+        self.persist.mark(persist::Key::Order);
+    }
+
+    /// every row of one agent: a host read or removal replaces them all.
+    fn mark_host(&mut self, agent: &str) {
+        let prefix = format!("{agent}:");
+        let (threads, _, asks) = self.model.held_keys();
+        let (more_threads, _, more_asks) = self.keys.held_keys();
+        for key in threads.into_iter().chain(more_threads) {
+            if key.starts_with(&prefix) {
+                self.persist.mark(persist::Key::Thread(key));
+            }
+        }
+        for (owner, id) in asks.into_iter().chain(more_asks) {
+            if owner == agent {
+                self.persist.mark(persist::Key::Ask(owner, id));
+            }
+        }
+        self.persist.mark(persist::Key::Agent(agent.to_owned()));
+        self.persist.mark(persist::Key::Order);
+    }
+
+    /// the rows a source event moves the model's own state for, beside what
+    /// it journals; and the connection's cursor.
+    fn mark_event(&mut self, connection: &str, agent: &str, seq: Option<u64>, event: &SourceEvent) {
+        self.persist.mark(persist::Key::Agent(agent.to_owned()));
+        // a send landing takes its arm off the order row's list
+        if matches!(event, SourceEvent::Message { .. }) {
+            self.persist.mark(persist::Key::Order);
+        }
+        let thread = match event {
+            SourceEvent::Thread { thread, .. } => Some(thread.id.as_str()),
+            SourceEvent::ThreadRemoved { thread }
+            | SourceEvent::ThreadReset { thread }
+            | SourceEvent::Activity { thread, .. }
+            | SourceEvent::TurnEnded { thread }
+            | SourceEvent::Send { thread, .. }
+            | SourceEvent::Message { thread, .. }
+            | SourceEvent::Part { thread, .. }
+            | SourceEvent::Delta { thread, .. }
+            | SourceEvent::MessageRemoved { thread, .. }
+            | SourceEvent::Reactions { thread, .. }
+            | SourceEvent::Fault { thread, .. }
+            | SourceEvent::Notice { thread, .. }
+            | SourceEvent::TailUnread { thread, .. }
+            | SourceEvent::NewestUnread { thread, .. } => Some(thread.as_str()),
+            SourceEvent::TailRead(read) | SourceEvent::NewestRead(read) => {
+                Some(read.thread.as_str())
+            }
+            SourceEvent::AskRaised { ask } => {
+                self.persist
+                    .mark(persist::Key::Ask(ask.agent.clone(), ask.id.clone()));
+                None
+            }
+            SourceEvent::AskSettled { ask, .. } => {
+                self.persist
+                    .mark(persist::Key::Ask(agent.to_owned(), ask.clone()));
+                // an answer through boxbox is taken off the order row's list
+                self.persist.mark(persist::Key::Order);
+                None
+            }
+            SourceEvent::Snapshot(read) => {
+                if let Some(epoch) = &read.epoch {
+                    let f = read.floors;
+                    let seq = f
+                        .threads
+                        .min(f.activities)
+                        .min(f.permissions)
+                        .min(f.questions);
+                    self.cursors.insert(
+                        connection.to_owned(),
+                        Cursor {
+                            epoch: epoch.clone(),
+                            seq,
+                        },
+                    );
+                }
+                None
+            }
+            SourceEvent::Connection(_)
+            | SourceEvent::Agents(_)
+            | SourceEvent::ReviewSettled { .. }
+            | SourceEvent::Replaying
+            | SourceEvent::CaughtUp
+            | SourceEvent::Skipped => None,
+        };
+        if let Some(thread) = thread {
+            self.persist
+                .mark(persist::Key::Thread(model::session_key(agent, thread)));
+        }
+        if let Some(seq) = seq
+            && let Some(cursor) = self.cursors.get_mut(connection)
+        {
+            cursor.seq = cursor.seq.max(seq);
+        }
     }
 
     /// journals the model's changes through the encoder, each new repo's
@@ -1340,6 +1702,10 @@ impl Actor {
                 Effect::ReadTail(request) => self.ask_tail(request),
                 effect => self.outside.effect(effect),
             }
+        }
+        for key in std::mem::take(&mut self.unasked) {
+            let reset = self.model.newest_failed(&key);
+            self.publish_all(reset);
         }
     }
 
@@ -1426,6 +1792,21 @@ impl Actor {
     /// queues a window's tail read; one that cannot wait leaves the session
     /// to be asked again on its next change.
     fn ask_tail(&mut self, request: TailRequest) {
+        if request.newest {
+            // a re-read that cannot be asked resets the thread instead: no streamed text is lost
+            if let Err(
+                mpsc::error::TrySendError::Full(request)
+                | mpsc::error::TrySendError::Closed(request),
+            ) = self.tails.try_send(request)
+            {
+                warn!(
+                    session = request.key,
+                    "a thread's newest messages cannot be asked for; it is reset"
+                );
+                self.unasked.push(request.key);
+            }
+            return;
+        }
         match self.tails.try_send(request) {
             Ok(()) => {}
             Err(mpsc::error::TrySendError::Full(request)) => {
@@ -1502,6 +1883,9 @@ impl Actor {
         });
         let Some(frame) = frame else { return };
         self.keys.saw(self.journal.head(), change, crate::now_ms());
+        if let Some(key) = persist::key_of(change) {
+            self.persist.mark(key);
+        }
         self.deliver(&frame, thread);
     }
 
@@ -1702,6 +2086,10 @@ impl Actor {
         };
         if thread.reset_seq > since {
             return KeyCatch::Reset;
+        }
+        // nothing of its transcript after `since`: true from the ring or from a restart's empty one
+        if thread.v <= since {
+            return KeyCatch::Entries(Vec::new());
         }
         let Ok(held) = self.journal.transcript(key, since) else {
             return KeyCatch::Stale;
@@ -2006,6 +2394,9 @@ mod tests {
                 persist: mpsc::channel(1).0,
                 ack: None,
             },
+            persist: persist::Persist::detached(),
+            cursors: std::collections::HashMap::new(),
+            unasked: Vec::new(),
         }
     }
 
@@ -2182,7 +2573,8 @@ mod tests {
         let (_looking, looking) = watch::channel(Vec::new());
         let shutdown = CancellationToken::new();
         shutdown.cancel();
-        actor.run(events, commands, looking, shutdown).await;
+        let (_acks, acks) = mpsc::channel(1);
+        actor.run(events, commands, acks, looking, shutdown).await;
         let frames = drained(&mut live);
         assert_eq!(kinds(&frames), ["delta"]);
     }
@@ -2719,5 +3111,455 @@ mod tests {
         drop(store);
         thread.join().unwrap();
         std::fs::remove_dir_all(dir).unwrap();
+    }
+    fn read_at(floor: u64) -> Upstream {
+        Upstream::Source {
+            connection: Arc::from("desk"),
+            agent: Arc::from("desk"),
+            seq: None,
+            event: SourceEvent::Snapshot(Box::new(crate::source::Snapshot {
+                epoch: Some("ep".into()),
+                floors: crate::source::Floors {
+                    threads: floor,
+                    activities: floor,
+                    permissions: floor,
+                    questions: floor,
+                },
+                threads: Vec::new(),
+                activities: Vec::new(),
+                asks: Vec::new(),
+            })),
+        }
+    }
+
+    fn sequenced(mut message: Upstream, at: u64) -> Upstream {
+        if let Upstream::Source { seq, .. } = &mut message {
+            *seq = Some(at);
+        }
+        message
+    }
+
+    fn database() -> rusqlite::Connection {
+        let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::store::migrate_for_tests(&mut connection);
+        connection
+    }
+
+    fn written(db: &mut rusqlite::Connection, actor: &mut Actor, batch: &persist::Batch, ok: bool) {
+        let result = if ok {
+            persist::write(db, batch).map_err(|e| e.to_string())
+        } else {
+            Err("disk full".into())
+        };
+        actor.persist.acknowledged(
+            &persist::Ack {
+                id: batch.id,
+                result,
+            },
+            std::time::Instant::now(),
+        );
+    }
+
+    fn stored_threads(db: &rusqlite::Connection) -> (u64, Vec<String>) {
+        let stored = persist::load(db).unwrap().unwrap();
+        let cursor = stored
+            .cursors
+            .iter()
+            .find(|(c, _)| c == "desk")
+            .map_or(0, |(_, at)| at.seq);
+        let mut threads: Vec<String> = stored
+            .rows
+            .into_iter()
+            .filter(|r| r.kind == "thread")
+            .map(|r| r.key)
+            .collect();
+        threads.sort();
+        (cursor, threads)
+    }
+
+    #[test]
+    fn a_cursor_is_never_written_ahead_of_the_states_it_reflects() {
+        let mut actor = actor();
+        actor.journal = Journal::new("0123456789ab".into());
+        let mut db = database();
+        actor.upstream(host(1));
+        actor.upstream(read_at(5));
+        actor.upstream(sequenced(session_in("ses_1", "/w"), 6));
+        let first = actor.take_batch(false);
+        // the next event lands while the batch is out
+        actor.upstream(sequenced(session_in("ses_2", "/w"), 7));
+        written(&mut db, &mut actor, &first, true);
+        assert_eq!(stored_threads(&db), (6, vec!["desk:ses_1".to_owned()]));
+        let second = actor.take_batch(false);
+        written(&mut db, &mut actor, &second, true);
+        assert_eq!(
+            stored_threads(&db),
+            (7, vec!["desk:ses_1".to_owned(), "desk:ses_2".to_owned()])
+        );
+        // a failed write keeps it all dirty: the next batch carries the cursor with its state
+        actor.upstream(sequenced(session_in("ses_3", "/w"), 8));
+        let third = actor.take_batch(false);
+        written(&mut db, &mut actor, &third, false);
+        assert_eq!(stored_threads(&db).0, 7);
+        let fourth = actor.take_batch(false);
+        assert!(
+            fourth
+                .writes
+                .iter()
+                .any(|w| matches!(w, persist::Write::Put(r) if r.key == "desk:ses_3"))
+        );
+        written(&mut db, &mut actor, &fourth, true);
+        assert_eq!(stored_threads(&db).0, 8);
+        assert_eq!(stored_threads(&db).1.len(), 3);
+        // nothing moved: no batch is due
+        assert!(!actor.persist.due(actor.journal.head()));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_slow_disk_never_drops_a_batch_and_a_clean_stop_resumes_where_it_stood() {
+        let (store, _thread, dir) = crate::store::tests::scratch();
+        let shutdown = CancellationToken::new();
+        let resumed = persist::resume(&store).await.unwrap();
+        assert_eq!(resumed.how, persist::How::Fresh);
+        let (_looking_tx, looking) = watch::channel(Vec::new());
+        let (fleet, task) = spawn(
+            "test".into(),
+            Wiring {
+                push: Push::detached(),
+                telemetry: crate::telemetry::Sender::detached(),
+                store: store.clone(),
+                looking,
+                needs: Needs::default(),
+                reads: Reads::default(),
+                clears: Clears::default(),
+                adopted: Vec::new(),
+                colours: Colours::default(),
+                tails: mpsc::channel(TAIL_REQUESTS).0,
+                resumed,
+            },
+            shutdown.clone(),
+        );
+        // the disk stalls: the writer's thread is held 1.5 s at a time while events stream in
+        let slow = store.clone();
+        let stall = tokio::spawn(async move {
+            for _ in 0..4 {
+                let _ = slow
+                    .call(|_| {
+                        std::thread::sleep(Duration::from_millis(1500));
+                        Ok(())
+                    })
+                    .await;
+            }
+        });
+        let upstream = fleet.upstream();
+        upstream.send(host(1)).await.unwrap();
+        upstream.send(read_at(5)).await.unwrap();
+        for n in 0..200u64 {
+            upstream
+                .send(sequenced(session_in(&format!("ses_{n:03}"), "/w"), 6 + n))
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        stall.await.unwrap();
+        let (fleet_json, at) = fleet.snapshot().await.unwrap();
+        shutdown.cancel();
+        task.await.unwrap();
+        let resumed = persist::resume(&store).await.unwrap();
+        assert_eq!(resumed.how, persist::How::Clean);
+        assert_eq!(resumed.head, at.seq, "the head where it stood");
+        assert_eq!(resumed.epoch, at.epoch, "the epoch kept");
+        assert_eq!(
+            resumed.cursors["desk"].seq, 205,
+            "the cursor of the last event"
+        );
+        let mut model = Model::new();
+        assert_eq!(model.resume(resumed.model), 0);
+        let fleet: crate::wire::Fleet = serde_json::from_slice(&fleet_json).unwrap();
+        assert_eq!(model.session_count(), 200);
+        assert_eq!(
+            serde_json::to_string(&model.snapshot().threads).unwrap(),
+            serde_json::to_string(&fleet.threads).unwrap(),
+            "every thread as it stood"
+        );
+        drop(store);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    fn session_cost(id: &str, cost: &str) -> Upstream {
+        let frame = format!(
+            r#"{{"payload":{{"id":"e","type":"session.updated","properties":{{"sessionID":"{id}","info":{{"id":"{id}","slug":"s","projectID":"/w","directory":"/w","title":"t","version":"0","source":"cmx2","cost":{cost},"tokens":{{"input":0,"output":0,"reasoning":0,"cache":{{"read":0,"write":0}}}},"time":{{"created":1,"updated":2}}}}}}}}}}"#
+        );
+        let decoded = crate::cmx2::decode_frame(&frame).unwrap();
+        let event = translate::event(
+            "desk",
+            decoded.directory.as_deref(),
+            &decoded.event,
+            &decoded.payload,
+        )
+        .unwrap()
+        .unwrap();
+        Upstream::Source {
+            connection: Arc::from("desk"),
+            agent: Arc::from("desk"),
+            seq: None,
+            event,
+        }
+    }
+
+    /// an actor built from what a start rebuilt, as `spawn` builds it.
+    fn actor_from(model: Model, resumed: persist::Resumed) -> Actor {
+        let mut a = actor();
+        a.model = model;
+        a.journal = Journal::resumed(resumed.epoch, resumed.head);
+        a.encoder = resumed.encoder;
+        a.keys = resumed.keys;
+        a.cursors = resumed.cursors;
+        a.started(resumed.how, &resumed.broken.threads);
+        a
+    }
+
+    fn started_db() -> (Actor, rusqlite::Connection) {
+        let mut actor = actor();
+        actor.journal = Journal::new("0123456789ab".into());
+        actor.upstream(host(1));
+        actor.upstream(read_at(5));
+        (actor, database())
+    }
+
+    #[test]
+    fn a_clean_stop_with_thread_costs_keeps_its_epoch() {
+        let (mut actor, mut db) = started_db();
+        // costs as a daemon sums them: 17 significant digits
+        let costs = [
+            "0.9482029999999999",
+            "1.0406366999999999",
+            "0.014858301547846179",
+            "0.30000000000000004",
+            "0.1",
+            "123456.78901234567",
+        ];
+        for (n, cost) in costs.iter().enumerate() {
+            actor.upstream(sequenced(
+                session_cost(&format!("ses_{n}"), cost),
+                6 + n as u64,
+            ));
+        }
+        let pending = actor.encoder.flush();
+        actor.journal_all(pending);
+        let clean = actor.take_batch(true);
+        written(&mut db, &mut actor, &clean, true);
+        let resumed = persist::start(persist::load(&db).unwrap());
+        assert_eq!(resumed.how, persist::How::Clean);
+        assert_eq!(
+            resumed.epoch, "0123456789ab",
+            "a float in a body never moves the epoch"
+        );
+    }
+
+    #[test]
+    fn a_person_s_send_stop_or_answer_marks_the_order_row() {
+        let (mut actor, mut db) = started_db();
+        actor.upstream(sequenced(session_in("ses_1", "/w"), 6));
+        let first = actor.take_batch(false);
+        written(&mut db, &mut actor, &first, true);
+        assert!(!actor.persist.is_dirty());
+        let device = model::Device {
+            id: "phone".into(),
+            class: "phone".into(),
+        };
+        actor.command(Command::Arm {
+            key: "desk:ses_1".into(),
+            client_id: "cid-1".into(),
+            device: device.clone(),
+        });
+        actor.command(Command::OwnAction {
+            key: "desk:ses_1".into(),
+        });
+        actor.command(Command::Answering {
+            host: "desk".into(),
+            ask: "que_1".into(),
+            device,
+        });
+        let clean = actor.take_batch(true);
+        written(&mut db, &mut actor, &clean, true);
+        let stored = persist::load(&db).unwrap().unwrap();
+        let order = stored
+            .rows
+            .iter()
+            .find(|r| r.kind == "order")
+            .and_then(|r| r.model.clone());
+        assert_eq!(
+            order,
+            actor.model.order_state(),
+            "the clean stop kept what the model holds"
+        );
+        assert!(order.unwrap().contains("cid-1"));
+    }
+
+    #[test]
+    fn after_a_crash_what_moved_past_the_kept_body_goes_out_before_any_stream_is_served() {
+        let (mut actor, mut db) = started_db();
+        actor.upstream(sequenced(session_in("ses_1", "/w"), 6));
+        let pending = actor.encoder.flush();
+        actor.journal_all(pending);
+        let first = actor.take_batch(false);
+        written(&mut db, &mut actor, &first, true);
+        // a person marks it read: its own table keeps it at once, the stream batch is a tick away
+        let device = model::Device {
+            id: "phone".into(),
+            class: "phone".into(),
+        };
+        let (reply, _answer) = oneshot::channel();
+        actor.command(Command::MarkRead {
+            key: "desk:ses_1".into(),
+            device,
+            message: "msg_1".into(),
+            at: 50.0,
+            reply,
+        });
+        let read_of = |actor: &Actor, journaled: bool| {
+            let fleet = if journaled {
+                actor.journaled()
+            } else {
+                actor.model.snapshot()
+            };
+            fleet
+                .threads
+                .iter()
+                .find(|t| t.key == "desk:ses_1")
+                .map(|t| serde_json::to_string(&t.read).unwrap())
+        };
+        let live = read_of(&actor, true);
+        assert_ne!(live.as_deref(), Some("null"));
+        // the crash: no further batch; the read table holds the mark
+        let resumed = persist::start(persist::load(&db).unwrap());
+        assert_eq!(resumed.how, persist::How::Crash);
+        let mut resumed = resumed;
+        let reads = Reads::restore(vec![(
+            "desk:ses_1".into(),
+            Mark {
+                device: "phone".into(),
+                at: 50.0,
+                message: "msg_1".into(),
+                marked_at: 0,
+            },
+        )]);
+        let mut model = Model::restored(
+            Needs::default(),
+            reads,
+            Clears::default(),
+            Vec::new(),
+            Colours::default(),
+        );
+        assert_eq!(model.resume(std::mem::take(&mut resumed.model)), 0);
+        let back = actor_from(model, resumed);
+        assert_eq!(
+            read_of(&back, true),
+            read_of(&back, false),
+            "a reset or /api/fleet serves the mark"
+        );
+        assert!(
+            read_of(&back, true).is_some_and(|r| r.contains("msg_1")),
+            "the mark the person made before the crash"
+        );
+    }
+
+    #[test]
+    fn a_model_row_that_does_not_decode_is_read_again_never_lost() {
+        let (mut actor, mut db) = started_db();
+        actor.upstream(sequenced(session_in("ses_1", "/w"), 6));
+        let pending = actor.encoder.flush();
+        actor.journal_all(pending);
+        let clean = actor.take_batch(true);
+        written(&mut db, &mut actor, &clean, true);
+        // a later build whose thread state gained a field: an older row still decodes
+        db.execute(
+            "UPDATE stream_keys SET model = json_remove(model, '$.said') WHERE kind = 'thread'",
+            [],
+        )
+        .unwrap();
+        let mut resumed = persist::start(persist::load(&db).unwrap());
+        assert!(resumed.broken.is_empty());
+        assert_eq!(Model::new().resume(std::mem::take(&mut resumed.model)), 0);
+        // a row that cannot decode at all: its host is read again, and its thread leaves until then
+        db.execute(
+            "UPDATE stream_keys SET model = json_set(model, '$.sent', 'not a number') WHERE kind = 'thread'",
+            [],
+        )
+        .unwrap();
+        let mut resumed = persist::start(persist::load(&db).unwrap());
+        assert_eq!(resumed.broken.threads, ["desk:ses_1"]);
+        assert!(
+            !resumed.cursors.contains_key("desk"),
+            "the host is read again, not resumed"
+        );
+        let mut model = Model::new();
+        assert_eq!(model.resume(std::mem::take(&mut resumed.model)), 1);
+        let back = actor_from(model, resumed);
+        assert!(back.journaled().threads.is_empty(), "devices hear it left");
+        assert!(back.keys.thread("desk:ses_1").is_none());
+    }
+
+    #[test]
+    fn a_newest_read_left_out_by_a_restart_is_asked_again() {
+        let (mut first, mut db) = started_db();
+        let (tails, mut asked) = mpsc::channel(8);
+        first.tails = tails;
+        let busy = |seq: u64| {
+            let mut info: crate::source::ThreadFacts = crate::source::ThreadFacts {
+                id: "ses_1".into(),
+                title: "t".into(),
+                rev: Some(3),
+                ..Default::default()
+            };
+            info.updated = 2.0;
+            Upstream::Source {
+                connection: Arc::from("desk"),
+                agent: Arc::from("desk"),
+                seq: None,
+                event: SourceEvent::Snapshot(Box::new(crate::source::Snapshot {
+                    epoch: Some("ep".into()),
+                    floors: crate::source::Floors {
+                        threads: seq,
+                        activities: seq,
+                        permissions: seq,
+                        questions: seq,
+                    },
+                    threads: vec![info],
+                    activities: vec![crate::source::ThreadActivity {
+                        thread: "ses_1".into(),
+                        activity: crate::wire::Activity::Busy { since: Some(1.0) },
+                        queued: 0,
+                    }],
+                    asks: Vec::new(),
+                })),
+            }
+        };
+        first.upstream(busy(6));
+        first.upstream(busy(9));
+        let newest = |asked: &mut mpsc::Receiver<TailRequest>| {
+            let mut keys = Vec::new();
+            while let Ok(request) = asked.try_recv() {
+                if request.newest {
+                    keys.push(request.key);
+                }
+            }
+            keys
+        };
+        assert_eq!(newest(&mut asked), ["desk:ses_1"]);
+        let batch = first.take_batch(true);
+        written(&mut db, &mut first, &batch, true);
+        let mut resumed = persist::start(persist::load(&db).unwrap());
+        let mut model = Model::new();
+        assert_eq!(model.resume(std::mem::take(&mut resumed.model)), 0);
+        let mut back = actor();
+        let (tails, mut asked) = mpsc::channel(8);
+        back.tails = tails;
+        back.model = model;
+        back.journal = Journal::resumed(resumed.epoch.clone(), resumed.head);
+        back.encoder = std::mem::take(&mut resumed.encoder);
+        back.keys = std::mem::take(&mut resumed.keys);
+        back.started(resumed.how, &resumed.broken.threads);
+        assert_eq!(newest(&mut asked), ["desk:ses_1"], "asked again at start");
     }
 }

@@ -184,6 +184,53 @@ const MIGRATIONS: &[&str] = &[
      INSERT INTO prefs_next SELECT scope, subject, value, updated_at FROM prefs;
      DROP TABLE prefs;
      ALTER TABLE prefs_next RENAME TO prefs;",
+    // 11. protocol 3's full resume (`src/fleet/persist.rs`, `protocol.md`
+    // section 10), written only in acknowledged batches: the stream's epoch,
+    // head and reserved mark with the clean flag and the encoder version;
+    // per key its newest seq, versions, `whole` flag, transcript revision,
+    // the body a catch-up sends and the model's own state (`seq` 0: the
+    // journal never told it; `turn`: the newest-turn ids `rv` counts by;
+    // `raised`: an ask's first entry); the tombstones, with the entry a
+    // catch-up sends; and each cmx2 cursor whose effects the rows hold.
+    "CREATE TABLE stream_meta (
+         id INTEGER PRIMARY KEY CHECK (id = 1),
+         epoch TEXT NOT NULL CHECK (length(epoch) = 12),
+         head INTEGER NOT NULL CHECK (head >= 0),
+         reserved INTEGER NOT NULL CHECK (reserved >= head),
+         clean INTEGER NOT NULL CHECK (clean IN (0, 1)),
+         encoder INTEGER NOT NULL,
+         gone_floor INTEGER NOT NULL CHECK (gone_floor >= 0)
+     ) STRICT;
+     CREATE TABLE stream_keys (
+         kind TEXT NOT NULL CHECK (kind IN ('agent', 'thread', 'ask', 'order')),
+         key TEXT NOT NULL,
+         seq INTEGER NOT NULL,
+         whole INTEGER NOT NULL CHECK (whole IN (0, 1)),
+         v INTEGER NOT NULL DEFAULT 0,
+         rv INTEGER NOT NULL DEFAULT 0,
+         reset_seq INTEGER NOT NULL DEFAULT 0,
+         srev INTEGER,
+         raised INTEGER,
+         turn TEXT,
+         body TEXT NOT NULL,
+         model TEXT,
+         PRIMARY KEY (kind, key)
+     ) STRICT;
+     CREATE TABLE stream_gone (
+         kind TEXT NOT NULL CHECK (kind IN ('agent', 'thread', 'ask')),
+         key TEXT NOT NULL,
+         seq INTEGER NOT NULL,
+         at INTEGER NOT NULL,
+         raised INTEGER NOT NULL DEFAULT 0,
+         body TEXT NOT NULL,
+         PRIMARY KEY (kind, key)
+     ) STRICT;
+     CREATE INDEX stream_gone_by_seq ON stream_gone (seq);
+     CREATE TABLE upstream_cursors (
+         connection TEXT PRIMARY KEY,
+         epoch TEXT NOT NULL,
+         seq INTEGER NOT NULL CHECK (seq >= 0)
+     ) STRICT;",
 ];
 
 // the board's pairings (`src/board/store.rs`) are not a migration: the

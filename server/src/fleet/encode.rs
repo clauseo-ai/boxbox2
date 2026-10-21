@@ -165,10 +165,6 @@ impl Encoder {
 
     /// every key's next frame goes whole: a crash start, or a build whose
     /// encoding changed (`docs/protocol.md`, section 10).
-    #[allow(
-        dead_code,
-        reason = "the persisted start (section 10) calls it; until it lands only the tests do"
-    )]
     pub fn all_whole(&mut self) {
         for base in self.threads.values_mut() {
             base.whole = true;
@@ -181,6 +177,31 @@ impl Encoder {
     #[must_use]
     pub fn base(&self, key: &str) -> Option<&Thread> {
         self.threads.get(key).map(|b| &b.thread)
+    }
+
+    /// whether the thread's next frame goes whole; none for a thread
+    /// without a base.
+    #[must_use]
+    pub fn whole(&self, key: &str) -> Option<bool> {
+        self.threads.get(key).map(|b| b.whole)
+    }
+
+    /// whether the order's next frame goes whole.
+    #[must_use]
+    pub fn order_whole(&self) -> bool {
+        self.order_whole
+    }
+
+    /// a thread's base as `boxbox.db` kept it, with its `whole` flag.
+    pub fn restore_thread(&mut self, thread: Thread, whole: bool) {
+        self.threads
+            .insert(thread.key.clone(), Base { thread, whole });
+    }
+
+    /// the order's base as `boxbox.db` kept it.
+    pub fn restore_order(&mut self, keys: Vec<String>, whole: bool) {
+        self.order = Some(keys);
+        self.order_whole = whole;
     }
 
     /// the window order as last journaled.

@@ -675,6 +675,7 @@ pub(crate) mod tests {
                 adopted: Vec::new(),
                 colours: fleet::colours::Colours::default(),
                 tails: mpsc::channel(fleet::TAIL_REQUESTS).0,
+                resumed: fleet::persist::Resumed::fresh(),
             },
             shutdown.clone(),
         );

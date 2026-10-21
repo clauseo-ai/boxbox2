@@ -116,6 +116,7 @@ pub fn event(
             SourceEvent::Message {
                 thread: e.properties.session_id.clone(),
                 message: Box::new(message(info)?),
+                rev: revision(e.properties.rev),
             }
         }
         Event::MessagePartUpdated(e) => {
@@ -123,6 +124,7 @@ pub fn event(
             SourceEvent::Part {
                 thread: e.properties.session_id.clone(),
                 part: Box::new(self::part(part)),
+                rev: revision(e.properties.rev),
             }
         }
         Event::MessagePartDelta(e) => {
@@ -139,6 +141,7 @@ pub fn event(
         Event::MessageRemoved(e) => SourceEvent::MessageRemoved {
             thread: e.properties.session_id.clone(),
             message: e.properties.message_id.clone(),
+            rev: revision(e.properties.rev),
         },
         Event::SessionCreated(_)
         | Event::SessionUpdated(_)
@@ -443,9 +446,17 @@ pub fn thread(info: &cmx2::SessionInfo, raw: Box<RawValue>) -> ThreadFacts {
             files: whole(s.files),
         }),
         browse_only: matches!(info.source, cmx2::SessionInfoSource::Cmx),
+        rev: revision(info.transcript_rev),
         archived: info.time.archived.is_some(),
         raw: Some(raw),
     }
+}
+
+/// a transcript revision as cmx2 sends it (a json integer); a negative one
+/// is not a revision.
+#[must_use]
+pub fn revision(rev: Option<i64>) -> Option<u64> {
+    rev.and_then(|r| u64::try_from(r).ok())
 }
 
 /// a session read as json, as a thread.
@@ -1146,7 +1157,12 @@ pub fn snapshot(read: crate::upstream::reconcile::HostRead) -> Snapshot {
 ///
 /// # Errors
 /// the answer is not a list of `{info, parts}`.
-pub fn tail(thread: String, upstream: Stamp, body: &[u8]) -> Result<TailRead, serde_json::Error> {
+pub fn tail(
+    thread: String,
+    upstream: Stamp,
+    rev: Option<u64>,
+    body: &[u8],
+) -> Result<TailRead, serde_json::Error> {
     #[derive(Deserialize)]
     struct RawMessage<'a> {
         #[serde(borrow)]
@@ -1166,6 +1182,7 @@ pub fn tail(thread: String, upstream: Stamp, body: &[u8]) -> Result<TailRead, se
     Ok(TailRead {
         thread,
         upstream: Some(upstream),
+        rev,
         messages,
     })
 }

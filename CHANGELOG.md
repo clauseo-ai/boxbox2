@@ -6,6 +6,16 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **a server restart costs devices nothing.** the stream's epoch, head,
+  every key's last state, versions, whole flags, transcript revisions and
+  each cmx2 cursor go to boxbox.db in acknowledged batches (migration 11),
+  so after a clean restart a connected device gets hello, its colours and
+  caught, with no reset and no re-read; after a crash it gets each moved
+  key whole and each thread misses its 304 once. watchers resume cmx2 from
+  their cursors with rev=1, and a gap cmx2 cannot replay resets only the
+  threads whose transcript revision moved. the cmx2 pin moves to 0.9.0.
+  rolling back past schema 11 without loss: docs/deploy.md.
+
 - **the device stream is protocol 3** (`docs/protocol.md`, decision 85).
   a device declares what it shows (home, one thread with the layers under
   it and the children it holds, the board) and the server confirms in

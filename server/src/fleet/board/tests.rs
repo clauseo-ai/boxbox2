@@ -678,6 +678,9 @@ fn with_no_board_stream_the_actor_holds_nothing_and_runs_no_timer() {
             persist: mpsc::channel(1).0,
             ack: None,
         },
+        persist: crate::fleet::persist::Persist::detached(),
+        cursors: std::collections::HashMap::new(),
+        unasked: Vec::new(),
     };
     for n in 0..300 {
         let mut changes = Vec::new();

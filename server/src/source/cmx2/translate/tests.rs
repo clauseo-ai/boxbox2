@@ -160,7 +160,10 @@ fn message_updated_is_a_message_with_its_client_id_and_model() {
         "message.updated",
         r#"{"sessionID":"ses_1","info":{"id":"msg_1","sessionID":"ses_1","role":"user","time":{"created":3},"clientID":"c1","queued":true,"agent":"build","model":{"providerID":"anthropic","modelID":"opus"},"variant":"high"}}"#,
     );
-    let Some(SourceEvent::Message { thread, message }) = translate(&frame) else {
+    let Some(SourceEvent::Message {
+        thread, message, ..
+    }) = translate(&frame)
+    else {
         panic!("not a message");
     };
     assert_eq!(thread, "ses_1");
@@ -444,6 +447,7 @@ fn a_tail_read_skips_a_message_that_does_not_decode_and_keeps_its_stamp() {
             epoch: "ep".into(),
             seq: 4,
         },
+        None,
         body,
     )
     .unwrap();

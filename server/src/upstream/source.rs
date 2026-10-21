@@ -42,6 +42,9 @@ pub struct Cmx2Source {
     /// media references: this connection's copy turns and the urls it
     /// copied (`verbs/refs.rs`).
     pub(crate) refs: crate::source::cmx2::verbs::refs::Refs,
+    /// the cursors `boxbox.db` kept (`docs/protocol.md`, section 10): the
+    /// first watcher of a connection starts from its own and takes it out.
+    resume: Resume,
 }
 
 impl Cmx2Source {
@@ -63,6 +66,7 @@ impl Cmx2Source {
             media: shared.media.clone(),
             photos: Arc::clone(&shared.photos),
             refs: crate::source::cmx2::verbs::refs::Refs::new(shared.media.clone()),
+            resume: Arc::clone(&shared.resume),
         }
     }
 
@@ -91,20 +95,35 @@ fn segment(id: &str) -> Result<&str, VerbError> {
     crate::http::asks::segment(id).map_err(crate::source::cmx2::verbs::typed::verb_error)
 }
 
-/// what every cmx2 source shares: the media store its sends read from, and
-/// the photo budget.
+/// each cmx2 connection's persisted cursor, until its first watcher takes it.
+pub type Resume = Arc<std::sync::Mutex<std::collections::HashMap<String, crate::journal::Cursor>>>;
+
+/// what every cmx2 source shares: the media store its sends read from, the
+/// photo budget, and the cursors kept across a restart.
 #[derive(Debug, Clone)]
 pub struct Shared {
     pub media: crate::media::Media,
     pub photos: Arc<tokio::sync::Semaphore>,
+    pub resume: Resume,
 }
 
 impl Shared {
+    #[cfg(test)]
     #[must_use]
     pub fn new(media: crate::media::Media) -> Self {
+        Self::resuming(media, std::collections::HashMap::new())
+    }
+
+    /// with the cursors `boxbox.db` kept, by connection.
+    #[must_use]
+    pub fn resuming(
+        media: crate::media::Media,
+        cursors: std::collections::HashMap<String, crate::journal::Cursor>,
+    ) -> Self {
         Self {
             media,
             photos: Arc::new(tokio::sync::Semaphore::new(crate::http::PHOTO_BUDGET_MIB)),
+            resume: Arc::new(std::sync::Mutex::new(cursors)),
         }
     }
 }
@@ -132,6 +151,11 @@ impl AgentSource for Cmx2Source {
         shutdown: CancellationToken,
     ) -> BoxFuture<'static, Exit> {
         Box::pin(async move {
+            // a poisoned lock only means another watcher panicked while taking its own
+            let cursor = self
+                .resume
+                .lock()
+                .map_or(None, |mut kept| kept.remove(self.name()));
             Watcher::new(
                 Arc::clone(&self.host),
                 self.client.clone(),
@@ -140,6 +164,7 @@ impl AgentSource for Cmx2Source {
                 fleet,
                 shutdown,
             )
+            .resuming(cursor)
             .run()
             .await;
             Exit::Stopped

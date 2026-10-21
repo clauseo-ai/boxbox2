@@ -37,11 +37,12 @@
 //! decides, as it always does.
 
 pub mod board;
+pub mod state;
 
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tracing::{info, warn};
 
@@ -139,6 +140,12 @@ struct Session {
     places: [String; 2],
     tail: Tail,
     turn: Turn,
+    /// the source's transcript revision this state reflects
+    /// (`docs/protocol.md`, section 14a): the highest seen on an event the
+    /// fleet journaled for the thread, a session info it applied, or a read
+    /// it folded in itself; never from a read it only passed to a device.
+    /// none when it was never seen with one: a gap then resets the thread.
+    srev: Option<u64>,
 }
 
 /// a session's window tail and what it needs to stay true.
@@ -211,12 +218,15 @@ pub struct TailRequest {
     pub host: String,
     /// the daemon's session id.
     pub session: String,
+    /// the quiet re-read's newest messages (`docs/protocol.md`, section
+    /// 10) instead of a window's tail.
+    pub newest: bool,
 }
 
 /// who wrote a message, and whether it is a prompt still queued behind the
 /// running turn (it shows under the tail, not in it, and lands later under
 /// its own id).
-#[derive(Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Said {
     id: String,
     role: TailRole,
@@ -224,7 +234,8 @@ struct Said {
 }
 
 /// what the model knows of a session's turns, for needs and read marks.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 struct Turn {
     /// the newest message: its id and the daemon's `time.created`.
     newest: Option<(String, f64)>,
@@ -241,7 +252,7 @@ struct Turn {
     judged: Option<String>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Reply {
     id: String,
     /// the daemon's `time.created`: a mark at or past it has seen the reply.
@@ -250,7 +261,7 @@ struct Reply {
 }
 
 /// a device a person acted from: its id and the class it names itself by.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {
     pub id: String,
     pub class: String,
@@ -264,7 +275,7 @@ pub struct ReviewTarget {
     pub checkout: Option<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Arm {
     key: String,
     device: Device,
@@ -342,7 +353,7 @@ struct Pending {
 /// (step markers, snapshots, the context the daemon adds to a prompt, a
 /// prompt still queued) never enter a tail. streamed text grows the part as
 /// it arrives. on the wire it is a `wire::TailItem`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct TailItem {
     part_id: String,
     message_id: String,
@@ -439,6 +450,18 @@ pub struct Model {
     /// the host read the changes now on their way hold, if any: its repos
     /// get their colours together, the busiest first (`assign_colours`).
     colour_read: Option<String>,
+    /// per host, the newest upstream seq the model applied: a read stamped
+    /// at or below it reflects nothing the journal lacks.
+    applied: HashMap<String, u64>,
+    /// hosts whose stream is applying a compact replay from a cursor.
+    replaying: HashSet<String>,
+    /// per thread, the revision a session info gave during a compact replay
+    /// past what the journal held, judged when the replay is caught up.
+    unseen: HashMap<String, u64>,
+    /// threads whose newest messages the quiet re-read asked for, with the
+    /// revision the host's listing gave (`docs/protocol.md`, section 10).
+    /// one per thread, gone with the thread or the answer.
+    newest: HashMap<String, u64>,
 }
 
 /// the facts of a message a need or a mark needs.
@@ -921,6 +944,8 @@ impl Model {
         self.agents.retain(|a| a.key != host);
         self.floors.remove(host);
         self.epochs.remove(host);
+        self.applied.remove(host);
+        self.replaying.remove(host);
         self.drop_host(host);
         let prefix = format!("{host}:");
         for (key, _) in self
@@ -981,6 +1006,14 @@ impl Model {
             .filter(|(_, s)| s.host == host)
             .map(|(key, _)| key.clone())
             .collect();
+        // what the re-read judges each held thread's transcript by: its revision and whether it streamed
+        let held_revs: HashMap<String, (Option<u64>, bool)> = held_threads
+            .iter()
+            .filter_map(|key| {
+                let session = self.sessions.get(key)?;
+                Some((key.clone(), (session.srev, self.is_busy(key))))
+            })
+            .collect();
         let held_asks: HashMap<String, wire::Ask> = self
             .asks
             .iter()
@@ -1020,6 +1053,13 @@ impl Model {
                 questions: read.floors.questions,
             },
         );
+        let floor = read
+            .floors
+            .threads
+            .min(read.floors.activities)
+            .min(read.floors.permissions)
+            .min(read.floors.questions);
+        self.applied.insert(host.clone(), floor);
 
         let mut keys = Vec::with_capacity(read.threads.len());
         for thread in read.threads {
@@ -1033,6 +1073,7 @@ impl Model {
                 .insert(key.clone(), session(&host, thread, carried));
             keys.push(key);
         }
+        let listed: HashSet<String> = keys.iter().cloned().collect();
         self.hold_adopted(&host, carried, epoch_moved, &mut keys);
         for held in read.activities {
             let key = session_key(&host, &held.thread);
@@ -1066,13 +1107,43 @@ impl Model {
             gone.into_iter()
                 .map(|key| Change::ThreadRemoved { key: key.clone() }),
         );
+        let mut reread = Vec::new();
         for key in &keys {
             let Some(change) = self.thread_change(key) else {
                 continue;
             };
             changes.push(change);
-            if held_threads.contains(key) {
-                changes.push(Change::ThreadReset { key: key.clone() });
+            let Some(&(held, busy_before)) = held_revs.get(key) else {
+                continue;
+            };
+            let listed_rev = listed
+                .contains(key)
+                .then(|| self.sessions.get(key).and_then(|s| s.thread.rev))
+                .flatten();
+            match (held, listed_rev) {
+                // no transcript write in the gap; only a part streaming across it is read
+                (Some(held), Some(now)) if held == now => {
+                    if busy_before || self.is_busy(key) {
+                        self.ask_newest(key, now);
+                        reread.push(key.clone());
+                    }
+                }
+                // moved, or no revision to judge by: devices read it again
+                _ => {
+                    changes.push(Change::ThreadReset { key: key.clone() });
+                    if let Some(session) = self.sessions.get_mut(key) {
+                        session.srev = listed_rev;
+                    }
+                    reread.push(key.clone());
+                }
+            }
+        }
+        // their tails are read again; every other tail is kept
+        for key in reread {
+            if let Some(session) = self.sessions.get_mut(&key)
+                && !matches!(session.tail.hydration, Hydration::Asked { .. })
+            {
+                session.tail.hydration = Hydration::Unread;
             }
         }
         let mut asks: Vec<&Pending> = self
@@ -1109,6 +1180,10 @@ impl Model {
     /// (`connection`, `agent_read`, `tail`); here they change nothing.
     pub fn source(&mut self, host: &str, seq: Option<u64>, event: SourceEvent) -> Vec<Change> {
         let mut changes = Vec::new();
+        if let Some(seq) = seq {
+            let applied = self.applied.entry(host.to_owned()).or_default();
+            *applied = (*applied).max(seq);
+        }
         let moved_before = self.effects.len();
         let status_before = match &event {
             SourceEvent::Activity { thread, .. } | SourceEvent::TurnEnded { thread } => {
@@ -1192,7 +1267,13 @@ impl Model {
             | SourceEvent::Reactions { .. }
             | SourceEvent::TailRead(_)
             | SourceEvent::TailUnread { .. }
+            | SourceEvent::NewestRead(_)
+            | SourceEvent::NewestUnread { .. }
             | SourceEvent::Skipped => {}
+            SourceEvent::Replaying => {
+                self.replaying.insert(host.to_owned());
+            }
+            SourceEvent::CaughtUp => self.caught_up(host, &mut changes),
         }
         self.after_event(moved_before, status_before, &mut changes);
         self.journaled(&changes);
@@ -1235,6 +1316,16 @@ impl Model {
     /// a transcript event: journaled as it came, whatever the floors say (a
     /// client filters it against its own transcript read); a part also
     /// moves its thread's tail.
+    /// a transcript event the fleet journals carried the thread's revision
+    /// after its write: the state now reflects it.
+    fn revised(&mut self, host: &str, thread: &str, rev: Option<u64>) {
+        if rev.is_some()
+            && let Some(session) = self.sessions.get_mut(&session_key(host, thread))
+        {
+            session.srev = higher(session.srev, rev);
+        }
+    }
+
     fn transcript(
         &mut self,
         host: &str,
@@ -1243,10 +1334,16 @@ impl Model {
         changes: &mut Vec<Change>,
     ) {
         match event {
-            SourceEvent::Message { thread, message } => {
+            SourceEvent::Message {
+                thread,
+                message,
+                rev,
+            } => {
+                self.revised(host, &thread, rev);
                 self.said(host, seq, &thread, *message, changes);
             }
-            SourceEvent::Part { thread, part } => {
+            SourceEvent::Part { thread, part, rev } => {
+                self.revised(host, &thread, rev);
                 let key = session_key(host, &thread);
                 let retailed = self.retail(&key, seq, &part);
                 changes.push(Change::Part {
@@ -1284,7 +1381,12 @@ impl Model {
                     self.streamed(&key, changes);
                 }
             }
-            SourceEvent::MessageRemoved { thread, message } => {
+            SourceEvent::MessageRemoved {
+                thread,
+                message,
+                rev,
+            } => {
+                self.revised(host, &thread, rev);
                 let key = session_key(host, &thread);
                 changes.push(Change::MessageRemoved {
                     key: key.clone(),
@@ -1413,6 +1515,7 @@ impl Model {
             key: key.to_owned(),
             host: session.host.clone(),
             session: session.id.clone(),
+            newest: false,
         }));
     }
 
@@ -1440,8 +1543,11 @@ impl Model {
         let TailRead {
             thread,
             upstream,
+            rev,
             messages,
         } = read;
+        // a read reflects only what the journal holds when the stream has applied its seq
+        let applied = self.applied.get(host).copied();
         let key = session_key(host, &thread);
         let Some(session) = self.sessions.get_mut(&key) else {
             info!(
@@ -1492,6 +1598,9 @@ impl Model {
             }
         };
         let floor = upstream.map_or(0, |upstream| upstream.seq);
+        if applied.is_some_and(|applied| floor != 0 && floor <= applied) {
+            session.srev = higher(session.srev, rev);
+        }
         let mut fresh = Tail {
             sent: session.tail.sent,
             hydration: Hydration::Read { floor },
@@ -1548,6 +1657,123 @@ impl Model {
         {
             session.tail.hydration = Hydration::Unread;
         }
+    }
+
+    /// whether the thread is running a turn (a retry included): text may be
+    /// streaming in it.
+    fn is_busy(&self, key: &str) -> bool {
+        matches!(
+            self.statuses.get(key).map(|s| s.activity),
+            Some(Activity::Busy { .. })
+        )
+    }
+
+    /// the quiet re-read asks for a thread's newest messages: its revision
+    /// held still, but a part may have streamed across the gap.
+    fn ask_newest(&mut self, key: &str, rev: u64) {
+        let Some(session) = self.sessions.get(key) else {
+            return;
+        };
+        self.newest.insert(key.to_owned(), rev);
+        self.effects.push(Effect::ReadTail(TailRequest {
+            key: key.to_owned(),
+            host: session.host.clone(),
+            session: session.id.clone(),
+            newest: true,
+        }));
+    }
+
+    /// a host's compact replay is caught up: each thread a session info said
+    /// moved past the journal during it is reset if its events did not reach
+    /// that revision (a write cmx2 announced only with the info).
+    fn caught_up(&mut self, host: &str, changes: &mut Vec<Change>) {
+        self.replaying.remove(host);
+        let prefix = format!("{host}:");
+        let mut judged: Vec<(String, u64)> = self
+            .unseen
+            .extract_if(|key, _| key.starts_with(&prefix))
+            .collect();
+        judged.sort();
+        for (key, rev) in judged {
+            let Some(session) = self.sessions.get_mut(&key) else {
+                continue;
+            };
+            if session.srev.is_none_or(|held| held < rev) {
+                session.srev = Some(rev);
+                changes.push(Change::ThreadReset { key });
+            }
+        }
+    }
+
+    /// the newest-message reads a quiet re-read asked for before a restart,
+    /// asked again: their answers went with the process.
+    pub fn ask_newest_again(&mut self) {
+        let mut pending: Vec<(String, u64)> =
+            self.newest.iter().map(|(k, r)| (k.clone(), *r)).collect();
+        pending.sort();
+        for (key, rev) in pending {
+            self.ask_newest(&key, rev);
+        }
+    }
+
+    /// a thread's newest messages, read after a gap whose revision held
+    /// still (`docs/protocol.md`, section 10): when the read reflects that
+    /// same revision, the newest assistant message and every message not
+    /// completed go into the journal whole with their parts and no upstream
+    /// seq; when it moved in between, the thread is reset.
+    pub fn newest_read(&mut self, host: &str, read: TailRead) -> Vec<Change> {
+        let key = session_key(host, &read.thread);
+        let Some(expected) = self.newest.remove(&key) else {
+            return Vec::new();
+        };
+        let Some(session) = self.sessions.get_mut(&key) else {
+            return Vec::new();
+        };
+        if read.rev != Some(expected) {
+            info!(session = key, listed = expected, read = ?read.rev, "the transcript moved while its newest messages were read; the thread is reset");
+            session.srev = read.rev;
+            return vec![Change::ThreadReset { key }];
+        }
+        let newest_reply = read
+            .messages
+            .iter()
+            .rposition(|m| m.info.role == wire::Role::Assistant);
+        let mut changes = Vec::new();
+        for (at, message) in read.messages.into_iter().enumerate() {
+            if Some(at) != newest_reply && message.info.completed.is_some() {
+                continue;
+            }
+            changes.push(Change::Message {
+                key: key.clone(),
+                upstream: None,
+                message: message.info,
+            });
+            for part in message.parts {
+                changes.push(Change::Part {
+                    key: key.clone(),
+                    upstream: None,
+                    part,
+                });
+            }
+        }
+        info!(
+            session = key,
+            rev = expected,
+            entries = changes.len(),
+            "newest messages read across the gap"
+        );
+        changes
+    }
+
+    /// the newest messages could not be read: the thread is reset, so no
+    /// streamed text is lost.
+    pub fn newest_failed(&mut self, key: &str) -> Vec<Change> {
+        if self.newest.remove(key).is_none() || !self.sessions.contains_key(key) {
+            return Vec::new();
+        }
+        vec![Change::ThreadReset {
+            key: key.to_owned(),
+        }]
     }
 
     /// when the next held tail is due to go out, ms; none while nothing is held.
@@ -1663,6 +1889,8 @@ impl Model {
     fn drop_host(&mut self, host: &str) {
         self.sessions.retain(|_, s| s.host != host);
         let prefix = format!("{host}:");
+        self.newest.retain(|key, _| !key.starts_with(&prefix));
+        self.unseen.retain(|key, _| !key.starts_with(&prefix));
         self.statuses.retain(|key, _| !key.starts_with(&prefix));
         self.held.retain(|key| !key.starts_with(&prefix));
         let gone: Vec<String> = self
@@ -1750,20 +1978,45 @@ impl Model {
             }
             return;
         }
-        let carried = self
+        let (carried, srev) = self
             .sessions
             .remove(&key)
-            .map(|s| (s.tail, s.turn))
+            .map(|s| ((s.tail, s.turn), s.srev))
             .unwrap_or_default();
-        self.sessions
-            .insert(key.clone(), session(host, thread, carried));
+        let mut session = session(host, thread, carried);
+        // cmx2 moves a revision without a counted event only for writes the journal never saw (a revert armed or
+        // undone, rows healed from the transcript file, a landing that failed part way): a session info past the
+        // revision the journal holds says so, and the thread is read again rather than taken as unchanged
+        let unseen = match (srev, session.srev) {
+            (Some(held), Some(now)) if now > held => Some(now),
+            _ => None,
+        };
+        // a compact replay keeps only each key's last update, so a session info can come ahead of the entry that
+        // carried its revision's event: judged once the replay is caught up, against what its events reached
+        let replaying = self.replaying.contains(host);
+        session.srev = if replaying && unseen.is_some() {
+            srev
+        } else {
+            higher(srev, session.srev)
+        };
+        self.sessions.insert(key.clone(), session);
         changes.extend(self.thread_change(&key));
+        match unseen {
+            Some(rev) if replaying => {
+                let deferred = self.unseen.entry(key.clone()).or_default();
+                *deferred = (*deferred).max(rev);
+            }
+            Some(_) => changes.push(Change::ThreadReset { key: key.clone() }),
+            None => {}
+        }
         self.evict(changes, Some(&key));
     }
 
     fn remove_session(&mut self, key: &str, changes: &mut Vec<Change>) {
         let parent = self.sessions.remove(key).and_then(|s| s.parent);
         self.statuses.remove(key);
+        self.newest.remove(key);
+        self.unseen.remove(key);
         self.held.remove(key);
         self.forget_adopted(key);
         self.serve_session(key, |_| true, &By::Agent, How::Gone);
@@ -2946,6 +3199,15 @@ fn own_origin() -> Origin {
     }
 }
 
+/// the higher of two transcript revisions, either one when only it is known.
+fn higher(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (a, None) => a,
+        (None, b) => b,
+    }
+}
+
 /// the thread a change shows, for the clears and the tail reads.
 fn touched_key(change: &Change) -> Option<String> {
     match change {
@@ -2974,6 +3236,7 @@ fn session(host: &str, mut thread: ThreadFacts, (tail, turn): (Tail, Turn)) -> S
         directory,
         repo,
         places,
+        srev: thread.rev,
         thread,
         tail,
         turn,
@@ -3391,7 +3654,7 @@ mod tests {
                 epoch: cursor.epoch,
                 seq: cursor.seq,
             };
-            let read = translate::tail(thread.to_owned(), stamp, body.as_bytes()).unwrap();
+            let read = translate::tail(thread.to_owned(), stamp, None, body.as_bytes()).unwrap();
             self.tail(host, read)
         }
 
@@ -3435,6 +3698,12 @@ mod tests {
             return Vec::new();
         };
         model.source("desk", seq, event)
+    }
+
+    /// a session info with its transcript revision, as a daemon that numbers them sends it.
+    fn info_rev(id: &str, updated: u64, rev: u64) -> String {
+        let info = info(id, updated, None);
+        format!("{},\"transcriptRev\":{rev}}}", &info[..info.len() - 1])
     }
 
     fn info(id: &str, updated: u64, parent: Option<&str>) -> String {
@@ -5118,7 +5387,7 @@ mod tests {
             .drain()
             .into_iter()
             .filter_map(|e| match e {
-                Effect::ReadTail(request) => Some(request.key),
+                Effect::ReadTail(request) if !request.newest => Some(request.key),
                 _ => None,
             })
             .collect()
@@ -5201,18 +5470,25 @@ mod tests {
 
     #[test]
     fn a_session_with_a_window_has_its_tail_asked_for_once_and_only_once() {
-        let mut model = asked_for_ses_1();
+        let mut model = Model::new();
+        model.host_read(host_read_of("ep", 5, &[info_rev("ses_1", 1, 3)]));
+        assert_eq!(asked(&mut model), ["desk:ses_1"]);
         event(&mut model, Some(6), &updated("ses_1", 2, None));
         event(&mut model, Some(7), &status("ses_1", r#"{"type":"busy"}"#));
-        model.host_read(host_read_of("ep", 8, &[info("ses_1", 2, None)]));
+        model.host_read(host_read_of("ep", 8, &[info_rev("ses_1", 2, 3)]));
         assert!(asked(&mut model).is_empty(), "asked while the read is out");
         model.tail_read(tail_read_of("ep", 8, &[]));
         event(&mut model, Some(9), &updated("ses_1", 3, None));
-        model.host_read(host_read_of("ep", 10, &[info("ses_1", 3, None)]));
+        // its transcript did not move and it is not busy: the quiet re-read keeps its tail
+        model.host_read(host_read_of("ep", 10, &[info_rev("ses_1", 3, 3)]));
         assert!(
             asked(&mut model).is_empty(),
             "asked again after it was read"
         );
+        // a daemon that does not number transcripts: no revision says it held still
+        model.tail_read(tail_read_of("ep", 10, &[]));
+        model.host_read(host_read_of("ep", 11, &[info("ses_1", 3, None)]));
+        assert_eq!(asked(&mut model), ["desk:ses_1"]);
     }
 
     #[test]
@@ -6686,5 +6962,446 @@ mod tests {
             ),
             "repos never merge across hosts"
         );
+    }
+    fn resets_in(changes: &[Change]) -> Vec<&str> {
+        changes
+            .iter()
+            .filter_map(|c| match c {
+                Change::ThreadReset { key } => Some(key.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn newest_asked(model: &mut Model) -> Vec<String> {
+        model
+            .drain()
+            .into_iter()
+            .filter_map(|e| match e {
+                Effect::ReadTail(request) if request.newest => Some(request.key),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn busy_read(epoch: &str, seq: u64, sessions: &[String], busy: &[&str]) -> HostRead {
+        let mut read = host_read_of(epoch, seq, sessions);
+        read.statuses.data = busy
+            .iter()
+            .map(|id| ((*id).to_owned(), raw(r#"{"type":"busy"}"#).unwrap()))
+            .collect();
+        read
+    }
+
+    #[test]
+    fn the_quiet_re_read_resets_only_threads_whose_transcript_revision_moved_or_is_unknown() {
+        let mut model = Model::new();
+        model.host_read(host_read_of(
+            "ep",
+            5,
+            &[
+                info_rev("ses_1", 1, 3),
+                info_rev("ses_2", 1, 7),
+                info("ses_3", 1, None),
+                info_rev("ses_5", 1, 2),
+            ],
+        ));
+        model.drain();
+        // the gap: ses_2 was written, ses_1 held still, ses_3 has no revision, ses_4 is new, ses_5 went
+        let changes = model.host_read(host_read_of(
+            "ep",
+            20,
+            &[
+                info_rev("ses_1", 1, 3),
+                info_rev("ses_2", 2, 9),
+                info("ses_3", 1, None),
+                info_rev("ses_4", 1, 0),
+            ],
+        ));
+        assert_eq!(resets_in(&changes), ["desk:ses_2", "desk:ses_3"]);
+        assert!(
+            changes
+                .iter()
+                .any(|c| matches!(c, Change::ThreadRemoved { key } if key == "desk:ses_5")),
+            "a thread gone in the gap is removed"
+        );
+        assert_eq!(model.srev("desk:ses_2"), Some(9));
+        assert_eq!(
+            model.srev("desk:ses_4"),
+            Some(0),
+            "a new thread starts from its listing"
+        );
+        assert!(newest_asked(&mut model).is_empty(), "nothing streamed");
+        // a gap where nothing moved resets only the thread no revision can vouch for
+        let changes = model.host_read(host_read_of(
+            "ep",
+            30,
+            &[
+                info_rev("ses_1", 1, 3),
+                info_rev("ses_2", 2, 9),
+                info("ses_3", 1, None),
+                info_rev("ses_4", 1, 0),
+            ],
+        ));
+        assert_eq!(resets_in(&changes), ["desk:ses_3"]);
+    }
+
+    #[test]
+    fn srev_moves_with_journaled_events_and_session_infos_and_never_from_a_read_ahead_of_the_stream()
+     {
+        let mut model = Model::new();
+        model.host_read(host_read_of("ep", 5, &[info_rev("ses_1", 1, 3)]));
+        assert_eq!(model.srev("desk:ses_1"), Some(3));
+        // a message event carries the revision after its write
+        let message = r#"{"id":"e","type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"m1","sessionID":"ses_1","role":"assistant","time":{"created":10}},"rev":4}}"#;
+        event(&mut model, Some(6), message);
+        assert_eq!(model.srev("desk:ses_1"), Some(4));
+        // a session info from a stream without rev=1 leaves it
+        event(&mut model, Some(7), &updated("ses_1", 2, None));
+        assert_eq!(model.srev("desk:ses_1"), Some(4));
+        // a tail read stamped past what the stream applied does not move it
+        let read = translate::tail(
+            "ses_1".into(),
+            Stamp {
+                epoch: "ep".into(),
+                seq: 50,
+            },
+            Some(11),
+            b"[]",
+        )
+        .unwrap();
+        model.tail("desk", read);
+        assert_eq!(model.srev("desk:ses_1"), Some(4));
+    }
+
+    #[test]
+    fn a_thread_busy_across_a_gap_whose_revision_held_has_its_newest_messages_journaled_whole() {
+        let mut model = Model::new();
+        model.host_read(busy_read("ep", 5, &[info_rev("ses_1", 1, 3)], &["ses_1"]));
+        model.drain();
+        let changes = model.host_read(busy_read("ep", 20, &[info_rev("ses_1", 1, 3)], &["ses_1"]));
+        assert!(
+            resets_in(&changes).is_empty(),
+            "the revision held: no reset"
+        );
+        assert_eq!(newest_asked(&mut model), ["desk:ses_1"]);
+        // the read: the prompt, and the answer still streaming its text
+        let body = format!(
+            "[{},{}]",
+            read_message("u1", "user", &[read_part("u1", "p0", "text", "go", "")]),
+            read_message(
+                "a1",
+                "assistant",
+                &[read_part("a1", "p1", "text", "hello wor", "")]
+            ),
+        );
+        let stamp = Stamp {
+            epoch: "ep".into(),
+            seq: 20,
+        };
+        let read =
+            translate::tail("ses_1".into(), stamp.clone(), Some(3), body.as_bytes()).unwrap();
+        let changes = model.newest_read("desk", read);
+        let streamed = changes.iter().find_map(|c| match c {
+            Change::Part {
+                upstream: None,
+                part: Part::Text(p),
+                ..
+            } if p.id == "p1" => p.text.clone(),
+            _ => None,
+        });
+        assert_eq!(
+            streamed.as_deref(),
+            Some("hello wor"),
+            "the part streaming across the gap comes whole"
+        );
+        assert!(changes.iter().all(|c| !matches!(
+            c,
+            Change::Message {
+                upstream: Some(_),
+                ..
+            } | Change::Part {
+                upstream: Some(_),
+                ..
+            }
+        )));
+        // asked again, and the transcript moved while it was read: the thread is reset instead
+        model.host_read(busy_read("ep", 30, &[info_rev("ses_1", 1, 3)], &["ses_1"]));
+        assert_eq!(newest_asked(&mut model), ["desk:ses_1"]);
+        let read =
+            translate::tail("ses_1".into(), stamp.clone(), Some(5), body.as_bytes()).unwrap();
+        let changes = model.newest_read("desk", read);
+        assert_eq!(resets_in(&changes), ["desk:ses_1"]);
+        assert_eq!(model.srev("desk:ses_1"), Some(5));
+        // and one that could not be read at all is reset too
+        model.host_read(busy_read("ep", 40, &[info_rev("ses_1", 1, 5)], &["ses_1"]));
+        newest_asked(&mut model);
+        assert_eq!(
+            resets_in(&model.newest_failed("desk:ses_1")),
+            ["desk:ses_1"]
+        );
+    }
+
+    #[test]
+    fn the_model_comes_back_whole_from_its_rows() {
+        let mut model = Model::new();
+        model.host_read(busy_read(
+            "ep",
+            5,
+            &[info_rev("ses_1", 1, 3), info_rev("ses_2", 1, 4)],
+            &["ses_1"],
+        ));
+        model.tail_read(tail_read_of(
+            "ep",
+            5,
+            &[read_message(
+                "a1",
+                "assistant",
+                &[read_part("a1", "p1", "text", "done", "")],
+            )],
+        ));
+        model.drain();
+        let (threads, agents, asks) = model.held_keys();
+        let rows = state::Rows {
+            threads: threads
+                .iter()
+                .map(|k| (k.clone(), model.thread_state(k).unwrap(), model.srev(k)))
+                .collect(),
+            agents: agents
+                .iter()
+                .filter_map(|k| Some((k.clone(), model.agent_state(k)?)))
+                .collect(),
+            asks: asks
+                .iter()
+                .filter_map(|(a, i)| Some((a.clone(), model.ask_state(a, i)?)))
+                .collect(),
+            order: model.order_state(),
+        };
+        let mut back = Model::new();
+        assert_eq!(back.resume(rows), 0);
+        assert_eq!(
+            serde_json::to_string(&back.snapshot()).unwrap(),
+            serde_json::to_string(&model.snapshot()).unwrap()
+        );
+        for key in &threads {
+            assert_eq!(back.thread_state(key), model.thread_state(key), "{key}");
+        }
+        assert_eq!(back.order_state(), model.order_state());
+    }
+    fn rss_kib() -> u64 {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0)
+    }
+
+    /// start-up on a large state (`docs/protocol.md`, section 16): 1,000
+    /// threads, each with a full twelve-item tail of 280-character text, through
+    /// their rows and back. `cargo test --release large_state -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "a measurement, run by hand"]
+    #[allow(clippy::too_many_lines, reason = "one measurement, start to end")]
+    fn large_state_start_up_time_and_memory() {
+        let text = "x".repeat(280);
+        let mut model = Model::new();
+        let infos: Vec<String> = (0..1000)
+            .map(|n| info_rev(&format!("ses_{n:04}"), 1 + n, n))
+            .collect();
+        model.host_read(host_read_of("ep", 5, &infos));
+        for n in 0..1000 {
+            let messages: Vec<String> = (0..12)
+                .map(|m| {
+                    format!(
+                        r#"{{"info":{{"id":"m{m}","sessionID":"ses_{n:04}","role":"assistant","time":{{"created":{m}}}}},"parts":[{{"id":"p{m}","sessionID":"ses_{n:04}","messageID":"m{m}","type":"text","text":"{text}"}}]}}"#
+                    )
+                })
+                .collect();
+            model.tail_read((
+                format!("desk:ses_{n:04}"),
+                Cursor {
+                    epoch: "ep".into(),
+                    seq: 5,
+                },
+                format!("[{}]", messages.join(",")),
+            ));
+        }
+        model.drain();
+        let (threads, agents, asks) = model.held_keys();
+        let started = std::time::Instant::now();
+        let rows = state::Rows {
+            threads: threads
+                .iter()
+                .map(|k| (k.clone(), model.thread_state(k).unwrap(), model.srev(k)))
+                .collect(),
+            agents: agents
+                .iter()
+                .filter_map(|k| Some((k.clone(), model.agent_state(k)?)))
+                .collect(),
+            asks: asks
+                .iter()
+                .filter_map(|(a, i)| Some((a.clone(), model.ask_state(a, i)?)))
+                .collect(),
+            order: model.order_state(),
+        };
+        let bodies: Vec<String> = threads
+            .iter()
+            .map(|k| serde_json::to_string(&model.thread(k).unwrap()).unwrap())
+            .collect();
+        let encoded = started.elapsed();
+        let bytes: usize = rows.threads.iter().map(|r| r.1.len()).sum::<usize>()
+            + bodies.iter().map(String::len).sum::<usize>();
+        // through sqlite: one batch written, the tables read back
+        let dir = std::env::temp_dir().join(format!("boxbox-large-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut db = rusqlite::Connection::open(dir.join("boxbox.db")).unwrap();
+        db.pragma_update(None, "journal_mode", "wal").unwrap();
+        db.pragma_update(None, "synchronous", "normal").unwrap();
+        crate::store::migrate_for_tests(&mut db);
+        let writes = rows
+            .threads
+            .iter()
+            .zip(&bodies)
+            .map(|((key, state, srev), body)| {
+                crate::fleet::persist::Write::Put(crate::fleet::persist::Row {
+                    kind: "thread".into(),
+                    key: key.clone(),
+                    seq: 1,
+                    whole: false,
+                    v: 1,
+                    rv: 1,
+                    reset_seq: 0,
+                    srev: *srev,
+                    raised: None,
+                    turn: None,
+                    body: body.clone(),
+                    model: Some(state.clone()),
+                })
+            })
+            .collect();
+        let batch = crate::fleet::persist::Batch {
+            id: 1,
+            epoch: "0123456789ab".into(),
+            head: 1,
+            reserved: 1_000_001,
+            clean: true,
+            gone_floor: 0,
+            writes,
+            graves: Vec::new(),
+            cursors: Vec::new(),
+            bytes,
+        };
+        let started = std::time::Instant::now();
+        crate::fleet::persist::write(&mut db, &batch).unwrap();
+        let committed = started.elapsed();
+        let started = std::time::Instant::now();
+        let stored = crate::fleet::persist::load(&db).unwrap();
+        let resumed_rows = crate::fleet::persist::start(stored);
+        let started_from_db = started.elapsed();
+        assert_eq!(resumed_rows.how, crate::fleet::persist::How::Clean);
+        drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+        eprintln!(
+            "large state: the batch of 1000 rows committed in {} ms; loaded and checked by encoder in {} ms",
+            committed.as_millis(),
+            started_from_db.as_millis()
+        );
+        drop(model);
+        let before = rss_kib();
+        let started = std::time::Instant::now();
+        let mut back = Model::new();
+        assert_eq!(back.resume(rows), 0);
+        let mut bases = Vec::with_capacity(bodies.len());
+        for body in &bodies {
+            let thread: wire::Thread = serde_json::from_str(body).unwrap();
+            assert_eq!(&serde_json::to_string(&thread).unwrap(), body);
+            bases.push(thread);
+        }
+        let resumed = started.elapsed();
+        let after = rss_kib();
+        assert_eq!(back.session_count(), 1000);
+        eprintln!(
+            "large state: 1000 threads, {} kb of rows; encoded in {} ms; decoded, checked and resumed in {} ms; rss {} kb before, {} kb after (+{} kb)",
+            bytes / 1024,
+            encoded.as_millis(),
+            resumed.as_millis(),
+            before,
+            after,
+            after.saturating_sub(before)
+        );
+        drop(bases);
+    }
+
+    #[test]
+    fn a_session_info_past_the_journaled_revision_resets_the_thread() {
+        let mut model = Model::new();
+        model.host_read(host_read_of("ep", 5, &[info_rev("ses_1", 1, 3)]));
+        model.drain();
+        // a message landed: its event carries the revision after it
+        let message = r#"{"id":"e","type":"message.updated","properties":{"sessionID":"ses_1","info":{"id":"m1","sessionID":"ses_1","role":"assistant","time":{"created":10}},"rev":4}}"#;
+        event(&mut model, Some(6), message);
+        // the session info that follows says the same revision: nothing to read
+        let changes = event(
+            &mut model,
+            Some(7),
+            &format!(
+                r#"{{"id":"e","type":"session.updated","properties":{{"sessionID":"ses_1","info":{}}}}}"#,
+                info_rev("ses_1", 2, 4)
+            ),
+        );
+        assert!(resets_in(&changes).is_empty());
+        // a revert moved it with no transcript event: the journal does not hold that write
+        let changes = event(
+            &mut model,
+            Some(8),
+            &format!(
+                r#"{{"id":"e","type":"session.updated","properties":{{"sessionID":"ses_1","info":{}}}}}"#,
+                info_rev("ses_1", 3, 5)
+            ),
+        );
+        assert_eq!(resets_in(&changes), ["desk:ses_1"]);
+        assert_eq!(model.srev("desk:ses_1"), Some(5));
+    }
+
+    #[test]
+    fn a_compact_replay_judges_a_session_info_s_revision_once_caught_up() {
+        let mut model = Model::new();
+        model.host_read(host_read_of("ep", 5, &[info_rev("ses_1", 1, 9)]));
+        model.drain();
+        let session = |updated: u64, rev: u64| {
+            format!(
+                r#"{{"id":"e","type":"session.updated","properties":{{"sessionID":"ses_1","info":{}}}}}"#,
+                info_rev("ses_1", updated, rev)
+            )
+        };
+        let part = |rev: u64| {
+            format!(
+                r#"{{"id":"e","type":"message.part.updated","properties":{{"sessionID":"ses_1","part":{{"id":"p1","sessionID":"ses_1","messageID":"m1","type":"text","text":"hi"}},"rev":{rev}}}}}"#
+            )
+        };
+        // a thread working across a restart: part (rev 10, seq 100), session (rev 10, seq 101), part (rev 11,
+        // seq 102); the compact replay sends 101 and 102 only
+        model.source("desk", None, SourceEvent::Replaying);
+        let mut changes = event(&mut model, Some(101), &session(2, 10));
+        changes.extend(event(&mut model, Some(102), &part(11)));
+        changes.extend(model.source("desk", None, SourceEvent::CaughtUp));
+        assert!(
+            resets_in(&changes).is_empty(),
+            "nothing was missed: no reset"
+        );
+        assert_eq!(model.srev("desk:ses_1"), Some(11));
+        // a revert during the replay: the info's revision no event reached
+        model.source("desk", None, SourceEvent::Replaying);
+        let mut changes = event(&mut model, Some(103), &session(3, 12));
+        assert!(
+            resets_in(&changes).is_empty(),
+            "held until the replay is caught up"
+        );
+        changes.extend(model.source("desk", None, SourceEvent::CaughtUp));
+        assert_eq!(resets_in(&changes), ["desk:ses_1"]);
+        assert_eq!(model.srev("desk:ses_1"), Some(12));
     }
 }
