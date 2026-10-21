@@ -1771,3 +1771,12 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   1 s hidden queue that was reverted did exactly that; `wire.test.ts` now catches it).
 - **cool a thread only when nothing of it is marked or being saved.** a cooled thread comes
   back from its indexeddb pages, so a mark or a save in flight would come back without it.
+- **with reqwest's gzip feature on, a client decodes bodies and drops the header.** a test that
+  checks `content-encoding` builds its client with `.no_gzip()`, and so do the release
+  downloads, whose checksum is over the compressed bytes.
+- **the bench tape was recorded at 200 ms tails.** `Replay::at_recorded_pace` is the only fair
+  comparison with the live recording now that the overview runs at 500 ms.
+- **the stream's 512 kb bound counts plain frames in the actor's queue.** once batched and
+  gzipped, hyper and the kernel hold more behind it (about 155 kb of compressed bytes, 4.3 mb of
+  frames, for a client that never reads), so a stalled client is cut later in frames but still
+  bounded in memory.

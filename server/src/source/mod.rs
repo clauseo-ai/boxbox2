@@ -144,6 +144,11 @@ pub enum SourceEvent {
         thread: String,
         reason: String,
     },
+    /// the source dropped an event it could not read (over the frame cap,
+    /// undecodable, or lacking what it decoded with): whatever it changed is
+    /// unknown here. it changes nothing shown; a transcript read stamped
+    /// before it can no longer be answered unchanged (`fleet/model/marks.rs`).
+    Skipped,
 }
 
 impl SourceEvent {
@@ -173,6 +178,7 @@ impl SourceEvent {
             Self::ReviewSettled { .. } => "review.settled",
             Self::TailRead(_) => "tail.read",
             Self::TailUnread { .. } => "tail.unread",
+            Self::Skipped => "skipped",
         }
     }
 }

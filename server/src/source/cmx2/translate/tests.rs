@@ -437,3 +437,216 @@ fn a_tail_read_skips_a_message_that_does_not_decode_and_keeps_its_stamp() {
     assert_eq!(read.messages.len(), 1);
     assert_eq!(read.upstream.unwrap().seq, 4);
 }
+
+/// the converse of the test below: every kind `event`'s match names is in
+/// `CONSUMED`, so an arm added without its entry fails here instead of being
+/// filtered away upstream (`types=`, `upstream/watcher.rs`) unseen.
+#[test]
+fn every_kind_the_translation_matches_is_in_the_consumed_list() {
+    let source = include_str!("../translate.rs");
+    let start = source.find("\npub fn event(").expect("translate::event");
+    let body = &source[start..];
+    let body = &body[..body.find("\n}\n").expect("the end of event")];
+    let matched: std::collections::BTreeSet<String> = body
+        .split("Event::")
+        .skip(1)
+        .filter_map(|rest| {
+            let name: String = rest
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect();
+            rest[name.len()..].starts_with('(').then_some(name)
+        })
+        .collect();
+    let named: std::collections::BTreeSet<&str> = crate::cmx2::EventKind::ALL
+        .iter()
+        .filter(|kind| matched.contains(&format!("{kind:?}")))
+        .map(|kind| kind.as_str())
+        .collect();
+    assert_eq!(
+        matched.len(),
+        named.len(),
+        "an arm names no known kind: {matched:?}"
+    );
+    assert_eq!(named, CONSUMED.into_iter().collect());
+}
+
+#[test]
+fn every_consumed_kind_has_a_frame_that_translates() {
+    // one frame per consumed kind, each of which must translate to something: a stream filtered to
+    // `CONSUMED` drops every other kind, so a kind the table reads and the list lacks would be lost
+    let frames = consumed_frames();
+    let mut names: Vec<&str> = frames.iter().map(|(name, _)| *name).collect();
+    names.sort_unstable();
+    let mut listed = CONSUMED.to_vec();
+    listed.sort_unstable();
+    assert_eq!(names, listed, "the frames cover the list, each kind once");
+    for (name, frame) in &frames {
+        let kind =
+            cmx2::EventKind::from_wire(name).unwrap_or_else(|| panic!("{name} is not declared"));
+        let decoded = decode_frame(frame).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(decoded.event.kind(), kind, "{name}");
+        assert!(translate(frame).is_some(), "{name} translates to nothing");
+    }
+}
+
+/// a valid frame of each consumed kind.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one frame per kind, written out as the daemon writes it, is the point of the table"
+)]
+fn consumed_frames() -> Vec<(&'static str, String)> {
+    let info = info("ses_1");
+    vec![
+        (
+            "message.updated",
+            payload(
+                "message.updated",
+                r#"{"sessionID":"ses_1","info":{"id":"msg_1","sessionID":"ses_1","role":"user","time":{"created":3}}}"#,
+            ),
+        ),
+        (
+            "message.part.updated",
+            payload(
+                "message.part.updated",
+                r#"{"sessionID":"ses_1","part":{"id":"prt_ses1_0004_2","sessionID":"ses_1","messageID":"msg_1","type":"text","text":"hello"}}"#,
+            ),
+        ),
+        (
+            "message.part.delta",
+            payload(
+                "message.part.delta",
+                r#"{"sessionID":"ses_1","messageID":"msg_1","partID":"prt_1","field":"text","delta":"hi","offset":7}"#,
+            ),
+        ),
+        (
+            "message.removed",
+            payload(
+                "message.removed",
+                r#"{"sessionID":"ses_1","messageID":"msg_1"}"#,
+            ),
+        ),
+        (
+            "session.created",
+            payload(
+                "session.created",
+                &format!(r#"{{"sessionID":"ses_1","info":{info}}}"#),
+            ),
+        ),
+        (
+            "session.updated",
+            payload(
+                "session.updated",
+                &format!(r#"{{"sessionID":"ses_1","info":{info}}}"#),
+            ),
+        ),
+        (
+            "session.deleted",
+            payload(
+                "session.deleted",
+                &format!(r#"{{"sessionID":"ses_1","info":{info}}}"#),
+            ),
+        ),
+        (
+            "session.status",
+            payload(
+                "session.status",
+                r#"{"sessionID":"ses_1","status":{"type":"busy","since":5}}"#,
+            ),
+        ),
+        (
+            "session.idle",
+            payload("session.idle", r#"{"sessionID":"ses_1"}"#),
+        ),
+        (
+            "permission.asked",
+            payload(
+                "permission.asked",
+                r#"{"id":"per_1","sessionID":"ses_1","permission":"bash","patterns":["ls"],"metadata":{},"always":["ls *"]}"#,
+            ),
+        ),
+        (
+            "question.asked",
+            payload(
+                "question.asked",
+                r#"{"id":"que_1","sessionID":"ses_1","questions":[{"question":"which?","header":"pick","options":[{"label":"a","description":"first"}],"multiple":true}]}"#,
+            ),
+        ),
+        (
+            "permission.replied",
+            payload(
+                "permission.replied",
+                r#"{"sessionID":"ses_1","requestID":"per_1","reply":"once","by":"phone"}"#,
+            ),
+        ),
+        (
+            "question.replied",
+            payload(
+                "question.replied",
+                r#"{"sessionID":"ses_1","requestID":"que_1","answers":[["a"]],"by":"abort"}"#,
+            ),
+        ),
+        (
+            "question.rejected",
+            payload(
+                "question.rejected",
+                r#"{"sessionID":"ses_1","requestID":"que_1"}"#,
+            ),
+        ),
+        (
+            "session.error",
+            payload(
+                "session.error",
+                r#"{"sessionID":"ses_1","error":{"name":"APIError","data":{"message":"x"}}}"#,
+            ),
+        ),
+        (
+            "worktree.review.requested",
+            payload(
+                "worktree.review.requested",
+                r#"{"sessionID":"ses_1","name":"wt-1","branch":"fix","note":"the tests pass","directory":"/w/app-wt"}"#,
+            ),
+        ),
+        (
+            "worktree.merged",
+            payload(
+                "worktree.merged",
+                r#"{"name":"wt-1","branch":"cmx2/wt-1","base":"main","commit":"abc","commits":1}"#,
+            ),
+        ),
+        (
+            "worktree.discarded",
+            payload(
+                "worktree.discarded",
+                r#"{"name":"wt-1","branch":"cmx2/wt-1","base":"main","commit":"abc","commits":1}"#,
+            ),
+        ),
+        (
+            "process.notify",
+            payload(
+                "process.notify",
+                r#"{"process":{"id":"proc_1","sessionID":"ses_1","pid":1,"command":"bun dev","cwd":"/w","title":"dev server","kind":"job","status":"running","exitCode":0,"ports":[],"origin":"model","startedAt":1},"reason":"port","detail":"listening on 5173"}"#,
+            ),
+        ),
+    ]
+}
+
+#[test]
+fn a_streaming_flag_reads_as_a_bool_and_anything_else_as_false() {
+    // read by `part` straight from the daemon's json, as a tail read reads it: a flag that is not a
+    // bool leaves the part a text part, not streaming, as the reducer always read it
+    for (extra, streaming) in [
+        ("", false),
+        (r#","streaming":true"#, true),
+        (r#","streaming":"yes""#, false),
+    ] {
+        let json = format!(
+            r#"{{"id":"prt_ses1_0004_2","sessionID":"ses_1","messageID":"msg_1","type":"text","text":"hi"{extra}}}"#
+        );
+        let raw = serde_json::value::RawValue::from_string(json).unwrap();
+        let Part::Text(text) = part(&raw) else {
+            panic!("not text: {extra}");
+        };
+        assert_eq!(text.streaming, streaming, "{extra}");
+    }
+}

@@ -88,9 +88,19 @@ fn live() -> Live {
     serde_json::from_str(&gunzip("live.json.gz")).unwrap()
 }
 
-/// the tape replayed whole into a fresh actor.
+/// the tape replayed whole into a fresh actor, at today's tail pace.
 fn replayed(live: &Live, steps: Vec<Step>) -> Replay {
     let mut replay = Replay::new(&live.epoch, &live.build);
+    for step in steps {
+        replay.step(step).unwrap();
+    }
+    replay
+}
+
+/// the same at the tail pace the tape was recorded at, to be held against
+/// what the live server sent.
+fn recorded(live: &Live, steps: Vec<Step>) -> Replay {
+    let mut replay = Replay::new(&live.epoch, &live.build).at_recorded_pace();
     for step in steps {
         replay.step(step).unwrap();
     }
@@ -165,7 +175,7 @@ fn the_recorded_session_replays_to_the_journal_recorded_live_byte_for_byte() {
     let live = live();
     let steps = tape();
     let count = steps.len();
-    let replay = replayed(&live, steps);
+    let replay = recorded(&live, steps);
     let ours = normalise(&joined(&replay.journal()), &live.epoch, &live.build);
     let theirs = normalise(&live.journal, &live.epoch, &live.build);
     println!(
@@ -194,7 +204,7 @@ fn the_recorded_session_replays_to_the_journal_recorded_live_byte_for_byte() {
 /// the tape replayed whole into an actor that gives repos colours, as a
 /// fresh server does now.
 fn coloured(live: &Live) -> Replay {
-    let mut replay = Replay::colouring(&live.epoch, &live.build);
+    let mut replay = Replay::colouring(&live.epoch, &live.build).at_recorded_pace();
     for step in tape() {
         replay.step(step).unwrap();
     }
@@ -339,7 +349,7 @@ fn replaying_the_tape_twice_gives_the_same_journal_bytes() {
 #[test]
 fn every_stream_the_bench_opened_began_with_what_the_replay_answers() {
     let live = live();
-    let replay = replayed(&live, tape());
+    let replay = recorded(&live, tape());
     // a stream's pages, in the order its first page was asked for
     let mut streams: Vec<(u32, String)> = Vec::new();
     for answer in &replay.answers {
@@ -379,7 +389,7 @@ fn every_stream_the_bench_opened_began_with_what_the_replay_answers() {
 #[test]
 fn every_fleet_and_needs_answer_the_bench_read_is_what_the_replay_answers() {
     let live = live();
-    let replay = replayed(&live, tape());
+    let replay = recorded(&live, tape());
     let fleet: Vec<&Bytes> = replay
         .answers
         .iter()
@@ -572,4 +582,109 @@ fn goldens_push_payloads_and_titles_for_every_notice_of_the_session() {
     println!("{} pushes asked, {notices} of them notices", lines.len());
     assert!(notices > 0, "the session raised no notice");
     golden("push.jsonl", &(lines.join("\n") + "\n"));
+}
+
+/// what the recorded session costs a device on the wire, plain and through
+/// one gzip context sync-flushed per write (`http/compress.rs`, `Framed`),
+/// a write being every frame one tape step journaled: fewer and larger
+/// writes than a live stream batches, so the ratio here is a floor.
+#[test]
+fn the_recorded_session_costs_a_device_several_times_fewer_bytes_through_gzip() {
+    let live = live();
+    let steps = tape();
+    let (start, finish) = (steps.first().unwrap().at, steps.last().unwrap().at);
+    let mut replay = Replay::new(&live.epoch, &live.build);
+    let mut gzip = crate::http::compress::Framed::new();
+    let mut decoder = flate2::write::GzDecoder::new(Vec::new());
+    let (mut head, mut plain, mut wire, mut writes) = (replay.head(), 0usize, 0usize, 0usize);
+    for step in steps {
+        replay.step(step).unwrap();
+        let moved = usize::try_from(replay.head() - head).unwrap();
+        head = replay.head();
+        if moved == 0 {
+            continue;
+        }
+        let journal = replay.journal();
+        let batch: Vec<u8> = journal[journal.len() - moved..].concat();
+        let zipped = gzip.batch(&batch).unwrap();
+        std::io::Write::write_all(&mut decoder, &zipped).unwrap();
+        std::io::Write::flush(&mut decoder).unwrap();
+        assert_eq!(
+            std::mem::take(decoder.get_mut()),
+            batch,
+            "a write did not decode on arrival"
+        );
+        (plain, wire, writes) = (plain + batch.len(), wire + zipped.len(), writes + 1);
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let minutes = (finish - start) as f64 / 60_000.0;
+    #[allow(clippy::cast_precision_loss)]
+    let (plain_per_minute, wire_per_minute) = (plain as f64 / minutes, wire as f64 / minutes);
+    println!(
+        "{writes} writes over {minutes:.2} min: plain {plain} bytes ({plain_per_minute:.0}/min), gzip {wire} bytes ({wire_per_minute:.0}/min), {:.1}x",
+        plain_per_minute / wire_per_minute
+    );
+    assert!(wire * 4 < plain, "gzip {wire} of {plain}");
+}
+
+/// a journal's frames with their seqs taken out, split into the session
+/// entries (by key, in order) and every other frame (in order).
+fn by_cadence(frames: &[Bytes]) -> (Vec<String>, std::collections::BTreeMap<String, Vec<String>>) {
+    let (mut others, mut sessions) = (
+        Vec::new(),
+        std::collections::BTreeMap::<String, Vec<String>>::new(),
+    );
+    for frame in frames {
+        let text = std::str::from_utf8(frame).unwrap();
+        let data = text.lines().find_map(|l| l.strip_prefix("data: ")).unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(data).unwrap();
+        value.as_object_mut().unwrap().remove("seq");
+        let line = value.to_string();
+        match value["type"].as_str() {
+            Some("session") => sessions
+                .entry(value["session"]["key"].as_str().unwrap().to_owned())
+                .or_default()
+                .push(line),
+            _ => others.push(line),
+        }
+    }
+    (others, sessions)
+}
+
+/// today's tail pace against the pace the tape was recorded at: the same
+/// frames in the same order but for session entries, which go out less
+/// often, and each session's last entry the same.
+#[test]
+fn the_home_overview_pace_changes_only_how_often_a_session_entry_goes_out() {
+    let live = live();
+    let slow = replayed(&live, tape()).journal();
+    let fast = recorded(&live, tape()).journal();
+    let (slow_others, slow_sessions) = by_cadence(&slow);
+    let (fast_others, fast_sessions) = by_cadence(&fast);
+    assert!(
+        slow_others == fast_others,
+        "a frame other than a session entry moved"
+    );
+    assert_eq!(
+        slow_sessions.keys().collect::<Vec<_>>(),
+        fast_sessions.keys().collect::<Vec<_>>()
+    );
+    for (key, entries) in &slow_sessions {
+        let recorded = &fast_sessions[key];
+        assert_eq!(entries.last(), recorded.last(), "{key} ends elsewhere");
+        assert!(entries.len() <= recorded.len(), "{key} went out more often");
+    }
+    let (slow_count, fast_count) = (
+        slow_sessions.values().map(Vec::len).sum::<usize>(),
+        fast_sessions.values().map(Vec::len).sum::<usize>(),
+    );
+    println!(
+        "session entries: {fast_count} at {} ms, {slow_count} at {} ms; {} other frames alike; journal {} to {} bytes",
+        super::RECORDED_TAIL_EVERY_MS,
+        crate::fleet::model::TAIL_EVERY_MS,
+        slow_others.len(),
+        joined(&fast).len(),
+        joined(&slow).len()
+    );
+    assert!(slow_count < fast_count);
 }

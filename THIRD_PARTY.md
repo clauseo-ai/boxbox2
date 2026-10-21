@@ -16,7 +16,7 @@ lands here in the same change that adds it (AGENTS.md, dependencies).
 | hmac, sha2 | the session cookie's signature | MIT OR Apache-2.0 |
 | jiff | the local day a telemetry row belongs to | MIT OR Unlicense |
 | rand | backoff jitter, the cookie secret, minted ids | MIT OR Apache-2.0 |
-| reqwest (rustls) | requests to the cmx2 daemons | MIT OR Apache-2.0 |
+| reqwest (rustls, gzip) | requests to the cmx2 daemons, taking gzip and decoding it by `Content-Encoding` (the decompression it builds from tower-http and async-compression, already in the tree) | MIT OR Apache-2.0 |
 | rpassword | `boxbox init` asks for passwords without echoing them | Apache-2.0 |
 | rust-embed | the app inside the binary | MIT |
 | rusqlite (bundled sqlite) | `boxbox.db`, on the store writer's thread; `boxbox doctor` reads it read-only | MIT (sqlite: public domain) |

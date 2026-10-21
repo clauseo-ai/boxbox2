@@ -135,7 +135,9 @@ pub async fn stream(
         protocol: PROTOCOL,
         version: env!("CARGO_PKG_VERSION").to_owned(),
     }));
+    let gzip = crate::http::compress::takes_gzip(&headers);
     let stream = BoardStream {
+        gzip: gzip.then(crate::http::compress::Framed::new),
         board,
         fleet: state.fleet.clone(),
         generation: joined.generation,
@@ -149,8 +151,8 @@ pub async fn stream(
         finished: false,
     };
     let body = futures_util::stream::unfold(stream, |mut stream| async move {
-        let frame = stream.next().await?;
-        Some((Ok::<Bytes, std::convert::Infallible>(frame), stream))
+        let batch = stream.batch().await?;
+        Some((batch, stream))
     });
     let mut response = Body::from_stream(body).into_response();
     let headers = response.headers_mut();
@@ -160,6 +162,9 @@ pub async fn stream(
     );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     headers.insert("x-accel-buffering", HeaderValue::from_static("no"));
+    if gzip {
+        crate::http::compress::mark_gzip(headers);
+    }
     Ok(response)
 }
 
@@ -187,9 +192,62 @@ struct BoardStream {
     heartbeat: Interval,
     pending: VecDeque<Bytes>,
     finished: bool,
+    /// the connection's gzip context, when the client takes gzip.
+    gzip: Option<crate::http::compress::Framed>,
 }
 
+/// a write gathers ready frames until it holds this much (as `/api/stream` does).
+const BATCH_BYTES: usize = 64 * 1024;
+
 impl BoardStream {
+    /// the next write: one frame, waited for, every frame ready behind it up
+    /// to `BATCH_BYTES`, compressed and sync-flushed when the client takes
+    /// gzip. the same bytes in the same order as one write per frame.
+    async fn batch(&mut self) -> Option<Result<Bytes, std::io::Error>> {
+        let Some(first) = self.next().await else {
+            return self.gzip.as_mut()?.finish().map(Ok);
+        };
+        let mut size = first.len();
+        let mut batch = vec![first];
+        while size < BATCH_BYTES {
+            let Some(frame) = self.ready() else { break };
+            size += frame.len();
+            batch.push(frame);
+        }
+        let plain = if batch.len() == 1 {
+            batch.pop().unwrap_or_default()
+        } else {
+            Bytes::from(batch.concat())
+        };
+        match self.gzip.as_mut() {
+            None => Some(Ok(plain)),
+            Some(gzip) => Some(gzip.batch(&plain)),
+        }
+    }
+
+    /// a frame ready now, without waiting, in the order `next` prefers them;
+    /// none once the stream is ending.
+    fn ready(&mut self) -> Option<Bytes> {
+        if let Some(frame) = self.pending.pop_front() {
+            return Some(frame);
+        }
+        if self.finished
+            || self.first
+            || self.shutdown.is_cancelled()
+            || self.replaced.is_cancelled()
+        {
+            return None;
+        }
+        if let Ok(frame) = self.frames.try_recv() {
+            return Some(frame);
+        }
+        let view = self.view.as_mut()?;
+        if view.has_changed().ok()? {
+            return Some(view.borrow_and_update().clone());
+        }
+        None
+    }
+
     async fn next(&mut self) -> Option<Bytes> {
         if let Some(frame) = self.pending.pop_front() {
             return Some(frame);

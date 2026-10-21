@@ -94,6 +94,8 @@ fn replace(
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .user_agent(concat!("boxbox-upgrade/", env!("CARGO_PKG_VERSION")))
+        // the bytes checked against SHA256SUMS are the file's own: never decoded on the way
+        .no_gzip()
         .build()
         .map_err(|e| UpgradeError::Refused(format!("the http client did not build: {e}")))?;
     let sums = release::fetch(&runtime, &client, base, "SHA256SUMS")?;

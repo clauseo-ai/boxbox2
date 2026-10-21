@@ -51,6 +51,22 @@ pub(super) const BACKOFF_CAP: Duration = Duration::from_secs(30);
 
 const HEALTH: &str = "/global/health";
 const EVENTS: &str = "/global/event";
+/// cmx2's stream switches, all opt-in on its side (an older daemon ignores
+/// them and sends today's stream, which reads the same): text deltas merged
+/// into 100 ms batches, only the kinds the source translates
+/// (`translate::CONSUMED`; heartbeats and `stream.reset` always pass),
+/// a resume compacted to the latest state per key, and gzip. the request
+/// takes gzip through the client's own `Accept-Encoding`, and whether the
+/// answer is compressed is read from its `Content-Encoding`, never assumed.
+const SWITCHES: &str = "coalesce=100&compact=1&gzip=1";
+
+/// the event stream's route with its switches.
+fn events_route() -> String {
+    format!(
+        "{EVENTS}?{SWITCHES}&types={}",
+        translate::CONSUMED.join(",")
+    )
+}
 
 #[derive(Debug, thiserror::Error)]
 enum SessionError {
@@ -201,7 +217,7 @@ impl Watcher {
         let resume_from = self.cursor_text();
 
         let started = Instant::now();
-        let request = get(&self.client, &self.host, EVENTS)
+        let request = get(&self.client, &self.host, &events_route())
             .header(header::ACCEPT, "text/event-stream")
             .header("last-event-id", &resume_from)
             .send();
@@ -257,12 +273,12 @@ impl Watcher {
             Item::Oversized { bytes } => {
                 self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
                 warn!(host = %self.name, bytes, cap = FRAME_CAP, "frame over the cap skipped");
-                return Ok(None);
+                return self.skipped(None).await;
             }
             Item::NotUtf8 { bytes } => {
                 self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
                 warn!(host = %self.name, bytes, "frame is not utf-8, skipped");
-                return Ok(None);
+                return self.skipped(None).await;
             }
         };
         let decoded = match cmx2::decode_frame(&data) {
@@ -270,7 +286,7 @@ impl Watcher {
             Err(error) => {
                 self.counters.undecodable.fetch_add(1, Ordering::Relaxed);
                 warn!(host = %self.name, bytes = data.len(), %error, "undecodable frame skipped");
-                return Ok(None);
+                return self.skipped(None).await;
             }
         };
         self.counters.decoded.fetch_add(1, Ordering::Relaxed);
@@ -333,6 +349,15 @@ impl Watcher {
                 .map_err(|_| SessionError::FleetStopped)?;
         }
         Ok(seq)
+    }
+
+    /// the fleet hears that a frame was skipped, so no transcript read made
+    /// before it is answered unchanged (`fleet/model/marks.rs`).
+    async fn skipped(&self, seq: Option<u64>) -> Result<Option<u64>, SessionError> {
+        self.emit(seq, SourceEvent::Skipped, None)
+            .await
+            .map_err(|_| SessionError::FleetStopped)?;
+        Ok(None)
     }
 
     /// one event for this host's agent, which is the connection itself.
@@ -473,4 +498,192 @@ async fn read_small(response: reqwest::Response) -> Result<Vec<u8>, reqwest::Err
 
 fn millis(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use axum::extract::Query;
+    use axum::http::HeaderMap;
+    use bytes::Bytes;
+
+    use super::*;
+
+    /// a local stand-in for the daemon's event route that records what it was
+    /// asked and answers three frames, gzipped and sync-flushed one by one when
+    /// `gzip` is set, plain otherwise (as a daemon from before the switches),
+    /// each only after the client has read the one before.
+    async fn serve(
+        gzip: bool,
+    ) -> (
+        String,
+        tokio::sync::mpsc::Sender<()>,
+        tokio::sync::mpsc::Receiver<(HashMap<String, String>, HeaderMap)>,
+    ) {
+        use axum::routing::get;
+        let (next, wanted) = tokio::sync::mpsc::channel::<()>(1);
+        let (asked_tx, asked) = tokio::sync::mpsc::channel(1);
+        let wanted = Arc::new(tokio::sync::Mutex::new(wanted));
+        let router = axum::Router::new().route(
+            EVENTS,
+            get(
+                move |Query(query): Query<HashMap<String, String>>, headers: HeaderMap| {
+                    let wanted = Arc::clone(&wanted);
+                    let asked_tx = asked_tx.clone();
+                    async move {
+                        asked_tx.send((query, headers)).await.unwrap();
+                        let encoder = gzip.then(crate::http::compress::Framed::new);
+                        let frames = futures_util::stream::unfold(
+                            (wanted, 0u32, encoder),
+                            |(wanted, n, mut encoder)| async move {
+                                if n == 3 {
+                                    return None;
+                                }
+                                if n > 0 {
+                                    wanted.lock().await.recv().await?;
+                                }
+                                let frame = format!("id: e:{n}\ndata: {{\"n\":{n}}}\n\n");
+                                let bytes = match encoder.as_mut() {
+                                    Some(encoder) => encoder.batch(frame.as_bytes()).unwrap(),
+                                    None => Bytes::from(frame),
+                                };
+                                Some((Ok::<_, Infallible>(bytes), (wanted, n + 1, encoder)))
+                            },
+                        );
+                        let mut response = axum::response::IntoResponse::into_response(
+                            axum::body::Body::from_stream(frames),
+                        );
+                        response.headers_mut().insert(
+                            header::CONTENT_TYPE,
+                            header::HeaderValue::from_static("text/event-stream"),
+                        );
+                        if gzip {
+                            crate::http::compress::mark_gzip(response.headers_mut());
+                        }
+                        response
+                    }
+                },
+            ),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        (format!("http://{addr}"), next, asked)
+    }
+
+    #[tokio::test]
+    async fn a_frame_the_watcher_cannot_read_tells_the_fleet_it_was_skipped() {
+        let (fleet, mut heard) = tokio::sync::mpsc::channel(8);
+        let host = Arc::new(crate::config::HostConfig {
+            name: "desk".into(),
+            url: "http://127.0.0.1:9/".parse().unwrap(),
+            credential: None,
+            origin: crate::config::Origin::Config,
+        });
+        let mut watcher = Watcher::new(
+            host,
+            reqwest::Client::new(),
+            Arc::new(
+                watch::channel(HostStatus {
+                    name: "desk".into(),
+                    url: "http://127.0.0.1:9/".into(),
+                    origin: crate::config::Origin::Config,
+                    memory: None,
+                    system: None,
+                    reports_system: None,
+                    connection: Connection::Connected,
+                    since: 0,
+                    health: None,
+                    last_error: None,
+                    connects: 1,
+                    frames: super::super::FrameCounts::default(),
+                    cursor: None,
+                })
+                .0,
+            ),
+            Arc::new(Counters::default()),
+            SourceSender::new(Arc::from("desk"), fleet),
+            CancellationToken::new(),
+        );
+        for item in [
+            Item::Oversized {
+                bytes: FRAME_CAP + 1,
+            },
+            Item::NotUtf8 { bytes: 3 },
+            Item::Frame("not json".into()),
+        ] {
+            assert_eq!(watcher.frame(item).await.unwrap(), None);
+            match heard.try_recv().unwrap() {
+                crate::fleet::Upstream::Source {
+                    event: SourceEvent::Skipped,
+                    seq: None,
+                    ..
+                } => {}
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(watcher.counters.undecodable.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn the_stream_asks_for_the_switches_and_exactly_the_kinds_the_source_translates() {
+        let route = events_route();
+        let (path, query) = route.split_once('?').unwrap();
+        assert_eq!(path, EVENTS);
+        let pairs: HashMap<&str, &str> =
+            query.split('&').filter_map(|p| p.split_once('=')).collect();
+        assert_eq!(pairs["coalesce"], "100");
+        assert_eq!(pairs["compact"], "1");
+        assert_eq!(pairs["gzip"], "1");
+        let types: Vec<&str> = pairs["types"].split(',').collect();
+        assert_eq!(types, translate::CONSUMED);
+        // each kind named is one the decoder knows, so a typo cannot filter a kind away unseen
+        for kind in types {
+            assert!(EventKind::from_wire(kind).is_some(), "{kind}");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_stream_asks_for_its_switches_and_gzip_and_reads_each_frame_as_it_arrives_compressed_or_not()
+     {
+        for gzip in [true, false] {
+            let (base, next, mut asked) = serve(gzip).await;
+            let host = crate::config::HostConfig {
+                name: "desk".into(),
+                url: base.parse().unwrap(),
+                credential: None,
+                origin: crate::config::Origin::Config,
+            };
+            let client = reqwest::Client::builder().build().unwrap();
+            let response = get(&client, &host, &events_route()).send().await.unwrap();
+            let (query, headers) = asked.recv().await.unwrap();
+            assert_eq!(query["coalesce"], "100");
+            assert_eq!(query["types"], translate::CONSUMED.join(","));
+            assert!(crate::http::compress::takes_gzip(&headers), "{headers:?}");
+            let mut stream = response.bytes_stream();
+            let mut decoder = Decoder::new(FRAME_CAP);
+            for n in 0..3 {
+                let mut items = Vec::new();
+                while items.is_empty() {
+                    let chunk = tokio::time::timeout(Duration::from_secs(2), stream.next())
+                        .await
+                        .expect("a frame was held back")
+                        .unwrap()
+                        .unwrap();
+                    decoder.push(&chunk, &mut items);
+                }
+                assert_eq!(items.len(), 1, "gzip {gzip}");
+                match items.pop().unwrap() {
+                    Item::Frame(data) => {
+                        assert_eq!(&*data, format!("{{\"n\":{n}}}"), "gzip {gzip}");
+                    }
+                    other => panic!("{other:?}"),
+                }
+                let _ = next.send(()).await;
+            }
+        }
+    }
 }

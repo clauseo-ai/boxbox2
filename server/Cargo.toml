@@ -39,7 +39,7 @@ hmac = "0.13"
 jiff = "0.2.37"
 p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
 rand = "0.10"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["gzip", "rustls", "stream"] }
 rpassword = "7.5"
 rusqlite = { version = "0.40", features = ["bundled"] }
 rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }

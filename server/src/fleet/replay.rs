@@ -35,6 +35,12 @@ use crate::source::cmx2::{self, translate};
 use crate::source::{SourceEvent, SourceSender, Stamp};
 use crate::upstream::reconcile::{HostRead, Stamped};
 
+/// the tail cadence the bench's tape was recorded at, before the home
+/// overview's pace moved to `model::TAIL_EVERY_MS`. a replay at today's pace
+/// flushes a held tail at the first recorded flush or change past it, so its
+/// journal differs from the recording only in when session entries go out.
+pub const RECORDED_TAIL_EVERY_MS: i64 = 200;
+
 /// what one query answered.
 #[derive(Debug)]
 pub enum Answer {
@@ -109,6 +115,15 @@ impl Replay {
             pushed: Vec::new(),
             steps: 0,
         }
+    }
+
+    /// the same, flushing held tails at the cadence the tape was recorded
+    /// at (`RECORDED_TAIL_EVERY_MS`), so what it journals can be held against
+    /// what the live server sent.
+    #[must_use]
+    pub fn at_recorded_pace(mut self) -> Self {
+        self.actor.model.set_tail_every(RECORDED_TAIL_EVERY_MS);
+        self
     }
 
     /// the same, giving repos colours as a fresh server does now: what the

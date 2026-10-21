@@ -14,6 +14,23 @@ mod generated {
 
 pub use generated::*;
 
+use serde::Deserialize;
+use serde_json::value::RawValue;
+
+/// one field of a payload's `properties`, read in a single pass over the
+/// payload: reading the properties first and the field out of them scans
+/// the payload twice, and a part is megabytes.
+///
+/// # Errors
+/// the payload has no `properties`, or they lack the field.
+pub fn property<'a, T: Deserialize<'a>>(payload: &'a RawValue) -> Result<T, serde_json::Error> {
+    #[derive(Deserialize)]
+    struct Under<T> {
+        properties: T,
+    }
+    serde_json::from_str::<Under<T>>(payload.get()).map(|under| under.properties)
+}
+
 /// one `/global/event` frame, decoded.
 #[derive(Debug)]
 pub struct Decoded {

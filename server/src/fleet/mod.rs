@@ -210,6 +210,12 @@ enum Command {
         host: String,
         reply: oneshot::Sender<HashSet<String>>,
     },
+    TranscriptUnchanged {
+        host: String,
+        session: String,
+        stamp: Cursor,
+        reply: oneshot::Sender<bool>,
+    },
     Unadopt {
         key: String,
     },
@@ -559,6 +565,28 @@ impl Fleet {
         answer.await.map_err(|_| Stopped)
     }
 
+    /// whether a read of the session's transcript stamped `stamp` is still
+    /// what the daemon would answer (`model/marks.rs`).
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn transcript_unchanged(
+        &self,
+        host: String,
+        session: String,
+        stamp: Cursor,
+    ) -> Result<bool, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::TranscriptUnchanged {
+            host,
+            session,
+            stamp,
+            reply,
+        })
+        .await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
     /// a thread the daemon no longer has live (archived, or gone) is not adopted any more.
     ///
     /// # Errors
@@ -894,6 +922,7 @@ impl Actor {
         );
     }
 
+    #[allow(clippy::too_many_lines, reason = "one arm per command")]
     fn command(&mut self, command: Command) {
         let now = crate::now_ms();
         #[cfg(feature = "record")]
@@ -963,6 +992,14 @@ impl Actor {
             }
             Command::Places { host, reply } => {
                 let _ = reply.send(self.model.places(&host));
+            }
+            Command::TranscriptUnchanged {
+                host,
+                session,
+                stamp,
+                reply,
+            } => {
+                let _ = reply.send(self.model.transcript_unchanged(&host, &session, &stamp));
             }
             Command::Unadopt { key } => {
                 let changes = self.model.unadopt(&key);

@@ -16,7 +16,7 @@
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::cmx2::{self, Event};
+use crate::cmx2::{self, Event, property};
 use crate::fleet::model::{PartFacts, part_facts};
 use crate::source::{
     AgentFacts, ConnectionStatus, Floors, MessageWithParts, Notice, RaisedAsk, Snapshot,
@@ -38,6 +38,32 @@ const RUNTIME_SETTLERS: [&str; 1] = ["always rule"];
 const SYSTEM_SETTLERS: [&str; 4] = ["abort", "cascade", "session_ended", "daemon_restart"];
 /// the file parts a client draws as a picture.
 const IMAGE_KINDS: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/// the wire names of the kinds `event` translates, one per row of its match.
+/// a kind outside this list never reaches the translation, so a stream
+/// filtered to it loses nothing the reducer reads. `translate/tests.rs` holds
+/// the list to a frame per kind, and a kind added to the match goes here too.
+pub const CONSUMED: [&str; 19] = [
+    "message.updated",
+    "message.part.updated",
+    "message.part.delta",
+    "message.removed",
+    "session.created",
+    "session.updated",
+    "session.deleted",
+    "session.idle",
+    "session.status",
+    "session.error",
+    "permission.asked",
+    "permission.replied",
+    "question.asked",
+    "question.replied",
+    "question.rejected",
+    "worktree.review.requested",
+    "worktree.merged",
+    "worktree.discarded",
+    "process.notify",
+];
 
 #[derive(Deserialize)]
 struct Envelope<'a> {
@@ -85,17 +111,16 @@ pub fn event(
     event: &Event,
     payload: &RawValue,
 ) -> Result<Option<SourceEvent>, serde_json::Error> {
-    let properties = || properties_of(payload);
     Ok(Some(match event {
         Event::MessageUpdated(e) => {
-            let info = serde_json::from_str::<InfoField<'_>>(properties()?.get())?.info;
+            let info = property::<InfoField<'_>>(payload)?.info;
             SourceEvent::Message {
                 thread: e.properties.session_id.clone(),
                 message: Box::new(message(info)?),
             }
         }
         Event::MessagePartUpdated(e) => {
-            let part = serde_json::from_str::<PartField<'_>>(properties()?.get())?.part;
+            let part = property::<PartField<'_>>(payload)?.part;
             SourceEvent::Part {
                 thread: e.properties.session_id.clone(),
                 part: Box::new(self::part(part)),
@@ -137,17 +162,16 @@ pub fn event(
 
 /// the session rows: a thread born, changed or gone, its activity, its turn's end.
 fn session(event: &Event, payload: &RawValue) -> Result<Option<SourceEvent>, serde_json::Error> {
-    let properties = || properties_of(payload);
     Ok(Some(match event {
         Event::SessionCreated(e) => {
-            let info = serde_json::from_str::<InfoField<'_>>(properties()?.get())?.info;
+            let info = property::<InfoField<'_>>(payload)?.info;
             SourceEvent::Thread {
                 thread: Box::new(thread(&e.properties.info, info.to_owned())),
                 born: true,
             }
         }
         Event::SessionUpdated(e) => {
-            let info = serde_json::from_str::<InfoField<'_>>(properties()?.get())?.info;
+            let info = property::<InfoField<'_>>(payload)?.info;
             SourceEvent::Thread {
                 thread: Box::new(thread(&e.properties.info, info.to_owned())),
                 born: false,
@@ -158,7 +182,7 @@ fn session(event: &Event, payload: &RawValue) -> Result<Option<SourceEvent>, ser
         },
         Event::SessionStatus(e) => {
             // the raw status rides in the payload; read it here so a payload without one is skipped as before
-            serde_json::from_str::<StatusField<'_>>(properties()?.get())?;
+            property::<StatusField<'_>>(payload)?;
             SourceEvent::Activity {
                 thread: e.properties.session_id.clone(),
                 activity: activity(&e.properties.status),
@@ -177,34 +201,33 @@ fn asked(
     event: &Event,
     payload: &RawValue,
 ) -> Result<Option<SourceEvent>, serde_json::Error> {
-    let properties = || properties_of(payload);
     Ok(Some(match event {
         Event::PermissionAsked(_) => SourceEvent::AskRaised {
-            ask: Box::new(ask(host, AskKind::Permission, properties()?)?),
+            ask: Box::new(ask(host, AskKind::Permission, properties_of(payload)?)?),
         },
         Event::QuestionAsked(_) => SourceEvent::AskRaised {
-            ask: Box::new(ask(host, AskKind::Question, properties()?)?),
+            ask: Box::new(ask(host, AskKind::Question, properties_of(payload)?)?),
         },
         Event::PermissionReplied(e) => settled(
             host,
             &e.properties.request_id,
             AskKind::Permission,
             Some(e.properties.reply.to_string()),
-            properties()?,
+            payload,
         )?,
         Event::QuestionReplied(e) => settled(
             host,
             &e.properties.request_id,
             AskKind::Question,
             None,
-            properties()?,
+            payload,
         )?,
         Event::QuestionRejected(e) => settled(
             host,
             &e.properties.request_id,
             AskKind::Question,
             Some("reject".to_owned()),
-            properties()?,
+            payload,
         )?,
         _ => return Ok(None),
     }))
@@ -269,9 +292,9 @@ fn settled(
     id: &str,
     kind: AskKind,
     option: Option<String>,
-    properties: &RawValue,
+    payload: &RawValue,
 ) -> Result<SourceEvent, serde_json::Error> {
-    let by = serde_json::from_str::<SettledByField>(properties.get())?.by;
+    let by = property::<SettledByField>(payload)?.by;
     let by = by.map(|name| {
         let kind = if RUNTIME_SETTLERS.contains(&name.as_str()) {
             SettlerKind::Runtime
@@ -557,6 +580,10 @@ struct PartJson {
     text: Option<String>,
     #[serde(default)]
     synthetic: bool,
+    /// read as a value, not a bool: a streaming that is not a bool reads as
+    /// false, as the reducer always read it, rather than refusing the part.
+    #[serde(default)]
+    streaming: serde_json::Value,
     #[serde(default)]
     time: serde_json::Value,
     #[serde(default)]
@@ -587,7 +614,7 @@ struct PartJson {
 pub fn part(raw: &RawValue) -> Part {
     let neutral = serde_json::from_str::<PartJson>(raw.get())
         .ok()
-        .and_then(|json| known(json, raw));
+        .and_then(known);
     match neutral {
         Some(part) if facts_agree(&part, raw) => part,
         _ => Part::unknown(raw.to_owned()),
@@ -620,12 +647,9 @@ fn part_time(value: &serde_json::Value) -> Option<PartTime> {
     })
 }
 
-fn known(json: PartJson, raw: &RawValue) -> Option<Part> {
+fn known(json: PartJson) -> Option<Part> {
     let at = at(&json.id);
-    let streaming = serde_json::from_str::<serde_json::Value>(raw.get())
-        .ok()
-        .and_then(|v| v.get("streaming").and_then(serde_json::Value::as_bool))
-        .unwrap_or(false);
+    let streaming = json.streaming.as_bool().unwrap_or(false);
     Some(match json.kind.as_str() {
         "text" => Part::Text(TextPart {
             id: json.id,

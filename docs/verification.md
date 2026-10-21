@@ -313,7 +313,7 @@ stops everything it started, printing what still listens (nothing). the
 fleet is ten threads streaming a word every 60 ms for the whole run (five
 do a window's worth of tool work first), their prompts sent 20 ms apart
 from one start so their words fall the same way against the server's
-200 ms session ticks every run, a hundred done, and one quiet
+500 ms session ticks (`model::TAIL_EVERY_MS`) every run, a hundred done, and one quiet
 thread. a counting proxy in front of boxbox sees every byte the page and
 its worker receive. each mode loads the page fresh, settles 20 s, then
 measures with a chromium trace in 30 s chunks (a busy page traces at about

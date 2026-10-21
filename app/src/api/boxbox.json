@@ -2490,11 +2490,23 @@
               "format": "int64",
               "minimum": 0
             }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "the etag of a read the client holds",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "cmx2's message list, byte for byte, with `x-cmx2-seq`",
+            "description": "cmx2's message list, byte for byte, with `x-cmx2-seq` and the same stamp as a weak etag",
             "content": {
               "application/json": {
                 "schema": {
@@ -2505,6 +2517,9 @@
                 }
               }
             }
+          },
+          "304": {
+            "description": "the read whose etag was sent is still the transcript; `x-cmx2-seq` is its stamp"
           },
           "401": {
             "description": "not signed in",
@@ -2573,11 +2588,23 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "the etag of a read the client holds",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "cmx2's `{info, parts}`, byte for byte, with `x-cmx2-seq`",
+            "description": "cmx2's `{info, parts}`, byte for byte, with `x-cmx2-seq` and the same stamp as a weak etag",
             "content": {
               "application/json": {
                 "schema": {
@@ -2585,6 +2612,9 @@
                 }
               }
             }
+          },
+          "304": {
+            "description": "the read whose etag was sent still holds; `x-cmx2-seq` is its stamp"
           },
           "401": {
             "description": "not signed in",

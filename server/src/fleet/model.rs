@@ -35,7 +35,9 @@
 //! decides, as it always does.
 
 pub mod board;
+pub mod marks;
 
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
 use serde::Deserialize;
@@ -49,6 +51,7 @@ use super::clears::{Clear, Clears};
 use super::colours::{self, Colours};
 use super::needs::{By, How, Moved, Need, NeedKind, Needs, last_sentences};
 use super::read::{Mark, Reads};
+use crate::cmx2::property;
 use crate::push::presence::Looking;
 use crate::push::{About, AskKind as PushAsk, Notice, Origin, Thread};
 use crate::source::{
@@ -73,11 +76,11 @@ pub const TAIL_ITEMS: usize = 12;
 /// the start of what you asked.
 pub const TAIL_TEXT: usize = 280;
 /// a session's entry goes into the journal at most this often while only
-/// streamed text moves its tail. at reading speed that is two or three
-/// words a change, which the window's 360 ms blur settle runs together;
-/// each change is the whole entry (a few kb), so a faster beat would spend
-/// the journal's 16 mb on frames no one can tell apart.
-pub const TAIL_EVERY_MS: i64 = 200;
+/// streamed text moves its tail: the home overview's pace. each change is
+/// the whole entry (a few kb), so a faster beat spends the journal's 16 mb
+/// and every device's link on frames no one reads; 500 ms (it was 200)
+/// moves a window's text a few words at a time.
+pub const TAIL_EVERY_MS: i64 = 500;
 /// a session touched this recently has a window (`design.md`, the model:
 /// windows; `app/src/ui/home/membership.ts`), ms.
 pub const WINDOW_RECENT_MS: f64 = 12.0 * 60.0 * 60.0 * 1000.0;
@@ -353,6 +356,8 @@ pub struct Model {
     /// each host's store epoch, as its last read said: a tail read from
     /// another epoch lines up with nothing here.
     epochs: HashMap<String, String>,
+    /// each session's last transcript event, for a read answered unchanged.
+    marks: marks::Marks,
     order: Vec<String>,
     serial: u64,
     needs: Needs,
@@ -382,6 +387,9 @@ pub struct Model {
     /// not have yet. at most one per session held, so it is bounded by
     /// `MAX_SESSIONS`; a session that goes leaves it.
     held: BTreeSet<String>,
+    /// how often a session's held tail goes out, when not `TAIL_EVERY_MS`:
+    /// only a recorded tape, replayed at the cadence it was recorded at.
+    tail_every: Option<i64>,
     /// the time, ms, as the actor last said.
     now: i64,
     effects: Vec<Effect>,
@@ -448,13 +456,16 @@ impl MessageFacts {
 /// read loosely: a part type this build does not know still has an id, a
 /// message and a type.
 #[derive(Debug, Deserialize, PartialEq, Eq)]
-pub(crate) struct PartFacts {
+pub(crate) struct PartFacts<'a> {
     id: String,
     #[serde(rename = "messageID")]
     message_id: String,
     #[serde(rename = "type")]
     kind: String,
-    text: Option<String>,
+    /// borrowed where it can be: a part's text is megabytes, and comparing
+    /// two facts or reading a tail's end needs no copy of it.
+    #[serde(borrow)]
+    text: Option<Cow<'a, str>>,
     tool: Option<String>,
     state: Option<ToolFacts>,
     filename: Option<String>,
@@ -501,18 +512,7 @@ pub(crate) struct ToolFacts {
 /// what a tail reads of a part: the facts of each neutral kind, and of an
 /// unknown one the facts its json holds, read loosely as always. none when
 /// even those do not decode.
-pub(crate) fn part_facts(part: &Part) -> Option<PartFacts> {
-    let facts = |kind: &str, text: Option<&str>| PartFacts {
-        id: part.id().to_owned(),
-        message_id: part.message_id().to_owned(),
-        kind: kind.to_owned(),
-        text: text.map(str::to_owned),
-        tool: None,
-        state: None,
-        filename: None,
-        synthetic: false,
-        mail: None,
-    };
+pub(crate) fn part_facts(part: &Part) -> Option<PartFacts<'_>> {
     Some(match part {
         Part::Text(p) => PartFacts {
             synthetic: p.synthetic,
@@ -520,29 +520,30 @@ pub(crate) fn part_facts(part: &Part) -> Option<PartFacts> {
                 kind: Some(m.kind.clone()),
                 from: m.from.clone(),
             }),
-            ..facts("text", Some(&p.text))
+            ..facts_of(part, "text", Some(&p.text))
         },
-        Part::Reasoning(p) => facts("reasoning", Some(&p.text)),
+        Part::Reasoning(p) => facts_of(part, "reasoning", Some(&p.text)),
         Part::Tool(p) => PartFacts {
             tool: Some(p.tool.clone()),
             state: Some(ToolFacts {
                 status: Some(p.state.status.as_str().to_owned()),
                 title: p.state.title.clone(),
             }),
-            ..facts("tool", None)
+            ..facts_of(part, "tool", None)
         },
         // contract 1 shows a picture and a recording as the file they are
         Part::File(p) => PartFacts {
             filename: Some(p.filename.clone()),
-            ..facts("file", None)
+            ..facts_of(part, "file", None)
         },
         Part::Image(p) => PartFacts {
             filename: p.filename.clone(),
-            ..facts("file", None)
+            ..facts_of(part, "file", None)
         },
-        Part::Audio(_) => facts("file", None),
-        Part::Compaction(_) => facts("compaction", None),
-        Part::Marker(p) => facts(
+        Part::Audio(_) => facts_of(part, "file", None),
+        Part::Compaction(_) => facts_of(part, "compaction", None),
+        Part::Marker(p) => facts_of(
+            part,
             match p.marker {
                 wire::MarkerKind::StepStart => "step-start",
                 wire::MarkerKind::StepFinish => "step-finish",
@@ -554,6 +555,21 @@ pub(crate) fn part_facts(part: &Part) -> Option<PartFacts> {
         ),
         Part::Unknown(p) => return PartFacts::deserialize(&*p.raw).ok(),
     })
+}
+
+/// the facts every part has, with the text it carries (if any) borrowed.
+fn facts_of<'a>(part: &'a Part, kind: &str, text: Option<&'a str>) -> PartFacts<'a> {
+    PartFacts {
+        id: part.id().to_owned(),
+        message_id: part.message_id().to_owned(),
+        kind: kind.to_owned(),
+        text: text.map(Cow::Borrowed),
+        tool: None,
+        state: None,
+        filename: None,
+        synthetic: false,
+        mail: None,
+    }
 }
 
 /// the repos the fleet holds a session of, which keeps their colours from
@@ -607,6 +623,16 @@ impl Model {
             restored: adopted,
             ..Self::default()
         }
+    }
+
+    /// a replay of a tape recorded at another tail cadence keeps it.
+    #[cfg(test)]
+    pub fn set_tail_every(&mut self, ms: i64) {
+        self.tail_every = Some(ms);
+    }
+
+    fn tail_every(&self) -> i64 {
+        self.tail_every.unwrap_or(TAIL_EVERY_MS)
     }
 
     /// the time now, ms since the epoch; every input after it is stamped with it.
@@ -740,6 +766,20 @@ impl Model {
             .collect()
     }
 
+    /// whether a read of the session's transcript stamped `stamp` (its
+    /// `x-cmx2-seq`) is still what the daemon would answer (`marks.rs`). a
+    /// session that is not plain idle may change at any moment: never.
+    #[must_use]
+    pub fn transcript_unchanged(
+        &self,
+        host: &str,
+        session: &str,
+        stamp: &crate::journal::Cursor,
+    ) -> bool {
+        !self.statuses.contains_key(&session_key(host, session))
+            && self.marks.unchanged(host, session, stamp)
+    }
+
     #[must_use]
     pub fn session_count(&self) -> usize {
         self.sessions.len()
@@ -756,6 +796,18 @@ impl Model {
 
     /// a connection's status: for cmx2, the host contract 1 carries.
     pub fn connection(&mut self, status: ConnectionStatus) -> Vec<Change> {
+        let name = &status.connection.name;
+        if status.status == crate::wire::AgentStatus::Ready {
+            let from = status
+                .connection
+                .cursor
+                .as_deref()
+                .and_then(crate::journal::Cursor::parse);
+            self.marks.connected(name, from.as_ref());
+        } else {
+            // a stream that is not flowing carries nothing: no read can be held to it
+            self.marks.forget(name);
+        }
         status.host.map_or_else(Vec::new, |host| self.host(*host))
     }
 
@@ -764,6 +816,7 @@ impl Model {
         self.hosts.retain(|h| h.name != host);
         self.floors.remove(host);
         self.epochs.remove(host);
+        self.marks.forget(host);
         self.drop_host(host);
         let prefix = format!("{host}:");
         for (key, _) in self
@@ -812,6 +865,14 @@ impl Model {
             })
             .collect();
         self.drop_host(&host);
+        // the stream resumes from the oldest list the read reflects; transcript events are seen from there
+        let resumes = read
+            .floors
+            .threads
+            .min(read.floors.activities)
+            .min(read.floors.permissions)
+            .min(read.floors.questions);
+        self.marks.read(&host, read.epoch.as_deref(), resumes);
         self.floors.insert(
             host.clone(),
             Floors {
@@ -890,7 +951,6 @@ impl Model {
         event: SourceEvent,
         raw: Option<&RawValue>,
     ) -> Result<Vec<Change>, serde_json::Error> {
-        let properties = || raw.map(properties_of).transpose();
         let mut changes = Vec::new();
         let moved_before = self.effects.len();
         let status_before = match &event {
@@ -901,11 +961,15 @@ impl Model {
             }
             _ => None,
         };
+        if let Some(seq) = seq {
+            self.marks.seen(host, seq);
+        }
         match event {
-            SourceEvent::Message { .. }
-            | SourceEvent::Part { .. }
-            | SourceEvent::Delta { .. }
-            | SourceEvent::MessageRemoved { .. } => {
+            SourceEvent::Message { ref thread, .. }
+            | SourceEvent::Part { ref thread, .. }
+            | SourceEvent::Delta { ref thread, .. }
+            | SourceEvent::MessageRemoved { ref thread, .. } => {
+                self.marks.transcript(host, thread, seq);
                 self.transcript(host, seq, event, raw, &mut changes)?;
             }
             SourceEvent::Fault { .. }
@@ -931,8 +995,8 @@ impl Model {
             }
             SourceEvent::Activity { thread, activity } => {
                 if !self.stale(host, Domain::Statuses, seq) {
-                    let status = match properties()? {
-                        Some(p) => Some(serde_json::from_str::<StatusField<'_>>(p.get())?.status),
+                    let status = match raw {
+                        Some(p) => Some(property::<StatusField<'_>>(p)?.status),
                         None => None,
                     };
                     self.set_status(
@@ -969,6 +1033,7 @@ impl Model {
             | SourceEvent::Reactions { .. }
             | SourceEvent::TailRead(_)
             | SourceEvent::TailUnread { .. } => {}
+            SourceEvent::Skipped => self.marks.skipped(host, seq),
         }
         self.after_event(moved_before, status_before, &mut changes);
         self.journaled(&changes);
@@ -1030,18 +1095,17 @@ impl Model {
         raw: Option<&RawValue>,
         changes: &mut Vec<Change>,
     ) -> Result<(), serde_json::Error> {
-        let properties = || raw.map(properties_of).transpose();
         match event {
             SourceEvent::Message { thread, message } => {
-                let info = match properties()? {
-                    Some(p) => Some(serde_json::from_str::<InfoField<'_>>(p.get())?.info),
+                let info = match raw {
+                    Some(p) => Some(property::<InfoField<'_>>(p)?.info),
                     None => None,
                 };
                 self.said(host, seq, &thread, &message, info, changes);
             }
             SourceEvent::Part { thread, part } => {
-                let raw_part = match properties()? {
-                    Some(p) => Some(serde_json::from_str::<PartField<'_>>(p.get())?.part),
+                let raw_part = match raw {
+                    Some(p) => Some(property::<PartField<'_>>(p)?.part),
                     None => None,
                 };
                 let key = session_key(host, &thread);
@@ -1361,20 +1425,20 @@ impl Model {
         self.held
             .iter()
             .filter_map(|key| self.sessions.get(key))
-            .map(|s| s.tail.sent + TAIL_EVERY_MS)
+            .map(|s| s.tail.sent + self.tail_every())
             .min()
     }
 
     /// the entries of sessions whose held streamed text is due, now.
     pub fn flush_tails(&mut self) -> Vec<Change> {
-        let now = self.now;
+        let (now, every) = (self.now, self.tail_every());
         let due: Vec<String> = self
             .held
             .iter()
             .filter(|key| {
                 self.sessions
                     .get(*key)
-                    .is_none_or(|s| now - s.tail.sent >= TAIL_EVERY_MS)
+                    .is_none_or(|s| now - s.tail.sent >= every)
             })
             .cloned()
             .collect();
@@ -1415,7 +1479,7 @@ impl Model {
         let due = self
             .sessions
             .get(key)
-            .is_some_and(|s| self.now - s.tail.sent >= TAIL_EVERY_MS);
+            .is_some_and(|s| self.now - s.tail.sent >= self.tail_every());
         if due {
             changes.extend(self.entry(key).map(|session| Change::Session { session }));
         } else {
@@ -1882,16 +1946,33 @@ impl Model {
                 (rank.0, rank.1, key.as_str())
             })
             .collect();
-        ranked.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(b.2)));
+        // the keys are unique, so this order has no ties and an unstable
+        // sort gives the same answer as a stable one. past the cap only the
+        // first `MAX_ORDER` matter, which selecting them first sorts less.
+        let rank = |a: &(u8, f64, &str), b: &(u8, f64, &str)| {
+            a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(b.2))
+        };
+        if ranked.len() > MAX_ORDER {
+            ranked.select_nth_unstable_by(MAX_ORDER, rank);
+            ranked.truncate(MAX_ORDER);
+        }
+        ranked.sort_unstable_by(rank);
+        // most ranks do not move when a thread streams: compare in place, and
+        // build the keys only when the order moved
+        let moved = ranked.len() != self.order.len()
+            || ranked
+                .iter()
+                .zip(&self.order)
+                .any(|(&(_, _, key), held)| key != held);
+        if !moved {
+            return;
+        }
         let order: Vec<String> = ranked
             .into_iter()
-            .take(MAX_ORDER)
             .map(|(_, _, key)| key.to_owned())
             .collect();
-        if order != self.order {
-            self.order.clone_from(&order);
-            changes.push(Change::Order { keys: order });
-        }
+        self.order.clone_from(&order);
+        changes.push(Change::Order { keys: order });
     }
 }
 
@@ -3130,7 +3211,7 @@ impl Tail {
     }
 }
 
-fn tail_item(part: PartFacts, role: TailRole) -> Option<TailItem> {
+fn tail_item(part: PartFacts<'_>, role: TailRole) -> Option<TailItem> {
     if part.synthetic {
         return None;
     }
@@ -3143,7 +3224,7 @@ fn tail_item(part: PartFacts, role: TailRole) -> Option<TailItem> {
         _ => return None,
     };
     let text = match kind {
-        TailKind::Text | TailKind::Reasoning => part.text.unwrap_or_default(),
+        TailKind::Text | TailKind::Reasoning => part.text.map(Cow::into_owned).unwrap_or_default(),
         TailKind::Tool => part
             .state
             .as_ref()
@@ -4186,6 +4267,99 @@ mod tests {
                 "served done:desk:ses_1:msg_a by agent continued",
                 "continued desk:ses_1"
             ]
+        );
+    }
+
+    /// a resume with cmx2's `compact=1` sends the latest state of each key,
+    /// keeping each key's first state event and every status of another
+    /// type: a turn that ran wholly inside the gap arrives as busy, each
+    /// message's first update, its settled part, its last update and idle.
+    /// the done need and its push still come, the journal names each message
+    /// before its parts (so a device needs no read for it), and no tail is
+    /// read again.
+    #[test]
+    fn a_turn_run_wholly_inside_a_compacted_gap_still_raises_done_and_reads_nothing() {
+        let mut model = Model::new();
+        model.at(1_000);
+        event(
+            &mut model,
+            Some(10),
+            &updated("ses_1", 1, None).replace("session.updated", "session.created"),
+        );
+        model.drain();
+        let mut changes = Vec::new();
+        for (seq, payload) in [
+            (20, status("ses_1", r#"{"type":"busy","since":5}"#)),
+            (21, message("msg_u", "user", "")),
+            (22, message("msg_a", "assistant", "")),
+            (
+                25,
+                text_part(
+                    "msg_a",
+                    "prt_a",
+                    "all done",
+                    r#","time":{"start":1,"end":2}"#,
+                ),
+            ),
+            (
+                26,
+                message_event("msg_a", "ses_1", "assistant", true, r#","finish":"stop""#),
+            ),
+            (27, status("ses_1", r#"{"type":"idle","since":9}"#)),
+        ] {
+            changes.extend(event(&mut model, Some(seq), &payload));
+        }
+        let effects = model.drain();
+        assert!(
+            !effects.iter().any(|e| matches!(e, Effect::ReadTail(_))),
+            "a tail was read again"
+        );
+        let told: Vec<String> = effects
+            .into_iter()
+            .filter_map(|e| match e {
+                Effect::Need(Moved::Raised(n)) => Some(format!("raised {}", n.id)),
+                Effect::Notice(n) => Some(format!("notice {}", n.id)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            told,
+            [
+                "raised done:desk:ses_1:msg_a",
+                "notice done:desk:ses_1:msg_a"
+            ]
+        );
+        let message_at = changes
+            .iter()
+            .position(|c| matches!(c, Change::Message { .. }))
+            .expect("the message is journaled");
+        let part_at = changes
+            .iter()
+            .position(|c| matches!(c, Change::Part { .. }))
+            .expect("the part is journaled");
+        assert!(message_at < part_at, "a part ahead of its message");
+        // why cmx2 must keep a status of another type: without busy, the same turn raises nothing
+        let mut model = Model::new();
+        model.at(1_000);
+        event(
+            &mut model,
+            Some(10),
+            &updated("ses_1", 1, None).replace("session.updated", "session.created"),
+        );
+        event(
+            &mut model,
+            Some(26),
+            &message_event("msg_a", "ses_1", "assistant", true, r#","finish":"stop""#),
+        );
+        model.drain();
+        event(
+            &mut model,
+            Some(27),
+            &status("ses_1", r#"{"type":"idle","since":9}"#),
+        );
+        assert!(
+            !model.drain().iter().any(|e| matches!(e, Effect::Notice(_))),
+            "idle alone raises no done"
         );
     }
 
@@ -5976,6 +6150,26 @@ mod tests {
             "the cleared newest gave its place to the oldest live one"
         );
         assert!(!order(&model).contains(&"desk:ses_300"));
+    }
+
+    #[test]
+    fn the_order_is_sent_only_when_it_moves() {
+        let mut model = Model::new();
+        model.host_read(host_read_of(
+            "ep",
+            5,
+            &[info("ses_1", 10, None), info("ses_2", 20, None)],
+        ));
+        assert_eq!(order(&model), ["desk:ses_2", "desk:ses_1"]);
+        let mut changes = Vec::new();
+        model.reorder(&mut changes);
+        assert!(changes.is_empty(), "the order held is still the order");
+        // a clear ranks the thread below every other, so the order moves and is sent once
+        model.clear(&["desk:ses_2".into()], &phone());
+        assert_eq!(order(&model), ["desk:ses_1", "desk:ses_2"]);
+        let mut changes = Vec::new();
+        model.reorder(&mut changes);
+        assert!(changes.is_empty(), "already sent when it moved");
     }
 
     #[test]

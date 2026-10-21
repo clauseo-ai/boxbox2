@@ -4149,7 +4149,10 @@ export interface operations {
     messages: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description the etag of a read the client holds */
+                "If-None-Match"?: string | null;
+            };
             path: {
                 /** @description the host's name in boxbox.toml */
                 host: string;
@@ -4164,7 +4167,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description cmx2's message list, byte for byte, with `x-cmx2-seq` */
+            /** @description cmx2's message list, byte for byte, with `x-cmx2-seq` and the same stamp as a weak etag */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4172,6 +4175,13 @@ export interface operations {
                 content: {
                     "application/json": Record<string, never>[];
                 };
+            };
+            /** @description the read whose etag was sent is still the transcript; `x-cmx2-seq` is its stamp */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description not signed in */
             401: {
@@ -4205,7 +4215,10 @@ export interface operations {
     message: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description the etag of a read the client holds */
+                "If-None-Match"?: string | null;
+            };
             path: {
                 /** @description the host's name in boxbox.toml */
                 host: string;
@@ -4218,7 +4231,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description cmx2's `{info, parts}`, byte for byte, with `x-cmx2-seq` */
+            /** @description cmx2's `{info, parts}`, byte for byte, with `x-cmx2-seq` and the same stamp as a weak etag */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4226,6 +4239,13 @@ export interface operations {
                 content: {
                     "application/json": Record<string, never>;
                 };
+            };
+            /** @description the read whose etag was sent still holds; `x-cmx2-seq` is its stamp */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description not signed in */
             401: {

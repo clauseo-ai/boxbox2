@@ -595,7 +595,7 @@ guesses.
 
 | gap | what home does meanwhile | where it closes |
 |---|---|---|
-| ~~a window tail never takes deltas~~ | closed: the fleet folds `message.part.delta` into the tail; a session's entry goes out at most every 200 ms while only streamed text moves it (`model::TAIL_EVERY_MS`), flushed by the actor's clock, and the new words settle in by blur | |
+| ~~a window tail never takes deltas~~ | closed: the fleet folds `message.part.delta` into the tail; a session's entry goes out at most every 500 ms (it was 200) while only streamed text moves it (`model::TAIL_EVERY_MS`), flushed by the actor's clock, and the new words settle in by blur | |
 | ~~a tail item has no role~~ | closed: `TailItem.role` (`user`, `assistant`); your prompt is its own line on the right, its first 280 characters kept, and a prompt still queued stays out of the tail | |
 | ~~cmx2's synthetic parts enter the tail~~ | closed: `tail_item` skips `synthetic: true`, as the stage does | |
 | ~~no failure on a session (`session.error`)~~ | closed by m4: an open fault need feeds `Extra.failure` (`app/src/ui/inbox/extra.ts`) | |

@@ -102,6 +102,13 @@ impl Cmx2Source {
                 out.insert(name, value);
             }
         }
+        if status == StatusCode::OK
+            && let Some(tag) = (seq != "-")
+                .then(|| crate::http::transcript::etag(&seq))
+                .flatten()
+        {
+            out.insert(header::ETAG, tag);
+        }
         out.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
         Ok(response)
     }

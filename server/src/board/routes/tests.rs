@@ -123,7 +123,10 @@ impl World {
     }
 
     fn get(&self, path: &str, from: &str) -> reqwest::RequestBuilder {
-        reqwest::Client::new()
+        reqwest::Client::builder()
+            .no_gzip()
+            .build()
+            .unwrap()
             .get(format!("http://{}{path}", self.addr))
             .header("cookie", &self.cookie)
             .header("x-forwarded-for", from)
@@ -226,6 +229,45 @@ async fn without_a_board_every_board_route_is_404_and_the_flag_is_ignored() {
     )
     .await;
     assert_eq!(status, 404);
+}
+
+#[tokio::test]
+async fn a_board_stream_that_takes_gzip_gets_each_write_decodable_on_arrival() {
+    use std::io::Write;
+    let world = World::new().await;
+    let mut response = world
+        .get(
+            &format!("/api/board/stream?protocol=1&device=board-z&addrs={MAC},fd7a::7"),
+            MAC,
+        )
+        .header("accept-encoding", "gzip")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()["content-encoding"], "gzip");
+    let mut decoder = flate2::write::GzDecoder::new(Vec::new());
+    let mut read = String::new();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !read.contains(r#""type":"view""#) {
+            let chunk = response.chunk().await.unwrap().unwrap();
+            decoder.write_all(&chunk).unwrap();
+            decoder.flush().unwrap();
+            let text = std::mem::take(decoder.get_mut());
+            let text = std::str::from_utf8(&text).unwrap();
+            assert!(
+                text.ends_with("\n\n"),
+                "a write did not decode whole: {text:?}"
+            );
+            read.push_str(text);
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("no view in {read}"));
+    assert!(
+        read.starts_with(r#"data: {"type":"hello","protocol":1,"#),
+        "{read}"
+    );
 }
 
 #[tokio::test]

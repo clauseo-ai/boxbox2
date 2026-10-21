@@ -66,6 +66,11 @@ order.
 1. **daemon to server.** each upstream watcher holds `(epoch, seq)` per
    host in memory only. a restart reads each host fresh. within a run it resumes `/global/event` with `Last-Event-ID`
    (cmx2-asks a1) and drops any event at or below its high-water mark.
+   it asks for cmx2's stream switches (`coalesce=100`, `types=` the kinds
+   the source translates, `compact=1`, `gzip=1`; `upstream/watcher.rs`),
+   which an older daemon ignores; every request to a daemon takes gzip, and
+   reqwest decodes an answer by its `Content-Encoding`, so a compressed
+   and a plain answer read the same.
    cmx2 does not log deltas: a part that was streaming across the gap
    arrives once as a full `message.part.updated` at the resume seq, and
    live deltas continue after it. on `stream.reset` it reconciles from
@@ -78,7 +83,11 @@ order.
    ring and goes live. if the cursor has fallen out of the ring or is from
    another epoch (the server restarted with a new ring), the first frame
    is `reset` plus a snapshot of the fleet model, and the worker replaces
-   its cache atomically.
+   its cache atomically. every frame ready when the socket takes bytes
+   goes out in one write (up to 64 kb), and a client that sends
+   `Accept-Encoding: gzip` gets the stream through its own gzip context,
+   sync-flushed after each write so nothing waits to decode
+   (`http/compress.rs`, `Framed`; the board stream does the same).
 3. **worker to ui.** the worker applies events to its indexeddb cache and
    posts **patches** to the ui thread, coalesced to one message per
    animation frame. the ui never parses the stream and never talks to
@@ -117,7 +126,11 @@ transcripts only for threads it has pages for (opened by the person, held
 for another thread, or cached; see the indexeddb layout). opening a thread hydrates through the server from cmx2's
 `GET /session/:id/message` stamped with `x-cmx2-seq` (a2), including the
 in-flight message (a5); the worker then applies journal events after that
-seq. parts are keyed by the daemon's ids: `message.part.updated` replaces
+seq. the stamp is also the answer's weak etag: a read sent back as
+`If-None-Match` is answered 304, without the daemon, while the fleet has
+seen no transcript event for the session past it, the session is plain
+idle, and the host's stream is connected with no frame skipped since
+(`fleet/model/marks.rs`); the worker does not send it yet. parts are keyed by the daemon's ids: `message.part.updated` replaces
 a part whole, `message.part.delta` appends at its `offset` (a1),
 `message.removed` deletes. deltas in boxbox's own journal replay to a
 browser exactly once by journal seq; the offset check catches any gap and
@@ -198,9 +211,11 @@ owner; every map has an eviction rule. the caps:
 |---|---|---|
 | journal ring | 16 mb or 100,000 events (from m9 this is contract 2's ring; contract 1's sits beside it while contract 1 lives, 8 mb or 50,000 events, each ring with its own epoch, `agents.md`, the transition) | oldest events fall out; a cursor older than the floor gets `reset` plus a snapshot; a cursor from the other contract's epoch gets `reset` with reason `epoch` |
 | model caps (m9) | order 300, sessions 1000, adopted 20, clears 2000, needs 500 open and 200 served, each kept twice: once over cmx2 threads, once over every other source's (`agents.md`, the transition) | each side evicts by today's rule; contract 1 reads the cmx2 side only, so an assistant never changes a contract 1 frame |
-| client outbound channel | 512 kb | the stream is closed; the client resumes from its cursor. a slow phone can never grow the server |
+| client outbound channel | 512 kb of plain frames queued in the actor for one stream; what the stream already handed on is on top: hyper's write buffer (16 writes or about 408 kb, each write at most 64 kb of frames before compression) and the kernel's socket buffers, compressed bytes for a client that takes gzip. measured once with a client that never reads (`http/stream.rs`, `a_stalled_client_holds_a_bounded_amount_with_gzip_and_without`, loopback on a mac): 155 kb handed on with gzip (4.3 mb of frames), 1.6 mb without | the stream is closed; the client resumes from its cursor. a slow phone can never grow the server past these |
+| client stream gzip context, one per connection that takes gzip | about 300 kb (the 32 kb window and deflate's state), for the connection's life | n/a |
 | upstream sse line buffer | 8 mb per frame (a tool part's 4 mb of image attachments, whole) | the frame is logged and skipped, the stream survives |
 | transcript hydration proxy | streamed, never buffered whole; gzip on the wire (`http/compress.rs`) | n/a |
+| transcript marks (`fleet/model/marks.rs`) | per host, the last transcript seq of at most 2048 sessions | the oldest mark is forgotten and the host's floor rises to it, so older stamps go to the daemon |
 | worker cache (indexeddb) and the threads in its memory | 40 opened threads, 16 held-only threads beside them, and 50 mb for both, by the size of each thread's json (a read's body, then every change applied) | the count caps evict their own kind, longest unused first; the byte cap evicts held-only threads first, then opened ones longest ago first, never the thread on stage or the one the open or read is for (the indexeddb layout, above) |
 | worker sse frame buffer (`app/src/sync/sse.ts`) | 32 mb of text for one frame, four times the largest the server forwards | the connection is dropped, `perf.sync` says `overflow`, and the stream resumes from the cursor with a growing backoff |
 | worker saves | one committing and one waiting, whatever the disk's speed | a save asked for while one commits joins the one waiting |

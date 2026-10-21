@@ -8,9 +8,22 @@
 //! images, and anything a future route adds start out untouched. the app's
 //! own files are served precompressed (`assets.rs`) and are left alone by
 //! the same rule.
+//!
+//! the event streams (`/api/stream`, `/api/board/stream`) are compressed by
+//! their own handlers instead, never by the layer: `Framed` keeps one gzip
+//! context per connection and sync-flushes it after every batch the
+//! handler writes, so each batch decodes the moment it arrives and later
+//! frames still borrow from earlier ones. a stream is compressed only for a
+//! request that sends `Accept-Encoding: gzip`; any other gets the same
+//! bytes as before, unchanged.
+
+use std::io::Write;
 
 use axum::body::HttpBody;
-use axum::http::{Response, header};
+use axum::http::{HeaderMap, HeaderValue, Response, header};
+use bytes::Bytes;
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use tower_http::compression::predicate::Predicate;
 use tower_http::compression::{CompressionLayer, CompressionLevel};
 
@@ -55,6 +68,83 @@ pub fn layer() -> CompressionLayer<Json> {
     CompressionLayer::new()
         .quality(CompressionLevel::Default)
         .compress_when(Json)
+}
+
+/// whether a request takes gzip: `Accept-Encoding` names `gzip` (any case)
+/// with a quality above zero.
+pub fn takes_gzip(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(header::ACCEPT_ENCODING)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .any(|coding| {
+            let mut parts = coding.split(';');
+            let name = parts.next().unwrap_or("").trim();
+            let quality = parts
+                .filter_map(|p| p.trim().strip_prefix("q="))
+                .find_map(|q| q.trim().parse::<f32>().ok())
+                .unwrap_or(1.0);
+            name.eq_ignore_ascii_case("gzip") && quality > 0.0
+        })
+}
+
+/// the headers a gzipped stream answers with.
+pub fn mark_gzip(headers: &mut HeaderMap) {
+    headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+    headers.insert(header::VARY, HeaderValue::from_static("accept-encoding"));
+}
+
+/// one event stream's gzip context, owned by its connection. a 32 kb
+/// window and the deflate state, about 300 kb in all, for as long as the
+/// connection lives.
+pub struct Framed {
+    encoder: Option<GzEncoder<Vec<u8>>>,
+}
+
+impl std::fmt::Debug for Framed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Framed")
+            .field("finished", &self.encoder.is_none())
+            .finish()
+    }
+}
+
+impl Default for Framed {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Framed {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            encoder: Some(GzEncoder::new(Vec::new(), Compression::default())),
+        }
+    }
+
+    /// one batch, compressed and sync-flushed: the bytes to write now, which
+    /// decode to `plain` exactly, with nothing held back.
+    ///
+    /// # Errors
+    /// the compressor failed, or the stream was already finished.
+    pub fn batch(&mut self, plain: &[u8]) -> std::io::Result<Bytes> {
+        let encoder = self
+            .encoder
+            .as_mut()
+            .ok_or_else(|| std::io::Error::other("the gzip stream was finished"))?;
+        encoder.write_all(plain)?;
+        // flate2's flush is a sync flush: the batch ends on a byte boundary, decodable at once
+        encoder.flush()?;
+        Ok(Bytes::from(std::mem::take(encoder.get_mut())))
+    }
+
+    /// the gzip trailer, once, when the stream ends cleanly.
+    pub fn finish(&mut self) -> Option<Bytes> {
+        let encoder = self.encoder.take()?;
+        encoder.finish().ok().map(Bytes::from)
+    }
 }
 
 #[cfg(test)]
@@ -185,7 +275,7 @@ mod tests {
     async fn a_json_answer_goes_as_gzip_to_a_client_that_takes_it_and_plain_to_one_that_does_not() {
         use std::io::Read;
         let (addr, _next) = serve().await;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder().no_gzip().build().unwrap();
         let plain = client
             .get(format!("http://{addr}/json"))
             .send()
@@ -219,7 +309,7 @@ mod tests {
     async fn a_small_json_answer_and_an_error_go_plain_whatever_the_client_takes_and_a_streamed_one_goes_as_gzip()
      {
         let (addr, _next) = serve().await;
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder().no_gzip().build().unwrap();
         let get = |path: &'static str| {
             let client = client.clone();
             async move {
@@ -245,7 +335,10 @@ mod tests {
     #[tokio::test]
     async fn the_event_stream_is_never_compressed_and_every_frame_is_flushed_as_it_is_written() {
         let (addr, next) = serve().await;
-        let mut answer = reqwest::Client::new()
+        let mut answer = reqwest::Client::builder()
+            .no_gzip()
+            .build()
+            .unwrap()
             .get(format!("http://{addr}/stream"))
             .header("accept-encoding", "gzip, br")
             .send()

@@ -6,6 +6,20 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the streams to devices are gzipped and batched.** the device stream and
+  the board stream gather every ready frame into one write and, when the
+  client sends `accept-encoding: gzip` (every browser does), compress it
+  with one gzip context per connection, flushed after each write, so no
+  frame waits: the recorded bench session goes from 17.6 mb to 0.56 mb a
+  minute, and a burst of 40 events is one write instead of 80. webkit
+  decodes the flushed stream frame by frame, on the page and in a worker.
+  the server asks cmx2 for its stream switches (100 ms text batches, the
+  19 event kinds it reads, compact catch-up, gzip) and reads cmx2's gzip;
+  an older daemon ignores them. a part is parsed once instead of several
+  times. the home overview's tails go out every 500 ms (was 200). a
+  transcript read carries an etag and answers 304 without asking the
+  daemon when the session is idle, its host connected and nothing changed.
+
 - **the app holds only the threads on screen.** a closed thread leaves the
   page's store at once and is copied back from the worker when it opens
   again; the worker cools it to its saved copy 5 minutes after it closes,

@@ -220,11 +220,6 @@ it is verified`. closed items move to the bottom with the commit.
   perf-sync, not started. · open a thread with a few thousand messages and
   watch `/messages` and the worker's heap.
 
-- [daemon link] boxbox reads each daemon through a reqwest client with no
-  `gzip` feature, so the hop to a host over a slow link is uncompressed even
-  though the hop to the phone is not. whether cmx2 compresses is not known
-  here. found by perf-sync, not measured.
-
 - [home] the arrangement effect (`home.tsx`, "moving between arrangements
   rebuilds the stage") reads `before` after `on(..., { defer: true })`, which
   is undefined at the first change after home mounted (solid-js's `on` sets
