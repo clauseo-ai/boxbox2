@@ -324,15 +324,6 @@
   once a turn) moved two wire-replay seeds; 5f545f0 and 092ecc1 (css fades,
   reorder reuse) need a check that the motion is identical. · an
   independent review and a frame-by-frame motion compare pass.
-- **a second webkit process beside the web app's page.** on the macbook, each
-  launch of the home-screen app starts a second WebContent process about a
-  minute after the page (281 mb footprint, 255 mb WebKit Malloc dirty at 11
-  minutes; 556 mb in an earlier session). a WKWebView keeps the service
-  worker in the page's process, so it may be the web app's separate
-  service worker process; boxbox's worker only precaches and never touches
-  `/api/`, so its size is unexplained. · the process is identified (an app
-  build without a service worker on the macbook) and its memory explained
-  or cut.
 - **the same thread's stage is mounted again from scratch.** the owner's
   safari heap snapshots (2026-10-21) held four stages of one root thread:
   closing and reopening it, back then the strip's pour (home.tsx, the stage
