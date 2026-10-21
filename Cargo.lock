@@ -310,6 +310,7 @@ dependencies = [
  "async-hid",
  "boxbox-board-wire",
  "cpal",
+ "flate2",
  "futures-lite",
  "if-addrs",
  "jiff",

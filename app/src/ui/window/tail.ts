@@ -77,7 +77,10 @@ function lineOf(item: TailItem): TailLine | null {
       const text = lastSentences(item.text, 2);
       return text ? { kind: "prose", id, text } : null;
     }
+    // contract 1 sent images and audio as files: they read as a file did
     case "file":
+    case "image":
+    case "audio":
       return item.text ? { kind: "file", id, name: baseName(item.text) } : null;
     case "reasoning":
       return null;

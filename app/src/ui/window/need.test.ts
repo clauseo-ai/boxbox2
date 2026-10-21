@@ -2,8 +2,26 @@ import { describe, expect, test } from "bun:test";
 import type { Ask } from "../../sync/protocol";
 import { needOf } from "./need";
 
-const q = (id: string, questions: unknown[]): Ask => ({ host: "bench", id, key: "bench:ses_1", kind: "question", request: { questions } });
-const p = (id: string, permission: string, patterns: string[]): Ask => ({ host: "bench", id, key: "bench:ses_1", kind: "permission", request: { permission, patterns } });
+type Asked = { header?: string; question: string; options: { label: string; description?: string }[] };
+
+/* the server's ask as translate.rs makes it of cmx2's: a question it sent without a header has an empty one, and cmx2
+   always takes a typed answer */
+const q = (id: string, questions: Asked[]): Ask => ({
+  agent: "bench",
+  id,
+  key: "bench:ses_1",
+  thread: "bench:ses_1",
+  kind: "question",
+  questions: questions.map((item) => ({ header: item.header ?? "", question: item.question, options: item.options, multiple: false, custom: true })),
+});
+const p = (id: string, permission: string, patterns: string[]): Ask => ({
+  agent: "bench",
+  id,
+  key: "bench:ses_1",
+  thread: "bench:ses_1",
+  kind: "permission",
+  permission: { title: permission, patterns, always: [], options: [] },
+});
 
 const one = q("que_1", [{ header: "greeting", question: "which greeting should the notes use?", options: [{ label: "hello" }, { label: "hi" }] }]);
 

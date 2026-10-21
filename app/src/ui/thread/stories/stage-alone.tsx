@@ -5,7 +5,7 @@
 import { render } from "solid-js/web";
 import { bootSync } from "../../../store";
 import type { Fleet, ThreadView } from "../../../sync/reducer";
-import journal from "../../home/fixtures/journal.ndjson?raw";
+import journal from "../../home/fixtures/journal-p3.ndjson?raw";
 import { endOf, keyOf, parseJournal, replay, TITLES } from "../../home/fixtures/replay";
 import { Stage } from "../stage";
 import { notesTranscript } from "./transcript";
@@ -29,12 +29,12 @@ export function mountStageAlone(el: HTMLElement, options: AloneOptions): () => v
   void (async () => {
     const key = keyOf(final.state, TITLES.wants);
     const base = await notesTranscript(key);
-    const { [key]: _own, ...others } = final.state.fleet.sessions;
-    const fleet0: Fleet = options.followed ? final.state.fleet : { ...final.state.fleet, sessions: others, order: final.state.fleet.order.filter((k) => k !== key) };
+    const { [key]: _own, ...others } = final.state.fleet.threads;
+    const fleet0: Fleet = options.followed ? final.state.fleet : { ...final.state.fleet, threads: others, order: final.state.fleet.order.filter((k) => k !== key) };
     const { fleet, thread } = options.shape ? options.shape(fleet0, base, key) : { fleet: fleet0, thread: base };
     bootSync({ fleet, threads: { [key]: thread }, drafts: {}, outbox: [], stream: { state: "live", since: Date.now() - 60_000, lastEventAt: AT } });
     if (gone) return;
-    const parent = options.agent ? Object.keys(fleet.sessions).find((k) => k !== key) : undefined;
+    const parent = options.agent ? Object.keys(fleet.threads).find((k) => k !== key) : undefined;
     dispose = render(() => (
       <div style={{ position: "fixed", inset: "0" }}>
         <Stage threadKey={key} deck {...(parent ? { parent } : {})} />

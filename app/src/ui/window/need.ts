@@ -21,9 +21,9 @@ export type Need = {
 
 /** a permission in plain words, as a verb phrase: "run bun test", "edit src/app.ts", "use webfetch" */
 export function permissionWhat(ask: Ask): string {
-  const permission = typeof ask.request["permission"] === "string" ? ask.request["permission"] : "something";
-  const raw = ask.request["patterns"];
-  const patterns = Array.isArray(raw) ? raw.filter((p): p is string => typeof p === "string") : [];
+  // the title holds cmx2's permission key unchanged (bash, edit, webfetch), which verbOf reads
+  const permission = ask.permission?.title ?? "something";
+  const patterns = ask.permission?.patterns ?? [];
   return patterns.length > 0 ? `${verbOf(permission)} ${patterns.join(", ")}` : `use ${permission}`;
 }
 

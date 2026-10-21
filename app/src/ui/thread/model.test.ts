@@ -6,10 +6,14 @@ import { ledgerOf } from "./ledger";
 import { liveItemsOf, shownMessages, turnsOf } from "./model";
 import type { RowCtx } from "./rows";
 import type { WireMessage, WirePart } from "./wire";
+import { neutralMessage } from "../../sync/fixtures/neutral";
+
+/** a message written in cmx2's shapes, as the server's translate makes it neutral */
+const wire = (info: Record<string, unknown>, parts: readonly WirePart[]): WireMessage => neutralMessage({ info, parts: parts as unknown as Record<string, unknown>[] });
 
 const T0 = 1_790_000_000_000;
-const user = (id: string, parts: WirePart[] = [{ id: `${id}_p`, type: "text", text: "go" } as WirePart]): WireMessage => ({ info: { id, role: "user", time: { created: T0 } } as WireMessage["info"], parts });
-const assistant = (id: string, parts: WirePart[], completed = false): WireMessage => ({ info: { id, role: "assistant", time: { created: T0 + 100, ...(completed ? { completed: T0 + 5000 } : {}) } } as WireMessage["info"], parts });
+const user = (id: string, parts: WirePart[] = [{ id: `${id}_p`, type: "text", text: "go" } as WirePart]): WireMessage => wire({ id, role: "user", time: { created: T0 } }, parts);
+const assistant = (id: string, parts: WirePart[], completed = false): WireMessage => wire({ id, role: "assistant", time: { created: T0 + 100, ...(completed ? { completed: T0 + 5000 } : {}) } }, parts);
 const text = (id: string, body: string, extra: Record<string, unknown> = {}): WirePart => ({ id, type: "text", text: body, ...extra }) as WirePart;
 const reasoning = (id: string, body: string, extra: Record<string, unknown> = {}): WirePart => ({ id, type: "reasoning", text: body, ...extra }) as WirePart;
 const ctx = (turn: ReturnType<typeof turnsOf>[number]): RowCtx => ({ turns: [turn], children: new Map(), thinking: "rows", now: T0 + 3000 });
@@ -131,7 +135,7 @@ describe("a prompt that has no text yet", () => {
 
 describe("a compaction turn (docs/thread.md, what started the turn)", () => {
   const compaction = (id: string): WireMessage => user(id, [{ id: `${id}_c`, type: "compaction", auto: true } as unknown as WirePart]);
-  const summaryOf = (id: string, body: string): WireMessage => ({ info: { id, role: "assistant", summary: true, time: { created: T0 + 50, completed: T0 + 60 } } as unknown as WireMessage["info"], parts: [text(`${id}_t`, body)] });
+  const summaryOf = (id: string, body: string): WireMessage => wire({ id, role: "assistant", summary: true, time: { created: T0 + 50, completed: T0 + 60 } }, [text(`${id}_t`, body)]);
 
   test("the message marked summary is the card's, and what follows it reads as any turn: its steps and its answer", () => {
     const [turn] = turnsOf([compaction("u"), summaryOf("s", "## the summary\nwhere things stand"), assistant("a", [reasoning("r", "next i will run the tests"), text("t", "the tests pass.")], true)], "/");
@@ -177,4 +181,15 @@ describe("photos a person sent (docs/thread.md, every state: file)", () => {
     expect(turn?.photos).toHaveLength(1);
     expect(turn?.prompt).toBe("");
   });
+});
+
+describe("a failed turn's words", () => {
+  /* the neutral message as the server sends it: `message` absent when the source had none */
+  const failed = (error: Record<string, unknown>): WireMessage => ({ info: { id: "a", role: "assistant", created: T0 + 100, completed: T0 + 5000, error } as WireMessage["info"], parts: [] });
+  const words = (error: Record<string, unknown>) => turnsOf([user("u"), failed(error)], "/")[0]?.error;
+
+  test("the message when there is one, even beside a name", () => expect(words({ message: "boom", name: "APIError" })).toBe("boom"));
+  test("an empty message stays empty, as cmx2's data.message did", () => expect(words({ message: "", name: "APIError" })).toBe(""));
+  test("no message gives the name", () => expect(words({ name: "APIError" })).toBe("APIError"));
+  test("neither says failed", () => expect(words({})).toBe("failed"));
 });

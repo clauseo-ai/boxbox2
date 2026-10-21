@@ -66,8 +66,8 @@ afterAll(() => {
 
 const post = (patches: Patch[]) => listener?.({ data: { type: "patches", patches } });
 const at = ["threads", "k", "messages", 0, "parts", 0, "text"] as const;
-const text = () => unwrap(store.state.threads)["k"]?.messages[0]?.parts[0]?.["text"];
-const view = { key: "k", status: "live", messages: [{ info: { id: "m", sessionID: "s", role: "assistant", time: { created: 1 } }, parts: [{ id: "p", sessionID: "s", messageID: "m", type: "text", text: "" }] }] };
+const text = () => (unwrap(store.state.threads)["k"]?.messages[0]?.parts[0] as Record<string, unknown> | undefined)?.["text"];
+const view = { key: "k", status: "live", messages: [{ info: { id: "m", role: "assistant", created: 1 }, parts: [{ id: "p", messageID: "m", type: "text", text: "" }] }] };
 
 describe("the ui's side of the wire", () => {
   test("a visible page lands every post of a frame in that frame, once", () => {

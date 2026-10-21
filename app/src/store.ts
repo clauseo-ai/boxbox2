@@ -311,8 +311,8 @@ export function setDraft(key: string, draft: Draft | null): void {
 }
 
 /** applies one frame's patches: each sets a value at a path (undefined deletes it), or adds words to the text there */
-/* one beat per applied batch that wrote any session (or the fleet whole): what a reader that wants "the fleet moved" reads,
-   in place of walking every session to be woken by each (home's streaming label) */
+/* one beat per applied batch that wrote any fleet thread (or the fleet whole): what a reader that wants "the fleet moved"
+   reads, in place of walking every thread to be woken by each (home's streaming label) */
 const [sessionsBeat, setSessionsBeat] = createSignal(0);
 export { sessionsBeat };
 
@@ -326,7 +326,7 @@ export function applyPatches(patches: readonly Patch[]): void {
       if (patch.closed) threadCaches.dropModels(String(second));
       else threadCaches.dropThread(String(second));
     }
-    else if (top === "fleet" && (second === undefined || second === "sessions")) sessions = true;
+    else if (top === "fleet" && (second === undefined || second === "threads")) sessions = true;
   }
   batch(() => {
     setState(

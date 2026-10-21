@@ -1,18 +1,20 @@
 /* the daemon's order of a message's parts (docs/gotchas.md, "a message's
    parts keep the daemon's order").
 
-   cmx2 names its own parts by position: `prt_<session>_<seq>_<index>`, the
-   seq of the step that wrote the part and the part's index inside it. the
-   daemon lists a message's parts in that order, but the stream does not
-   deliver them in it: a text part is born by its first delta while a
-   reasoning part of the same step lands whole when the step ends. a part
-   the thread does not hold yet is therefore placed by its id, not by when
-   it arrived.
+   a part carries its place: `at {step, index}`, the step that wrote it and
+   its index inside it (the server reads it from cmx2's id grammar,
+   `prt_<session>_<seq>_<index>`, translate.rs). a part without `at` (one
+   born from its first delta, or one that crossed raw) is placed by that
+   grammar in its id, the same numbers. the daemon lists a message's parts in
+   that order, but the stream does not deliver them in it: a text part is
+   born by its first delta while a reasoning part of the same step lands
+   whole when the step ends. a part the thread does not hold yet is therefore
+   placed by its position, not by when it arrived.
 
-   an id without that shape (history imported from another runtime) has no
-   position and keeps arrival order: it is appended, and it never moves a
-   part that has one. the numbers are compared as numbers, because the seq
-   is zero padded to a width the daemon may change. */
+   a part with no position (history imported from another runtime) keeps
+   arrival order: it is appended, and it never moves a part that has one. the
+   numbers are compared as numbers, because the seq is zero padded to a width
+   the daemon may change. */
 
 import type { Message, Part } from "./protocol";
 
@@ -20,7 +22,7 @@ type Position = { seq: number; index: number };
 
 const POSITIONAL = /^prt_[^_]+_(\d+)_(\d+)$/;
 
-/** where the daemon put a part, or null for an id it did not mint in this shape */
+/** where the daemon put a part with this id, or null for an id it did not mint in this shape */
 export function positionOf(id: string): Position | null {
   const match = POSITIONAL.exec(id);
   if (!match) return null;
@@ -29,14 +31,24 @@ export function positionOf(id: string): Position | null {
   return Number.isSafeInteger(seq) && Number.isSafeInteger(index) ? { seq, index } : null;
 }
 
+/** a part's position: its `at` when it has one, else its id's */
+export function placeOf(part: Pick<Part, "id"> & { at?: unknown }): Position | null {
+  const at = part.at;
+  if (typeof at === "object" && at !== null) {
+    const { step, index } = at as Record<string, unknown>;
+    if (typeof step === "number" && typeof index === "number") return { seq: step, index };
+  }
+  return positionOf(part.id);
+}
+
 const follows = (a: Position, b: Position) => a.seq > b.seq || (a.seq === b.seq && a.index > b.index);
 
-/** the index a part with this id goes to: before the first held part that follows it, else the end */
-export function placeBefore(parts: readonly Part[], id: string): number {
-  const position = positionOf(id);
+/** the index a part goes to: before the first held part that follows it, else the end */
+export function placeBefore(parts: readonly Part[], part: Pick<Part, "id"> & { at?: unknown }): number {
+  const position = placeOf(part);
   if (!position) return parts.length;
   for (let i = 0; i < parts.length; i++) {
-    const held = positionOf((parts[i] as Part).id); // i is inside the array
+    const held = placeOf(parts[i] as Part); // i is inside the array
     if (held && follows(held, position)) return i;
   }
   return parts.length;
@@ -47,7 +59,7 @@ export function inDaemonOrder(parts: Part[]): Part[] {
   let last: Position | null = null;
   let ordered = true;
   for (const part of parts) {
-    const position = positionOf(part.id);
+    const position = placeOf(part);
     if (!position) continue;
     if (last && follows(last, position)) {
       ordered = false;
@@ -57,7 +69,7 @@ export function inDaemonOrder(parts: Part[]): Part[] {
   }
   if (ordered) return parts;
   const placed: Part[] = [];
-  for (const part of parts) placed.splice(placeBefore(placed, part.id), 0, part);
+  for (const part of parts) placed.splice(placeBefore(placed, part), 0, part);
   return placed;
 }
 

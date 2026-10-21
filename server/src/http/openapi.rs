@@ -24,10 +24,6 @@ use super::session::{ModelRef, Send, SendPart};
 use super::telemetry::{Accepted, TelemetryBatch};
 use super::threads::{Archived, ClearBody, ClearSource, Cleared, NotCleared, NotClearedWhy};
 use crate::config::Origin;
-use crate::fleet::change::{
-    Ask, AskKind, Change, ColourFrame, Control, FleetSnapshot, JournalEntry, RepoColour,
-    ResetReason, SessionEntry, StreamFrame, TailItem, TailKind,
-};
 use crate::fleet::needs::{By, How, Need, NeedKind};
 use crate::fleet::read::ReadMark;
 use crate::prefs::{DevicePrefs, ModelPrefs, Motion, Prefs, RepoPrefs, Theme};
@@ -36,6 +32,7 @@ use crate::push::Kind;
 use crate::push::presence::Report;
 use crate::upstream::system::{Cpu, Daemon, Disk, Machine, MemoryUse, Os};
 use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, System};
+use crate::wire::{ColourFrame, RepoColour};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -59,10 +56,9 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
         super::prefs::favorite_models,
         super::prefs::colour,
         super::stream::stream,
+        super::stream::interest,
         crate::board::routes::pin,
         super::fleet::snapshot,
-        super::transcript::messages,
-        super::transcript::message,
         super::review::show,
         super::review::merge,
         super::review::discard,
@@ -121,8 +117,6 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
         WorktreeFile,
         WorktreeMerged,
         WorktreeReview,
-        Ask,
-        AskKind,
         By,
         Done,
         How,
@@ -156,15 +150,12 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
         ReadMark,
         SettledBy,
         Verb,
-        Change,
         Connection,
-        Control,
         ModelRef,
         Send,
         SendPart,
         ErrorBody,
         ErrorDetail,
-        FleetSnapshot,
         FrameCounts,
         Health,
         HostStatus,
@@ -193,7 +184,6 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
         Reloaded,
         Restarting,
         Theme,
-        JournalEntry,
         Kind,
         Login,
         PushDevice,
@@ -201,14 +191,9 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
         PushTest,
         Report,
         NewTerminal,
-        ResetReason,
         Session,
-        SessionEntry,
-        StreamFrame,
         Subscribe,
         SubscriptionKeys,
-        TailItem,
-        TailKind,
         TelemetryBatch,
         TestQueued,
         Unsubscribe,

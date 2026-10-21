@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { components } from "../../api/boxbox";
-import type { SessionEntry } from "../../sync/protocol";
+import { thread } from "../../sync/fixtures/neutral";
+import type { Thread } from "../../sync/protocol";
 import { extraOf } from "./extra";
 
 type Need = components["schemas"]["Need"];
@@ -15,8 +16,7 @@ const need = (kind: Need["kind"], body = "the provider is down"): Need => ({
   body,
 });
 
-const entry = (needs: Need[]): SessionEntry =>
-  ({ key: "desk:ses_1", host: "desk", id: "ses_1", info: {}, status: null, agents: 0, processes: 0, tail: [], needs, read: null }) as unknown as SessionEntry;
+const entry = (needs: Need[]): Thread => thread("desk:ses_1", { agent: "desk", needs });
 
 describe("a window's needs", () => {
   test("a session with nothing waiting reads as seen", () => {

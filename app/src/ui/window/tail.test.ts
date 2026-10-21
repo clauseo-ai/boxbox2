@@ -28,6 +28,11 @@ describe("the tail's grammar", () => {
     expect(tailLines([tool("read", "/work/notes.md")])).toMatchObject([{ kind: "reads", count: 1, object: "notes.md" }]);
   });
 
+  test("a picture or a voice note reads as the file contract 1 sent it as", () => {
+    for (const kind of ["file", "image", "audio"] as const) expect(tailLines([prose("/work/shots/screen.png", kind)])).toMatchObject([{ kind: "file", name: "screen.png" }]);
+    expect(tailLines([prose("", "image")])).toEqual([]);
+  });
+
   test("a folded read is running while its newest read runs", () => {
     expect(tailLines([tool("read", "a"), tool("read", "b", "running")])).toMatchObject([{ kind: "reads", count: 2, status: "running" }]);
   });

@@ -1,0 +1,7 @@
+data: {"type":"hello","protocol":3,"epoch":"EPOCH","head":2933,"build":"BUILD","stream":"00000000000000000000000000000000","interest":{"thread":null,"under":[],"holds":[]}}
+
+data: {"type":"colours","colours":[]}
+
+id: EPOCH:2933
+data: {"type":"caught","seq":2933}
+

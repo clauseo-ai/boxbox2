@@ -5,7 +5,7 @@
    ./details-model.ts, how they look is ./details.css. */
 
 import { For, type JSX, Show, createMemo, createUniqueId } from "solid-js";
-import type { SessionInfo } from "../../sync/protocol";
+import type { Thread } from "../../sync/protocol";
 import { type AgentRow, type FactLine, type Spend, agentState, cachedShare, contextOf, figure, type FileChange, type filesChanged, kept, type ModelUse, modelsOf, percentWords, ranOf, spend, switches, tokensIn } from "./details-model";
 import type { Turn } from "./model";
 import { clock, clockDur, dur, isBad, n, plural } from "./rows";
@@ -24,7 +24,7 @@ export type DetailsData = {
   agents: readonly AgentRow[];
   files: ReturnType<typeof filesChanged>;
   /** the daemon's account of the session: its spend, tokens, context and branch */
-  info: SessionInfo | undefined;
+  info: Thread | undefined;
   /** what the thread and every agent under it have cost (details-model.ts, spendOf) */
   spend: Spend;
   now: number;
@@ -124,7 +124,7 @@ function Details(props: { data: DetailsData }) {
   const ran = createMemo(() => ranOf(props.data.turns));
   const steps = createMemo(() => ran().reduce((n, t) => n + t.items.filter((x) => x.k === "step").length, 0));
   const context = createMemo(() => contextOf(info()));
-  const cached = () => { const i = info(); return i && cachedShare(i.tokens) !== null ? percentWords(i.tokens.cache.read, i.tokens.input + i.tokens.cache.read) : null; };
+  const cached = () => { const t = info()?.tokens; return t && cachedShare(t) !== null ? percentWords(t.cacheRead, t.input + t.cacheRead) : null; };
   /* the turns are new on every frame of a running thread: the rows that say the same keep their nodes (kept) */
   const models = createMemo<readonly ModelUse[]>((prev) => kept(modelsOf(props.data.turns), prev, (m) => `${m.model}\u0000${m.effort ?? ""}`));
   const fileRows = createMemo<readonly FileChange[]>((prev) => kept(files().files, prev, (f) => f.path));

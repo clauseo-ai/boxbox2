@@ -1,24 +1,19 @@
 /* what the thread reads off the wire, and the readers that keep unknown
-   fields honest. the contract (`api/cmx2.d.ts`, generated from the vendored
-   openapi document) names the part union and the tool states; both leave
-   room for more fields (`additionalProperties: true`), and imported history
-   carries parts the union does not name (ask a15). so the model takes the
-   wire shape as recorded, narrows what the contract names, and reads the
-   rest through these readers, which return `undefined` rather than guess. */
+   fields honest. the server's protocol 3 document (`sync/protocol.ts`) names
+   the neutral part union and the tool states; a part the server could not
+   make neutral crosses raw, as its source wrote it (a type outside the union,
+   or a known type with the source's fields). so the model narrows what the
+   document names and reads the rest through these readers, which return
+   `undefined` rather than guess. */
 
-import type { components } from "../../api/cmx2";
+import type { KnownPart, MessageInfo, Part, ToolState } from "../../sync/protocol";
 
-export type MessageInfo = components["schemas"]["MessageInfo"];
-export type Part = components["schemas"]["Part"];
-export type ToolPart = components["schemas"]["ToolPart"];
-export type ToolState = components["schemas"]["ToolState"];
+export type { MessageInfo, Part, ToolState };
+export type ToolPart = Extract<KnownPart, { type: "tool" }>;
 export type ToolStatus = ToolState["status"];
-export type PermissionRequest = components["schemas"]["PermissionRequest"];
-export type QuestionRequest = components["schemas"]["QuestionRequest"];
-export type QuestionInfo = components["schemas"]["QuestionInfo"];
 
-/** a part as the wire carries it: the contract's shape, or one the contract does not name yet */
-export type WirePart = Part | (Record<string, unknown> & { type: string });
+/** a part as the wire carries it: a neutral one, or one the server passed on raw */
+export type WirePart = Part;
 export type WireMessage = { info: MessageInfo; parts: readonly WirePart[] };
 
 export const isToolPart = (p: WirePart): p is ToolPart => p.type === "tool" && typeof (p as ToolPart).tool === "string" && typeof (p as ToolPart).state === "object";

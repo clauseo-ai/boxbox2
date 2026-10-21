@@ -1,10 +1,13 @@
 /* the fixtures as the stories read them: fetched as recorded (never imported
-   as a module, so the type checker never swallows megabytes of json), run
-   through the model, and handed out as turns with their context. */
+   as a module, so the type checker never swallows megabytes of json), made
+   neutral as the server's translate makes cmx2's shapes (sync/fixtures/
+   neutral.ts), run through the model, and handed out as turns with their
+   context. */
 
 import { type Item, type Step, type Turn, joinAsks, projectRoot, turnsOf } from "../model";
 import type { Child, RowCtx } from "../rows";
 import type { WireMessage } from "../wire";
+import { neutralMessage } from "../../../sync/fixtures/neutral";
 import cmxUrl from "../fixtures/cmx-deploy.json?url";
 import notesUrl from "../fixtures/notes-asks.json?url";
 import northstarUrl from "../fixtures/northstar-heavy.json?url";
@@ -26,7 +29,14 @@ type NativeFile = { session: { id: string; directory: string; title: string }; m
 export type Loaded = { title: string; repo: string; tone: Tone; turns: Turn[]; ctx: RowCtx; snapshots?: Snapshot[] };
 
 const cache = new Map<string, Promise<unknown>>();
-const fetchJson = <T,>(url: string): Promise<T> => { let p = cache.get(url); if (!p) { p = fetch(url).then((r) => r.json()); cache.set(url, p); } return p as Promise<T>; };
+const fetchJson = <T,>(url: string): Promise<T> => { let p = cache.get(url); if (!p) { p = fetch(url).then((r) => r.json()).then(neutralFile); cache.set(url, p); } return p as Promise<T>; };
+
+type Recorded = { info: Record<string, unknown>; parts: Record<string, unknown>[] };
+/** a recorded file with every message list in it neutral: its own, its children's and its snapshots' */
+function neutralFile(file: { messages: Recorded[]; children?: Array<{ messages: Recorded[] }>; snapshots?: Array<{ messages: Recorded[] }> }): unknown {
+  const each = (list: Recorded[]) => list.map(neutralMessage);
+  return { ...file, messages: each(file.messages), ...(file.children ? { children: file.children.map((c) => ({ ...c, messages: each(c.messages) })) } : {}), ...(file.snapshots ? { snapshots: file.snapshots.map((s) => ({ ...s, messages: each(s.messages) })) } : {}) };
+}
 
 function childrenOf(file: ImportedFile, root: string): Map<string, Child> {
   const out = new Map<string, Child>();
@@ -34,8 +44,8 @@ function childrenOf(file: ImportedFile, root: string): Map<string, Child> {
     const turns = turnsOf(c.messages, root);
     const items: Item[] = turns.flatMap((t) => t.items);
     const steps = items.filter((x): x is Step => x.k === "step");
-    const first = c.messages[0]?.info.time.created ?? 0;
-    const end = c.messages.at(-1)?.info.time.completed ?? first;
+    const first = c.messages[0]?.info.created ?? 0;
+    const end = c.messages.at(-1)?.info.completed ?? first;
     // a recorded child's turn is over: idle, its clock stopped where its last message completed
     out.set(c.session.id, { steps: steps.length, ms: Math.max(0, end - first), items, held: true, state: "idle", since: end, created: first, title: "" });
   }

@@ -4,11 +4,11 @@
 //! which stay the source's json because the rich rows that read them are
 //! keyed by tool name and have nothing neutral to read instead.
 //!
-//! contract 1's types (`fleet/change.rs`) sit beside these and do not
-//! change. every type here is described with utoipa, so the web app's types
-//! and the ios app's drift test both come from the one openapi document.
-//! where a name collides with a contract 1 schema the type is renamed in
-//! the document only (`#[schema(as = ...)]`).
+//! protocol 3 (`docs/protocol.md`) carries them to devices. every type here
+//! is described with utoipa, so the web app's types and the ios app's drift
+//! test both come from the one openapi document. where a name collides with
+//! another schema of the document the type is renamed in the document only
+//! (`#[schema(as = ...)]`).
 
 // the seam's types land before the sources and routes that use them (m9: the
 // cmx2 source, the openclaw source, the contract 2 routes).
@@ -47,8 +47,8 @@ pub use stream::{
     ThreadSet,
 };
 pub use thread::{
-    Activity, Changes, Context, Place, SendState, SendStateKind, TailItem, TailKind, Thread,
-    Tokens, Vcs,
+    Activity, Changes, Context, Place, SendState, SendStateKind, TailItem, TailKind, TailRole,
+    Thread, Tokens, Vcs,
 };
 pub use verbs::{ModelEntry, Models};
 

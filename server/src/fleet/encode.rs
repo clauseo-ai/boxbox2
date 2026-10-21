@@ -5,17 +5,13 @@
 //! journaled state with its `whole` flag, and the order), the text deltas
 //! waiting for their 100 ms batch, and what it needs to send each finished
 //! text once: per streaming part the length and hash of the text its
-//! deltas built, and per part and message a digest of the last state it
-//! journaled. every map has a cap.
+//! deltas built (until the part's end), and per part and message a digest
+//! of the last state it journaled. every map has a cap.
 //!
 //! the encoder never journals itself: each call answers the entries to
 //! append, in order, and the caller appends them. any entry that is not a
 //! text delta first takes every pending delta out (`flush`), so the
 //! journal's order is the order things happened.
-
-// the actor journals contract 1 until the switch; this commit gives the
-// encoder to the simulated goldens first
-#![allow(dead_code)]
 
 use std::collections::{HashMap, VecDeque};
 
@@ -101,6 +97,7 @@ impl<V> Capped<V> {
         self.order.retain(|k| map.contains_key(k));
     }
 
+    #[cfg(test)]
     fn len(&self) -> usize {
         self.map.len()
     }
@@ -168,6 +165,10 @@ impl Encoder {
 
     /// every key's next frame goes whole: a crash start, or a build whose
     /// encoding changed (`docs/protocol.md`, section 10).
+    #[allow(
+        dead_code,
+        reason = "the persisted start (section 10) calls it; until it lands only the tests do"
+    )]
     pub fn all_whole(&mut self) {
         for base in self.threads.values_mut() {
             base.whole = true;
@@ -175,10 +176,17 @@ impl Encoder {
         self.order_whole = true;
     }
 
-    /// the patch bases held, for the caps' telemetry and the tests.
+    /// a thread's last journaled state: what a catch-up or a reset sends
+    /// whole, so the patches after it apply.
     #[must_use]
-    pub fn bases(&self) -> usize {
-        self.threads.len()
+    pub fn base(&self, key: &str) -> Option<&Thread> {
+        self.threads.get(key).map(|b| &b.thread)
+    }
+
+    /// the window order as last journaled.
+    #[must_use]
+    pub fn order_base(&self) -> Option<&[String]> {
+        self.order.as_deref()
     }
 
     /// a thread's new state: whole on first sight or when flagged, a patch
@@ -320,11 +328,19 @@ impl Encoder {
         // pending deltas first: they build the text this part is held to
         let mut out = self.flush();
         let text = match &mut part {
-            Part::Text(p) => Some((&mut p.text, &mut p.text_of)),
-            Part::Reasoning(p) => Some((&mut p.text, &mut p.text_of)),
+            Part::Text(p) => Some((
+                &mut p.text,
+                &mut p.text_of,
+                p.time.as_ref().is_some_and(|t| t.end.is_some()),
+            )),
+            Part::Reasoning(p) => Some((
+                &mut p.text,
+                &mut p.text_of,
+                p.time.as_ref().is_some_and(|t| t.end.is_some()),
+            )),
             _ => None,
         };
-        if let Some((text, text_of)) = text
+        if let Some((text, text_of, ended)) = text
             && let Some(full) = text.as_deref()
         {
             let built = TextHash::of(full);
@@ -332,8 +348,14 @@ impl Encoder {
                 *text_of = Some(built.text_of());
                 *text = None;
             }
-            // the text from here on builds from this whole one
-            self.texts.insert(&id, built, TRACKED_PARTS);
+            if ended {
+                // its end: no delta builds on it any more, and the step-end
+                // re-send is caught by the part's digest below
+                self.texts.remove(&id);
+            } else {
+                // the text from here on builds from this whole one
+                self.texts.insert(&id, built, TRACKED_PARTS);
+            }
         }
         if let Some(d) = whole {
             self.parts.insert(
@@ -463,6 +485,7 @@ impl Encoder {
     }
 
     /// what the caps hold, for the tests.
+    #[cfg(test)]
     #[must_use]
     pub fn tracked(&self) -> (usize, usize, usize) {
         (self.texts.len(), self.parts.len(), self.messages.len())
@@ -619,6 +642,39 @@ mod tests {
         assert_eq!(apply_order(&keys, ops), moved);
         e.all_whole();
         assert_eq!(kinds(&e.order(moved)), ["order"]);
+    }
+
+    #[test]
+    fn a_part_s_text_tracking_goes_at_its_end_and_its_step_end_re_send_is_still_not_journaled() {
+        let ended = |text: &str| {
+            let mut part = text_part("p", text);
+            if let Part::Text(p) = &mut part {
+                p.time = Some(crate::wire::PartTime {
+                    start: Some(1.0),
+                    end: Some(2.0),
+                });
+            }
+            part
+        };
+        let mut e = Encoder::new();
+        e.part("k", Some(1), text_part("p", ""));
+        e.delta(0, "k", "msg_1", "p", "text", "hello world", 0);
+        e.flush();
+        assert_eq!(e.tracked().0, 1, "a streaming part is tracked");
+        // the part's end goes without its text, and its tracking goes with it
+        let end = e.part("k", Some(2), ended("hello world"));
+        let Some(Change::Part {
+            part: Part::Text(p),
+            ..
+        }) = end.last()
+        else {
+            panic!("{end:?}")
+        };
+        assert_eq!(p.text, None);
+        assert_eq!(p.text_of, Some(TextHash::of("hello world").text_of()));
+        assert_eq!(e.tracked().0, 0, "the ended part is still tracked");
+        // the step end sends it again, the same: the digest drops it
+        assert!(e.part("k", Some(3), ended("hello world")).is_empty());
     }
 
     #[test]

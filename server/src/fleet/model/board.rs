@@ -36,7 +36,7 @@ impl Model {
     /// caller decides what rides.
     #[must_use]
     pub fn board_rows(&self, bound: &HashSet<&str>) -> Vec<Row> {
-        let asking: HashSet<&str> = self.asks.values().map(|p| p.ask.key.as_str()).collect();
+        let asking: HashSet<&str> = self.asks.values().map(|p| p.neutral.key.as_str()).collect();
         let mut leads: HashMap<&str, &Need> = HashMap::new();
         for need in self.needs.open_iter() {
             match leads.get(need.key.as_str()) {
@@ -54,10 +54,6 @@ impl Model {
             let Some(session) = self.sessions.get(key) else {
                 continue;
             };
-            // the app never sees a session without an entry (`Model::entry`)
-            if session.info.is_none() {
-                continue;
-            }
             let window =
                 self.is_home_window(key, session.parent.is_some(), session.updated, now, &asking);
             let rides_bound = bound.contains(key.as_str()) && session.parent.is_none();
@@ -96,9 +92,8 @@ impl Model {
         if subagent || self.cleared_mark(key).is_some() {
             return false;
         }
-        // the entry's `status` is the raw one: null for a source that sends none
-        let active =
-            self.statuses.get(key).is_some_and(|s| s.raw.is_some()) || asking.contains(key);
+        // the thread's `activity` is not idle exactly while a status is held
+        let active = self.statuses.contains_key(key) || asking.contains(key);
         active || now - updated < WINDOW_RECENT_MS
     }
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { Entry, FleetSnapshot, Frame, Message, Part, SessionEntry } from "./protocol";
+import type { Entry, Frame, Message, Part, Thread } from "./protocol";
+import { neutralInfo, neutralPart, snapshot, thread } from "./fixtures/neutral";
 import think from "./fixtures/think-turn.json";
 import { inDaemonOrder, inDaemonOrderAll, placeBefore, positionOf } from "./order";
 import { type Action, appended, coalesce, INITIAL_STATE, isAppend, type Patch, type PathSegment, reduce, type Result, SERVER_FRAME_BYTES, type SetPatch, type SyncState, viewOf } from "./reducer";
@@ -8,32 +9,8 @@ import { PatchQueue } from "./queue";
 const EPOCH = "j1";
 const KEY = "bench:ses_1";
 
-const session = (key = KEY): SessionEntry => ({
-  key,
-  host: key.split(":")[0] ?? "bench",
-  id: key.split(":")[1] ?? "ses_1",
-  info: {
-    id: "ses_1",
-    slug: "s1",
-    projectID: "/w",
-    directory: "/w",
-    title: "a thread",
-    version: "0.0.0-m6",
-    time: { created: 1, updated: 2 },
-    source: "cmx2",
-    cost: 0,
-    tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-  },
-  status: null,
-  agents: 0,
-  processes: 0,
-  tail: [], needs: [], read: null,
-});
-
-const snapshot = (sessions: SessionEntry[] = [session()]): FleetSnapshot => ({ hosts: [], sessions, asks: [], order: sessions.map((s) => s.key) });
-
-const text = (id: string, value: string, messageID = "msg_2"): Part => ({ id, sessionID: "ses_1", messageID, type: "text", text: value });
-const message = (id: string, parts: Part[] = []): Message => ({ info: { id, sessionID: "ses_1", role: "assistant", time: { created: 1 } }, parts });
+const text = (id: string, value: string, messageID = "msg_2"): Part => ({ id, messageID, type: "text", text: value });
+const message = (id: string, parts: Part[] = []): Message => ({ info: { id, role: "assistant", created: 1 }, parts });
 
 /** runs actions in order from a state, collecting every result */
 function run(state: SyncState, actions: Action[]): { state: SyncState; results: Result[] } {
@@ -46,7 +23,12 @@ function run(state: SyncState, actions: Action[]): { state: SyncState; results: 
   return { state, results };
 }
 
-const frame = (f: Frame, epoch: string | undefined = EPOCH): Action => ({ type: "frame", frame: f, epoch });
+/** a frame of the stream: its id is the cursor of an entry or a reset (the reset's own epoch), and none for a frame with no seq */
+const frame = (f: Frame, epoch = EPOCH): Action => ({ type: "frame", frame: f, id: "seq" in f ? { epoch: "epoch" in f ? f.epoch : epoch, seq: f.seq } : null });
+
+/** the stream's first frame: it declares the interest a reset re-reads, and nothing is read for a key it does not hold yet */
+const hello = (key: string | null = KEY, under: string[] = [], holds: string[] = []): Action =>
+  frame({ type: "hello", protocol: 3, epoch: EPOCH, head: 0, build: "b", stream: "s1", interest: { thread: key, under, holds } });
 
 /** the ui's copy of the worker's fleet and thread views after `patches`, applied as the store applies them, as json: key order
     included */
@@ -66,13 +48,13 @@ function mirrored(before: SyncState, patches: readonly Patch[]): string {
   return JSON.stringify(root);
 }
 const mirrorOf = (state: SyncState) => JSON.stringify({ fleet: state.fleet, threads: Object.fromEntries(Object.entries(state.threads).map(([k, t]) => [k, viewOf(t)])) });
-const reset = (seq = 0, fleet = snapshot()): Action => frame({ type: "reset", seq, epoch: EPOCH, reason: "none", fleet });
+const reset = (seq = 0, fleet = snapshot([thread(KEY)])): Action => frame({ type: "reset", seq, epoch: EPOCH, reason: "none", fleet });
 
 /** a journal as the server writes one while cmx2 streams a reply: the message, its part, then deltas */
 function streamingJournal(from: number): Entry[] {
   let seq = from;
   return [
-    { type: "message", seq: ++seq, key: KEY, upstream: 10, info: message("msg_2").info },
+    { type: "message", seq: ++seq, key: KEY, upstream: 10, message: message("msg_2").info },
     { type: "part", seq: ++seq, key: KEY, upstream: 11, part: text("prt_1", "") },
     { type: "delta", seq: ++seq, key: KEY, messageID: "msg_2", partID: "prt_1", field: "text", delta: "hello ", offset: 0 },
     { type: "delta", seq: ++seq, key: KEY, messageID: "msg_2", partID: "prt_1", field: "text", delta: "wörld 🙂", offset: 6 },
@@ -80,10 +62,11 @@ function streamingJournal(from: number): Entry[] {
   ];
 }
 
-/** an open, hydrated thread holding nothing yet, as of upstream seq `at` */
-function openThread(at = 5, messages: Message[] = []): SyncState {
-  const opened = run(INITIAL_STATE, [reset(), { type: "open", key: KEY, at: 1 }]);
-  return run(opened.state, [{ type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at, messages }]).state;
+/** an open, hydrated thread holding `messages`, as of upstream seq `at`. `interested` declares it in the stream's interest
+    before the reset, so a reset reads it again (a thread outside interest is read only when it is wanted) */
+function openThread(at = 5, messages: Message[] = [], interested = false): SyncState {
+  const opened = run(INITIAL_STATE, [...(interested ? [hello()] : []), reset(), { type: "open", key: KEY, at: 1 }]);
+  return run(opened.state, [{ type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at, seq: 0, messages }]).state;
 }
 
 const partText = (state: SyncState, messageIndex = 0, partIndex = 0) => {
@@ -111,47 +94,56 @@ describe("the journal cursor", () => {
     expect(again.state.counters.applied).toBe(5);
   });
 
-  test("an entry past cursor + 1 is a gap: nothing applies and the worker reconnects", () => {
+  test("a skipped seq applies and moves the cursor", () => {
     const journal = streamingJournal(0);
     const { state, results } = run(openThread(), [frame(journal[0] as Entry), frame(journal[2] as Entry)]);
-    expect(state.cursor?.seq).toBe(1);
-    expect(state.counters.gaps).toBe(1);
-    expect(results[1]?.effects).toEqual([{ type: "reconnect" }]);
+    expect(state.cursor).toEqual({ epoch: EPOCH, seq: 3 });
+    expect(state.counters.applied).toBe(2);
+    expect(results.flatMap((r) => r.effects)).toEqual([]);
   });
 
-  test("an entry from another epoch is a gap, since the server resets first", () => {
+  test("an entry from another epoch applies nothing and reconnects", () => {
     const { state, results } = run(openThread(), [frame(streamingJournal(0)[0] as Entry, "j0")]);
-    expect(state.counters.gaps).toBe(1);
     expect(results[0]?.effects).toEqual([{ type: "reconnect" }]);
+    expect(state.cursor).toEqual({ epoch: EPOCH, seq: 0 });
+    expect(state.counters.applied).toBe(0);
+    expect(state.threads[KEY]?.messages).toEqual([]);
   });
 });
 
 describe("a reset", () => {
-  test("replaces the fleet with what changed and reads every held transcript again", () => {
-    const before = run(openThread(), streamingJournal(0).map((e) => frame(e))).state;
-    const other = session("bench:ses_9");
-    const { state, results } = run(before, [frame({ type: "reset", seq: 40, epoch: "j2", reason: "epoch", fleet: snapshot([other]) })]);
-    expect(Object.keys(state.fleet.sessions)).toEqual(["bench:ses_9"]);
+  test("replaces the fleet with what changed and reads the threads in interest again, and leaves the others", () => {
+    const held = run(openThread(5, [], true), [{ type: "open", key: "bench:ses_2", at: 6 }]).state;
+    const hydration2 = held.threads["bench:ses_2"]?.hydration ?? 0;
+    const before = run(held, [
+      { type: "hydrated", key: "bench:ses_2", hydration: hydration2, upstreamEpoch: "u1", at: 3, seq: 0, messages: [] },
+      ...streamingJournal(0).map((e) => frame(e)),
+    ]).state;
+    const newcomer = thread("bench:ses_9");
+    const { state, results } = run(before, [frame({ type: "reset", seq: 40, epoch: "j2", reason: "epoch", fleet: snapshot([newcomer]) })]);
+    expect(Object.keys(state.fleet.threads)).toEqual(["bench:ses_9"]);
     expect(state.cursor).toEqual({ epoch: "j2", seq: 40 });
     expect(state.threads[KEY]?.status).toBe("hydrating");
     expect(partText(state)).toBe("hello wörld 🙂 again");
-    expect(results[0]?.effects).toEqual([{ type: "hydrate", key: KEY, hydration: 2 }]);
-    // the session that went, the one that came and the order, not the fleet whole: the ui ends equal, key order included
+    // the thread in interest is read again; the one held outside it is left as it was
+    expect(state.threads["bench:ses_2"]?.status).toBe("live");
+    expect(results[0]?.effects).toEqual([{ type: "hydrate", key: KEY, hydration: 3 }]);
+    // the thread that went, the one that came and the order, not the fleet whole: the ui ends equal, key order included
     expect(results[0]?.patches.some((p) => p.path.length === 1 && p.path[0] === "fleet")).toBe(false);
     expect(mirrored(before, results[0]?.patches ?? [])).toBe(mirrorOf(state));
     expect(state.counters.resets).toBe(2);
   });
 
   test("a snapshot that sends the fleet as it was changes nothing in the ui's fleet", () => {
-    const before = run(INITIAL_STATE, [reset(0, snapshot([session(), session("bench:ses_9")]))]).state;
-    const { results } = run(before, [reset(5, snapshot([session(), session("bench:ses_9")]))]);
+    const before = run(INITIAL_STATE, [reset(0, snapshot([thread(KEY), thread("bench:ses_9")]))]).state;
+    const { results } = run(before, [reset(5, snapshot([thread(KEY), thread("bench:ses_9")]))]);
     expect(results[0]?.patches.filter((p) => p.path[0] === "fleet")).toEqual([]);
   });
 
-  test("the threads it is told to cool go cold and stale, their heads written, and only the rest are read again", () => {
-    const two = run(openThread(), [{ type: "open", key: "bench:ses_2", at: 6 }]).state;
+  test("the threads it is told to cool go cold and stale, their heads written, and only the threads in interest are read again", () => {
+    const two = run(openThread(5, [], true), [{ type: "open", key: "bench:ses_2", at: 6 }]).state;
     const hydration = two.threads["bench:ses_2"]?.hydration ?? 0;
-    const opened = run(two, [{ type: "hydrated", key: "bench:ses_2", hydration, upstreamEpoch: "u1", at: 3, messages: [message("msg_9")] }]).state;
+    const opened = run(two, [{ type: "hydrated", key: "bench:ses_2", hydration, upstreamEpoch: "u1", at: 3, seq: 0, messages: [message("msg_9")] }]).state;
     const { state, results } = run(opened, [{ ...reset(9), cool: { "bench:ses_2": 1 } } as Action]);
     expect(Object.keys(state.threads)).toEqual([KEY]);
     expect(state.threads[KEY]?.status).toBe("hydrating");
@@ -165,7 +157,7 @@ describe("cooling", () => {
   const ready = () => {
     const two = run(openThread(), [{ type: "open", key: "bench:ses_2", at: 6 }]).state;
     const hydration = two.threads["bench:ses_2"]?.hydration ?? 0;
-    return run(two, [{ type: "hydrated", key: "bench:ses_2", hydration, upstreamEpoch: "u1", at: 3, messages: [message("msg_9", [text("prt_9", "words", "msg_9")])] }]).state;
+    return run(two, [{ type: "hydrated", key: "bench:ses_2", hydration, upstreamEpoch: "u1", at: 3, seq: 0, messages: [message("msg_9", [text("prt_9", "words", "msg_9")])] }]).state;
   };
 
   test("a thread nobody shows goes cold with the head its pages were saved with, and comes back from them as it was", () => {
@@ -193,21 +185,21 @@ describe("cooling", () => {
 describe("a thread read again", () => {
   test("reaches the ui as the messages that differ and the ones that joined, not the thread whole", () => {
     const messages = Array.from({ length: 10 }, (_, i) => message(`msg_${i}`, [text(`prt_${i}`, `words ${i}`, `msg_${i}`)]));
-    const live = openThread(5, messages);
+    const live = openThread(5, messages, true);
     const again = run(live, [reset(9)]);
     const reread = [...structuredClone(messages), message("msg_10")];
     reread[3] = message("msg_3", [text("prt_3", "words 3, edited", "msg_3")]);
     const hydration = again.state.threads[KEY]?.hydration ?? 0;
-    const { state, results } = run(again.state, [{ type: "hydrated", key: KEY, hydration, upstreamEpoch: "u1", at: 20, messages: reread }]);
+    const { state, results } = run(again.state, [{ type: "hydrated", key: KEY, hydration, upstreamEpoch: "u1", at: 20, seq: 0, messages: reread }]);
     expect(results[0]?.patches.map((p) => p.path.join("/"))).toEqual([`threads/${KEY}/status`, `threads/${KEY}/messages/3`, `threads/${KEY}/messages/10`]);
     expect(mirrored(again.state, results[0]?.patches ?? [])).toBe(mirrorOf(state));
   });
 
   test("a message removed, or most of them changed, sets the list whole", () => {
     const messages = Array.from({ length: 4 }, (_, i) => message(`msg_${i}`));
-    const again = run(openThread(5, messages), [reset(9)]);
+    const again = run(openThread(5, messages, true), [reset(9)]);
     const hydration = again.state.threads[KEY]?.hydration ?? 0;
-    const removed = run(again.state, [{ type: "hydrated", key: KEY, hydration, upstreamEpoch: "u1", at: 20, messages: messages.slice(1) }]);
+    const removed = run(again.state, [{ type: "hydrated", key: KEY, hydration, upstreamEpoch: "u1", at: 20, seq: 0, messages: messages.slice(1) }]);
     expect(removed.results[0]?.patches.map((p) => p.path.join("/"))).toEqual([`threads/${KEY}/status`, `threads/${KEY}/messages`]);
     expect(mirrored(again.state, removed.results[0]?.patches ?? [])).toBe(mirrorOf(removed.state));
   });
@@ -228,15 +220,17 @@ describe("hydration", () => {
     const during = run(opened, streamingJournal(0).map((e) => frame(e))).state;
     expect(during.threads[KEY]?.buffer.length).toBe(5);
     const read = [message("msg_2", [text("prt_1", "hello wörld")])];
-    const { state } = run(during, [{ type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 11, messages: read }]);
+    const { state } = run(during, [{ type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 11, seq: 0, messages: read }]);
     expect(partText(state)).toBe("hello wörld 🙂 again");
     expect(state.threads[KEY]?.buffer).toEqual([]);
     expect(state.counters.duplicates).toBe(0);
   });
 
   test("an answer to an older hydration request is ignored", () => {
-    const opened = run(INITIAL_STATE, [reset(), { type: "open", key: KEY, at: 1 }, reset(0)]).state;
-    const stale = reduce(opened, { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, messages: [] });
+    // the first read lands, then a reset starts a second one (a read in flight when a reset comes stands, so it must land first)
+    const landed = run(INITIAL_STATE, [hello(), reset(), { type: "open", key: KEY, at: 1 }, { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, seq: 0, messages: [] }, reset(0)]).state;
+    expect(landed.threads[KEY]?.status).toBe("hydrating");
+    const stale = reduce(landed, { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, seq: 0, messages: [] });
     expect(stale.state.threads[KEY]?.status).toBe("hydrating");
   });
 
@@ -249,7 +243,7 @@ describe("hydration", () => {
 });
 
 describe("a read that fails", () => {
-  const opened = () => run(INITIAL_STATE, [reset(), { type: "open", key: KEY, at: 1 }]).state;
+  const opened = (interested = false) => run(INITIAL_STATE, [...(interested ? [hello()] : []), reset(), { type: "open", key: KEY, at: 1 }]).state;
   const failing = (gone = false, problem: string | null = "vm-a is not answering"): Action => ({ type: "read-failed", key: KEY, hydration: 1, trouble: { gone, problem } });
 
   test("says why on the thread and in a patch, once per change", () => {
@@ -261,12 +255,14 @@ describe("a read that fails", () => {
   });
 
   test("a failure of a read that is no longer the thread's says nothing", () => {
-    const again = run(opened(), [reset(0)]).state;
+    // the read lands, then a reset starts another: the failing try is the old read's
+    const again = run(opened(true), [{ type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, seq: 0, messages: [] }, reset(0)]).state;
+    expect(again.threads[KEY]?.status).toBe("hydrating");
     expect(reduce(again, failing()).patches).toEqual([]);
   });
 
   test("the read that lands clears it, in the view it patches", () => {
-    const { state, results } = run(opened(), [failing(), { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, messages: [] }]);
+    const { state, results } = run(opened(), [failing(), { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, seq: 0, messages: [] }]);
     expect(state.threads[KEY]?.trouble).toBeNull();
     const view = (results[1]?.patches.find((p) => p.path.length === 2) as SetPatch | undefined)?.value as Record<string, unknown>;
     expect("trouble" in view).toBe(false);
@@ -278,7 +274,7 @@ describe("a read that fails", () => {
     expect(effects).toEqual([{ type: "hydrate", key: KEY, hydration: 2 }]);
     expect(state.threads[KEY]?.trouble).toEqual({ gone: false, problem: "vm-a is not answering" });
     // the old read's answer is no longer the thread's
-    expect(reduce(state, { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, messages: [] }).state.threads[KEY]?.status).toBe("hydrating");
+    expect(reduce(state, { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 3, seq: 0, messages: [] }).state.threads[KEY]?.status).toBe("hydrating");
     expect(reduce(openThread(), { type: "reread", key: KEY }).effects).toEqual([]);
     expect(reduce(INITIAL_STATE, { type: "reread", key: KEY }).effects).toEqual([]);
   });
@@ -299,7 +295,7 @@ describe("deltas", () => {
 
   // images at the server's largest frame: the most a legitimate stream sends at once
   const frameSized = `data:image/png;base64,${"x".repeat(SERVER_FRAME_BYTES - 200)}`;
-  const image = (n: number, messageID = "msg_2"): Part => ({ id: `prt_img${String(n).padStart(2, "0")}`, sessionID: "ses_1", messageID, type: "file", mime: "image/png", url: frameSized }) as Part;
+  const image = (n: number, messageID = "msg_2"): Part => ({ id: `prt_img${String(n).padStart(2, "0")}`, messageID, type: "file", mime: "image/png", url: frameSized }) as Part;
   const images = (n: number, from: number, upstream = 100) => Array.from({ length: n }, (_, i): Entry => ({ type: "part", seq: from + i, key: KEY, upstream: upstream + i, part: image(i) }));
 
   test("what waits for a refetch: fifteen of the server's largest frames wait and apply on the answer as they always did", () => {
@@ -335,7 +331,7 @@ describe("deltas", () => {
     const under = run(hydrating, images(15, 1).map((e) => frame(e)));
     expect(under.results.flatMap((r) => r.effects)).toEqual([]);
     expect(under.state.threads[KEY]?.buffer.length).toBe(15);
-    const landed = reduce(under.state, { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 5, messages: [message("msg_2")], bytes: 100 });
+    const landed = reduce(under.state, { type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 5, seq: 0, messages: [message("msg_2")], bytes: 100 });
     expect(landed.effects).toEqual([]);
     expect(landed.state.threads[KEY]?.messages[0]?.parts.length).toBe(15);
   });
@@ -537,14 +533,14 @@ describe("the patch queue", () => {
 });
 
 describe("the fleet", () => {
-  test("a session sent whole again patches only what changed in it, and the ui's copy ends equal to it, key order included", () => {
-    const item = (n: number, words = `step ${n}`) => ({ partID: `prt_${n}`, messageID: "msg_1", kind: "text", role: "assistant", text: words });
-    const first: SessionEntry = { ...session(), status: { type: "busy", queued: 0, since: 5 } as SessionEntry["status"], tail: [item(1), item(2), item(3)] as SessionEntry["tail"] };
+  test("a thread sent whole again patches only what changed in it, and the ui's copy ends equal to it, key order included", () => {
+    const item = (n: number, words = `step ${n}`) => ({ partID: `prt_${n}`, messageID: "msg_1", kind: "text" as const, role: "assistant", text: words });
+    const first: Thread = { ...thread(KEY), activity: { state: "busy", since: 5 }, tail: [item(1), item(2), item(3)] };
     const start = run(INITIAL_STATE, [reset(0, snapshot([first]))]).state;
-    const tick = (entry: SessionEntry, seq: number) => reduce(start, frame({ type: "session", seq, session: entry }));
-    const at = ["fleet", "sessions", KEY];
+    const tick = (entry: Thread, seq: number) => reduce(start, frame({ type: "thread", seq, thread: entry }));
+    const at = ["fleet", "threads", KEY];
     const apply = (patches: readonly Patch[]) => {
-      const copy = structuredClone({ sessions: { [KEY]: first } }) as Record<string, unknown>;
+      const copy = structuredClone({ threads: { [KEY]: first } }) as Record<string, unknown>;
       for (const patch of patches) {
         let node = copy as Record<string | number, unknown>;
         for (const segment of patch.path.slice(1, -1)) node = node[segment] as Record<string | number, unknown>;
@@ -555,91 +551,100 @@ describe("the fleet", () => {
       }
       return JSON.stringify(copy);
     };
-    const cases: Array<[SessionEntry, Patch[]]> = [
+    const cases: Array<[Thread, Patch[]]> = [
       // the same entry again: nothing
       [structuredClone(first), []],
       // the last tail item grew and the time moved: two leaves, the item whole
       [
-        { ...structuredClone(first), info: { ...first.info, time: { created: 1, updated: 9 } }, tail: [item(1), item(2), item(3, "step 3 and more")] as SessionEntry["tail"] },
+        { ...structuredClone(first), updated: 9, tail: [item(1), item(2), item(3, "step 3 and more")] },
         [
-          { path: [...at, "info", "time", "updated"], value: 9 },
+          { path: [...at, "updated"], value: 9 },
           { path: [...at, "tail", 2], value: item(3, "step 3 and more") },
         ],
       ],
       // the tail moved on: every item changed, so the array goes whole
-      [{ ...structuredClone(first), tail: [item(2), item(3), item(4)] as SessionEntry["tail"] }, [{ path: [...at, "tail"], value: [item(2), item(3), item(4)] }]],
+      [{ ...structuredClone(first), tail: [item(2), item(3), item(4)] }, [{ path: [...at, "tail"], value: [item(2), item(3), item(4)] }]],
       // a key gone and a key new at the end: deleted and added in place
       [
-        { ...structuredClone(first), status: { type: "busy", since: 5, attempt: 2 } as unknown as SessionEntry["status"] },
+        { ...structuredClone(first), activity: { state: "busy", attempt: 2 } as unknown as Thread["activity"] },
         [
-          { path: [...at, "status", "queued"], value: undefined },
-          { path: [...at, "status", "attempt"], value: 2 },
+          { path: [...at, "activity", "since"], value: undefined },
+          { path: [...at, "activity", "attempt"], value: 2 },
         ],
       ],
       // keys that changed order: the object goes whole, so its keys read in the server's order
-      [{ ...structuredClone(first), status: { since: 5, type: "busy", queued: 0 } as unknown as SessionEntry["status"] }, [{ path: [...at, "status"], value: { since: 5, type: "busy", queued: 0 } }]],
-      // a status that ended
-      [{ ...structuredClone(first), status: null }, [{ path: [...at, "status"], value: null }]],
+      [{ ...structuredClone(first), activity: { since: 5, state: "busy" } as Thread["activity"] }, [{ path: [...at, "activity"], value: { since: 5, state: "busy" } }]],
+      // an activity that ended
+      [
+        { ...structuredClone(first), activity: { state: "idle" } },
+        [
+          { path: [...at, "activity", "since"], value: undefined },
+          { path: [...at, "activity", "state"], value: "idle" },
+        ],
+      ],
     ];
     cases.forEach(([entry, expected]) => {
       const { patches } = tick(entry, 1);
       expect(patches).toEqual(expected);
-      expect(apply(patches)).toBe(JSON.stringify({ sessions: { [KEY]: entry } }));
+      expect(apply(patches)).toBe(JSON.stringify({ threads: { [KEY]: entry } }));
     });
   });
 
   test("ticks coalesced into one post leave the ui's copy as the last tick, key order included", () => {
-    const first = session();
+    const first = thread(KEY);
     const start = run(INITIAL_STATE, [reset(0, snapshot([first]))]).state;
-    const { title, ...untitled } = first.info;
-    const extra = (info: Record<string, unknown>) => ({ ...first, info }) as unknown as SessionEntry;
-    const runs: SessionEntry[][] = [
+    const { title, ...untitled } = first;
+    const extra = (fields: Record<string, unknown>) => fields as unknown as Thread;
+    const runs: Thread[][] = [
       // a key deleted, then set again: it goes to the end
       [extra(untitled), extra({ ...untitled, title })],
       // two keys created, then the first changed: they stay in the order they were created
-      [extra({ ...first.info, revert: "a", share: "b" }), extra({ ...first.info, revert: "c", share: "b" })],
+      [extra({ ...first, revert: "a", share: "b" }), extra({ ...first, revert: "c", share: "b" })],
       // a key deleted, set again, and deleted once more
       [extra(untitled), extra({ ...untitled, title }), extra(untitled)],
     ];
     for (const ticks of runs) {
-      const { state, results } = run(start, ticks.map((entry, i) => frame({ type: "session", seq: i + 1, session: entry })));
+      const { state, results } = run(start, ticks.map((entry, i) => frame({ type: "thread", seq: i + 1, thread: entry })));
       const ui = structuredClone({ ...first }) as Record<string, unknown>;
       for (const patch of coalesce(results.flatMap((r) => r.patches))) {
         let node = ui as Record<string | number, unknown>;
         for (const segment of patch.path.slice(3, -1)) node = node[segment] as Record<string | number, unknown>;
-        const last = patch.path[patch.path.length - 1] as PathSegment; // a session's patches name a field
+        const last = patch.path[patch.path.length - 1] as PathSegment; // a thread's patches name a field
         if (isAppend(patch)) node[last] = appended(node[last], patch);
         else if (patch.value === undefined) delete node[last];
         else node[last] = structuredClone(patch.value);
       }
-      expect(JSON.stringify(ui)).toBe(JSON.stringify(state.fleet.sessions[KEY]));
+      expect(JSON.stringify(ui)).toBe(JSON.stringify(state.fleet.threads[KEY]));
     }
   });
 
-  test("a session the fleet did not hold is one patch, whole", () => {
-    const added = session("bench:ses_2");
-    const { patches } = reduce(run(INITIAL_STATE, [reset()]).state, frame({ type: "session", seq: 1, session: added }));
-    expect(patches).toEqual([{ path: ["fleet", "sessions", "bench:ses_2"], value: added }]);
+  test("a thread the fleet did not hold is one patch, whole", () => {
+    const added = thread("bench:ses_2");
+    const { patches } = reduce(run(INITIAL_STATE, [reset()]).state, frame({ type: "thread", seq: 1, thread: added }));
+    expect(patches).toEqual([{ path: ["fleet", "threads", "bench:ses_2"], value: added }]);
   });
-  test("sessions, asks and order follow their entries", () => {
-    const added = session("bench:ses_2");
+
+  test("threads, asks and order follow their entries", () => {
+    const added = thread("bench:ses_2");
     const { state } = run(run(INITIAL_STATE, [reset()]).state, [
-      frame({ type: "session", seq: 1, session: added }),
-      frame({ type: "ask", seq: 2, ask: { key: added.key, host: "bench", id: "per_1", kind: "permission", request: {} } }),
+      frame({ type: "thread", seq: 1, thread: added }),
+      frame({ type: "ask", seq: 2, ask: { key: added.key, agent: "bench", id: "per_1", thread: added.key, kind: "permission" } }),
       frame({ type: "order", seq: 3, keys: ["bench:ses_2", KEY] }),
-      frame({ type: "ask.settled", seq: 4, host: "bench", id: "per_1" }),
-      frame({ type: "session.removed", seq: 5, key: KEY }),
+      frame({ type: "ask.settled", seq: 4, agent: "bench", id: "per_1", outcome: "answered", at: 4 }),
+      frame({ type: "thread.removed", seq: 5, key: KEY }),
     ]);
-    expect(Object.keys(state.fleet.sessions)).toEqual(["bench:ses_2"]);
+    expect(Object.keys(state.fleet.threads)).toEqual(["bench:ses_2"]);
     expect(state.fleet.asks).toEqual({});
     expect(state.fleet.order).toEqual(["bench:ses_2", KEY]);
   });
 
-  test("a host reset replaces that host's sessions and reads its transcripts again", () => {
-    const opened = run(openThread(), [frame({ type: "session", seq: 1, session: session("desk:ses_7") })]).state;
-    const replacement = session("bench:ses_3");
-    const { state, results } = run(opened, [frame({ type: "host.reset", seq: 2, host: "bench", sessions: [replacement], asks: [] })]);
-    expect(Object.keys(state.fleet.sessions).sort()).toEqual(["bench:ses_3", "desk:ses_7"]);
+  test("a thread reset drops what is held of that thread and reads it again, and leaves the fleet and the other threads", () => {
+    const opened = run(openThread(5, [message("msg_9")]), [frame({ type: "thread", seq: 1, thread: thread("desk:ses_7") })]).state;
+    const { state, results } = run(opened, [frame({ type: "thread.reset", seq: 2, key: KEY })]);
+    expect(Object.keys(state.fleet.threads).sort()).toEqual([KEY, "desk:ses_7"]);
+    expect(state.fleet.threads["desk:ses_7"]).toEqual(thread("desk:ses_7"));
+    expect(state.threads[KEY]?.status).toBe("hydrating");
+    expect(results[0]?.patches).toContainEqual({ path: ["threads", KEY, "messages"], value: [] });
     expect(results[0]?.effects).toEqual([{ type: "hydrate", key: KEY, hydration: 2 }]);
   });
 });
@@ -678,7 +683,7 @@ describe("repo colours", () => {
     expect(mirrored(before, results[0]?.patches ?? [])).toBe(mirrorOf(state));
   });
 
-  test("colour frames are outside the journal: no cursor moves, nothing counts as applied, a duplicate or a gap", () => {
+  test("colour frames are outside the journal: no cursor moves, nothing counts as applied or a duplicate", () => {
     const live = run(INITIAL_STATE, [reset(3)]).state;
     const { state, results } = run(live, [{ type: "colours", colours: [api] }, { type: "colour", colour: notes }]);
     expect(state.cursor).toEqual(live.cursor);
@@ -699,15 +704,15 @@ const SES = "s";
 const partId = (seq: number, index: number, width = 5) => `prt_${SES}_${String(seq).padStart(width, "0")}_${index}`;
 const msgId = (seq: number) => `msg_${SES}_${String(seq).padStart(5, "0")}`;
 const typed = (id: string, type: "text" | "reasoning", value: string, messageID: string, extra: Record<string, unknown> = {}): Part =>
-  ({ id, sessionID: "ses_1", messageID, type, text: value, ...extra }) as Part;
-const tool = (id: string, messageID: string, status: string): Part => ({ id, sessionID: "ses_1", messageID, type: "tool", callID: "c1", tool: "shell", state: { status } }) as unknown as Part;
+  ({ id, messageID, type, text: value, ...extra }) as Part;
+const tool = (id: string, messageID: string, status: string): Part => ({ id, messageID, type: "tool", callID: "c1", tool: "shell", state: { status } }) as unknown as Part;
 
 /** entries numbered from the cursor on, with upstream seqs above any read */
 function journalOf(state: SyncState, makers: Array<(seq: number) => Entry>): Action[] {
   const from = state.cursor?.seq ?? 0;
   return makers.map((make, i) => frame(make(from + i + 1)));
 }
-const info = (seq: number, id: string) => (n: number): Entry => ({ type: "message", seq: n, key: KEY, upstream: 1000 + seq, info: message(id).info });
+const info = (seq: number, id: string) => (n: number): Entry => ({ type: "message", seq: n, key: KEY, upstream: 1000 + seq, message: message(id).info });
 const partE = (seq: number, part: Part) => (n: number): Entry => ({ type: "part", seq: n, key: KEY, upstream: 1000 + seq, part });
 const deltaE = (messageID: string, partID: string, value: string, offset: number, field = "text") => (n: number): Entry =>
   ({ type: "delta", seq: n, key: KEY, messageID, partID, field, delta: value, offset });
@@ -728,11 +733,11 @@ describe("a part's position", () => {
 
   test("a part goes before the first held part that follows it, comparing numbers", () => {
     const held = [partId(9, 0), partId(100000, 2), partId(100000, 10)].map((id) => typed(id, "text", "", "m"));
-    expect(placeBefore(held, partId(9, 1))).toBe(1);
-    expect(placeBefore(held, partId(100000, 9))).toBe(2);
-    expect(placeBefore(held, partId(100001, 0))).toBe(3);
-    expect(placeBefore(held, partId(1, 0, 1))).toBe(0);
-    expect(placeBefore(held, "prt_imported")).toBe(3);
+    expect(placeBefore(held, { id: partId(9, 1) })).toBe(1);
+    expect(placeBefore(held, { id: partId(100000, 9) })).toBe(2);
+    expect(placeBefore(held, { id: partId(100001, 0) })).toBe(3);
+    expect(placeBefore(held, { id: partId(1, 0, 1) })).toBe(0);
+    expect(placeBefore(held, { id: "prt_imported" })).toBe(3);
   });
 
   test("parts out of order are put in order, in order ones are returned as they are, imported ones keep arrival order", () => {
@@ -815,7 +820,7 @@ describe("parts held in the daemon's order", () => {
   test("entries that waited for hydration are placed the same way", () => {
     const opened = run(INITIAL_STATE, [reset(), { type: "open", key: KEY, at: 1 }]).state;
     const during = run(opened, journalOf(opened, [info(1, m), deltaE(m, partId(6, 1), "late", 0), partE(2, typed(partId(6, 0), "reasoning", "t", m))])).state;
-    const { state, results } = run(during, [{ type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 5, messages: [] }]);
+    const { state, results } = run(during, [{ type: "hydrated", key: KEY, hydration: 1, upstreamEpoch: "u1", at: 5, seq: 0, messages: [] }]);
     expect(orderOf(state)).toEqual(["00006:0", "00006:1"]);
     expect(refetchesIn(results)).toEqual([]);
   });
@@ -827,7 +832,7 @@ describe("a delta at offset 0 for a part not held", () => {
   test("creates it as streaming text at its place, with no refetch", () => {
     const base = run(openThread(), journalOf(INITIAL_STATE, [info(1, m)]));
     const { state, results } = run(base.state, journalOf(base.state, [deltaE(m, partId(6, 1), "the", 0), deltaE(m, partId(6, 1), " notes", 3)]));
-    expect(state.threads[KEY]?.messages[0]?.parts[0]).toEqual({ id: partId(6, 1), sessionID: "ses_1", messageID: m, type: "text", text: "the notes", streaming: true });
+    expect(state.threads[KEY]?.messages[0]?.parts[0]).toEqual({ id: partId(6, 1), messageID: m, type: "text", text: "the notes", streaming: true });
     expect(state.counters.refetches).toBe(0);
     expect(results.flatMap((r) => r.effects)).toEqual([]);
   });
@@ -935,15 +940,16 @@ describe("a message fetched again", () => {
 
 type Recorded = { id: string; type: string; seq?: number; properties: Record<string, unknown> };
 
-/** the journal entries the server writes for a recorded daemon event: message and part events carry the daemon's seq as upstream */
+/** the journal entries the server writes for a recorded daemon event: message and part events carry the daemon's seq as upstream,
+    and their cmx2 objects come as the server makes them neutral (fixtures/neutral.ts) */
 function entriesOf(events: Recorded[]): Array<(seq: number) => Entry> {
   return events.map((event): ((seq: number) => Entry) => {
     const upstream = event.seq ?? null;
     switch (event.type) {
       case "message.updated":
-        return (seq) => ({ type: "message", seq, key: KEY, upstream, info: event.properties.info as Message["info"] });
+        return (seq) => ({ type: "message", seq, key: KEY, upstream, message: neutralInfo(event.properties.info as Record<string, unknown>) });
       case "message.part.updated":
-        return (seq) => ({ type: "part", seq, key: KEY, upstream, part: event.properties.part as Part });
+        return (seq) => ({ type: "part", seq, key: KEY, upstream, part: neutralPart(event.properties.part as Record<string, unknown>) });
       case "message.part.delta": {
         const p = event.properties as { messageID: string; partID: string; field: string; delta: string; offset: number };
         return (seq) => ({ type: "delta", seq, key: KEY, messageID: p.messageID, partID: p.partID, field: p.field, delta: p.delta, offset: p.offset });
@@ -993,7 +999,7 @@ describe("a recorded cmx2 0.8.3 thinking turn", () => {
     expect(born).toMatchObject({ type: "text", text: (first.properties as { delta: string }).delta, streaming: true });
     const whole = run(openThread(0), journalOf(INITIAL_STATE, entriesOf(events))).state.threads[KEY]?.messages.flatMap((m) => m.parts);
     const final = events.filter((e) => e.type === "message.part.updated" && (e.properties.part as Part).id === (first.properties as { partID: string }).partID).at(-1);
-    expect(whole?.find((p) => p.id === born?.id)).toEqual((final?.properties as { part: Part }).part);
+    expect(whole?.find((p) => p.id === born?.id)).toEqual(neutralPart(final?.properties.part as Record<string, unknown>));
   });
 });
 
@@ -1057,7 +1063,7 @@ describe("cmx2's announced parts (contract v5)", () => {
   test("an early final for the thought, while the reply streams, settles the thought and leaves the reply streaming", () => {
     const state = run(openThread(), journalOf(INITIAL_STATE, early().slice(0, 7))).state;
     const parts = state.threads[KEY]?.messages[0]?.parts;
-    expect(parts?.map((p) => [p.type, p.streaming === true])).toEqual([["reasoning", false], ["text", true]]);
+    expect(parts?.map((p) => [p.type, (p as { streaming?: boolean }).streaming === true])).toEqual([["reasoning", false], ["text", true]]);
     expect(parts?.[0]).toMatchObject({ text: "weighing the options", time: { start: 1000, end: 1500 } });
     expect(partText(state, 0, 1)).toBe("the ");
   });
@@ -1078,7 +1084,7 @@ describe("cmx2's announced parts (contract v5)", () => {
     const read = message(m, [typed(partId(6, 0), "reasoning", "weighing the options", m, { time: { start: 1000, end: 1500 } }), typed(partId(6, 1), "text", "", m, { streaming: true, time: { start: 1501 } })]);
     const { state } = run(openThread(1004, [read]), journalOf(INITIAL_STATE, early().slice(5)));
     expect(orderOf(state)).toEqual(["00006:0", "00006:1"]);
-    expect(state.threads[KEY]?.messages[0]?.parts[0]?.streaming).not.toBe(true);
+    expect((state.threads[KEY]?.messages[0]?.parts[0] as { streaming?: boolean } | undefined)?.streaming).not.toBe(true);
     expect(state.counters.refetches).toBe(0);
   });
 

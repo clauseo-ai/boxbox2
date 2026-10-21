@@ -13,7 +13,7 @@ const openMenu = (el: HTMLElement) => el.querySelector<HTMLButtonElement>(".stag
 export const MenuOpen = onShell((_key, el) => openMenu(el));
 
 /** a turn running with the big title scrolled away: the bar carries stop, so it is in reach at any scroll */
-export const BarStop = onShell((key) => applyPatches([{ path: ["fleet", "sessions", key, "status"], value: { type: "busy", since: Date.now() - 42_000 } }]));
+export const BarStop = onShell((key) => applyPatches([{ path: ["fleet", "threads", key, "activity"], value: { state: "busy", since: Date.now() - 42_000 } }]));
 
 /** the reader scrolls up by their own hand (a wheel), then `n` messages arrive below them */
 function scrolledUp(key: string, el: HTMLElement, n: number): void {

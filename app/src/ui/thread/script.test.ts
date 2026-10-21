@@ -11,12 +11,13 @@ import { placeName } from "./place";
 import { type RowCtx, kindOf } from "./rows";
 import { A_SCRIPT, leadingComment, scriptName, scriptTitle } from "./script";
 import type { WireMessage, WirePart } from "./wire";
+import { neutral } from "./fixtures/wire";
 
 const T0 = 1_790_000_000_000;
 const SCRIPT = "const cmds = {\n  a: 'git status',\n};\nfor (const c of Object.values(cmds)) await shell.exec({ command: c });";
 
-const user = (): WireMessage => ({ info: { id: "u1", role: "user", time: { created: T0 } } as WireMessage["info"], parts: [{ id: "u1_p", type: "text", text: "look" } as WirePart] });
-const assistant = (parts: WirePart[]): WireMessage => ({ info: { id: "a1", role: "assistant", time: { created: T0 + 100 } } as WireMessage["info"], parts });
+const user = (): WireMessage => neutral({ info: { id: "u1", role: "user", time: { created: T0 } }, parts: [{ id: "u1_p", type: "text", text: "look" } as WirePart] });
+const assistant = (parts: WirePart[]): WireMessage => neutral({ info: { id: "a1", role: "assistant", time: { created: T0 + 100 } }, parts });
 const runPart = (input: Record<string, unknown>, time?: { start?: number; end?: number }): WirePart =>
   ({ id: "prt_run", type: "tool", callID: "c_run", tool: "run", state: { status: "running", input, metadata: {}, ...(time ? { time } : {}) } }) as unknown as WirePart;
 const stepIn = (msgs: WireMessage[]): Step => { const s = turnsOf(msgs, "/w")[0]?.items.find((x) => x.k === "step"); if (!s || s.k !== "step") throw new Error("no step"); return s; };

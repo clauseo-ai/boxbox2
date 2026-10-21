@@ -497,11 +497,7 @@ fn matches(facts: &Facts, needle: &str) -> bool {
 
 /// the project's last path segment: what the app calls the repo.
 fn repo_of(project: &str) -> &str {
-    project
-        .trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .unwrap_or(project)
+    crate::source::cmx2::translate::repo_name(project)
 }
 
 #[allow(

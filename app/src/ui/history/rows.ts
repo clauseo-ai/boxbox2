@@ -6,13 +6,17 @@
    pure, so rows.test.ts pins it. */
 
 import type { components } from "../../api/boxbox";
-import type { Ask, SessionEntry, SessionInfo } from "../../sync/protocol";
+import type { components as Cmx2 } from "../../api/cmx2";
+import type { Ask, Thread } from "../../sync/protocol";
 import { repoRootOf } from "../composer/place";
 import { extraOf } from "../inbox/extra";
 import { type ColourMap, colourOf, type RepoColour, repoName } from "../window/repo";
 import { type WindowState, windowView } from "../window/view";
 
 export type HistoryApiRow = components["schemas"]["HistoryRow"];
+
+/** a row's info is the page's copy of the thread as cmx2 wrote it (the api's HistoryRow keeps it raw) */
+type SessionInfo = Cmx2["schemas"]["SessionInfo"];
 
 export type RowView = {
   key: string;
@@ -94,13 +98,15 @@ export function collisionSuffixes(rows: readonly HistoryApiRow[]): Map<string, s
 }
 
 /** `colours` is the fleet's (window/colours.ts, `colourMap`), from the reactive caller */
-export function rowView(row: HistoryApiRow, held: SessionEntry | undefined, asks: readonly Ask[], colours: ColourMap, now: number, suffix = ""): RowView {
-  const info = (held?.info ?? row.info) as unknown as SessionInfo;
+export function rowView(row: HistoryApiRow, held: Thread | undefined, asks: readonly Ask[], colours: ColourMap, now: number, suffix = ""): RowView {
+  // a thread the fleet holds reads its own fields; a row the fleet does not hold reads the page's copy of the cmx2 info
+  const info = row.info as unknown as SessionInfo;
   const view = held ? windowView(held, asks, colours, extraOf(held)) : null;
   const state: WindowState = view?.state ?? "idle";
-  const title = info.title.trim() || "untitled";
-  const repo = repoName(info.projectID);
-  const updated = info.time.updated;
+  const title = (held ? held.title : info.title).trim() || "untitled";
+  const repo = held ? (held.place?.name ?? "") : repoName(info.projectID);
+  const updated = held ? held.updated : info.time.updated;
+  const root = held ? (held.place?.root ?? "") : repoRootOf(info);
   // the fleet's mark is the live one: a thread that came back on its own is not cleared any more
   const cleared = held ? held.cleared != null : row.cleared;
   const words = WORDS[state];
@@ -108,9 +114,9 @@ export function rowView(row: HistoryApiRow, held: SessionEntry | undefined, asks
     key: row.key,
     host: row.host,
     repo,
-    root: repoRootOf(info),
+    root,
     // a copy, for the reason windowView copies it: the page's store reconciles rows into what it holds
-    colour: { ...colourOf({ host: row.host, root: repoRootOf(info) }, colours) },
+    colour: { ...colourOf({ host: row.host, root }, colours) },
     title,
     state,
     words,

@@ -78,9 +78,7 @@ fn event(model: &mut Model, payload: &str) -> Vec<Change> {
     .unwrap() else {
         return Vec::new();
     };
-    model
-        .source("desk", None, event, Some(&decoded.payload))
-        .unwrap()
+    model.source("desk", None, event)
 }
 
 fn updated(model: &mut Model, id: &str, at: i64, parent: Option<&str>) {
@@ -215,7 +213,7 @@ fn window_keys(snapshot: &Value, now: i64) -> Vec<String> {
     let mut keys = Vec::new();
     for key in snapshot["order"].as_array().unwrap() {
         let key = key.as_str().unwrap();
-        let Some(entry) = snapshot["sessions"]
+        let Some(thread) = snapshot["threads"]
             .as_array()
             .unwrap()
             .iter()
@@ -223,13 +221,13 @@ fn window_keys(snapshot: &Value, now: i64) -> Vec<String> {
         else {
             continue;
         };
-        if !entry["info"]["parentID"].is_null() || !entry["cleared"].is_null() {
+        if !thread["parent"].is_null() || !thread["cleared"].is_null() {
             continue;
         }
-        let active = !entry["status"].is_null() || asking.contains(key);
+        let active = thread["activity"]["state"] != "idle" || asking.contains(key);
         #[allow(clippy::cast_precision_loss)]
-        let recent = (now as f64) - entry["info"]["time"]["updated"].as_f64().unwrap()
-            < 12.0 * 60.0 * 60.0 * 1000.0;
+        let recent =
+            (now as f64) - thread["updated"].as_f64().unwrap() < 12.0 * 60.0 * 60.0 * 1000.0;
         if active || recent {
             keys.push(key.to_owned());
         }
@@ -238,19 +236,25 @@ fn window_keys(snapshot: &Value, now: i64) -> Vec<String> {
 }
 
 /// the fields `windowKeys` reads, in the app's store shape (sessions and
-/// asks by key), for the app's own test of the same cases.
+/// asks by key), for the app's own test of the same cases. the app reads a
+/// status only for whether it is null, so a thread that is not idle carries
+/// its activity there.
 fn app_fleet(snapshot: &Value) -> Value {
-    let sessions: serde_json::Map<String, Value> = snapshot["sessions"]
+    let sessions: serde_json::Map<String, Value> = snapshot["threads"]
         .as_array()
         .unwrap()
         .iter()
         .map(|s| {
-            let mut info =
-                serde_json::json!({ "time": { "updated": s["info"]["time"]["updated"] } });
-            if !s["info"]["parentID"].is_null() {
-                info["parentID"] = s["info"]["parentID"].clone();
+            let mut info = serde_json::json!({ "time": { "updated": s["updated"] } });
+            if !s["parent"].is_null() {
+                info["parentID"] = s["parent"].clone();
             }
-            let mut entry = serde_json::json!({ "info": info, "status": s["status"] });
+            let status = if s["activity"]["state"] == "idle" {
+                Value::Null
+            } else {
+                s["activity"].clone()
+            };
+            let mut entry = serde_json::json!({ "info": info, "status": status });
             if !s["cleared"].is_null() {
                 entry["cleared"] = s["cleared"].clone();
             }
@@ -265,7 +269,7 @@ fn app_fleet(snapshot: &Value) -> Value {
             (
                 format!(
                     "{}:{}",
-                    a["host"].as_str().unwrap(),
+                    a["agent"].as_str().unwrap(),
                     a["id"].as_str().unwrap()
                 ),
                 serde_json::json!({ "key": a["key"] }),
@@ -531,10 +535,15 @@ fn structural_changes_coalesce_into_one_build_a_quarter_second() {
     busy(&mut model, "s1");
     for change in [
         Change::Order { keys: Vec::new() },
-        Change::AskSettled {
-            host: "desk".into(),
+        Change::AskSettled(crate::wire::AskSettled {
+            agent: "desk".into(),
             id: "x".into(),
-        },
+            outcome: crate::wire::Outcome::Unknown,
+            option: None,
+            reason: None,
+            by: None,
+            at: 0.0,
+        }),
     ] {
         projection.saw(&change, at(NOW + 10));
     }
@@ -553,20 +562,28 @@ fn structural_changes_coalesce_into_one_build_a_quarter_second() {
 fn transcript_changes_never_mark_the_picture() {
     let model = Model::new();
     let (mut projection, _receiver) = Projection::start(wanted(Vec::new()), &model, clock(NOW));
-    let raw = serde_json::value::RawValue::from_string("{}".into()).unwrap();
+    let message: crate::wire::Message =
+        serde_json::from_value(serde_json::json!({"id": "m", "role": "assistant", "created": 1.0}))
+            .unwrap();
     projection.saw(
         &Change::Message {
             key: "desk:s1".into(),
             upstream: None,
-            info: raw.clone(),
+            message,
         },
         at(NOW),
+    );
+    let part = crate::source::cmx2::translate::part(
+        &serde_json::value::RawValue::from_string(
+            r#"{"id":"p","messageID":"m","sessionID":"s1","type":"text","text":"hi"}"#.into(),
+        )
+        .unwrap(),
     );
     projection.saw(
         &Change::Part {
             key: "desk:s1".into(),
             upstream: None,
-            part: raw,
+            part,
         },
         at(NOW),
     );
@@ -649,9 +666,10 @@ fn with_no_board_stream_the_actor_holds_nothing_and_runs_no_timer() {
     let mut actor = Actor {
         model: Model::new(),
         journal: Journal::new("ep".into()),
+        encoder: crate::fleet::encode::Encoder::new(),
         live: Vec::new(),
         board: None,
-        colours_version: 0,
+        keys: crate::fleet::StreamKeys::new(),
         build: "test".into(),
         tails: mpsc::channel(1).0,
         outside: Outside {
@@ -665,7 +683,7 @@ fn with_no_board_stream_the_actor_holds_nothing_and_runs_no_timer() {
         let mut changes = Vec::new();
         updated(&mut actor.model, &format!("s{n}"), NOW, None);
         changes.push(delta(&format!("s{n}")));
-        actor.publish_all(&changes);
+        actor.publish_all(changes);
     }
     assert!(
         actor.board.is_none(),

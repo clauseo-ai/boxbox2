@@ -1,15 +1,22 @@
 /* the worker's indexeddb cache (docs/architecture.md, indexeddb layout):
-   database `boxbox` v5 with `meta` (the cursor and counters), `fleet` (the
-   model, a record per session, ask and host plus one per other field and an
-   index of their keys in order; v4, `fleetRecords`), `threads` (per thread a
-   head record, its baseline in a record of its own (v5), its pages
-   (`layout`) and the words streamed onto them since they were written, as
-   chunks (v5, `Chunk`)),
+   database `boxbox` v6 with `meta` (the cursor and counters), `fleet` (the
+   model, a record per thread, ask and agent plus one per other field and an
+   index of their keys in order, `fleetRecords`), `threads` (per thread a
+   head record with its `left` and `etag`, its baseline in a record of its
+   own, its pages (`layout`) and the words streamed onto them since they
+   were written, as chunks (`Chunk`)),
    `drafts` (the composer's words, one per target), `draftPhotos` (the same
-   targets' photos, written only when the set changes; v3), `outbox` (sends
-   the daemon has not echoed yet, by client id; v2; telemetry rows under
-   `row:` and this device's replies to asks under `ask:` share it) and
-   `prefs`.
+   targets' photos, written only when the set changes), `outbox` (sends
+   the daemon has not echoed yet, by client id; telemetry rows under
+   `row:` and this device's replies to asks under `ask:` share it),
+   `prefs`, and `media` (image bytes by media id, filled by a later build;
+   v6 makes it empty).
+
+   v6 is protocol 3's (docs/protocol.md, the app's indexeddb): the upgrade
+   from any earlier version clears `fleet`, `threads` and the meta's
+   `sync` record, whose contract 1 and cmx2 shapes nothing reads now, so the
+   first connect gets a reset and each thread reads its newest page when it
+   is next opened; drafts, their photos, the outbox and prefs are kept.
 
    boot reads the meta, the fleet and the heads, never a page (`loadBoot`):
    a thread's pages come back when it is opened or held (`loadPages`), and
@@ -45,15 +52,17 @@ import type { AskReply } from "./replies";
 import type { Cursor, Message } from "./protocol";
 
 const NAME = "boxbox";
-/** v4 split the fleet's one record into a record per entry (`fleetRecords`), in place (`open`); v5 moved each head's baseline
-    to a record of its own and added chunks, which a v4 build would not read, so a v4 build after a rollback runs without
-    its cache (its open fails on the newer version) rather than showing an answer cut short */
-const VERSION = 5;
+/** v6 holds protocol 3's shapes (the neutral fleet, heads with `left` and `etag`) and a `media` store. a build before it
+    cannot open it (its open fails on the newer version) and runs without its cache, which suits it: it could not speak
+    protocol 3 anyway */
+const VERSION = 6;
 /** a telemetry row's key in the outbox store; a send's key is its client id, a uuid, which never starts with this */
 const ROW = "row:";
 /** a reply's record's key in the outbox store (replies.ts): `ask:` and its book key */
 const ASK = "ask:";
-const STORES = ["meta", "fleet", "threads", "drafts", "draftPhotos", "outbox", "prefs"] as const;
+const STORES = ["meta", "fleet", "threads", "drafts", "draftPhotos", "outbox", "prefs", "media"] as const;
+/** the stores an upgrade from before v6 empties: what they hold is contract 1's and cmx2's */
+const CLEARED_BY_V6 = ["fleet", "threads"] as const;
 export const PAGE = 50;
 /** the most chunk records a thread keeps before a save folds them into its pages: a read stays a thousand small records at
     worst (one key range), and a slow stream that never settles rewrites its message once per this many saves (17 minutes at
@@ -65,7 +74,7 @@ export const CHUNKS = 1024;
 export const FOLD_FLOOR = 64 * 1024;
 
 /** the fleet's fields kept as a record per entry; every other field is a record of its own */
-const ENTRIES = ["sessions", "asks", "hosts"] as const;
+const ENTRIES = ["threads", "asks", "agents"] as const;
 type EntryField = (typeof ENTRIES)[number];
 const isEntryField = (field: unknown): field is EntryField => ENTRIES.some((name) => name === field);
 
@@ -87,7 +96,7 @@ export type Dirty = {
 
 export const cleanDirty = (): Dirty => ({
   fleet: false,
-  entries: { sessions: new Set(), asks: new Set(), hosts: new Set() },
+  entries: { threads: new Set(), asks: new Set(), agents: new Set() },
   fields: new Set(),
   threads: new Map(),
   appends: new Map(),
@@ -111,8 +120,8 @@ export function markAppend(dirty: Dirty, key: string, append: Append): void {
   if (!had || append.from < had.from) texts.set(id, append);
 }
 
-/** what the reducer's patches changed, from their paths alone, at whatever depth they name: `["fleet", "sessions", key, ...]`
-    is that session's record, `["threads", key, "messages", at, ...]` the thread's pages from message `at`, and an append to
+/** what the reducer's patches changed, from their paths alone, at whatever depth they name: `["fleet", "threads", key, ...]`
+    is that thread's record, `["threads", key, "messages", at, ...]` the thread's pages from message `at`, and an append to
     `["threads", key, "messages", at, "parts", i, field]` that text's growth alone */
 export function markPatches(dirty: Dirty, patches: readonly Patch[]): void {
   for (const patch of patches) {
@@ -188,14 +197,13 @@ const entryKey = (field: EntryField, key: string) => `${field}:${key}`;
 
 const indexOf = (fleet: Fleet): FleetIndex => ({
   fields: Object.keys(fleet),
-  keys: { sessions: Object.keys(fleet.sessions), asks: Object.keys(fleet.asks), hosts: Object.keys(fleet.hosts) },
+  keys: { threads: Object.keys(fleet.threads), asks: Object.keys(fleet.asks), agents: Object.keys(fleet.agents) },
 });
 
 const sameKeys = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((key, i) => key === b[i]);
 const sameIndex = (a: FleetIndex, b: FleetIndex) => sameKeys(a.fields, b.fields) && ENTRIES.every((field) => sameKeys(a.keys[field], b.keys[field]));
 
-/** a fleet as the records the fleet store keeps it in: the index, one per entry of each map, one per other field. a fleet
-    saved before v4 had no colours: its index names none, and it reads with none, as before */
+/** a fleet as the records the fleet store keeps it in: the index, one per entry of each map, one per other field */
 function fleetRecords(fleet: Fleet): [string, unknown][] {
   const index = indexOf(fleet);
   const records: [string, unknown][] = [[INDEX, index]];
@@ -380,6 +388,8 @@ function decodeHead(record: SavedHead | undefined, base: Baseline | undefined): 
     sized: record.bytes !== undefined,
     pages,
     stale: record.stale ?? false,
+    ...(typeof record.left === "number" ? { left: record.left } : {}),
+    ...(typeof record.etag === "string" ? { etag: record.etag } : {}),
   };
 }
 
@@ -398,34 +408,11 @@ function committed(tx: IDBTransaction): Promise<void> {
   });
 }
 
-/** v4's upgrade: the one `fleet` record earlier versions wrote becomes the records `fleetRecords` makes of it */
-function splitFleet(store: IDBObjectStore): void {
-  const read = store.get("fleet");
-  read.onsuccess = () => {
-    const whole = read.result as Fleet | undefined;
-    if (!whole) return;
-    store.delete("fleet");
-    for (const [key, value] of fleetRecords(whole)) store.put(value, key);
-  };
-}
-
-/** v5's upgrade: each head written before carried its thread's baseline, which moves to a record of its own, so the head
-    left is the small one every save of its thread writes */
-function splitBaselines(store: IDBObjectStore): void {
-  const keys = store.getAllKeys();
-  keys.onsuccess = () => {
-    for (const id of keys.result.map(String)) {
-      if (!id.endsWith(HEAD)) continue;
-      const read = store.get(id);
-      read.onsuccess = () => {
-        const head = read.result as SavedHead | undefined;
-        if (!head || !("baseline" in head)) return;
-        const { baseline, ...rest } = head;
-        store.put(rest, id);
-        if (baseline !== undefined) store.put(baseline, baseKey(id.slice(0, -HEAD.length)));
-      };
-    }
-  };
+/** v6's upgrade, in the upgrade's own transaction: the fleet and the threads go, and the cursor with them (the meta's `sync`
+    record), so nothing is resumed from a cursor whose data is gone */
+function clearForV6(upgrade: IDBTransaction): void {
+  for (const store of CLEARED_BY_V6) upgrade.objectStore(store).clear();
+  upgrade.objectStore("meta").delete("sync");
 }
 
 /** what opening the database reports to its owner */
@@ -464,13 +451,8 @@ export class Cache {
       const request = indexedDB.open(NAME, VERSION);
       request.onupgradeneeded = (event) => {
         for (const store of STORES) if (!request.result.objectStoreNames.contains(store)) request.result.createObjectStore(store);
-        // what an earlier version saved is rewritten where it lies, in the upgrade's own transaction, so the cache survives
-        // it: a fleet saved whole before v4 is split, and heads that carried their baselines before v5 let go of them
         const upgrade = request.transaction;
-        if (event.oldVersion > 0 && upgrade) {
-          if (event.oldVersion < 4) splitFleet(upgrade.objectStore("fleet"));
-          if (event.oldVersion < 5) splitBaselines(upgrade.objectStore("threads"));
-        }
+        if (event.oldVersion > 0 && event.oldVersion < 6 && upgrade) clearForV6(upgrade);
       };
       request.onblocked = () => {
         blocked = true;
@@ -759,6 +741,8 @@ export class Cache {
         sized: true,
         pages,
         stale: false,
+        ...(thread.left === undefined ? {} : { left: thread.left }),
+        ...(thread.etag === undefined ? {} : { etag: thread.etag }),
       } satisfies ThreadHead,
       headKey(key),
     );

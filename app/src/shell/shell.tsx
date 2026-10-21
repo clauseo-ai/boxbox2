@@ -118,8 +118,8 @@ export type ShellViewProps = {
 export function ShellView(props: ShellViewProps) {
   const layout = createLayout();
   const route = createMemo(currentRoute, undefined, { equals: sameRoute });
-  /** a fleet with hosts in it came from a server that let this device in: enough to paint while the gate is asked */
-  const cached = () => state.fleet.hostNames.length > 0;
+  /** a fleet with agents in it came from a server that let this device in: enough to paint while the gate is asked */
+  const cached = () => state.fleet.agentNames.length > 0;
   const inside = createMemo(() => state.gate === "signed-in" || (state.gate === "checking" && cached()));
 
   /* —— back by `esc`. home's layer owns a thread's (the shrink), the pane owns the terminal's (esc is the shell's
@@ -156,7 +156,7 @@ export function ShellView(props: ShellViewProps) {
       () => state.board.focus ?? state.board.compose,
       (asked) => {
         if (!asked) return;
-        const takes = "key" in asked ? focusable(state.fleet, asked.key, Date.now()) : composeHost(state.fleet.hostNames, asked.machine) !== null;
+        const takes = "key" in asked ? focusable(state.fleet, asked.key, Date.now()) : composeHost(state.fleet.agentNames, asked.machine) !== null;
         const typing = state.terminals.open !== null && document.activeElement?.closest(".term") != null;
         if (!takes || typing) {
           if ("key" in asked) boardFocus(null);

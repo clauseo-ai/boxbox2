@@ -42,9 +42,8 @@ const LEAST = 320;
 /** an ask as the card's body: what the thread's rows build from the same request (thread/rows.ts) */
 export function bodyOf(ask: Ask): AskBody | PermissionBody {
   if (ask.kind === "permission") {
-    const permission = typeof ask.request["permission"] === "string" ? ask.request["permission"] : "use";
-    const raw = ask.request["patterns"];
-    const patterns = Array.isArray(raw) ? raw.filter((p): p is string => typeof p === "string") : [];
+    const permission = ask.permission?.title ?? "use";
+    const patterns = ask.permission?.patterns ?? [];
     return { k: "permission", askID: ask.id, what: permissionWhat(ask), permission, patterns };
   }
   const questions = questionsOf(ask).map((q) => ({ header: q.header, question: q.question, options: q.options.map((o) => ({ label: o.label, description: o.description ?? "" })), custom: q.custom, multiple: q.multiple }));
@@ -54,7 +53,7 @@ export function bodyOf(ask: Ask): AskBody | PermissionBody {
 export function AskSheet(props: AskSheetProps) {
   let sheetEl: HTMLDivElement | undefined;
   let scrimEl: HTMLDivElement | undefined;
-  const entry = () => state.fleet.sessions[props.windowKey];
+  const entry = () => state.fleet.threads[props.windowKey];
   const live = createMemo(() => Object.values(state.fleet.asks).filter((a) => a.key === props.windowKey));
   /* the asks the sheet shows: the live ones, and while the last leaves, the ones it had, so it closes on its card */
   let kept: Ask[] = [];
@@ -71,7 +70,7 @@ export function AskSheet(props: AskSheetProps) {
     return e ? windowView(e, asks(), colourMap()) : null;
   });
   const need = createMemo(() => needOf(asks()));
-  const actions = askActions(() => entry()?.host ?? asks()[0]?.host ?? "");
+  const actions = askActions(() => entry()?.agent ?? asks()[0]?.agent ?? "");
   const deck = () => props.arrangement === "deck";
 
   /* the popover's place, measured once as it opens: under the window on the strip, beside it on the rail */

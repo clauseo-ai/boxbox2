@@ -298,7 +298,7 @@ async fn child_of(
 
 fn at_of(now: &Versions) -> At {
     At {
-        epoch: now.at.rsplit_once(':').map_or("", |(e, _)| e).to_owned(),
+        epoch: now.at.epoch.clone(),
         v: now.v,
         rv: now.rv,
     }
@@ -373,7 +373,7 @@ mod tests {
 
     fn now(v: Option<u64>) -> Versions {
         Versions {
-            at: "e:1".into(),
+            at: crate::journal::Cursor::parse("e:1").unwrap(),
             v,
             rv: v,
             encoder: 1,

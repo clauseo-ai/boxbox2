@@ -3,7 +3,7 @@
    the files it changed, the models it ran on, and the facts line under its
    title. the panel that draws them is ./details.tsx. */
 
-import type { SessionInfo } from "../../sync/protocol";
+import type { Thread } from "../../sync/protocol";
 import { modelName } from "../model-name";
 import type { Turn } from "./model";
 import { agentTitle, type Child, plural } from "./rows";
@@ -110,7 +110,7 @@ export const ranOf = (turns: readonly Turn[]): Turn[] => turns.filter((t) => t.b
 
 /** what the thread has cost: its turns' own spend summed, so every figure on the panel adds up to this one. the
     session's own total stands in only while no turn carries a cost (a thread read before its messages are here) */
-export function spentOf(turns: readonly Turn[], info: SessionInfo | undefined): number {
+export function spentOf(turns: readonly Turn[], info: Thread | undefined): number {
   const sum = ranOf(turns).reduce((n, t) => n + t.cost, 0);
   return sum > 0 ? sum : (info?.cost ?? 0);
 }
@@ -132,7 +132,7 @@ export type Spend = { own: number; agents: number; total: number; rows: SpendRow
     dearest first among siblings. the direct agents take the roster's names (the rows that started them); deeper ones the
     daemon's title, "name (seat)". `total` is what the thread and every agent whose spend is known have cost; `unknown`
     counts the agents whose spend is not known, so the total is never read as whole when it is not */
-export function spendOf(turns: readonly Turn[], info: SessionInfo | undefined, kin: readonly Kin[], roster: readonly AgentRow[]): Spend {
+export function spendOf(turns: readonly Turn[], info: Thread | undefined, kin: readonly Kin[], roster: readonly AgentRow[]): Spend {
   const own = spentOf(turns, info);
   const named = new Map(roster.map((a) => [a.id, a]));
   const under = new Map<string, Kin[]>();
@@ -217,15 +217,15 @@ export function figure(n: number): string {
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 export const spend = (cost: number): string => dollars.format(cost);
 
-type Tokens = SessionInfo["tokens"];
+type Tokens = Thread["tokens"];
 
-/** every token the thread has moved, cached or not */
-export const tokensIn = (t: Tokens): number => t.input + t.output + t.cache.read + t.cache.write;
+/** every token the thread has moved, cached or not; none when the thread says nothing of its tokens */
+export const tokensIn = (t: Tokens): number => (t ? t.input + t.output + t.cacheRead + t.cacheWrite : 0);
 
 /** the share of what went in that came from the cache, as a whole percent; none before anything went in */
 export function cachedShare(t: Tokens): number | null {
-  const total = t.input + t.cache.read;
-  return total > 0 ? Math.round((t.cache.read / total) * 100) : null;
+  const total = t ? t.input + t.cacheRead : 0;
+  return t && total > 0 ? Math.round((t.cacheRead / total) * 100) : null;
 }
 
 /** a share in words: a whole percent, and "under 1%" for what there is a little of, so a trace is never written as a zero */
@@ -237,7 +237,7 @@ export function percentWords(part: number, whole: number): string {
 export type ContextFill = { percent: number; compactsAt?: number };
 
 /** how full the model's window is, and where the daemon compacts it, both as whole percents of the window */
-export function contextOf(info: SessionInfo | undefined): ContextFill | undefined {
+export function contextOf(info: Thread | undefined): ContextFill | undefined {
   const c = info?.context;
   if (!c || !(c.limit > 0)) return undefined;
   const percent = (tokens: number): number => Math.min(100, Math.max(0, Math.round((tokens / c.limit) * 100)));
@@ -251,7 +251,7 @@ export type FactLine = { text: string; name: string };
 /** the facts line under the title: the model it is on, how full its context is, what it has cost. each part is left
     out when it is not known or still nothing (a context under 1%, a spend under a cent), so the line never says zero; none known, no
     line. the details' tiles keep their honest zeros. the spend is the thread's with its agents' (`agents`, from spendOf) */
-export function factsOf(turns: readonly Turn[], info: SessionInfo | undefined, agents = 0): FactLine | null {
+export function factsOf(turns: readonly Turn[], info: Thread | undefined, agents = 0): FactLine | null {
   const now = currentModel(turns);
   const fill = contextOf(info);
   const context = fill && fill.percent > 0 ? fill : undefined;

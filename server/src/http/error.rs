@@ -143,6 +143,10 @@ pub enum ApiError {
         "this board speaks protocol {asked}; this server speaks {speaks}. update the board's daemon or the server so they match"
     )]
     BoardProtocol { asked: u32, speaks: u32 },
+    /// an interest post for a stream the server does not hold for this
+    /// session (`docs/protocol.md`, section 5).
+    #[error("that stream has ended. connect again with what it shows in the query")]
+    NoSuchStream,
 }
 
 /// why the daemon would not merge or discard a checkout, as the review card reads it.
@@ -201,7 +205,7 @@ pub struct ErrorDetail {
     /// (with `retry-after`), `generation-changed`, `not-confirmed`,
     /// `not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,
     /// and the board's `no-board`, `no-board-window`, `board-busy`,
-    /// `no-such-machine`, `board-protocol`.
+    /// `no-such-machine`, `board-protocol`; protocol 3's `no-such-stream`.
     pub code: &'static str,
     /// for people, in the interface's voice.
     pub message: String,
@@ -282,6 +286,7 @@ impl ApiError {
             Self::BoardBusy => (StatusCode::SERVICE_UNAVAILABLE, "board-busy"),
             Self::NoSuchMachine(_) => (StatusCode::NOT_FOUND, "no-such-machine"),
             Self::BoardProtocol { .. } => (StatusCode::CONFLICT, "board-protocol"),
+            Self::NoSuchStream => (StatusCode::NOT_FOUND, "no-such-stream"),
         }
     }
 }

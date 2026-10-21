@@ -177,7 +177,7 @@ export function seatList(map: unknown): { seats: unknown[] } {
 export const decodeV2: Decoder = (method, path, _directory, body, context) => {
   const bare = path.split("?")[0] ?? path;
   if (method === "POST" && bare === "/api/login") return { verb: "login" };
-  if (method === "GET" && bare === "/api/board/stream") return { verb: "stream" };
+  if (method === "GET" && (bare === "/api/stream" || bare === "/api/board/stream")) return { verb: "stream" };
   if (method === "POST" && bare === "/api/telemetry") return telemetryIntent(body);
   if (method === "POST" && bare === "/api/board/act") {
     const verb = field(body, "verb");

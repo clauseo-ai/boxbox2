@@ -93,7 +93,7 @@ export function leave(from: Route, still = false): void {
   const to = parentOf(from);
   if (!to) return;
   const behind = state.behind;
-  if (to.name === "home" && behind && state.fleet.sessions[behind]) navigate({ name: "thread", thread: behind, at: null, part: null }, still);
+  if (to.name === "home" && behind && state.fleet.threads[behind]) navigate({ name: "thread", thread: behind, at: null, part: null }, still);
   else navigate(to, still);
 }
 

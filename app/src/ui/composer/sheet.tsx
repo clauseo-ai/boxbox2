@@ -25,7 +25,7 @@ import { colourStyle, repoName } from "../window/repo";
 import { Close } from "../close";
 import { Composer } from "./composer";
 import { Icon } from "./icons";
-import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentRepos, repoRootOf, restoredDraft, splitPath } from "./place";
+import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentRepos, restoredDraft, splitPath } from "./place";
 import { folders, projects } from "./reads";
 import { refusedStart } from "./words";
 
@@ -59,16 +59,16 @@ export function NewThreadSheet(props: SheetProps) {
   const [directory, setDirectory] = createSignal(props.directory);
   const [place, setPlace] = createSignal<"checkout" | "fresh">("checkout");
   const [listed] = createResource(host, projects);
-  const machines = () => state.fleet.hostNames;
+  const machines = () => state.fleet.agentNames;
 
   /* your repos by their newest thread, then the machine's other projects by their own activity */
   const repos = createMemo(() => {
-    const sessions = Object.values(state.fleet.sessions).map((entry) => ({ host: entry.host, root: repoRootOf(entry.info), at: entry.info.time.updated ?? entry.info.time.created }));
+    const sessions = Object.values(state.fleet.threads).map((entry) => ({ host: entry.agent, root: entry.place?.root ?? "", at: entry.updated }));
     const read = listed();
     return recentRepos(sessions, host(), read?.ok ? read.value : []);
   });
   /* the name each thread's folder has as a repo, so a folder walked to under the name it was typed is the repo's own chip */
-  const aliases = createMemo(() => Object.values(state.fleet.sessions).map((entry) => ({ host: entry.host, directory: entry.info.directory, root: repoRootOf(entry.info) })));
+  const aliases = createMemo(() => Object.values(state.fleet.threads).map((entry) => ({ host: entry.agent, directory: entry.place?.directory ?? "", root: entry.place?.root ?? "" })));
   // the first repo is taken once and kept: a fleet beat that reorders the recents must not move the target under the words.
   // it goes through retarget like every pick, because words typed while no folder was chosen are kept under that place
   createEffect(() => {
@@ -294,7 +294,7 @@ export function NewThreadSheet(props: SheetProps) {
     const s = sent();
     if (!s) return;
     const key = state.composer.born[s.clientID];
-    if (key && state.fleet.sessions[key]) untrack(() => void land(s, key));
+    if (key && state.fleet.threads[key]) untrack(() => void land(s, key));
   });
   const land = async (s: Sent, key: string) => {
     if (landing) return;

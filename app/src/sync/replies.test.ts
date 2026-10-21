@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { type AskReply, keepReply, REPLY_CAP, replyKey, replyOf, restoreReplies } from "./replies";
 
-const ask = { id: "per_1", key: "desk:ses_a", kind: "permission" as const, request: { permission: "edit", tool: { messageID: "m", callID: "call_1" } } };
+const ask = { id: "per_1", key: "desk:ses_a", kind: "permission" as const, tool: { messageID: "m", callID: "call_1" } };
 const record = (callID: string, at: number | null, thread = "desk:ses_a"): AskReply => ({ thread, callID, askID: `a_${callID}`, kind: "permission", reply: { k: "permit", reply: "once" }, who: { here: true }, at });
 
 describe("a reply's record", () => {
@@ -21,8 +21,8 @@ describe("a reply's record", () => {
   test("a reply that failed, an ask that went, or an ask on no tool call keeps nothing", () => {
     expect(replyOf(ask, { k: "dismissed" }, { ok: false }, 42)).toBeNull();
     expect(replyOf(undefined, { k: "dismissed" }, { ok: true }, 42)).toBeNull();
-    expect(replyOf({ ...ask, request: {} }, { k: "dismissed" }, { ok: true }, 42)).toBeNull();
-    expect(replyOf({ ...ask, request: { tool: { callID: "" } } }, { k: "dismissed" }, { ok: true }, 42)).toBeNull();
+    expect(replyOf({ ...ask, tool: null }, { k: "dismissed" }, { ok: true }, 42)).toBeNull();
+    expect(replyOf({ ...ask, tool: { messageID: "m", callID: "" } }, { k: "dismissed" }, { ok: true }, 42)).toBeNull();
   });
 });
 

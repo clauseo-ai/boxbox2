@@ -6,7 +6,8 @@
 
 import type { components } from "../../../api/boxbox";
 import type { Draft, OutboxView, Photo, Target } from "../../../sync/outbox";
-import type { Ask, SessionEntry, TailItem } from "../../../sync/protocol";
+import { thread } from "../../../sync/fixtures/neutral";
+import type { Ask, Thread, TailItem } from "../../../sync/protocol";
 
 export const HOST = "desk";
 export const OTHER = "render";
@@ -33,52 +34,43 @@ const tail: TailItem[] = [
   { kind: "tool", tool: "bash", text: "bun test", messageID: "msg_a", partID: "prt_2", role: "assistant", state: "running" },
 ];
 
-function session(status: SessionEntry["status"]): SessionEntry {
-  return {
-    agents: 0,
-    host: HOST,
-    id: SESSION,
-    key: KEY,
-    needs: [],
-    processes: 0,
-    read: null,
-    status,
+function session(activity: Thread["activity"]): Thread {
+  return thread(KEY, {
+    agent: HOST,
+    activity,
     tail,
-    info: {
-      id: SESSION,
-      slug: "deploy",
-      projectID: "prj_boxbox",
-      directory: DIRECTORY,
-      title: "deploy across the machines",
-      version: "0.8.1",
-      time: { created: AT - 3_600_000, updated: AT },
-      source: "cmx2",
-      effort: "max",
-      cost: 0,
-      tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-    },
-  };
+    needs: [],
+    read: null,
+    agents: 0,
+    processes: 0,
+    title: "deploy across the machines",
+    created: AT - 3_600_000,
+    updated: AT,
+    // the project id is not a path, so the root is the directory (translate.rs)
+    place: { root: DIRECTORY, directory: DIRECTORY, name: "prj_boxbox" },
+    effort: "max",
+  });
 }
 
 /** the thread's own model, as the daemon reports it: for the stories where the host's list is not here, and where the model in use is not a favorite */
-function withModel(entry: SessionEntry, model = { providerID: "anthropic", id: "claude-opus-5-5" }): SessionEntry {
-  return { ...entry, info: { ...entry.info, model } };
+function withModel(entry: Thread, model = "anthropic/claude-opus-5-5"): Thread {
+  return { ...entry, model };
 }
 
 /** the context fill the daemon reports (a10): tokens in the window now, the window, and where it compacts by itself */
-function withContext(entry: SessionEntry, used: number): SessionEntry {
-  return { ...entry, info: { ...entry.info, context: { used, limit: 200_000, compactAt: 170_000 } } };
+function withContext(entry: Thread, used: number): Thread {
+  return { ...entry, context: { used, limit: 200_000, compactAt: 170_000 } };
 }
 
-export const WORKING = session({ type: "busy", since: AT - 222_000 });
-export const IDLE = session({ type: "idle", since: AT - 60_000 });
+export const WORKING = session({ state: "busy", since: AT - 222_000 });
+export const IDLE = session({ state: "idle" });
 export const IDLE_ON_OPUS = withModel(IDLE);
-export const IDLE_ON_SONNET = withModel(IDLE, { providerID: "anthropic", id: "claude-sonnet-5-5" });
+export const IDLE_ON_SONNET = withModel(IDLE, "anthropic/claude-sonnet-5-5");
 export const IDLE_WITH_CONTEXT = withContext(IDLE, 128_000);
 export const IDLE_NEARLY_FULL = withContext(IDLE, 184_000);
 export const WORKING_WITH_CONTEXT = withContext(WORKING, 128_000);
 /** a turn writing markdown, with a strong mark still open at its end (the line drops it), after a question it settled */
-export const WORKING_MARKDOWN: SessionEntry = {
+export const WORKING_MARKDOWN: Thread = {
   ...WORKING,
   tail: [
     ...tail,
@@ -90,9 +82,10 @@ export const WORKING_MARKDOWN: SessionEntry = {
 export const QUESTION: Ask = {
   id: "que_1",
   key: KEY,
-  host: HOST,
+  agent: HOST,
+  thread: KEY,
   kind: "question",
-  request: { id: "que_1", sessionID: SESSION, questions: [{ question: "push to main or open a branch?", header: "where", options: [{ label: "main" }, { label: "a branch" }] }] },
+  questions: [{ question: "push to main or open a branch?", header: "where", multiple: false, custom: true, options: [{ label: "main" }, { label: "a branch" }] }],
 };
 
 type Models = components["schemas"]["HostModels"];

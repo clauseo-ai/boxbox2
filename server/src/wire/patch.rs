@@ -358,7 +358,7 @@ mod tests {
             part_id: id.into(),
             message_id: "m".into(),
             kind: TailKind::Text,
-            role: crate::fleet::change::TailRole::Assistant,
+            role: crate::wire::TailRole::Assistant,
             tool: None,
             state: None,
             text: id.into(),
@@ -380,7 +380,7 @@ mod tests {
         let a = thread();
         assert_eq!(super::thread(&a, &a), None);
         let mut b = a.clone();
-        b.activity = Activity::Busy { since: 3.0 };
+        b.activity = Activity::Busy { since: Some(3.0) };
         b.updated = 3.0;
         b.cost = Some(0.5);
         b.tail = vec![item("p1")];

@@ -3,8 +3,10 @@
 //! computed once here and rendered by every surface (decision 16).
 //!
 //! pure: it takes decoded daemon events and fresh host reads, and returns
-//! the changes the journal carries. no io, no clocks, so the tests below
-//! are the whole story of how the fleet moves.
+//! what changed as protocol 3's whole changes (`wire::Change`: an agent, a
+//! thread, an ask, the order, a transcript entry), which the actor's encoder
+//! turns into the patches the journal carries. no io, no clocks, so the
+//! tests below are the whole story of how the fleet moves.
 //!
 //! after a host is read afresh, each read's seq is a floor for its domain
 //! (sessions, statuses, permissions, questions): an event at or below it is
@@ -19,11 +21,11 @@
 //! hear (`drain`): needs to persist and count, notices for push, read
 //! marks for the store.
 //!
-//! streamed text grows a window's tail as it arrives, but a session's entry
-//! goes into the journal at most once per `TAIL_EVERY_MS` for it: the first
-//! delta after a quiet spell goes out with its delta, later ones are held
-//! and the actor's clock flushes them (`tail_due`, `flush_tails`). any
-//! other change to the session carries the held text out with it.
+//! streamed text grows a window's tail as it arrives, but a thread goes out
+//! at most once per `TAIL_EVERY_MS` for it: the first delta after a quiet
+//! spell goes out with its delta, later ones are held and the actor's clock
+//! flushes them (`tail_due`, `flush_tails`). any other change to the
+//! thread carries the held text out with it.
 //!
 //! a window's tail is read from the daemon once (`ReadTail`, carried out by
 //! `upstream/tails.rs`) when the fleet learns of a session that gets a
@@ -35,7 +37,6 @@
 //! decides, as it always does.
 
 pub mod board;
-pub mod marks;
 
 use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
@@ -44,21 +45,16 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use tracing::{info, warn};
 
-use super::change::{
-    Ask, AskKind, Change, FleetSnapshot, SessionEntry, TailItem, TailKind, TailRole,
-};
 use super::clears::{Clear, Clears};
 use super::colours::{self, Colours};
 use super::needs::{By, How, Moved, Need, NeedKind, Needs, last_sentences};
 use super::read::{Mark, Reads};
-use crate::cmx2::property;
 use crate::push::presence::Looking;
 use crate::push::{About, AskKind as PushAsk, Notice, Origin, Thread};
 use crate::source::{
     ConnectionStatus, Notice as SourceNotice, Snapshot, SourceEvent, TailRead, ThreadFacts,
 };
-use crate::upstream::HostStatus;
-use crate::wire::{self, Part, SettlerKind};
+use crate::wire::{self, Change, Part, SettlerKind, TailKind, TailRole};
 
 /// sessions held across every host; past it the least recently updated
 /// idle session with no ask is dropped (every map has an eviction rule).
@@ -75,11 +71,10 @@ pub const TAIL_ITEMS: usize = 12;
 /// characters of text a tail item keeps: the end of what the agent says,
 /// the start of what you asked.
 pub const TAIL_TEXT: usize = 280;
-/// a session's entry goes into the journal at most this often while only
-/// streamed text moves its tail: the home overview's pace. each change is
-/// the whole entry (a few kb), so a faster beat spends the journal's 16 mb
-/// and every device's link on frames no one reads; 500 ms (it was 200)
-/// moves a window's text a few words at a time.
+/// a thread goes into the journal at most this often while only streamed
+/// text moves its tail: the home overview's pace (`docs/protocol.md`,
+/// section 6). 500 ms (it was 200) moves a window's text a few words at a
+/// time.
 pub const TAIL_EVERY_MS: i64 = 500;
 /// a session touched this recently has a window (`design.md`, the model:
 /// windows; `app/src/ui/home/membership.ts`), ms.
@@ -129,10 +124,8 @@ enum Domain {
 struct Session {
     host: String,
     id: String,
-    /// cmx2 only, while contract 1 lives: the session's info as the daemon
-    /// wrote it. a thread without one has no contract 1 entry.
-    info: Option<Box<RawValue>>,
-    /// the thread as its source knows it (its raw info moved to `info`).
+    /// the thread as its source knows it (its raw info dropped: only an
+    /// adoption persists it).
     thread: ThreadFacts,
     updated: f64,
     /// the parent session's key, for a subagent.
@@ -327,25 +320,77 @@ enum Activity {
 
 #[derive(Debug)]
 struct Status {
-    /// cmx2 only, while contract 1 lives: the status as the daemon wrote it.
-    raw: Option<Box<RawValue>>,
+    /// the activity as the source told it, retry and all: what the thread's
+    /// `activity` says.
+    neutral: wire::Activity,
+    /// what it means for ranks, turns and needs.
     activity: Activity,
+    /// prompts waiting behind the running turn, as the source counts them.
+    queued: u32,
 }
 
 #[derive(Debug)]
 struct Pending {
-    /// contract 1's ask; a source without raw requests holds `null` in
-    /// `request` until contract 1 is isolated from other sources.
-    ask: Ask,
-    /// the ask as its source told it: what its need says.
+    /// the ask as its source told it: what the wire carries and its need says.
     neutral: Box<wire::Ask>,
     /// arrival order, so the oldest ask leads the window order.
     serial: u64,
 }
 
+/// one part as a window shows it, reduced to what the window needs, with
+/// the server's own bookkeeping (`streamed`). parts a window does not show
+/// (step markers, snapshots, the context the daemon adds to a prompt, a
+/// prompt still queued) never enter a tail. streamed text grows the part as
+/// it arrives. on the wire it is a `wire::TailItem`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TailItem {
+    part_id: String,
+    message_id: String,
+    /// text, reasoning, tool or file: a picture and a recording show as the
+    /// file they are, as the window has always drawn them.
+    kind: TailKind,
+    role: TailRole,
+    tool: Option<String>,
+    state: Option<String>,
+    /// at most 280 characters: the end of the agent's text, the start of
+    /// your prompt, or the tool's title.
+    text: String,
+    /// the whole text's length in utf-16 units, where the next streamed
+    /// delta lands (cmx2's `offset`).
+    streamed: u64,
+    from: Option<String>,
+}
+
+impl TailItem {
+    /// whether a window renders anything for this item: thinking never,
+    /// text once it has words, a tool or a file always. an item that does
+    /// not show can change without an entry (the next one carries it).
+    fn shows(&self) -> bool {
+        match self.kind {
+            TailKind::Reasoning => false,
+            TailKind::Text => !self.text.trim().is_empty(),
+            TailKind::Tool | TailKind::File | TailKind::Image | TailKind::Audio => true,
+        }
+    }
+
+    fn wire(&self) -> wire::TailItem {
+        wire::TailItem {
+            part_id: self.part_id.clone(),
+            message_id: self.message_id.clone(),
+            kind: self.kind,
+            role: self.role,
+            tool: self.tool.clone(),
+            state: self.state.clone(),
+            text: self.text.clone(),
+            from: self.from.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Model {
-    hosts: Vec<HostStatus>,
+    /// each agent as the stream carries it, in first-seen order.
+    agents: Vec<wire::Agent>,
     sessions: HashMap<String, Session>,
     /// sessions that are not plain idle, by key. kept apart from `sessions`
     /// because a status can arrive for a session the index does not hold.
@@ -356,8 +401,6 @@ pub struct Model {
     /// each host's store epoch, as its last read said: a tail read from
     /// another epoch lines up with nothing here.
     epochs: HashMap<String, String>,
-    /// each session's last transcript event, for a read answered unchanged.
-    marks: marks::Marks,
     order: Vec<String>,
     serial: u64,
     needs: Needs,
@@ -393,30 +436,9 @@ pub struct Model {
     /// the time, ms, as the actor last said.
     now: i64,
     effects: Vec<Effect>,
-}
-
-#[derive(Deserialize)]
-struct Envelope<'a> {
-    #[serde(borrow)]
-    properties: &'a RawValue,
-}
-
-#[derive(Deserialize)]
-struct InfoField<'a> {
-    #[serde(borrow)]
-    info: &'a RawValue,
-}
-
-#[derive(Deserialize)]
-struct PartField<'a> {
-    #[serde(borrow)]
-    part: &'a RawValue,
-}
-
-#[derive(Deserialize)]
-struct StatusField<'a> {
-    #[serde(borrow)]
-    status: &'a RawValue,
+    /// the host read the changes now on their way hold, if any: its repos
+    /// get their colours together, the busiest first (`assign_colours`).
+    colour_read: Option<String>,
 }
 
 /// the facts of a message a need or a mark needs.
@@ -625,6 +647,12 @@ impl Model {
         }
     }
 
+    /// the threads whose streamed text their journaled state lacks yet.
+    #[cfg(test)]
+    pub fn held(&self) -> &BTreeSet<String> {
+        &self.held
+    }
+
     /// a replay of a tape recorded at another tail cadence keeps it.
     #[cfg(test)]
     pub fn set_tail_every(&mut self, ms: i64) {
@@ -645,72 +673,145 @@ impl Model {
         std::mem::take(&mut self.effects)
     }
 
+    /// the whole fleet, as `reset` and `GET /api/fleet` carry it: threads by
+    /// key, asks oldest first.
     #[must_use]
-    pub fn snapshot(&self) -> FleetSnapshot {
-        let mut sessions: Vec<SessionEntry> = self
-            .sessions
-            .keys()
-            .filter_map(|key| self.entry(key))
+    pub fn snapshot(&self) -> wire::Fleet {
+        let mut keys: Vec<&String> = self.sessions.keys().collect();
+        keys.sort();
+        let threads = keys
+            .into_iter()
+            .filter_map(|key| self.thread(key))
             .collect();
-        sessions.sort_by(|a, b| a.key.cmp(&b.key));
         let mut asks: Vec<&Pending> = self.asks.values().collect();
         asks.sort_by_key(|p| p.serial);
-        FleetSnapshot {
-            hosts: self.hosts.clone(),
-            sessions,
-            asks: asks.into_iter().map(|p| p.ask.clone()).collect(),
+        wire::Fleet {
+            agents: self.agents.clone(),
+            threads,
+            asks: asks.into_iter().map(|p| (*p.neutral).clone()).collect(),
             order: self.order.clone(),
         }
     }
 
+    /// the thread as the stream carries it: the one place a session becomes
+    /// a `wire::Thread`. none when the fleet does not hold it.
+    #[must_use]
+    pub fn thread(&self, key: &str) -> Option<wire::Thread> {
+        let session = self.sessions.get(key)?;
+        let facts = &session.thread;
+        let status = self.statuses.get(key);
+        let agents = self
+            .statuses
+            .iter()
+            .filter(|(child, s)| {
+                matches!(s.activity, Activity::Busy { .. })
+                    && self.sessions.get(*child).and_then(|c| c.parent.as_deref()) == Some(key)
+            })
+            .count();
+        let processes = match status.map(|s| s.activity) {
+            Some(Activity::Parked { jobs, .. }) => jobs,
+            _ => 0,
+        };
+        Some(wire::Thread {
+            key: key.to_owned(),
+            agent: session.host.clone(),
+            id: session.id.clone(),
+            title: facts.title.clone(),
+            created: facts.created,
+            updated: facts.updated,
+            said: facts.said,
+            generation: facts.generation.clone(),
+            parent: facts.parent.clone(),
+            place: facts.place.clone(),
+            origin: facts.origin.clone(),
+            activity: status.map_or(wire::Activity::Idle, |s| s.neutral.clone()),
+            // a source that counts the prompts behind a running turn says so with the status
+            queued: status.map_or(facts.queued, |s| s.queued.max(facts.queued)),
+            sends: None,
+            model: facts.model.clone(),
+            effort: facts.effort.clone(),
+            context: facts.context.clone(),
+            cost: facts.cost,
+            tokens: facts.tokens.clone(),
+            vcs: facts.vcs.clone(),
+            changes: facts.changes.clone(),
+            browse_only: facts.browse_only,
+            agents: u32::try_from(agents).unwrap_or(u32::MAX),
+            processes,
+            tail: session.tail.items.iter().map(TailItem::wire).collect(),
+            needs: self.needs.of(key),
+            read: self.reads.merged(key),
+            cleared: self.cleared_mark(key),
+        })
+    }
+
+    /// the thread's whole change, for the encoder to journal as it sees fit.
+    fn thread_change(&self, key: &str) -> Option<Change> {
+        self.thread(key).map(|thread| Change::Thread { thread })
+    }
+
     /// every repo's colour, by host, then root.
     #[must_use]
-    pub fn colour_list(&self) -> Vec<super::change::RepoColour> {
+    pub fn colour_list(&self) -> Vec<wire::RepoColour> {
         self.colours.list()
     }
 
     /// colours for the repos these changes show that have none yet, to be
     /// sent ahead of them. a host read gives its repos theirs most threads
     /// first, then by root, so the busiest keep their hash colour. a host
-    /// read or a session change that shows a repo which has one marks it
+    /// read or a thread change that shows a repo which has one marks it
     /// used (written at most daily), which is what the cap and the trim at
     /// start evict by (`colours.rs`), so a repo in use is always recent even
     /// on a host that never reconnects.
-    pub fn assign_colours(&mut self, changes: &[Change]) -> Vec<super::change::RepoColour> {
+    pub fn assign_colours(&mut self, changes: &[Change]) -> Vec<wire::RepoColour> {
+        let read = self.colour_read.take();
         if !self.colours.is_assigning() {
             return Vec::new();
         }
-        let mut assigned = Vec::new();
-        for change in changes {
+        let mut batches: Vec<(String, Vec<String>)> = Vec::new();
+        if let Some(host) = read {
             let mut roots: Vec<(String, usize)> = Vec::new();
-            let host = match change {
-                Change::HostReset { host, sessions, .. } => {
-                    for session in sessions {
-                        let Some(root) = self.root_of(&session.key) else {
-                            continue;
-                        };
-                        match roots.iter_mut().find(|(r, _)| r == root) {
-                            Some((_, threads)) => *threads += 1,
-                            None => roots.push((root.to_owned(), 1)),
-                        }
-                    }
-                    roots.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-                    host
+            for change in changes {
+                let Change::Thread { thread } = change else {
+                    continue;
+                };
+                if thread.agent != host {
+                    continue;
                 }
-                Change::Session { session } => {
-                    roots.extend(self.root_of(&session.key).map(|root| (root.to_owned(), 1)));
-                    &session.host
+                let Some(root) = self.root_of(&thread.key) else {
+                    continue;
+                };
+                match roots.iter_mut().find(|(r, _)| r == root) {
+                    Some((_, threads)) => *threads += 1,
+                    None => roots.push((root.to_owned(), 1)),
                 }
-                _ => continue,
+            }
+            roots.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            batches.push((host, roots.into_iter().map(|(root, _)| root).collect()));
+        }
+        let read = batches.first().map(|(host, _)| host.clone());
+        for change in changes {
+            let Change::Thread { thread } = change else {
+                continue;
             };
-            for (root, _) in roots {
+            if read.as_deref() == Some(thread.agent.as_str()) {
+                continue;
+            }
+            if let Some(root) = self.root_of(&thread.key) {
+                batches.push((thread.agent.clone(), vec![root.to_owned()]));
+            }
+        }
+        let mut assigned = Vec::new();
+        for (host, roots) in batches {
+            for root in roots {
                 let sessions = &self.sessions;
                 let in_use = || repos_in_use(sessions);
-                if let Some((colour, writes)) = self.colours.assign(host, &root, self.now, in_use) {
+                if let Some((colour, writes)) = self.colours.assign(&host, &root, self.now, in_use)
+                {
                     info!(host, root, colour = colour.auto, "repo colour given");
                     self.effects.extend(writes.into_iter().map(Effect::Colour));
                     assigned.push(colour);
-                } else if let Some(write) = self.colours.seen(host, &root, self.now) {
+                } else if let Some(write) = self.colours.seen(&host, &root, self.now) {
                     self.effects.push(Effect::Colour(write));
                 }
             }
@@ -731,7 +832,7 @@ impl Model {
         host: &str,
         root: &str,
         chosen: Option<u8>,
-    ) -> Result<(super::change::RepoColour, bool), ColourRefused> {
+    ) -> Result<(wire::RepoColour, bool), ColourRefused> {
         let known = self.colours.has(host, root)
             || self
                 .sessions
@@ -766,57 +867,60 @@ impl Model {
             .collect()
     }
 
-    /// whether a read of the session's transcript stamped `stamp` (its
-    /// `x-cmx2-seq`) is still what the daemon would answer (`marks.rs`). a
-    /// session that is not plain idle may change at any moment: never.
-    #[must_use]
-    pub fn transcript_unchanged(
-        &self,
-        host: &str,
-        session: &str,
-        stamp: &crate::journal::Cursor,
-    ) -> bool {
-        !self.statuses.contains_key(&session_key(host, session))
-            && self.marks.unchanged(host, session, stamp)
-    }
-
     #[must_use]
     pub fn session_count(&self) -> usize {
         self.sessions.len()
     }
 
-    /// a host's connection or health changed; hosts keep their first-seen order.
-    pub fn host(&mut self, status: HostStatus) -> Vec<Change> {
-        match self.hosts.iter_mut().find(|h| h.name == status.name) {
-            Some(held) => *held = status.clone(),
-            None => self.hosts.push(status.clone()),
-        }
-        vec![Change::Host { host: status }]
-    }
-
-    /// a connection's status: for cmx2, the host contract 1 carries.
+    /// a connection's status: for cmx2, its host as the one agent it carries,
+    /// built as `GET /api/agents` builds it. an agent that did not change
+    /// is not sent again.
     pub fn connection(&mut self, status: ConnectionStatus) -> Vec<Change> {
-        let name = &status.connection.name;
-        if status.status == crate::wire::AgentStatus::Ready {
-            let from = status
-                .connection
-                .cursor
-                .as_deref()
-                .and_then(crate::journal::Cursor::parse);
-            self.marks.connected(name, from.as_ref());
-        } else {
-            // a stream that is not flowing carries nothing: no read can be held to it
-            self.marks.forget(name);
+        let Some(host) = status.host else {
+            return Vec::new();
+        };
+        let facts = crate::source::cmx2::translate::agent(&host.name);
+        let agent = wire::Agent {
+            key: facts.key,
+            label: facts.label,
+            kind: facts.kind,
+            source: facts.source,
+            mark: facts.mark,
+            palette: facts.palette,
+            status: status.status,
+            connection: status.connection,
+            capabilities: facts.capabilities,
+            runs: None,
+        };
+        match self.agents.iter_mut().find(|a| a.key == agent.key) {
+            Some(held) if *held == agent => return Vec::new(),
+            Some(held) => *held = agent.clone(),
+            None => self.agents.push(agent.clone()),
         }
-        status.host.map_or_else(Vec::new, |host| self.host(*host))
+        vec![Change::Agent { agent }]
     }
 
-    /// a host left the config: everything held for it goes.
+    /// a host left the config: everything held for it goes, each thread and
+    /// open ask on the wire first, then the agent.
     pub fn host_removed(&mut self, host: &str) -> Vec<Change> {
-        self.hosts.retain(|h| h.name != host);
+        let mut threads: Vec<String> = self
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.host == host)
+            .map(|(key, _)| key.clone())
+            .collect();
+        threads.sort();
+        let mut asks: Vec<&Pending> = self
+            .asks
+            .iter()
+            .filter(|((h, _), _)| h == host)
+            .map(|(_, p)| p)
+            .collect();
+        asks.sort_by_key(|p| p.serial);
+        let asks: Vec<String> = asks.into_iter().map(|p| p.neutral.id.clone()).collect();
+        self.agents.retain(|a| a.key != host);
         self.floors.remove(host);
         self.epochs.remove(host);
-        self.marks.forget(host);
         self.drop_host(host);
         let prefix = format!("{host}:");
         for (key, _) in self
@@ -831,16 +935,58 @@ impl Model {
         for key in self.clears.forget_host(host) {
             self.effects.push(Effect::Uncleared(key));
         }
-        let mut changes = vec![Change::HostRemoved {
-            host: host.to_owned(),
-        }];
+        let mut changes: Vec<Change> = threads
+            .into_iter()
+            .map(|key| Change::ThreadRemoved { key })
+            .collect();
+        changes.extend(asks.into_iter().map(|id| self.unknown_settle(host, id)));
+        changes.push(Change::AgentRemoved {
+            agent: host.to_owned(),
+        });
         self.reorder(&mut changes);
         changes
     }
 
-    /// the agent was read afresh: its sessions, statuses and asks are replaced.
+    /// an ask boxbox lost track of: it went with its thread or its host, or
+    /// a host read no longer lists it.
+    #[allow(clippy::cast_precision_loss, reason = "ms stamps stay far below 2^52")]
+    fn unknown_settle(&self, host: &str, id: String) -> Change {
+        Change::AskSettled(wire::AskSettled {
+            agent: host.to_owned(),
+            id,
+            outcome: wire::Outcome::Unknown,
+            option: None,
+            reason: None,
+            by: None,
+            at: self.now as f64,
+        })
+    }
+
+    /// the agent was read afresh: its sessions, statuses and asks are
+    /// replaced, and the stream hears it as a quiet re-read
+    /// (`docs/protocol.md`, section 10): each thread whole (the encoder
+    /// journals nothing for one that did not change), the ones gone removed,
+    /// asks gone settled as unknown and new ones raised, and every thread the
+    /// fleet held before the read reset, since no transcript revision says
+    /// which of them moved.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one pass: carry, rebuild, then the diff"
+    )]
     pub fn agent_read(&mut self, host: &str, read: Snapshot) -> Vec<Change> {
         let host = host.to_owned();
+        let held_threads: HashSet<String> = self
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.host == host)
+            .map(|(key, _)| key.clone())
+            .collect();
+        let held_asks: HashMap<String, wire::Ask> = self
+            .asks
+            .iter()
+            .filter(|((h, _), _)| *h == host)
+            .map(|((_, id), p)| (id.clone(), (*p.neutral).clone()))
+            .collect();
         // seqs of another epoch line up with nothing: every tail is read again
         let epoch_moved = match &read.epoch {
             Some(epoch) => self
@@ -865,14 +1011,6 @@ impl Model {
             })
             .collect();
         self.drop_host(&host);
-        // the stream resumes from the oldest list the read reflects; transcript events are seen from there
-        let resumes = read
-            .floors
-            .threads
-            .min(read.floors.activities)
-            .min(read.floors.permissions)
-            .min(read.floors.questions);
-        self.marks.read(&host, read.epoch.as_deref(), resumes);
         self.floors.insert(
             host.clone(),
             Floors {
@@ -902,14 +1040,15 @@ impl Model {
                 self.statuses.insert(
                     key,
                     Status {
-                        raw: held.raw,
+                        neutral: held.activity,
                         activity,
+                        queued: held.queued,
                     },
                 );
             }
         }
         for raised in read.asks {
-            self.add_ask(&host, raised.ask, raised.raw);
+            self.add_ask(&host, raised.ask);
         }
         let mut evicted = Vec::new();
         self.evict(&mut evicted, None);
@@ -917,40 +1056,58 @@ impl Model {
         self.spend_clears(marked);
         self.reread_needs(&host);
 
-        let sessions = keys.iter().filter_map(|key| self.entry(key)).collect();
-        let mut asks: Vec<&Pending> = self.asks.values().filter(|p| p.ask.host == host).collect();
+        let mut changes = Vec::new();
+        let mut gone: Vec<&String> = held_threads
+            .iter()
+            .filter(|key| !keys.contains(key))
+            .collect();
+        gone.sort();
+        changes.extend(
+            gone.into_iter()
+                .map(|key| Change::ThreadRemoved { key: key.clone() }),
+        );
+        for key in &keys {
+            let Some(change) = self.thread_change(key) else {
+                continue;
+            };
+            changes.push(change);
+            if held_threads.contains(key) {
+                changes.push(Change::ThreadReset { key: key.clone() });
+            }
+        }
+        let mut asks: Vec<&Pending> = self
+            .asks
+            .values()
+            .filter(|p| p.neutral.agent == host)
+            .collect();
         asks.sort_by_key(|p| p.serial);
-        let asks = asks.into_iter().map(|p| p.ask.clone()).collect();
-        let mut changes = vec![Change::HostReset {
-            host,
-            sessions,
-            asks,
-        }];
+        let asks: Vec<wire::Ask> = asks.into_iter().map(|p| (*p.neutral).clone()).collect();
+        let mut settled: Vec<&String> = held_asks
+            .keys()
+            .filter(|id| !asks.iter().any(|a| a.id == **id))
+            .collect();
+        settled.sort();
+        for id in settled {
+            changes.push(self.unknown_settle(&host, id.clone()));
+        }
+        for ask in asks {
+            if held_asks.get(&ask.id) != Some(&ask) {
+                changes.push(Change::Ask { ask });
+            }
+        }
         changes.extend(evicted);
         self.reorder(&mut changes);
         self.journaled(&changes);
         self.want_tails(keys);
+        self.colour_read = Some(host);
         changes
     }
 
-    /// one source event for `host` (the agent). `raw` is cmx2's whole event
-    /// payload, where contract 1's daemon objects are taken from untouched;
-    /// none for a source without one, whose events change no contract 1
-    /// object.
+    /// one source event for `host` (the agent).
     ///
     /// the connection, snapshot and tail events have their own entries
     /// (`connection`, `agent_read`, `tail`); here they change nothing.
-    ///
-    /// # Errors
-    /// the payload does not hold a field the event was translated from,
-    /// which only a decoder bug could cause; nothing was changed.
-    pub fn source(
-        &mut self,
-        host: &str,
-        seq: Option<u64>,
-        event: SourceEvent,
-        raw: Option<&RawValue>,
-    ) -> Result<Vec<Change>, serde_json::Error> {
+    pub fn source(&mut self, host: &str, seq: Option<u64>, event: SourceEvent) -> Vec<Change> {
         let mut changes = Vec::new();
         let moved_before = self.effects.len();
         let status_before = match &event {
@@ -961,16 +1118,12 @@ impl Model {
             }
             _ => None,
         };
-        if let Some(seq) = seq {
-            self.marks.seen(host, seq);
-        }
         match event {
-            SourceEvent::Message { ref thread, .. }
-            | SourceEvent::Part { ref thread, .. }
-            | SourceEvent::Delta { ref thread, .. }
-            | SourceEvent::MessageRemoved { ref thread, .. } => {
-                self.marks.transcript(host, thread, seq);
-                self.transcript(host, seq, event, raw, &mut changes)?;
+            SourceEvent::Message { .. }
+            | SourceEvent::Part { .. }
+            | SourceEvent::Delta { .. }
+            | SourceEvent::MessageRemoved { .. } => {
+                self.transcript(host, seq, event, &mut changes);
             }
             SourceEvent::Fault { .. }
             | SourceEvent::Notice { .. }
@@ -993,18 +1146,18 @@ impl Model {
                     self.remove_session(&session_key(host, &thread), &mut changes);
                 }
             }
-            SourceEvent::Activity { thread, activity } => {
+            SourceEvent::Activity {
+                thread,
+                activity,
+                queued,
+            } => {
                 if !self.stale(host, Domain::Statuses, seq) {
-                    let status = match raw {
-                        Some(p) => Some(property::<StatusField<'_>>(p)?.status),
-                        None => None,
-                    };
-                    self.set_status(
-                        host,
-                        &thread,
-                        self::activity(&activity).map(|a| (status, a)),
-                        &mut changes,
-                    );
+                    let status = self::activity(&activity).map(|a| Status {
+                        neutral: activity,
+                        activity: a,
+                        queued,
+                    });
+                    self.set_status(host, &thread, status, &mut changes);
                 }
             }
             SourceEvent::TurnEnded { thread } => {
@@ -1022,31 +1175,30 @@ impl Model {
                 }
             }
             SourceEvent::AskRaised { .. } | SourceEvent::AskSettled { .. } => {
-                self.asked(host, seq, event, raw, &mut changes)?;
+                self.asked(host, seq, event, &mut changes);
             }
-            // contract 2's alone, or carried by their own entries
+            // the source cannot prove the journal holds every row of it
+            SourceEvent::ThreadReset { thread } => {
+                let key = session_key(host, &thread);
+                if self.sessions.contains_key(&key) {
+                    changes.push(Change::ThreadReset { key });
+                }
+            }
+            // not this model's yet, or carried by their own entries
             SourceEvent::Connection(_)
             | SourceEvent::Agents(_)
             | SourceEvent::Snapshot(_)
-            | SourceEvent::ThreadReset { .. }
             | SourceEvent::Send { .. }
             | SourceEvent::Reactions { .. }
             | SourceEvent::TailRead(_)
-            | SourceEvent::TailUnread { .. } => {}
-            SourceEvent::Skipped => self.marks.skipped(host, seq),
+            | SourceEvent::TailUnread { .. }
+            | SourceEvent::Skipped => {}
         }
         self.after_event(moved_before, status_before, &mut changes);
         self.journaled(&changes);
-        let touched: Vec<String> = changes
-            .iter()
-            .filter_map(|c| match c {
-                Change::Session { session } => Some(session.key.clone()),
-                Change::Ask { ask } => Some(ask.key.clone()),
-                _ => None,
-            })
-            .collect();
+        let touched: Vec<String> = changes.iter().filter_map(touched_key).collect();
         self.want_tails(touched);
-        Ok(changes)
+        changes
     }
 
     /// an ask raised or settled, past its kind's floor.
@@ -1055,10 +1207,8 @@ impl Model {
         host: &str,
         seq: Option<u64>,
         event: SourceEvent,
-        raw: Option<&RawValue>,
         changes: &mut Vec<Change>,
-    ) -> Result<(), serde_json::Error> {
-        let properties = || raw.map(properties_of).transpose();
+    ) {
         match event {
             SourceEvent::AskRaised { ask } => {
                 let domain = match ask.kind {
@@ -1066,8 +1216,7 @@ impl Model {
                     wire::AskKind::Question => Domain::Questions,
                 };
                 if !self.stale(host, domain, seq) {
-                    let request = properties()?.map(ToOwned::to_owned);
-                    self.ask_arrived(host, *ask, request, changes);
+                    self.ask_arrived(host, *ask, changes);
                 }
             }
             SourceEvent::AskSettled { ask, kind, settled } => {
@@ -1076,12 +1225,11 @@ impl Model {
                     wire::AskKind::Question => Domain::Questions,
                 };
                 if !self.stale(host, domain, seq) {
-                    self.settle(host, &ask, settled.by.as_ref(), changes);
+                    self.settle(host, &ask, Some(*settled), changes);
                 }
             }
             _ => {}
         }
-        Ok(())
     }
 
     /// a transcript event: journaled as it came, whatever the floors say (a
@@ -1092,32 +1240,22 @@ impl Model {
         host: &str,
         seq: Option<u64>,
         event: SourceEvent,
-        raw: Option<&RawValue>,
         changes: &mut Vec<Change>,
-    ) -> Result<(), serde_json::Error> {
+    ) {
         match event {
             SourceEvent::Message { thread, message } => {
-                let info = match raw {
-                    Some(p) => Some(property::<InfoField<'_>>(p)?.info),
-                    None => None,
-                };
-                self.said(host, seq, &thread, &message, info, changes);
+                self.said(host, seq, &thread, *message, changes);
             }
             SourceEvent::Part { thread, part } => {
-                let raw_part = match raw {
-                    Some(p) => Some(property::<PartField<'_>>(p)?.part),
-                    None => None,
-                };
                 let key = session_key(host, &thread);
-                if let Some(raw_part) = raw_part {
-                    changes.push(Change::Part {
-                        key: key.clone(),
-                        upstream: seq,
-                        part: raw_part.to_owned(),
-                    });
-                }
-                if self.retail(&key, seq, &part) {
-                    changes.extend(self.entry(&key).map(|session| Change::Session { session }));
+                let retailed = self.retail(&key, seq, &part);
+                changes.push(Change::Part {
+                    key: key.clone(),
+                    upstream: seq,
+                    part: *part,
+                });
+                if retailed {
+                    changes.extend(self.thread_change(&key));
                 }
             }
             SourceEvent::Delta {
@@ -1163,13 +1301,12 @@ impl Model {
                     let before = session.tail.items.len();
                     session.tail.items.retain(|t| t.message_id != message);
                     if session.tail.items.len() != before {
-                        changes.extend(self.entry(&key).map(|session| Change::Session { session }));
+                        changes.extend(self.thread_change(&key));
                     }
                 }
             }
             _ => {}
         }
-        Ok(())
     }
 
     /// the events that raise or serve a need and change nothing else here:
@@ -1221,19 +1358,16 @@ impl Model {
         host: &str,
         seq: Option<u64>,
         thread: &str,
-        message: &wire::Message,
-        info: Option<&RawValue>,
+        message: wire::Message,
         changes: &mut Vec<Change>,
     ) {
         let key = session_key(host, thread);
-        if let Some(info) = info {
-            changes.push(Change::Message {
-                key: key.clone(),
-                upstream: seq,
-                info: info.to_owned(),
-            });
-        }
-        let facts = MessageFacts::of(message);
+        let facts = MessageFacts::of(&message);
+        changes.push(Change::Message {
+            key: key.clone(),
+            upstream: seq,
+            message,
+        });
         self.message(&key, &facts);
         let retold = self.sessions.get_mut(&key).is_some_and(|s| {
             if s.tail.holds(seq) {
@@ -1248,7 +1382,7 @@ impl Model {
             s.tail.said(&facts)
         });
         if retold {
-            changes.extend(self.entry(&key).map(|session| Change::Session { session }));
+            changes.extend(self.thread_change(&key));
         }
     }
 
@@ -1296,7 +1430,7 @@ impl Model {
         let recent = (self.now as f64) - session.updated < WINDOW_RECENT_MS;
         recent
             || self.statuses.contains_key(key)
-            || self.asks.values().any(|p| p.ask.key == key)
+            || self.asks.values().any(|p| p.neutral.key == key)
             || self.needs.lead(key).is_some()
     }
 
@@ -1388,10 +1522,7 @@ impl Model {
             "window tail read"
         );
         let changes: Vec<Change> = if moved {
-            self.entry(&key)
-                .map(|session| Change::Session { session })
-                .into_iter()
-                .collect()
+            self.thread_change(&key).into_iter().collect()
         } else {
             Vec::new()
         };
@@ -1445,30 +1576,21 @@ impl Model {
         let mut changes = Vec::with_capacity(due.len());
         for key in due {
             self.held.remove(&key);
-            changes.extend(self.entry(&key).map(|session| Change::Session { session }));
+            changes.extend(self.thread_change(&key));
         }
         self.journaled(&changes);
         changes
     }
 
-    /// these changes go into the journal now: every session entry among them
+    /// these changes go into the journal now: every thread among them
     /// carries its tail as it stands, so none of it is held any longer.
     fn journaled(&mut self, changes: &[Change]) {
-        let mut sent = |key: &str| {
-            self.held.remove(key);
-            if let Some(session) = self.sessions.get_mut(key) {
-                session.tail.sent = self.now;
-            }
-        };
         for change in changes {
-            match change {
-                Change::Session { session } => sent(&session.key),
-                Change::HostReset { sessions, .. } => {
-                    for session in sessions {
-                        sent(&session.key);
-                    }
+            if let Change::Thread { thread } = change {
+                self.held.remove(&thread.key);
+                if let Some(session) = self.sessions.get_mut(&thread.key) {
+                    session.tail.sent = self.now;
                 }
-                _ => {}
             }
         }
     }
@@ -1481,7 +1603,7 @@ impl Model {
             .get(key)
             .is_some_and(|s| self.now - s.tail.sent >= self.tail_every());
         if due {
-            changes.extend(self.entry(key).map(|session| Change::Session { session }));
+            changes.extend(self.thread_change(key));
         } else {
             self.held.insert(key.to_owned());
         }
@@ -1503,14 +1625,7 @@ impl Model {
             .iter()
             .any(|e| matches!(e, Effect::Need(_) | Effect::Read { .. }));
         if !self.clears.is_empty() {
-            let touched: Vec<String> = changes
-                .iter()
-                .filter_map(|c| match c {
-                    Change::Session { session } => Some(session.key.clone()),
-                    Change::Ask { ask } => Some(ask.key.clone()),
-                    _ => None,
-                })
-                .collect();
+            let touched: Vec<String> = changes.iter().filter_map(touched_key).collect();
             self.spend_clears(touched);
         }
         if needs_moved {
@@ -1520,8 +1635,8 @@ impl Model {
             || changes.iter().any(|c| {
                 matches!(
                     c,
-                    Change::Session { .. }
-                        | Change::SessionRemoved { .. }
+                    Change::Thread { .. }
+                        | Change::ThreadRemoved { .. }
                         | Change::Ask { .. }
                         | Change::AskSettled { .. }
                 )
@@ -1642,7 +1757,7 @@ impl Model {
             .unwrap_or_default();
         self.sessions
             .insert(key.clone(), session(host, thread, carried));
-        changes.extend(self.entry(&key).map(|session| Change::Session { session }));
+        changes.extend(self.thread_change(&key));
         self.evict(changes, Some(&key));
     }
 
@@ -1657,24 +1772,22 @@ impl Model {
         if self.clears.remove(key) {
             self.effects.push(Effect::Uncleared(key.to_owned()));
         }
-        let asks: Vec<(String, String)> = self
+        let mut asks: Vec<(u64, (String, String))> = self
             .asks
             .iter()
-            .filter(|(_, p)| p.ask.key == key)
-            .map(|(k, _)| k.clone())
+            .filter(|(_, p)| p.neutral.key == key)
+            .map(|(k, p)| (p.serial, k.clone()))
             .collect();
-        for (host, id) in asks {
+        asks.sort();
+        for (_, (host, id)) in asks {
             self.asks.remove(&(host.clone(), id.clone()));
-            changes.push(Change::AskSettled { host, id });
+            changes.push(self.unknown_settle(&host, id));
         }
-        changes.push(Change::SessionRemoved {
+        changes.push(Change::ThreadRemoved {
             key: key.to_owned(),
         });
         if let Some(parent) = parent {
-            changes.extend(
-                self.entry(&parent)
-                    .map(|session| Change::Session { session }),
-            );
+            changes.extend(self.thread_change(&parent));
         }
     }
 
@@ -1682,19 +1795,13 @@ impl Model {
         &mut self,
         host: &str,
         id: &str,
-        status: Option<(Option<&RawValue>, Activity)>,
+        status: Option<Status>,
         changes: &mut Vec<Change>,
     ) {
         let key = session_key(host, id);
         match status {
-            Some((raw, activity)) => {
-                self.statuses.insert(
-                    key.clone(),
-                    Status {
-                        raw: raw.map(ToOwned::to_owned),
-                        activity,
-                    },
-                );
+            Some(status) => {
+                self.statuses.insert(key.clone(), status);
             }
             None => {
                 if self.statuses.remove(&key).is_none() {
@@ -1702,63 +1809,49 @@ impl Model {
                 }
             }
         }
-        changes.extend(self.entry(&key).map(|session| Change::Session { session }));
+        changes.extend(self.thread_change(&key));
         // a subagent's turn starting or stopping changes its parent's count
         if let Some(parent) = self.sessions.get(&key).and_then(|s| s.parent.clone()) {
-            changes.extend(
-                self.entry(&parent)
-                    .map(|session| Change::Session { session }),
-            );
+            changes.extend(self.thread_change(&parent));
         }
     }
 
-    fn add_ask(&mut self, host: &str, neutral: wire::Ask, request: Option<Box<RawValue>>) -> Ask {
-        let ask = Ask {
-            key: neutral.key.clone(),
-            host: host.to_owned(),
-            id: neutral.id.clone(),
-            kind: match neutral.kind {
-                wire::AskKind::Permission => AskKind::Permission,
-                wire::AskKind::Question => AskKind::Question,
-            },
-            request: request.unwrap_or_else(null),
-        };
+    /// holds an ask, its source's own words and all; the ask the wire carries
+    /// names the agent it waits on.
+    fn add_ask(&mut self, host: &str, mut neutral: wire::Ask) -> wire::Ask {
+        host.clone_into(&mut neutral.agent);
         self.serial += 1;
         self.asks.insert(
             (host.to_owned(), neutral.id.clone()),
             Pending {
-                ask: ask.clone(),
-                neutral: Box::new(neutral),
+                neutral: Box::new(neutral.clone()),
                 serial: self.serial,
             },
         );
-        ask
+        neutral
     }
 
-    fn ask_arrived(
-        &mut self,
-        host: &str,
-        neutral: wire::Ask,
-        request: Option<Box<RawValue>>,
-        changes: &mut Vec<Change>,
-    ) {
+    fn ask_arrived(&mut self, host: &str, neutral: wire::Ask, changes: &mut Vec<Change>) {
         let words = need_words(&neutral);
-        let ask = self.add_ask(host, neutral, request);
+        let ask = self.add_ask(host, neutral);
         self.ask_need(&ask, &words, false);
         changes.push(Change::Ask { ask });
     }
 
+    /// an ask was settled. `settled` is the source's word on how, none when
+    /// the ask went for another reason: what the wire says is then unknown.
     fn settle(
         &mut self,
         host: &str,
         id: &str,
-        by: Option<&wire::SettledBy>,
+        settled: Option<wire::AskSettled>,
         changes: &mut Vec<Change>,
     ) {
         let answering = self
             .answering
             .remove(&(host.to_owned(), id.to_owned()))
             .map(|(device, _)| device);
+        let by = settled.as_ref().and_then(|s| s.by.as_ref());
         let (by, how) = match (answering, by) {
             (Some(device), _) => (
                 By::Device {
@@ -1787,9 +1880,13 @@ impl Model {
             .remove(&(host.to_owned(), id.to_owned()))
             .is_some()
         {
-            changes.push(Change::AskSettled {
-                host: host.to_owned(),
-                id: id.to_owned(),
+            changes.push(match settled {
+                Some(mut settled) => {
+                    host.clone_into(&mut settled.agent);
+                    id.clone_into(&mut settled.id);
+                    Change::AskSettled(settled)
+                }
+                None => self.unknown_settle(host, id.to_owned()),
             });
         }
     }
@@ -1836,7 +1933,7 @@ impl Model {
     fn evict(&mut self, changes: &mut Vec<Change>, keep: Option<&str>) {
         while self.sessions.len() > MAX_SESSIONS {
             let asked: std::collections::HashSet<&str> =
-                self.asks.values().map(|p| p.ask.key.as_str()).collect();
+                self.asks.values().map(|p| p.neutral.key.as_str()).collect();
             let victim = self
                 .sessions
                 .iter()
@@ -1860,36 +1957,6 @@ impl Model {
         }
     }
 
-    fn entry(&self, key: &str) -> Option<SessionEntry> {
-        let session = self.sessions.get(key)?;
-        let status = self.statuses.get(key);
-        let agents = self
-            .statuses
-            .iter()
-            .filter(|(child, s)| {
-                matches!(s.activity, Activity::Busy { .. })
-                    && self.sessions.get(*child).and_then(|c| c.parent.as_deref()) == Some(key)
-            })
-            .count();
-        let processes = match status.map(|s| s.activity) {
-            Some(Activity::Parked { jobs, .. }) => jobs,
-            _ => 0,
-        };
-        Some(SessionEntry {
-            key: key.to_owned(),
-            host: session.host.clone(),
-            id: session.id.clone(),
-            info: session.info.clone()?,
-            status: status.and_then(|s| s.raw.clone()),
-            agents: u32::try_from(agents).unwrap_or(u32::MAX),
-            processes,
-            tail: session.tail.items.clone(),
-            needs: self.needs.of(key),
-            read: self.reads.merged(key),
-            cleared: self.cleared_mark(key),
-        })
-    }
-
     /// the mark of a thread that is off home now: cleared, and nothing has
     /// happened to it since (`clears.rs`). a thread that came back has none,
     /// even in the moment before its spent mark is dropped.
@@ -1908,7 +1975,7 @@ impl Model {
                 self.statuses.get(key).map(|s| s.activity),
                 Some(Activity::Busy { .. })
             )
-            && !self.asks.values().any(|p| p.ask.key == key)
+            && !self.asks.values().any(|p| p.neutral.key == key)
     }
 
     /// recomputes the window order and appends it when it moved.
@@ -2031,7 +2098,7 @@ impl Model {
         ) {
             return Err(ClearRefused::Working);
         }
-        if self.asks.values().any(|p| p.ask.key == key) {
+        if self.asks.values().any(|p| p.neutral.key == key) {
             return Err(ClearRefused::Asking);
         }
         if let Some((message, at)) = newest {
@@ -2174,7 +2241,7 @@ impl Model {
     fn shed_adopted(&mut self, keep: &str, changes: &mut Vec<Change>) {
         while self.adopted.len() > MAX_ADOPTED {
             let asked: std::collections::HashSet<&str> =
-                self.asks.values().map(|p| p.ask.key.as_str()).collect();
+                self.asks.values().map(|p| p.neutral.key.as_str()).collect();
             let victim = self.adopted.iter().find(|key| {
                 key.as_str() != keep
                     && !self.statuses.contains_key(key.as_str())
@@ -2403,7 +2470,7 @@ impl Model {
         changes
     }
 
-    /// replaces any session entry in `changes` whose needs or mark moved
+    /// replaces any thread in `changes` whose needs or mark moved
     /// since effect `from` with a fresh one, so each goes out once, current.
     fn refresh_touched(&mut self, from: usize, changes: &mut Vec<Change>) {
         let touched: BTreeSet<String> = self.effects[from..]
@@ -2416,11 +2483,10 @@ impl Model {
                 _ => None,
             })
             .collect();
-        changes.retain(
-            |c| !matches!(c, Change::Session { session } if touched.contains(&session.key)),
-        );
+        changes
+            .retain(|c| !matches!(c, Change::Thread { thread } if touched.contains(&thread.key)));
         for key in &touched {
-            changes.extend(self.entry(key).map(|session| Change::Session { session }));
+            changes.extend(self.thread_change(key));
         }
     }
 
@@ -2706,11 +2772,11 @@ impl Model {
     /// an ask's need. `reread`: the ask came back in a host read; one
     /// already raised is judged again as replayed, so the push funnel says
     /// so, and never buzzes twice.
-    fn ask_need(&mut self, ask: &Ask, body: &str, reread: bool) {
-        let id = ask_need_id(&ask.host, &ask.id);
+    fn ask_need(&mut self, ask: &wire::Ask, body: &str, reread: bool) {
+        let id = ask_need_id(&ask.agent, &ask.id);
         let (kind, push_kind) = match ask.kind {
-            AskKind::Permission => (NeedKind::Permission, PushAsk::Permission),
-            AskKind::Question => (NeedKind::Question, PushAsk::Question),
+            wire::AskKind::Permission => (NeedKind::Permission, PushAsk::Permission),
+            wire::AskKind::Question => (NeedKind::Question, PushAsk::Question),
         };
         let about = About::Ask {
             id: ask.id.clone(),
@@ -2729,7 +2795,7 @@ impl Model {
         let repo = self
             .sessions
             .get(&ask.key)
-            .map_or(ask.host.as_str(), |s| s.repo.as_str());
+            .map_or(ask.agent.as_str(), |s| s.repo.as_str());
         let title = format!("{repo} wants you");
         let mut need = Need::new(id, kind, &ask.key, self.now, title, body);
         need.ask = Some(ask.id.clone());
@@ -2739,11 +2805,16 @@ impl Model {
     /// after a host read: its asks raise (or replay) their needs, and what
     /// the read no longer holds is served.
     fn reread_needs(&mut self, host: &str) {
-        let mut asks: Vec<&Pending> = self.asks.values().filter(|p| p.ask.host == host).collect();
+        let mut asks: Vec<&Pending> = self
+            .asks
+            .iter()
+            .filter(|((h, _), _)| h == host)
+            .map(|(_, p)| p)
+            .collect();
         asks.sort_by_key(|p| p.serial);
-        let asks: Vec<(Ask, String)> = asks
+        let asks: Vec<(wire::Ask, String)> = asks
             .into_iter()
-            .map(|p| (p.ask.clone(), need_words(&p.neutral)))
+            .map(|p| ((*p.neutral).clone(), need_words(&p.neutral)))
             .collect();
         for (ask, words) in &asks {
             self.ask_need(ask, words, true);
@@ -2875,13 +2946,18 @@ fn own_origin() -> Origin {
     }
 }
 
-/// the `properties` of an event payload, as the daemon wrote them.
-fn properties_of(payload: &RawValue) -> Result<&RawValue, serde_json::Error> {
-    serde_json::from_str::<Envelope<'_>>(payload.get()).map(|e| e.properties)
+/// the thread a change shows, for the clears and the tail reads.
+fn touched_key(change: &Change) -> Option<String> {
+    match change {
+        Change::Thread { thread } => Some(thread.key.clone()),
+        Change::Ask { ask } => Some(ask.key.clone()),
+        _ => None,
+    }
 }
 
 fn session(host: &str, mut thread: ThreadFacts, (tail, turn): (Tail, Turn)) -> Session {
-    let info = thread.raw.take();
+    // only an adoption persists the source's raw info, and it has it already
+    thread.raw = None;
     let (repo, directory, places) = match &thread.place {
         Some(place) => (
             place.name.clone(),
@@ -2893,7 +2969,6 @@ fn session(host: &str, mut thread: ThreadFacts, (tail, turn): (Tail, Turn)) -> S
     Session {
         host: host.to_owned(),
         id: thread.id.clone(),
-        info,
         updated: thread.updated,
         parent: thread.parent.as_deref().map(|p| session_key(host, p)),
         directory,
@@ -2903,12 +2978,6 @@ fn session(host: &str, mut thread: ThreadFacts, (tail, turn): (Tail, Turn)) -> S
         tail,
         turn,
     }
-}
-
-/// a raw value of `null`: contract 1's request for an ask whose source
-/// sent none.
-fn null() -> Box<RawValue> {
-    serde_json::value::to_raw_value(&serde_json::Value::Null).unwrap_or_default()
 }
 
 /// an ask's need body: what the agent wants to do, the question it asks,
@@ -2966,10 +3035,11 @@ struct JobWords {
 /// ranks and turns as busy; a failed run is idle here.
 fn activity(activity: &wire::Activity) -> Option<Activity> {
     match activity {
-        wire::Activity::Busy { since } => Some(Activity::Busy { since: *since }),
-        wire::Activity::Retry { since, .. } => Some(Activity::Busy {
-            since: since.unwrap_or(0.0),
-        }),
+        wire::Activity::Busy { since } | wire::Activity::Retry { since, .. } => {
+            Some(Activity::Busy {
+                since: since.unwrap_or(0.0),
+            })
+        }
         wire::Activity::Parked {
             agents,
             jobs,
@@ -3230,7 +3300,7 @@ fn tail_item(part: PartFacts<'_>, role: TailRole) -> Option<TailItem> {
             .as_ref()
             .and_then(|s| s.title.clone())
             .unwrap_or_default(),
-        TailKind::File => part.filename.unwrap_or_default(),
+        TailKind::File | TailKind::Image | TailKind::Audio => part.filename.unwrap_or_default(),
     };
     let streamed = utf16_len(&text);
     let text = match role {
@@ -3344,6 +3414,14 @@ mod tests {
         }
     }
 
+    impl Model {
+        /// the thread as the stream carries it, under the name the tests
+        /// knew it by.
+        fn entry(&self, key: &str) -> Option<wire::Thread> {
+            self.thread(key)
+        }
+    }
+
     /// one decoded frame, through the translation, into the reducer.
     fn through(model: &mut Model, seq: Option<u64>, frame: &str) -> Vec<Change> {
         let decoded = decode_frame(frame).unwrap();
@@ -3356,9 +3434,7 @@ mod tests {
         .unwrap() else {
             return Vec::new();
         };
-        model
-            .source("desk", seq, event, Some(&decoded.payload))
-            .unwrap()
+        model.source("desk", seq, event)
     }
 
     fn info(id: &str, updated: u64, parent: Option<&str>) -> String {
@@ -3408,21 +3484,16 @@ mod tests {
     }
 
     fn kinds(changes: &[Change]) -> Vec<&'static str> {
+        changes.iter().map(Change::kind).collect()
+    }
+
+    /// the threads a change set carries whole.
+    fn threads_of(changes: &[Change]) -> Vec<&wire::Thread> {
         changes
             .iter()
-            .map(|c| match c {
-                Change::Host { .. } => "host",
-                Change::HostRemoved { .. } => "host.removed",
-                Change::HostReset { .. } => "host.reset",
-                Change::Session { .. } => "session",
-                Change::SessionRemoved { .. } => "session.removed",
-                Change::Ask { .. } => "ask",
-                Change::AskSettled { .. } => "ask.settled",
-                Change::Order { .. } => "order",
-                Change::Message { .. } => "message",
-                Change::Part { .. } => "part",
-                Change::Delta { .. } => "delta",
-                Change::MessageRemoved { .. } => "message.removed",
+            .filter_map(|c| match c {
+                Change::Thread { thread } => Some(thread),
+                _ => None,
             })
             .collect()
     }
@@ -3443,16 +3514,69 @@ mod tests {
     }
 
     #[test]
-    fn a_session_update_carries_the_daemons_info_untouched() {
+    fn a_session_update_carries_the_threads_facts_as_the_source_translated_them() {
         let mut model = Model::new();
         let changes = event(&mut model, Some(1), &updated("ses_1", 10, None));
-        assert_eq!(kinds(&changes), ["session", "order"]);
-        let Change::Session { session } = &changes[0] else {
+        assert_eq!(kinds(&changes), ["thread", "order"]);
+        let Change::Thread { thread: session } = &changes[0] else {
             unreachable!()
         };
+        let facts = translate::thread_from_json(raw(&info("ses_1", 10, None)).unwrap()).unwrap();
         assert_eq!(session.key, "desk:ses_1");
-        assert_eq!(session.info.get(), info("ses_1", 10, None));
-        assert!(session.status.is_none());
+        assert_eq!(
+            (session.agent.as_str(), session.id.as_str()),
+            ("desk", "ses_1")
+        );
+        assert_eq!(
+            (
+                &session.title,
+                session.created,
+                session.updated,
+                &session.place
+            ),
+            (&facts.title, facts.created, facts.updated, &facts.place)
+        );
+        assert_eq!(session.activity, wire::Activity::Idle);
+    }
+
+    #[test]
+    fn the_prompts_waiting_behind_a_running_turn_are_the_threads_queued() {
+        let mut model = Model::new();
+        event(&mut model, Some(1), &updated("ses_1", 10, None));
+        event(
+            &mut model,
+            Some(2),
+            &status("ses_1", r#"{"type":"busy","since":5,"queued":2}"#),
+        );
+        assert_eq!(model.entry("desk:ses_1").unwrap().queued, 2);
+        event(
+            &mut model,
+            Some(3),
+            r#"{"id":"e","type":"session.idle","properties":{"sessionID":"ses_1"}}"#,
+        );
+        assert_eq!(model.entry("desk:ses_1").unwrap().queued, 0);
+    }
+
+    #[test]
+    fn a_status_keeps_the_activity_the_source_gave_retry_and_all() {
+        let mut model = Model::new();
+        event(&mut model, Some(1), &updated("ses_1", 10, None));
+        let changes = event(
+            &mut model,
+            Some(2),
+            &status(
+                "ses_1",
+                r#"{"type":"retry","attempt":2,"message":"rate limited","next":900}"#,
+            ),
+        );
+        let Change::Thread { thread } = &changes[0] else {
+            panic!("{:?}", kinds(&changes))
+        };
+        assert!(
+            matches!(&thread.activity, wire::Activity::Retry { attempt: 2, message, .. } if message == "rate limited"),
+            "{:?}",
+            thread.activity
+        );
     }
 
     #[test]
@@ -3466,7 +3590,7 @@ mod tests {
             &status("ses_c", r#"{"type":"busy","since":5}"#),
         );
         let parent = changes.iter().find_map(|c| match c {
-            Change::Session { session } if session.id == "ses_p" => Some(session),
+            Change::Thread { thread: session } if session.id == "ses_p" => Some(session),
             _ => None,
         });
         assert_eq!(parent.unwrap().agents, 1);
@@ -3476,7 +3600,7 @@ mod tests {
             r#"{"id":"e","type":"session.idle","properties":{"sessionID":"ses_c"}}"#,
         );
         let parent = changes.iter().find_map(|c| match c {
-            Change::Session { session } if session.id == "ses_p" => Some(session),
+            Change::Thread { thread: session } if session.id == "ses_p" => Some(session),
             _ => None,
         });
         assert_eq!(parent.unwrap().agents, 0);
@@ -3549,7 +3673,7 @@ mod tests {
             None,
             r#"{"id":"e","type":"question.replied","properties":{"requestID":"que_1","sessionID":"ses_asking","answers":[]}}"#,
         );
-        assert_eq!(kinds(&changes), ["ask.settled", "session", "order"]);
+        assert_eq!(kinds(&changes), ["ask.settled", "thread", "order"]);
         assert_eq!(order(&model)[0], "desk:ses_busy");
     }
 
@@ -3595,7 +3719,7 @@ mod tests {
             .data
             .push(raw(&info("ses_1", 10, None)).unwrap());
         let changes = model.host_read(read);
-        assert_eq!(kinds(&changes), ["host.reset", "order"]);
+        assert_eq!(kinds(&changes), ["thread", "order"]);
         // the read at 20 shows ses_1 idle; a busy status from seq 15 is older news
         assert!(
             event(
@@ -3605,7 +3729,7 @@ mod tests {
             )
             .is_empty()
         );
-        assert!(model.entry("desk:ses_1").unwrap().status.is_none());
+        assert!(model.entry("desk:ses_1").unwrap().activity == wire::Activity::Idle);
         // past the floor, it applies
         assert_eq!(
             kinds(&event(
@@ -3614,9 +3738,9 @@ mod tests {
                 &status("ses_1", r#"{"type":"busy","since":1}"#)
             )),
             // one session: the order cannot move
-            ["session"]
+            ["thread"]
         );
-        assert!(model.entry("desk:ses_1").unwrap().status.is_some());
+        assert!(model.entry("desk:ses_1").unwrap().activity != wire::Activity::Idle);
     }
 
     #[test]
@@ -3641,7 +3765,8 @@ mod tests {
         else {
             panic!("{:?}", kinds(&changes))
         };
-        assert_eq!((*upstream, passed.get()), (Some(5), part));
+        assert_eq!(*upstream, Some(5));
+        assert_eq!(*passed, translate::part(&raw(part).unwrap()));
     }
 
     #[test]
@@ -3662,13 +3787,60 @@ mod tests {
             raw(r#"{"id":"per_1","sessionID":"ses_kept","permission":"read","patterns":[],"metadata":{},"always":[]}"#).unwrap(),
         );
         let changes = model.host_read(read);
-        let Change::HostReset { sessions, asks, .. } = &changes[0] else {
-            unreachable!()
-        };
+        // the quiet re-read: the gone thread removed, the kept one whole and
+        // reset (no revision says its transcript held still), the new ask raised
+        assert_eq!(
+            kinds(&changes),
+            ["thread.removed", "thread", "thread.reset", "ask", "order"]
+        );
+        let sessions = threads_of(&changes);
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].tail.len(), 1, "a tail survives a read");
-        assert_eq!(asks[0].id, "per_1");
+        let Change::Ask { ask } = &changes[3] else {
+            unreachable!()
+        };
+        assert_eq!(ask.id, "per_1");
         assert!(model.entry("desk:ses_gone").is_none());
+    }
+
+    #[test]
+    fn a_read_settles_as_unknown_the_asks_it_no_longer_lists_and_leaves_the_open_ones_alone() {
+        let mut model = Model::new();
+        let permission = r#"{"id":"per_1","sessionID":"ses_1","permission":"read","patterns":[],"metadata":{},"always":[]}"#;
+        let mut read = empty_read(9);
+        read.sessions
+            .data
+            .push(raw(&info("ses_1", 2, None)).unwrap());
+        read.permissions.data.push(raw(permission).unwrap());
+        model.host_read(read);
+        let mut again = empty_read(10);
+        again
+            .sessions
+            .data
+            .push(raw(&info("ses_1", 2, None)).unwrap());
+        again.permissions.data.push(raw(permission).unwrap());
+        let changes = model.host_read(again);
+        assert_eq!(
+            kinds(&changes),
+            ["thread", "thread.reset"],
+            "the ask is still open"
+        );
+        let changes = model.host_read({
+            let mut read = empty_read(11);
+            read.sessions
+                .data
+                .push(raw(&info("ses_1", 2, None)).unwrap());
+            read
+        });
+        let Some(Change::AskSettled(settled)) =
+            changes.iter().find(|c| matches!(c, Change::AskSettled(_)))
+        else {
+            panic!("{:?}", kinds(&changes))
+        };
+        assert_eq!(
+            (settled.id.as_str(), settled.outcome),
+            ("per_1", wire::Outcome::Unknown)
+        );
     }
 
     #[test]
@@ -3709,7 +3881,7 @@ mod tests {
                 r#"{{"id":"e","type":"message.part.updated","properties":{{"sessionID":"ses_1","part":{part}}}}}"#
             ),
         );
-        assert_eq!(kinds(&changes), ["part", "session"]);
+        assert_eq!(kinds(&changes), ["part", "thread"]);
         let tail = model.entry("desk:ses_1").unwrap().tail;
         assert_eq!(
             (
@@ -3741,13 +3913,13 @@ mod tests {
             None,
             r#"{"id":"e","type":"session.deleted","properties":{"sessionID":"ses_1"}}"#,
         );
-        assert_eq!(kinds(&changes), ["ask.settled", "session.removed", "order"]);
+        assert_eq!(kinds(&changes), ["ask.settled", "thread.removed", "order"]);
     }
 
     #[test]
     fn a_removed_host_takes_everything_it_had() {
         let mut model = Model::new();
-        model.host(HostStatus {
+        let joined = model.connection(translate::connection(crate::upstream::HostStatus {
             name: "desk".into(),
             url: "http://127.0.0.1:4840/".into(),
             origin: crate::config::Origin::Config,
@@ -3761,13 +3933,29 @@ mod tests {
             connects: 1,
             frames: FrameCounts::default(),
             cursor: None,
-        });
+        }));
+        assert_eq!(kinds(&joined), ["agent"]);
         event(&mut model, None, &updated("ses_1", 1, None));
+        event(
+            &mut model,
+            None,
+            r#"{"id":"e","type":"permission.asked","properties":{"id":"per_1","sessionID":"ses_1","permission":"read","patterns":[],"metadata":{},"always":[]}}"#,
+        );
         let changes = model.host_removed("desk");
-        assert_eq!(kinds(&changes), ["host.removed", "order"]);
+        assert_eq!(
+            kinds(&changes),
+            ["thread.removed", "ask.settled", "agent.removed", "order"]
+        );
+        let Change::AskSettled(settled) = &changes[1] else {
+            unreachable!()
+        };
+        assert_eq!(settled.outcome, wire::Outcome::Unknown);
         let snapshot = model.snapshot();
         assert!(
-            snapshot.hosts.is_empty() && snapshot.sessions.is_empty() && snapshot.order.is_empty()
+            snapshot.agents.is_empty()
+                && snapshot.threads.is_empty()
+                && snapshot.asks.is_empty()
+                && snapshot.order.is_empty()
         );
     }
 
@@ -3807,14 +3995,14 @@ mod tests {
         model
     }
 
-    fn tail(model: &Model) -> Vec<TailItem> {
+    fn tail(model: &Model) -> Vec<wire::TailItem> {
         model.entry("desk:ses_1").unwrap().tail
     }
 
     fn sessions_in(changes: &[Change]) -> usize {
         changes
             .iter()
-            .filter(|c| matches!(c, Change::Session { .. }))
+            .filter(|c| matches!(c, Change::Thread { .. }))
             .count()
     }
 
@@ -3829,7 +4017,7 @@ mod tests {
         );
         assert_eq!(
             kinds(&first),
-            ["delta", "session"],
+            ["delta", "thread"],
             "the first words go out at once"
         );
         model.at(3_000);
@@ -3923,7 +4111,7 @@ mod tests {
             None,
             &status("ses_1", r#"{"type":"busy","since":5}"#),
         );
-        let Some(Change::Session { session }) = changes.first() else {
+        let Some(Change::Thread { thread: session }) = changes.first() else {
             panic!("{:?}", kinds(&changes))
         };
         assert_eq!(session.tail[0].text, "one two");
@@ -3988,7 +4176,7 @@ mod tests {
         );
         assert_eq!(tail(&model)[0].role, TailRole::Assistant);
         let changes = event(&mut model, None, &message("msg_u", "user", ""));
-        assert_eq!(kinds(&changes), ["message", "session"]);
+        assert_eq!(kinds(&changes), ["message", "thread"]);
         assert_eq!(tail(&model)[0].role, TailRole::User);
     }
 
@@ -4188,10 +4376,10 @@ mod tests {
         );
         assert_eq!(
             kinds(&changes),
-            ["ask", "session"],
+            ["ask", "thread"],
             "one session: the order cannot move"
         );
-        let Change::Session { session } = &changes[1] else {
+        let Change::Thread { thread: session } = &changes[1] else {
             unreachable!()
         };
         assert_eq!(
@@ -4675,7 +4863,7 @@ mod tests {
         let changes = model.review_answered("desk:ses_1", &phone());
         assert_eq!(
             kinds(&changes),
-            ["session"],
+            ["thread"],
             "the entry loses its need on every device"
         );
         assert_eq!(
@@ -4702,7 +4890,7 @@ mod tests {
         event(&mut model, Some(1), REVIEW_REQUESTED);
         model.drain();
         let changes = model.review_gone("desk:ses_1");
-        assert_eq!(kinds(&changes), ["session"]);
+        assert_eq!(kinds(&changes), ["thread"]);
         assert_eq!(
             told(&mut model),
             ["served review:desk:ses_1:fix-auth:1 by agent settled"]
@@ -4883,7 +5071,7 @@ mod tests {
                 "served done:desk:ses_1:msg_a by phone seen"
             ]
         );
-        assert!(kinds(&changes).contains(&"session"));
+        assert!(kinds(&changes).contains(&"thread"));
         assert!(model.read("desk:nope", &phone(), "m", 1.0).is_err());
     }
 
@@ -5086,7 +5274,7 @@ mod tests {
                 ),
             ],
         ));
-        assert_eq!(kinds(&changes), ["session"]);
+        assert_eq!(kinds(&changes), ["thread"]);
         let tail = tail(&model);
         assert_eq!(tail.len(), TAIL_ITEMS);
         assert_eq!(
@@ -5337,7 +5525,7 @@ mod tests {
         );
         assert_eq!(
             kinds(&first),
-            ["delta", "session"],
+            ["delta", "thread"],
             "the first words go out at once"
         );
         model.at(2_050);
@@ -5391,7 +5579,7 @@ mod tests {
         assert_eq!(held[0].kind, TailKind::Reasoning, "it stays thinking");
         assert!(held[0].text.ends_with("weigh weigh "));
         assert_eq!(
-            held[0].streamed, 600,
+            model.sessions["desk:ses_1"].tail.items[0].streamed, 600,
             "the next delta lands where it should"
         );
         // the text part after it does stream by beats, beside the thought
@@ -5402,7 +5590,7 @@ mod tests {
         );
         model.at(3_000);
         let first = event(&mut model, None, &delta("msg_a", "prt_t", "so", 0));
-        assert_eq!(kinds(&first), ["delta", "session"]);
+        assert_eq!(kinds(&first), ["delta", "thread"]);
         let order: Vec<TailKind> = tail(&model).iter().map(|t| t.kind).collect();
         assert_eq!(order, [TailKind::Reasoning, TailKind::Text]);
         // the final reasoning part, whole, with its time, changes nothing a window shows
@@ -5510,7 +5698,7 @@ mod tests {
         model.at(1_000);
         // no announcement: the first delta at offset 0 is the part's birth
         let born = event(&mut model, None, &delta("msg_a", "prt_t", "the notes", 0));
-        assert_eq!(kinds(&born), ["delta", "session"]);
+        assert_eq!(kinds(&born), ["delta", "thread"]);
         assert_eq!(kinds_in(&model), [(TailKind::Text, "the notes".to_owned())]);
         // a delta for a part born past its start waits for the whole part
         event(&mut model, None, &delta("msg_a", "prt_x", "mid", 5));
@@ -5572,7 +5760,7 @@ mod tests {
         );
         model.at(2_000);
         let first = event(&mut model, None, &delta("msg_a", "prt_t", "the answer", 0));
-        assert_eq!(kinds(&first), ["delta", "session"]);
+        assert_eq!(kinds(&first), ["delta", "thread"]);
         let again = event(
             &mut model,
             Some(10),
@@ -5695,8 +5883,8 @@ mod tests {
         assert_eq!(model.needs_open().len(), 1, "done, waiting to be seen");
         let (changes, answers) = model.clear(&["desk:ses_1".into()], &phone());
         assert!(answers[0].1.is_ok());
-        assert_eq!(kinds(&changes), ["session"]);
-        let Change::Session { session } = &changes[0] else {
+        assert_eq!(kinds(&changes), ["thread"]);
+        let Change::Thread { thread: session } = &changes[0] else {
             unreachable!()
         };
         assert_eq!(
@@ -5718,7 +5906,7 @@ mod tests {
         model.clear(&["desk:ses_1".into()], &phone());
         model.drain();
         let changes = event(&mut model, None, &updated("ses_1", 100, None));
-        let Change::Session { session } = &changes[0] else {
+        let Change::Thread { thread: session } = &changes[0] else {
             unreachable!()
         };
         assert_eq!(
@@ -5727,7 +5915,7 @@ mod tests {
             "an update that moved nothing keeps it cleared"
         );
         let changes = event(&mut model, None, &updated("ses_1", 101, None));
-        let Change::Session { session } = &changes[0] else {
+        let Change::Thread { thread: session } = &changes[0] else {
             unreachable!()
         };
         assert_eq!(session.cleared, None);
@@ -5744,7 +5932,7 @@ mod tests {
             None,
             &status("ses_1", r#"{"type":"busy","since":5}"#),
         );
-        let Change::Session { session } = &changes[0] else {
+        let Change::Thread { thread: session } = &changes[0] else {
             unreachable!()
         };
         assert_eq!(session.cleared, None);
@@ -5773,7 +5961,7 @@ mod tests {
             r#"{"id":"e","type":"question.asked","properties":{"id":"que_1","sessionID":"ses_1","questions":[{"question":"which?","header":"g","options":[]}]}}"#,
         );
         let session = changes.iter().find_map(|c| match c {
-            Change::Session { session } => Some(session),
+            Change::Thread { thread: session } => Some(session),
             _ => None,
         });
         assert_eq!(session.unwrap().cleared, None);
@@ -5853,7 +6041,7 @@ mod tests {
         let archived = r#"{"id":"e","type":"session.updated","properties":{"sessionID":"ses_1","info":{"id":"ses_1","slug":"s","projectID":"/w","directory":"/w","title":"t","version":"0","source":"cmx2","cost":0,"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1,"updated":100,"archived":200}}}}"#;
         let changes = event(&mut model, None, archived);
         assert!(
-            kinds(&changes).contains(&"session.removed"),
+            kinds(&changes).contains(&"thread.removed"),
             "{:?}",
             kinds(&changes)
         );
@@ -5884,7 +6072,7 @@ mod tests {
         let mut model = Model::new();
         let old = raw(&info("ses_old", 5, None)).unwrap();
         let changes = model.adopt("desk", &old).unwrap();
-        assert_eq!(kinds(&changes), ["session", "order"]);
+        assert_eq!(kinds(&changes), ["thread", "order"]);
         assert!(model.entry("desk:ses_old").is_some());
         // opened again: still one thread, refreshed from the daemon's answer
         model.adopt("desk", &old).unwrap();
@@ -5914,10 +6102,10 @@ mod tests {
                 model.entry("desk:ses_old").is_some(),
                 "gone after the read in {epoch}"
             );
-            let Change::HostReset { sessions, .. } = &changes[0] else {
-                panic!("{:?}", kinds(&changes));
-            };
-            let keys: Vec<&str> = sessions.iter().map(|s| s.key.as_str()).collect();
+            let keys: Vec<&str> = threads_of(&changes)
+                .iter()
+                .map(|s| s.key.as_str())
+                .collect();
             assert!(
                 keys.contains(&"desk:ses_old"),
                 "the reset a client applies keeps it: {keys:?}"
@@ -5969,10 +6157,7 @@ mod tests {
             model.entry("attic:ses_far").is_none(),
             "another host's waits for its own read"
         );
-        let Change::HostReset { sessions, .. } = &changes[0] else {
-            panic!()
-        };
-        assert!(sessions.iter().any(|s| s.key == "desk:ses_old"));
+        assert!(threads_of(&changes).iter().any(|s| s.key == "desk:ses_old"));
         assert_eq!(model.adopted, ["desk:ses_old"]);
     }
 
@@ -6022,7 +6207,7 @@ mod tests {
         model.host_read(host_read_of("ep", 5, &[info("ses_new", 9, None)]));
         assert!(model.entry("desk:ses_old").is_some());
         let changes = model.unadopt("desk:ses_old");
-        assert!(kinds(&changes).contains(&"session.removed"));
+        assert!(kinds(&changes).contains(&"thread.removed"));
         assert!(model.entry("desk:ses_old").is_none());
         assert!(model.adopted_keys().is_empty());
     }
@@ -6041,8 +6226,8 @@ mod tests {
         // renamed and touched while boxbox was down: the daemon's read replaces the stored info
         let fresh = raw(&info("ses_old", 77, None)).unwrap();
         let changes = model.adopt("desk", &fresh).unwrap();
-        assert!(kinds(&changes).contains(&"session"));
-        assert_eq!(model.entry("desk:ses_old").unwrap().info.get(), fresh.get());
+        assert!(kinds(&changes).contains(&"thread"));
+        assert!((model.entry("desk:ses_old").unwrap().updated - 77.0).abs() < f64::EPSILON);
         assert_eq!(model.adopted_keys(), ["desk:ses_old"]);
         assert!(told(&mut model).contains(&"adopted desk:ses_old".to_owned()));
     }
@@ -6110,7 +6295,7 @@ mod tests {
         let changes = model
             .adopt("desk", &raw(&info("ses_new", 5, None)).unwrap())
             .unwrap();
-        assert!(kinds(&changes).contains(&"session.removed"));
+        assert!(kinds(&changes).contains(&"thread.removed"));
         assert!(model.entry("desk:ses_00").is_some(), "on a stage: kept");
         assert!(
             model.entry("desk:ses_01").is_none(),
@@ -6244,7 +6429,7 @@ mod tests {
         colours::NAMES[usize::from(colours::hashed("desk", root))].to_owned()
     }
 
-    fn given(colours: &[super::super::change::RepoColour]) -> Vec<(String, String)> {
+    fn given(colours: &[wire::RepoColour]) -> Vec<(String, String)> {
         colours
             .iter()
             .map(|colour| (colour.root.clone(), colour.auto.clone()))

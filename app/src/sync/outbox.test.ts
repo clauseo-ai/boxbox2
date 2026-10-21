@@ -6,7 +6,7 @@ import { type RawEvent, type RowStore, Telemetry } from "./telemetry";
 const thread: Target = { kind: "session", host: "desk", session: "ses_a", directory: "/repo" };
 const fresh: Target = { kind: "new", host: "desk", directory: "/repo", place: "fresh" };
 const make = (target: Target = thread, live = true, at = 1000) => entryOf({ clientID: "c1", verb: "prompt", target, text: "ok push", photos: [], model: null, effort: null, at }, live);
-const info = (over: Partial<MessageInfo>): MessageInfo => ({ id: "msg_1", sessionID: "ses_a", role: "user", time: { created: 0 }, ...over }) as MessageInfo;
+const info = (over: Partial<MessageInfo>): MessageInfo => ({ id: "msg_1", role: "user", created: 0, ...over });
 
 describe("an outbox entry", () => {
   test("waits on the device while the stream is down, and is posted when it is live", () => {
@@ -89,7 +89,7 @@ describe("an outbox entry", () => {
     const born = answered(make(fresh), { kind: "taken", session: "ses_new" }, 1100);
     expect(targetKey(fresh)).toBe("new:desk:/repo");
     expect(echoed(born, "desk:ses_other", info({ clientID: "c1" }), 1200).state).toBe("sending");
-    expect(echoed(born, "desk:ses_new", info({ clientID: "c1", sessionID: "ses_new" }), 1200).state).toBe("landed");
+    expect(echoed(born, "desk:ses_new", info({ clientID: "c1" }), 1200).state).toBe("landed");
   });
 
   test("is overdue only after its echo was missing for 30 s of live stream", () => {

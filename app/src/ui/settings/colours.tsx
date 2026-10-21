@@ -6,7 +6,6 @@
 import { For, Show, createMemo, createSignal, lazy } from "solid-js";
 import { state } from "../../store";
 import { colourLine } from "../window/repo";
-import { repoRootOf } from "../composer/place";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { placeName } from "../thread/place";
 import { colourStyle } from "../window/repo";
@@ -19,14 +18,14 @@ type Coloured = { host: string; root: string; name: string; seen: number };
 /** the repos with threads, the most recent first, then every repo the server has a colour for, by machine and name */
 function colouredRepos(): Coloured[] {
   const byKey = new Map<string, Coloured>();
-  for (const session of Object.values(state.fleet.sessions)) {
-    const root = repoRootOf(session.info);
-    const key = `${session.host}:${root}`;
-    const seen = session.info.time.updated;
+  for (const thread of Object.values(state.fleet.threads)) {
+    const root = thread.place?.root ?? "";
+    const key = `${thread.agent}:${root}`;
+    const seen = thread.updated;
     const known = byKey.get(key);
-    if (!known || known.seen < seen) byKey.set(key, { host: session.host, root, name: placeName(root, session.host), seen });
+    if (!known || known.seen < seen) byKey.set(key, { host: thread.agent, root, name: placeName(root, thread.agent), seen });
   }
-  for (const host of state.fleet.hostNames) {
+  for (const host of state.fleet.agentNames) {
     for (const key of Object.keys(state.fleet.colours)) {
       if (!key.startsWith(`${host}:`) || byKey.has(key)) continue;
       const root = key.slice(host.length + 1);

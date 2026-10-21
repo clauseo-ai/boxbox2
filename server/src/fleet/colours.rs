@@ -43,7 +43,7 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::change::RepoColour;
+use crate::wire::RepoColour;
 
 /// rows kept across every host: one per repo the fleet can hold a session of.
 pub const MAX_COLOURS: usize = super::model::MAX_SESSIONS;

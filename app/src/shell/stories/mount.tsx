@@ -14,7 +14,8 @@ import api from "./fixtures/api.json";
 import { applyPatches, bootSync, FOCUS_FOR_MS, openFocus, refreshHosts, setOpenTerminal, setOpenThread, setScreen, setStream, setTerminalLink, state } from "../../store";
 import type { HostStatus } from "../../api/client";
 import type { ThreadView } from "../../sync/reducer";
-import journal from "../../ui/home/fixtures/journal.ndjson?raw";
+import journal from "../../ui/home/fixtures/journal-p3.ndjson?raw";
+import contract1 from "../../ui/home/fixtures/journal.ndjson?raw";
 import { endOf, keyOf, parseJournal, replay, TITLES } from "../../ui/home/fixtures/replay";
 import { merged, NOTE, review } from "../../ui/review/stories/fixtures";
 import { AGENT_TITLE, askWith, asking, fleetAsking, LONG_ASK, TWO_QUESTIONS, withAgentSession, withAgentStep } from "../../ui/thread/stories/asks";
@@ -75,7 +76,7 @@ export function mountShell(el: HTMLElement, story: ShellStory): () => void {
       const held = state.threads[wants];
       if (!recordedAsk || !held) return;
       applyPatches([
-        { path: ["fleet", "asks", `${recordedAsk.host}:${recordedAsk.id}`], value: recordedAsk },
+        { path: ["fleet", "asks", `${recordedAsk.agent}:${recordedAsk.id}`], value: recordedAsk },
         { path: ["threads", wants, "messages"], value: asking(held, recordedAsk).messages },
       ]);
     };
@@ -91,7 +92,7 @@ export function mountShell(el: HTMLElement, story: ShellStory): () => void {
       if (recordedAsk) openFocus({ thread: wants, ask: recordedAsk.id, push: null });
     };
     const replay = () => {
-      if (recordedAsk) applyPatches([{ path: ["fleet", "asks", `${recordedAsk.host}:${recordedAsk.id}`], value: recordedAsk }]);
+      if (recordedAsk) applyPatches([{ path: ["fleet", "asks", `${recordedAsk.agent}:${recordedAsk.id}`], value: recordedAsk }]);
     };
     if (story === "machines-many" || story === "machines-pairing") answerHosts({ hosts: () => ({ status: 200, body: severalHosts() }), alias: { studio: RECORDED_HOST.name } });
     if (story === "machines-stats") answerHosts({ hosts: () => ({ status: 200, body: statHosts() }), alias: { studio: RECORDED_HOST.name, "vm-a": RECORDED_HOST.name, "vm-c": RECORDED_HOST.name } });
@@ -220,13 +221,25 @@ function strainedHosts(): HostStatus[] {
 /** an agent in a checkout has asked for review: the need the server raises */
 function raiseReview(key: string): void {
   const need = { id: "review:desk:checkout", key, kind: "review", rank: 3, raisedAt: AT, title: "pricing is ready to merge", body: NOTE, checkout: "site-fix" };
-  applyPatches([{ path: ["fleet", "sessions", key, "needs"], value: [need] }]);
+  applyPatches([{ path: ["fleet", "threads", key, "needs"], value: [need] }]);
 }
 
 /** what the history route answers in each history story: every session of the recorded fleet, newest first and
     cleared one of them, an empty fleet, or a machine that did not answer */
+/** the page's copy of each session as cmx2 wrote it, the last one the contract 1 recording holds for it: the history route
+    still answers cmx2's raw info beside each row (ui/history/rows.ts), so the rows are read from the recording the same way */
+function historyCopies(): { key: string; host: string; info: { title: string; time: { updated: number } } }[] {
+  const last = new Map<string, { key: string; host: string; info: { title: string; time: { updated: number } } }>();
+  for (const line of contract1.split("\n")) {
+    if (!line.trim()) continue;
+    const { frame } = JSON.parse(line) as { frame: { type: string; session?: { key: string; host: string; info: { title: string; time: { updated: number } } } } };
+    if (frame.type === "session" && frame.session) last.set(frame.session.key, { key: frame.session.key, host: frame.session.host, info: frame.session.info });
+  }
+  return [...last.values()];
+}
+
 function historyFor(story: ShellStory): (query: URLSearchParams) => { status: number; body: unknown } {
-  const entries = Object.values(final.state.fleet.sessions).sort((a, b) => b.info.time.updated - a.info.time.updated);
+  const entries = historyCopies().sort((a, b) => b.info.time.updated - a.info.time.updated);
   const rows = entries.map((entry, i) => ({ key: entry.key, host: entry.host, info: entry.info, cleared: i === 2 }));
   return (query) => {
     if (story === "history-empty") return { status: 200, body: { rows: [], unreached: [] } };
@@ -449,6 +462,6 @@ function settleAsk(): void {
   const start = part?.state?.time?.start ?? Date.now();
   applyPatches([
     { path: ["threads", key, "messages", at, "parts", 0, "state"], value: { status: "completed", input: part?.state?.input ?? {}, output: "", metadata: { answers: [["in my own words"]] }, time: { start, end: start + 1000 } } },
-    { path: ["fleet", "asks", `${ask.host}:${ask.id}`], value: undefined },
+    { path: ["fleet", "asks", `${ask.agent}:${ask.id}`], value: undefined },
   ]);
 }

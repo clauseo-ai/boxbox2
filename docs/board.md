@@ -41,7 +41,7 @@ connection, no timers, waiting on macos's device notification.
 
 | route | from | does |
 |---|---|---|
-| `GET /api/board/stream?protocol=1&device=…&addrs=…` | daemon | sse: `hello`, then a `view` whenever the board's picture changes, `pin` when the app arms a pairing, `: hb` every 15 s. one board at a time: a new stream sends the old one `replaced` and takes over |
+| `GET /api/stream?view=board&protocol=3&device=…&addrs=…` | daemon | the device stream's board view (`protocol.md` section 5), gzipped (the daemon sends `accept-encoding: gzip` and inflates; the server sync-flushes after every frame and heartbeat). 409 for another `protocol`, which the daemon logs as "update the daemon". sse: `hello` (`protocol: 3`), then a `view` whenever the board's picture changes, `pin` when the app arms a pairing, `: hb` every 15 s. one board at a time: a new stream sends the old one `replaced` and takes over |
 | `POST /api/board/act` | daemon | one tagged `Act`: focus, compose, read, reply, flush, seats, bind, unbind, gone. 204 when taken: for a focus or a compose, when a window on the board's mac took it (409 `no-board-window` otherwise, 404 `no-such-session` for a thread the fleet does not hold, 404 `no-such-machine` for a machine the view shows no light for); for a reply or a flush, when the agent took it. every verb answers 409 `no-board` with no board present |
 | `POST /api/board/pin` | app | arms the next digit key pressed to pair with a thread, for 30 s. 409 `no-board` when no board stream is open, 503 `board-busy` when its stream has stopped reading |
 
@@ -53,7 +53,7 @@ the verbs, as the server carries them out (`server/src/board/routes.rs`):
 
 - **read** marks the thread read through its newest message, with the
   board's device id and class `board`, the same mark `POST /api/read` makes.
-- **reply** answers through contract 2's ask path: a permission takes once,
+- **reply** answers through the neutral ask path: a permission takes once,
   always or reject; a question takes one of its options by index (the
   view's `ask.options`) or reject. an ask the fleet no longer holds answers
   404 `gone`.

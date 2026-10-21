@@ -13,10 +13,10 @@ use utoipa::ToSchema;
 use super::AppState;
 use super::error::{ApiError, ErrorBody};
 use crate::fleet::Chosen;
-use crate::fleet::change::RepoColour;
 use crate::fleet::colours;
 use crate::fleet::model::ColourRefused;
 use crate::prefs::{self, DevicePrefs, ModelPrefs, Prefs, RepoPrefs};
+use crate::wire::RepoColour;
 
 /// a model id or an effort longer than this is not one a daemon lists.
 const NAME_MAX: usize = 200;

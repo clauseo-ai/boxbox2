@@ -44,12 +44,10 @@ pub const RECORDED_TAIL_EVERY_MS: i64 = 200;
 /// what one query answered.
 #[derive(Debug)]
 pub enum Answer {
-    /// a page of a client stream: `stream` is the id the stream logs under.
-    Page {
-        stream: u32,
-        first: bool,
-        frames: Vec<Bytes>,
-    },
+    /// the first frames of a client stream the bench opened: `stream` is
+    /// the id it logs under. (the bench's later page requests are gone with
+    /// paging: a stream opens in one step.)
+    Page { stream: u32, frames: Vec<Bytes> },
     /// `GET /api/fleet`'s body.
     Snapshot(Bytes),
     /// `GET /api/needs`'s body and its `x-boxbox-seq`.
@@ -95,9 +93,10 @@ impl Replay {
         let actor = Actor {
             model: super::Model::new(),
             journal,
+            encoder: super::Encoder::new(),
+            keys: super::StreamKeys::new(),
             live: Vec::new(),
             board: None,
-            colours_version: 0,
             build: build.to_owned(),
             tails: tails_tx,
             outside: Outside {
@@ -147,6 +146,8 @@ impl Replay {
     pub fn step(&mut self, step: Step) -> Result<(), ReplayError> {
         let index = self.steps;
         self.steps += 1;
+        // the actor's clock fires for text deltas due before this step, each at its time
+        self.flush_deltas(step.at);
         crate::test_clock::set(Some(step.at));
         let fail = |what: String| ReplayError::Step { step: index, what };
         match step.input {
@@ -193,7 +194,6 @@ impl Replay {
                     &agent,
                     None,
                     SourceEvent::Connection(translate::connection(*status)),
-                    None,
                 )
             }
             Input::HostRemoved(host) => Upstream::HostRemoved(host),
@@ -220,12 +220,7 @@ impl Replay {
                         data: read.questions.data,
                     },
                 });
-                sender.envelope(
-                    &agent,
-                    None,
-                    SourceEvent::Snapshot(Box::new(snapshot)),
-                    None,
-                )
+                sender.envelope(&agent, None, SourceEvent::Snapshot(Box::new(snapshot)))
             }
             Input::TailRead { key, cursor, body } => {
                 let cursor =
@@ -240,7 +235,7 @@ impl Replay {
                 let read = translate::tail(thread.to_owned(), stamp, body.get().as_bytes())
                     .map_err(|e| format!("tail body of {key}: {e}"))?;
                 let (sender, agent) = source(host);
-                sender.envelope(&agent, None, SourceEvent::TailRead(Box::new(read)), None)
+                sender.envelope(&agent, None, SourceEvent::TailRead(Box::new(read)))
             }
             Input::TailUnread { key, reason } => {
                 let (host, thread) = key
@@ -254,7 +249,6 @@ impl Replay {
                         thread: thread.to_owned(),
                         reason,
                     },
-                    None,
                 )
             }
             Input::Event {
@@ -266,11 +260,11 @@ impl Replay {
                 let frame = frame(directory.as_deref(), &payload)?;
                 let decoded =
                     crate::cmx2::decode_frame(&frame).map_err(|e| format!("event frame: {e}"))?;
-                let Some((event, raw)) = cmx2::from_frame(&host, decoded) else {
+                let Some(event) = cmx2::from_frame(&host, &decoded) else {
                     return Ok(());
                 };
                 let (sender, agent) = source(&host);
-                sender.envelope(&agent, seq, event, Some(raw))
+                sender.envelope(&agent, seq, event)
             }
             Input::FlushTails | Input::Looking(_) | Input::Command(_) => {
                 return Err("not an upstream input".into());
@@ -295,25 +289,25 @@ impl Replay {
                         From::At(Cursor::parse(&text).ok_or_else(|| format!("cursor {text}"))?)
                     }
                 };
-                let (reply, mut answer) = oneshot::channel();
-                self.actor.command(Command::Read {
+                if !first {
+                    return Ok(());
+                }
+                let opened = self.actor.open(&super::Opening {
                     from,
-                    first,
-                    stream,
-                    colours: None,
-                    reply,
+                    interest: crate::wire::Interest::default(),
+                    since: std::collections::BTreeMap::new(),
+                    owner: [0; 32],
+                    log: stream,
                 });
-                let page = answer.try_recv().map_err(|e| e.to_string())?;
                 self.answers.push(Answer::Page {
                     stream,
-                    first,
-                    frames: page.frames,
+                    frames: opened.frames,
                 });
             }
             tape::Command::Snapshot => {
                 let (reply, mut answer) = oneshot::channel();
                 self.actor.command(Command::Snapshot { reply });
-                let body = answer.try_recv().map_err(|e| e.to_string())?;
+                let (body, _) = answer.try_recv().map_err(|e| e.to_string())?;
                 self.answers.push(Answer::Snapshot(body));
             }
             tape::Command::Needs => {
@@ -418,29 +412,75 @@ impl Replay {
         Ok(())
     }
 
+    /// the text deltas whose 100 ms batch falls due by `at` go into the
+    /// journal, each batch on its own clock, as the actor's timer sends them.
+    pub fn flush_deltas(&mut self, at: i64) {
+        while let Some(due) = self.actor.encoder.due() {
+            if due > at {
+                break;
+            }
+            crate::test_clock::set(Some(due));
+            self.actor.flush_deltas();
+        }
+        crate::test_clock::set(None);
+    }
+
+    /// the whole fleet as the model holds it now.
+    pub fn snapshot(&self) -> crate::wire::Fleet {
+        self.actor.model.snapshot()
+    }
+
+    /// the threads whose streamed text waits for the 500 ms pace.
+    pub fn held(&self) -> Vec<String> {
+        self.actor.model.held().iter().cloned().collect()
+    }
+
     /// a query asked after the tape ran out, on the clock of `at`: a stream
     /// opening from `from`, answered with its first page.
     pub fn open(&mut self, from: From, at: i64) -> Vec<Bytes> {
-        self.open_with(from, at, None)
-    }
-
-    /// the same for a stream that asks for repo colours (`?colours=1`).
-    pub fn open_colours(&mut self, from: From, at: i64) -> Vec<Bytes> {
-        self.open_with(from, at, Some(0))
-    }
-
-    fn open_with(&mut self, from: From, at: i64, colours: Option<u64>) -> Vec<Bytes> {
-        crate::test_clock::set(Some(at));
-        let (reply, mut answer) = oneshot::channel();
-        self.actor.command(Command::Read {
+        self.open_with(
             from,
-            first: true,
-            stream: 0,
-            colours,
-            reply,
+            crate::wire::Interest::default(),
+            std::collections::BTreeMap::new(),
+            at,
+        )
+        .frames
+    }
+
+    /// the same with an interest and its `since`, answered with the
+    /// stream's first frames and its live feed.
+    pub fn open_with(
+        &mut self,
+        from: From,
+        interest: crate::wire::Interest,
+        since: std::collections::BTreeMap<String, u64>,
+        at: i64,
+    ) -> super::Opened {
+        crate::test_clock::set(Some(at));
+        let opened = self.actor.open(&super::Opening {
+            from,
+            interest,
+            since,
+            owner: [0; 32],
+            log: 0,
         });
         crate::test_clock::set(None);
-        answer.try_recv().map(|p| p.frames).unwrap_or_default()
+        opened
+    }
+
+    /// an interest post for an open stream, as the route hands it to the actor.
+    pub fn post(&mut self, stream: u128, post: &crate::wire::InterestPost) -> super::Confirm {
+        self.actor.interest(stream, [0; 32], post)
+    }
+
+    /// tombstones below `seq` gone, as if 10,000 removals or a week had passed.
+    pub fn raise_gone_floor(&mut self, seq: u64) {
+        self.actor.keys.raise_floor(seq);
+    }
+
+    /// the journal's versions of a thread now.
+    pub fn versions(&self, key: &str) -> Option<(u64, u64)> {
+        self.actor.keys.thread(key).map(|t| (t.v, t.rv))
     }
 
     /// every frame the journal holds, oldest first.
@@ -449,6 +489,15 @@ impl Replay {
         self.actor
             .journal
             .page(floor.saturating_sub(1), usize::MAX)
+            .map(|p| p.frames)
+            .unwrap_or_default()
+    }
+
+    /// the frames the journal holds after `seq`, oldest first.
+    pub fn journal_after(&self, seq: u64) -> Vec<Bytes> {
+        self.actor
+            .journal
+            .page(seq, usize::MAX)
             .map(|p| p.frames)
             .unwrap_or_default()
     }
@@ -471,7 +520,5 @@ fn frame(directory: Option<&str>, payload: &RawValue) -> Result<String, String> 
     ))
 }
 
-#[cfg(test)]
-mod protocol3;
 #[cfg(test)]
 mod tests;

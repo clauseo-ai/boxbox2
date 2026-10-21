@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionEntry } from "../../sync/protocol";
+import { thread } from "../../sync/fixtures/neutral";
+import type { Thread } from "../../sync/protocol";
+import { repoName } from "../window/repo";
 import { appendRows, collisionSuffixes, emptyWords, type HistoryApiRow, rowView, unreachedWords, whenOf } from "./rows";
 
 const NOW = new Date("2026-10-01T12:00:00").getTime();
@@ -17,8 +19,15 @@ function row(id: string, updated: number, overrides: Partial<HistoryApiRow> = {}
   };
 }
 
-function held(r: HistoryApiRow, extra: Partial<SessionEntry> = {}): SessionEntry {
-  return { key: r.key, host: "desk", id: r.key.split(":")[1] as string, agents: 0, processes: 0, tail: [], needs: [], read: null, status: null, info: r.info as never, ...extra };
+function held(r: HistoryApiRow, extra: Partial<Thread> = {}): Thread {
+  const info = r.info as unknown as { projectID: string; directory: string; title: string; time: { updated: number } };
+  return thread(r.key, {
+    agent: "desk",
+    title: info.title,
+    updated: info.time.updated,
+    place: { root: info.projectID.startsWith("/") ? info.projectID : info.directory, directory: info.directory, name: repoName(info.projectID) },
+    ...extra,
+  });
 }
 
 describe("names that would be the same", () => {
@@ -68,13 +77,20 @@ describe("a row", () => {
     expect(view).toMatchObject({ repo: "ledger", title: "fix the rate limiter", state: "idle", words: "idle", cleared: false, when: "3 h ago", host: "desk" });
   });
 
+  test("a held thread's repo is its place's name, as main named the row's project id, even for \"\" and \"/\"", () => {
+    for (const projectID of ["", "/", "/work/ledger"]) {
+      const r = row("a", NOW, { info: { id: "a", projectID, directory: "/work/ledger", title: "t", time: { created: 0, updated: NOW } } as unknown as HistoryApiRow["info"] });
+      expect(rowView(r, held(r), [], {}, NOW).repo).toBe(rowView(r, undefined, [], {}, NOW).repo);
+    }
+  });
+
   test("an empty title reads as untitled", () => {
     expect(rowView(row("a", NOW, {}, "  "), undefined, [], {}, NOW).title).toBe("untitled");
   });
 
   test("a thread the fleet holds shows the fleet's state, not the page's", () => {
     const r = row("a", NOW - MIN);
-    const working = held(r, { status: { type: "busy", since: NOW - MIN } });
+    const working = held(r, { activity: { state: "busy", since: NOW - MIN } });
     expect(rowView(r, working, [], {}, NOW)).toMatchObject({ state: "working", words: "working" });
     const unseen = held(r, { needs: [{ kind: "done", body: "" } as never] });
     expect(rowView(r, unseen, [], {}, NOW).words).toBe("done");

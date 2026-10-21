@@ -4,24 +4,26 @@
    way a reload reads it holds exactly the state that was saved, down to the
    order of every object's keys; with long answers streamed into it, a save
    that dies between any two of its writes leaves the save before. a
-   database written by the builds before v4 and v5 (fixtures/cache-v3.json
-   and cache-v4.json, captured from those builds' cache.ts) opens with every
-   byte of it, and saves asked for while one commits are merged into one,
-   losing nothing. */
+   database written by the builds before v6 (fixtures/cache-v3.json,
+   cache-v4.json and cache-v5.json, captured from those builds' cache.ts)
+   opens with its fleet, threads and cursor gone and its drafts, photos,
+   outbox and prefs kept byte for byte, and saves asked for while one
+   commits are merged into one, losing nothing. */
 
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { Cache, CHUNKS, cleanDirty, layout, markPatches, PAGE, Saver } from "./cache";
 import { OPENED, recordedSteps, type Recording, type Step } from "./fixtures/saves";
-import type { Frame, Message } from "./protocol";
-import { type Effect, INITIAL_STATE, type Patch, reduce, type SyncState, type Thread } from "./reducer";
+import type { Message } from "./protocol";
+import { type Effect, INITIAL_STATE, type Patch, type SyncState, type Thread } from "./reducer";
 
 const read = (path: string) => readFileSync(join(import.meta.dir, path), "utf8");
-const messagesOf = (path: string) => (JSON.parse(read(path)) as { messages: Message[] }).messages;
+const messagesOf = (path: string) => (JSON.parse(read(path)) as { messages: unknown[] }).messages;
 const recording: Recording = {
-  journal: read("../ui/home/fixtures/journal.ndjson"),
+  tape: gunzipSync(readFileSync(join(import.meta.dir, "../../../server/goldens/protocol3/journal.sse.gz"))).toString("utf8"),
   deploy: messagesOf("../ui/thread/fixtures/cmx-deploy.json"),
   notes: messagesOf("../ui/thread/fixtures/notes-asks.json"),
 };
@@ -70,6 +72,8 @@ const headOf = (thread: Thread) => ({
   sized: true,
   pages: layout(thread.messages.length).length - 1,
   stale: false,
+  ...(thread.left === undefined ? {} : { left: thread.left }),
+  ...(thread.etag === undefined ? {} : { etag: thread.etag }),
 });
 
 /** a value as the order of its keys and its leaves, all the way down: two values alike here are alike down to the order
@@ -92,9 +96,9 @@ async function expectLoads(state: SyncState) {
     expect(ordered(booted.fleet)).toStrictEqual(ordered(state.fleet));
     const fleet = booted.fleet ?? INITIAL_STATE.fleet;
     expect(Object.keys(fleet)).toEqual(Object.keys(state.fleet));
-    expect(Object.keys(fleet.sessions)).toEqual(Object.keys(state.fleet.sessions));
+    expect(Object.keys(fleet.threads)).toEqual(Object.keys(state.fleet.threads));
     expect(Object.keys(fleet.asks)).toEqual(Object.keys(state.fleet.asks));
-    expect(Object.keys(fleet.hosts)).toEqual(Object.keys(state.fleet.hosts));
+    expect(Object.keys(fleet.agents)).toEqual(Object.keys(state.fleet.agents));
     expect(booted.heads.map((h) => h.key).sort()).toEqual([...Object.keys(state.threads), ...Object.keys(state.cold)].sort());
     for (const head of booted.heads) {
       const thread = state.threads[head.key];
@@ -137,11 +141,11 @@ describe("the save path replays a recorded stream", () => {
       markStep(saver, step);
       // a save every few actions, as the 200 ms timer lands under a steady stream; an odd period moves the save points
       // across messages and pages
-      if (step.index % 7 !== 6) continue;
+      if (step.index % 29 !== 28) continue;
       await saver.save();
       saves++;
       await expectLoads(state);
-      if (step.index === Math.floor(steps.length / 2) - (Math.floor(steps.length / 2) % 7) + 6) {
+      if (step.index === Math.floor(steps.length / 2) - (Math.floor(steps.length / 2) % 29) + 28) {
         // the page reloads: a new connection that knows the disk only from what it reads
         cache.close();
         cache = track(await openCache());
@@ -153,7 +157,7 @@ describe("the save path replays a recorded stream", () => {
     await expectLoads(state);
     expect(saves).toBeGreaterThan(80);
     expect(Object.keys(state.threads).length).toBe(3);
-  });
+  }, 60_000);
 
   test("a fleet the size of a real one saves and loads the same", async () => {
     const cache = track(await openCache());
@@ -163,14 +167,15 @@ describe("the save path replays a recorded stream", () => {
     for (const step of recordedSteps(recording, { pad: 300 })) {
       state = step.state;
       markStep(saver, step);
-      if (++n % 40 !== 0) continue;
+      if (++n % 120 !== 0) continue;
       await saver.save();
       await expectLoads(state);
     }
     await saver.save();
     await expectLoads(state);
-    expect(Object.keys(state.fleet.sessions).length).toBe(305);
-  });
+    // the tape's thousand threads and the three hundred it was padded with
+    expect(Object.keys(state.fleet.threads).length).toBe(1300);
+  }, 60_000);
 });
 
 /** the puts indexeddb was asked for, by store and key */
@@ -186,8 +191,8 @@ function watchPuts() {
 }
 
 const message = (n: number, text = ""): Message => ({
-  info: { id: `msg_${String(n).padStart(4, "0")}`, sessionID: "ses_1", role: "assistant", time: { created: n } },
-  parts: text ? [{ id: `prt_${n}`, sessionID: "ses_1", messageID: `msg_${String(n).padStart(4, "0")}`, type: "text", text } as Message["parts"][number]] : [],
+  info: { id: `msg_${String(n).padStart(4, "0")}`, role: "assistant", created: n },
+  parts: text ? [{ id: `prt_${n}`, messageID: `msg_${String(n).padStart(4, "0")}`, type: "text", text }] : [],
 });
 
 const thread = (key: string, messages: Message[]): Thread => ({
@@ -257,21 +262,21 @@ describe("a streaming thread's pages", () => {
     await expectLoads(state);
   });
 
-  test("pages written fifty to the end before v4 read as they are, and a save after them rewrites only what moved", async () => {
-    // the layout of the build before v4: pages of fifty to the end
+  test("pages laid fifty to the end (the layout before v4) read as they are, and a save after them rewrites only what moved", async () => {
+    // pages of fifty to the end, which `loadPages` reads as it reads any layout
     const before = Array.from({ length: 120 }, (_, i) => message(i, `w${i}`));
+    (await openCache()).close();
     const raw = await new Promise<IDBDatabase>((resolve) => {
-      const request = indexedDB.open("boxbox", 3);
-      request.onupgradeneeded = () => {
-        for (const store of ["meta", "fleet", "threads", "drafts", "draftPhotos", "outbox", "prefs"]) request.result.createObjectStore(store);
-      };
+      const request = indexedDB.open("boxbox");
       request.onsuccess = () => resolve(request.result);
     });
     await new Promise<void>((resolve) => {
       const tx = raw.transaction("threads", "readwrite");
       const store = tx.objectStore("threads");
       for (let page = 0; page < 3; page++) store.put(before.slice(page * 50, (page + 1) * 50), `bench:a#${page}`);
-      store.put({ ...headOf(thread("bench:a", before)), pages: 3 }, "bench:a#head");
+      const { baseline, ...head } = headOf(thread("bench:a", before));
+      store.put({ ...head, pages: 3 }, "bench:a#head");
+      store.put(baseline, "bench:a#base");
       tx.oncomplete = () => resolve();
     });
     raw.close();
@@ -310,44 +315,44 @@ describe("a streaming thread's pages", () => {
 });
 
 describe("the fleet's records", () => {
-  test("a changed session writes that session alone, and a session that goes and comes back keeps its new place", async () => {
+  test("a changed thread writes that thread alone, and a thread that goes and comes back keeps its new place", async () => {
     const cache = track(await openCache());
     const steps = [...recordedSteps(recording, { histories: false, pad: 50 })];
     let state: SyncState = { ...(steps[steps.length - 1]?.state ?? INITIAL_STATE), threads: {}, cold: {} };
     const saver = new Saver(() => cache, () => state, 200);
     saver.mark([{ path: ["fleet"], value: null }]);
     await saver.save();
-    const keys = Object.keys(state.fleet.sessions);
+    const keys = Object.keys(state.fleet.threads);
     const first = keys[0] ?? "";
-    const entry = state.fleet.sessions[first];
-    if (!entry) throw new Error("no session");
+    const entry = state.fleet.threads[first];
+    if (!entry) throw new Error("no thread");
     const watch = watchPuts();
-    state = { ...state, cursor: { epoch: "j1", seq: 900 }, fleet: { ...state.fleet, sessions: { ...state.fleet.sessions, [first]: { ...entry, agents: 3 } } } };
-    // a finer patch than today's reducer sends names the same record
-    saver.mark([{ path: ["fleet", "sessions", first, "agents"], value: 3 }]);
+    state = { ...state, cursor: { epoch: "j1", seq: 900 }, fleet: { ...state.fleet, threads: { ...state.fleet.threads, [first]: { ...entry, agents: 3 } } } };
+    // a patch at any depth names the same record
+    saver.mark([{ path: ["fleet", "threads", first, "agents"], value: 3 }]);
     await saver.save();
-    expect(watch.puts.filter((p) => p.store === "fleet").map((p) => p.key)).toEqual([`sessions:${first}`]);
+    expect(watch.puts.filter((p) => p.store === "fleet").map((p) => p.key)).toEqual([`threads:${first}`]);
     await expectLoads(state);
     // gone and back within one save: same keys, another order
-    const { [first]: _gone, ...rest } = state.fleet.sessions;
-    state = { ...state, cursor: { epoch: "j1", seq: 901 }, fleet: { ...state.fleet, sessions: { ...rest, [first]: entry } } };
-    saver.mark([{ path: ["fleet", "sessions", first], value: undefined }, { path: ["fleet", "sessions", first], value: entry }]);
+    const { [first]: _gone, ...rest } = state.fleet.threads;
+    state = { ...state, cursor: { epoch: "j1", seq: 901 }, fleet: { ...state.fleet, threads: { ...rest, [first]: entry } } };
+    saver.mark([{ path: ["fleet", "threads", first], value: undefined }, { path: ["fleet", "threads", first], value: entry }]);
     watch.puts.length = 0;
     await saver.save();
-    expect(watch.puts.filter((p) => p.store === "fleet").map((p) => p.key).sort()).toEqual(["index", `sessions:${first}`]);
+    expect(watch.puts.filter((p) => p.store === "fleet").map((p) => p.key).sort()).toEqual(["index", `threads:${first}`]);
     await expectLoads(state);
     // gone for good, an ask raised, the order and the colours changed
     const second = keys[1] ?? "";
-    const { [second]: _left, ...remaining } = state.fleet.sessions;
+    const { [second]: _left, ...remaining } = state.fleet.threads;
     const ask = Object.values(steps.find((s) => Object.keys(s.state.fleet.asks).length > 0)?.state.fleet.asks ?? {})[0];
     if (!ask) throw new Error("the journal raised no ask");
     state = {
       ...state,
       cursor: { epoch: "j1", seq: 902 },
-      fleet: { ...state.fleet, sessions: remaining, asks: { ...state.fleet.asks, "bench:ask_new": ask }, order: [...state.fleet.order].reverse(), colours: {} },
+      fleet: { ...state.fleet, threads: remaining, asks: { ...state.fleet.asks, "bench:ask_new": ask }, order: [...state.fleet.order].reverse(), colours: {} },
     };
     saver.mark([
-      { path: ["fleet", "sessions", second], value: undefined },
+      { path: ["fleet", "threads", second], value: undefined },
       { path: ["fleet", "asks", "bench:ask_new"], value: ask },
       { path: ["fleet", "order"], value: state.fleet.order },
       { path: ["fleet", "colours"], value: {} },
@@ -362,10 +367,10 @@ describe("the fleet's records", () => {
   test("patches name the records they change at any depth", () => {
     const dirty = cleanDirty();
     markPatches(dirty, [
-      { path: ["fleet", "sessions", "h:a"], value: null },
-      { path: ["fleet", "sessions", "h:b", "tail"], value: [] },
+      { path: ["fleet", "threads", "h:a"], value: null },
+      { path: ["fleet", "threads", "h:b", "tail"], value: [] },
       { path: ["fleet", "asks", "h:q"], value: undefined },
-      { path: ["fleet", "hosts", "h"], value: null },
+      { path: ["fleet", "agents", "h"], value: null },
       { path: ["fleet", "colours", "h:/r"], value: null },
       { path: ["fleet", "order"], value: [] },
       { path: ["threads", "h:a", "messages", 7, "parts", 0, "text"], value: "x" },
@@ -376,12 +381,12 @@ describe("the fleet's records", () => {
       { path: ["threads", "h:e", "messages"], value: [] },
     ]);
     expect(dirty.fleet).toBe(false);
-    expect([...dirty.entries.sessions]).toEqual(["h:a", "h:b"]);
+    expect([...dirty.entries.threads]).toEqual(["h:a", "h:b"]);
     expect([...dirty.entries.asks]).toEqual(["h:q"]);
-    expect([...dirty.entries.hosts]).toEqual(["h"]);
+    expect([...dirty.entries.agents]).toEqual(["h"]);
     expect([...dirty.fields]).toEqual(["colours", "order"]);
     expect(Object.fromEntries(dirty.threads)).toEqual({ "h:a": 7, "h:b": Number.POSITIVE_INFINITY, "h:c": Number.POSITIVE_INFINITY, "h:d": 0, "h:e": 0 });
-    markPatches(dirty, [{ path: ["fleet", "sessions"], value: {} }]);
+    markPatches(dirty, [{ path: ["fleet", "threads"], value: {} }]);
     expect(dirty.fleet).toBe(true);
   });
 
@@ -446,108 +451,46 @@ async function records(store: string): Promise<Map<string, unknown>> {
   return new Map(keys.map((key, i) => [String(key), values[i]]));
 }
 
-/** what the upgraded cache boots with, and every thread's pages, are what the build that wrote the dump read from it (its
-    `loaded`, read by that build's cache.ts when the dump was captured), down to the order of every key; and every head's
-    baseline now lies in a record of its own, as it was */
-async function expectUpgraded(cache: Cache, dump: Dump) {
-  const booted = await cache.loadBoot();
-  const expected = dump.loaded.boot as typeof booted;
-  const sorted = (heads: typeof booted.heads) => [...heads].sort((x, y) => x.key.localeCompare(y.key));
-  expect({ ...booted, heads: sorted(booted.heads) }).toStrictEqual({ ...expected, heads: sorted(expected.heads) });
-  expect(ordered({ ...booted, heads: sorted(booted.heads) })).toStrictEqual(ordered({ ...expected, heads: sorted(expected.heads) }));
-  for (const head of booted.heads) {
-    const pages = await cache.loadPages(head);
-    expect(pages).toStrictEqual(dump.loaded.pages[head.key] as Message[]);
-    expect(ordered(pages)).toStrictEqual(ordered(dump.loaded.pages[head.key]));
-  }
-  const threads = await records("threads");
-  const before = new Map(dump.stores.threads ?? []);
-  for (const head of booted.heads) {
-    expect(threads.get(`${head.key}#head`)).not.toHaveProperty("baseline");
-    expect(threads.get(`${head.key}#base`)).toStrictEqual((before.get(`${head.key}#head`) as { baseline: unknown }).baseline);
-  }
-  // nothing else moved: every page is the record it was
-  for (const [key, value] of before) if (!key.endsWith("#head")) expect(threads.get(key)).toStrictEqual(value);
-  return booted;
-}
+/** the stores an upgrade to v6 keeps, record for record */
+const KEPT = ["drafts", "draftPhotos", "outbox", "prefs"] as const;
 
-describe("the upgrades", () => {
-  test("a database the build before v4 wrote opens with the same fleet, heads and pages, and saves on from there", async () => {
-    const dump = await install("fixtures/cache-v3.json", 3);
-    const cache = track(await openCache());
-    const booted = await expectUpgraded(cache, dump);
-    const expected = dump.loaded.boot as typeof booted;
-    expect(Object.keys(booted.fleet?.sessions ?? {})).toEqual(Object.keys(expected.fleet?.sessions ?? {}));
-    expect(Object.keys(booted.fleet ?? {})).toEqual(Object.keys(expected.fleet ?? {}));
-
-    // the whole record is gone, split into its entries
-    const keys = [...(await records("fleet")).keys()];
-    expect(keys).not.toContain("fleet");
-    expect(keys).toContain("index");
-
-    // one session changes after the upgrade: it alone is written, and what loads is the fleet with it
-    const fleet = booted.fleet;
-    const key = Object.keys(fleet?.sessions ?? {})[0];
-    const entry = key ? fleet?.sessions[key] : undefined;
-    if (!fleet || !key || !entry) throw new Error("the dump has no session");
-    let state: SyncState = { ...INITIAL_STATE, cursor: booted.cursor, counters: booted.counters ?? INITIAL_STATE.counters, fleet, cold: Object.fromEntries(booted.heads.map((h) => [h.key, h])) };
-    state = { ...state, cursor: { epoch: state.cursor?.epoch ?? "j1", seq: (state.cursor?.seq ?? 0) + 1 }, fleet: { ...fleet, sessions: { ...fleet.sessions, [key]: { ...entry, processes: 2 } } } };
-    const saver = new Saver(() => cache, () => state, 200);
-    const watch = watchPuts();
-    saver.mark([{ path: ["fleet", "sessions", key], value: null }]);
-    await saver.save();
-    watch.stop();
-    expect(watch.puts.map((p) => `${p.store}/${p.key}`)).toEqual([`fleet/sessions:${key}`, "meta/sync"]);
-    await expectLoads(state);
-  });
-
-  test("a database v4 wrote mid-answer opens with the same fleet, heads and pages, and the answer streams on as chunks", async () => {
-    // captured from main's cache.ts before v5: the replay with two answers streamed into the first opened thread, the
-    // second still streaming, saved every seventh action (fixtures/README.md)
-    const dump = await install("fixtures/cache-v4.json", 4);
-    const cache = track(await openCache());
-    const booted = await expectUpgraded(cache, dump);
-    const key = OPENED[0];
-    expect(booted.heads.find((h) => h.key === key)?.baseline).not.toEqual({});
-
-    // the worker restores the threads from what it read, and the answer streams on through the reducer
-    let state: SyncState = { ...INITIAL_STATE, cursor: booted.cursor, counters: booted.counters ?? INITIAL_STATE.counters, fleet: booted.fleet ?? INITIAL_STATE.fleet, cold: Object.fromEntries(booted.heads.map((h) => [h.key, h])) };
-    const saver = new Saver(() => cache, () => state, 200);
-    for (const head of booted.heads) {
-      const result = reduce(state, { type: "restored", key: head.key, messages: await cache.loadPages(head) });
-      state = result.state;
-      // a restored thread takes a new read number, which its head on disk learns with the thread's next save
-      saver.markThread(head.key, Number.POSITIVE_INFINITY);
-    }
-    await saver.save();
-    const streaming = state.threads[key]?.messages.at(-1);
-    const part = streaming?.parts[0] as { id: string; text: string; streaming?: boolean } | undefined;
-    if (!streaming || !part?.streaming) throw new Error("the dump's answer is not streaming");
-    const epoch = booted.cursor?.epoch;
-    let seq = booted.cursor?.seq ?? 0;
-    const play = (frame: Record<string, unknown>) => {
-      const result = reduce(state, { type: "frame", frame: { ...frame, seq: ++seq } as Frame, epoch });
-      state = result.state;
-      saver.mark(result.patches);
-    };
-    const watch = watchPuts();
-    let text = part.text;
-    for (let tick = 0; tick < 20; tick++) {
-      const words = ` and the ledger moved ${tick}`;
-      play({ type: "delta", key, messageID: streaming.info.id, partID: part.id, field: "text", delta: words, offset: text.length });
-      text += words;
-      watch.puts.length = 0;
+describe("the upgrade to v6 (docs/protocol.md, the app's indexeddb)", () => {
+  for (const [path, version] of [
+    ["fixtures/cache-v3.json", 3],
+    ["fixtures/cache-v4.json", 4],
+    ["fixtures/cache-v5.json", 5],
+  ] as const) {
+    test(`a database v${version} wrote opens with its fleet, threads and cursor gone, its drafts, photos, outbox and prefs as they were, and an empty media store`, async () => {
+      const dump = await install(path, version);
+      // what goes was there: contract 1's fleet, cmx2's transcripts, and a cursor into the old journal
+      expect(dump.stores.fleet?.length).toBeGreaterThan(0);
+      expect(dump.stores.threads?.length).toBeGreaterThan(0);
+      expect(new Map(dump.stores.meta ?? []).has("sync")).toBe(true);
+      const cache = track(await openCache());
+      expect(await cache.loadBoot()).toStrictEqual({ cursor: null, counters: null, fleet: null, heads: [] });
+      for (const store of ["fleet", "threads", "media"]) expect((await records(store)).size).toBe(0);
+      expect((await records("meta")).has("sync")).toBe(false);
+      for (const store of KEPT) expect([...(await records(store))]).toStrictEqual(dump.stores[store] ?? []);
+      // the first connect's reset and reads save on from an empty cache, in the new shapes
+      const t = { ...thread("bench:ses_new", [message(0, "the first words")]), left: 12, etag: '"3.e1.12.q"' };
+      const state: SyncState = { ...withThread(t, 12), fleet: { ...INITIAL_STATE.fleet, agentNames: ["bench"], order: [t.key] } };
+      const saver = new Saver(() => cache, () => state, 200);
+      saver.mark([{ path: ["fleet"], value: null }]);
+      saver.markThread(t.key, 0);
       await saver.save();
-      expect(watch.puts.filter((p) => p.store === "threads").map((p) => p.key)).toEqual([`${key}#+${String(tick).padStart(6, "0")}`, `${key}#head`]);
       await expectLoads(state);
-    }
-    expect((state.threads[key]?.messages.at(-1)?.parts[0] as { text: string }).text).toBe(text);
-    // the whole part settles it: its page is written whole and the chunks go
-    play({ type: "part", key, upstream: 10_000, part: { id: part.id, sessionID: streaming.info.sessionID, messageID: streaming.info.id, type: "text", text, time: { start: 1, end: 2 } } });
-    await saver.save();
-    watch.stop();
-    expect((await threadKeys()).filter(isChunk)).toEqual([]);
-    await expectLoads(state);
+    });
+  }
+
+  test("v5's drafts, outbox, telemetry rows and replies read back as that build read them", async () => {
+    const dump = await install("fixtures/cache-v5.json", 5);
+    const cache = track(await openCache());
+    const composer = await cache.loadComposer("bench:ses_draft");
+    expect(composer.drafts["bench:ses_draft"]).toMatchObject({ text: "half a thought", photos: [{ filename: "a.jpg" }] });
+    const outbox = new Map(dump.stores.outbox ?? []);
+    expect(composer.outbox as unknown[]).toStrictEqual([outbox.get("c0ffee00-0000-4000-8000-000000000001")]);
+    expect(composer.rows as unknown[]).toStrictEqual([outbox.get("row:row_1")]);
+    expect(composer.replies).toStrictEqual([outbox.get("ask:bench:ses_draft toolu_1")]);
   });
 });
 
@@ -725,7 +668,7 @@ describe("two writers on one database", () => {
     await expectLoads(stateA);
   });
 
-  test("a session one writer added and the other added and removed in one save is gone, not undefined", async () => {
+  test("a thread one writer added and the other added and removed in one save is gone, not undefined", async () => {
     const steps = [...recordedSteps(recording, { histories: false })];
     const base: SyncState = { ...(steps[steps.length - 1]?.state ?? INITIAL_STATE), threads: {}, cold: {}, cursor: { epoch: "j1", seq: 1 } };
     const a = track(await openCache());
@@ -735,30 +678,30 @@ describe("two writers on one database", () => {
     saverA.mark([{ path: ["fleet"], value: null }]);
     await saverA.save();
     await b.loadBoot();
-    const entry = Object.values(base.fleet.sessions)[0];
-    if (!entry) throw new Error("no session");
+    const entry = Object.values(base.fleet.threads)[0];
+    if (!entry) throw new Error("no thread");
     const k = { ...entry, key: "h:k", id: "k" };
-    stateA = { ...base, cursor: { epoch: "j1", seq: 2 }, fleet: { ...base.fleet, sessions: { ...base.fleet.sessions, "h:k": k } } };
-    saverA.mark([{ path: ["fleet", "sessions", "h:k"], value: k }]);
+    stateA = { ...base, cursor: { epoch: "j1", seq: 2 }, fleet: { ...base.fleet, threads: { ...base.fleet.threads, "h:k": k } } };
+    saverA.mark([{ path: ["fleet", "threads", "h:k"], value: k }]);
     await saverA.save();
     // b applies the add and the removal inside one window
     const stateB: SyncState = { ...base, cursor: { epoch: "j1", seq: 3 } };
     const saverB = new Saver(() => b, () => stateB, 200);
     saverB.mark([
-      { path: ["fleet", "sessions", "h:k"], value: k },
-      { path: ["fleet", "sessions", "h:k"], value: undefined },
+      { path: ["fleet", "threads", "h:k"], value: k },
+      { path: ["fleet", "threads", "h:k"], value: undefined },
     ]);
     await saverB.save();
     await expectLoads(stateB);
-    // the other way: a drops a session b still has and changes; b's save brings it back whole, with b's cursor
-    const gone = Object.keys(base.fleet.sessions)[0] ?? "";
-    const { [gone]: _dropped, ...rest } = base.fleet.sessions;
-    stateA = { ...base, cursor: { epoch: "j1", seq: 4 }, fleet: { ...base.fleet, sessions: rest } };
-    saverA.mark([{ path: ["fleet", "sessions", gone], value: undefined }]);
+    // the other way: a drops a thread b still has and changes; b's save brings it back whole, with b's cursor
+    const gone = Object.keys(base.fleet.threads)[0] ?? "";
+    const { [gone]: _dropped, ...rest } = base.fleet.threads;
+    stateA = { ...base, cursor: { epoch: "j1", seq: 4 }, fleet: { ...base.fleet, threads: rest } };
+    saverA.mark([{ path: ["fleet", "threads", gone], value: undefined }]);
     await saverA.save();
-    const changed: SyncState = { ...stateB, cursor: { epoch: "j1", seq: 4 }, fleet: { ...base.fleet, sessions: { ...base.fleet.sessions, [gone]: { ...entry, agents: 9 } } } };
+    const changed: SyncState = { ...stateB, cursor: { epoch: "j1", seq: 4 }, fleet: { ...base.fleet, threads: { ...base.fleet.threads, [gone]: { ...entry, agents: 9 } } } };
     const saverB2 = new Saver(() => b, () => changed, 200);
-    saverB2.mark([{ path: ["fleet", "sessions", gone, "agents"], value: 9 }]);
+    saverB2.mark([{ path: ["fleet", "threads", gone, "agents"], value: 9 }]);
     await saverB2.save();
     await expectLoads(changed);
   });
@@ -959,7 +902,8 @@ describe("a long answer streamed and saved at many points", () => {
       answer.bytes += stats.bytes;
     });
     // the threads hold what streamed, so a load at every save reads the answers and not the recorded transcripts again
-    const steps = [...recordedSteps(recording, { histories: false, answer: 80_000, answers: 2 })];
+    // the tape's first frames only: a fleet of some sixty threads, so the loads at every save weigh the answers
+    const steps = [...recordedSteps(recording, { histories: false, answer: 80_000, answers: 2, frames: 60 })];
     const last = steps[steps.length - 1];
     const watch = watchPuts();
     let saves = 0;
@@ -968,7 +912,7 @@ describe("a long answer streamed and saved at many points", () => {
       for (const step of steps) {
         state = step.state;
         markStep(saver, step);
-        if (step.action.type === "frame" && step.action.frame.type === "message" && step.action.frame.info.id.includes("_long0")) answer.from = state.counters.applied;
+        if (step.action.type === "frame" && step.action.frame.type === "message" && step.action.frame.message.id.includes("_long0")) answer.from = state.counters.applied;
         if (step.index % 3 !== 2 && step !== last) continue;
         // the write a save dies at moves with each save, so the crashes land on chunks, pages, heads, deletes and the cursor
         const crash = crashAt(saves % 7);
@@ -1149,7 +1093,7 @@ describe("a streamed text's chunks", () => {
 
   test("a save that fails while more is marked writes the fields it creates in the order they were marked", async () => {
     const cache = track(await openCache());
-    const tool = { id: "prt_t", sessionID: "ses_1", messageID: "msg_0001", type: "tool" };
+    const tool = { id: "prt_t", messageID: "msg_0001", type: "tool" };
     let t = thread("bench:s", [message(0, "a"), { info: message(1).info, parts: [tool] as unknown as Message["parts"] }]);
     let state = await seeded(cache, t);
     const saver = new Saver(() => cache, () => state, 10_000);
@@ -1173,7 +1117,7 @@ describe("a streamed text's chunks", () => {
     fail = false;
     await saver.save();
     saver.stop();
-    expect(Object.keys(t.messages[1]?.parts[0] ?? {})).toEqual(["id", "sessionID", "messageID", "type", "input", "output"]);
+    expect(Object.keys(t.messages[1]?.parts[0] ?? {})).toEqual(["id", "messageID", "type", "input", "output"]);
     await expectLoads(state);
   });
 
@@ -1233,8 +1177,8 @@ describe("a streamed text's chunks", () => {
 
   test("a text that was not there is created where the reducer puts it, and one that stood undefined keeps its place", async () => {
     const cache = track(await openCache());
-    const reasoning = { id: "prt_r", sessionID: "ses_1", messageID: "msg_0001", type: "reasoning", time: { start: 1 } };
-    const undefinedFirst = { text: undefined, id: "prt_u", sessionID: "ses_1", messageID: "msg_0001", type: "text" };
+    const reasoning = { id: "prt_r", messageID: "msg_0001", type: "reasoning", time: { start: 1 } };
+    const undefinedFirst = { text: undefined, id: "prt_u", messageID: "msg_0001", type: "text" };
     let t = thread("bench:s", [message(0, "a"), { info: message(1).info, parts: [reasoning, undefinedFirst] as unknown as Message["parts"] }]);
     const first = await seeded(cache, t);
     const changes: { state: SyncState; patches: Patch[] }[] = [];
@@ -1249,7 +1193,7 @@ describe("a streamed text's chunks", () => {
       changes.push({ state: withThread(t, 2 + changes.length), patches: [grown.patch] });
     }
     await saveThroughCrashes(cache, changes, first);
-    expect(Object.keys(t.messages[1]?.parts[0] ?? {})).toEqual(["id", "sessionID", "messageID", "type", "time", "text"]);
+    expect(Object.keys(t.messages[1]?.parts[0] ?? {})).toEqual(["id", "messageID", "type", "time", "text"]);
     expect(Object.keys(t.messages[1]?.parts[1] ?? {})[0]).toBe("text");
     expect((await threadKeys()).filter(isChunk)).toHaveLength(4);
   });

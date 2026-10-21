@@ -160,7 +160,6 @@ fn unsequenced(host: &str, event: SourceEvent) -> Upstream {
         agent: name,
         seq: None,
         event,
-        raw: None,
     }
 }
 
@@ -218,7 +217,7 @@ async fn page(
             body.extend_from_slice(&chunk);
         }
         #[cfg(feature = "record")]
-        crate::fleet::record::tail_body(&request.key, &cursor, &body);
+        crate::fleet::record::tail_body(&request.host, &request.session, &cursor, &body);
         let stamp = Stamp {
             epoch: cursor.epoch.clone(),
             seq: cursor.seq,

@@ -208,7 +208,10 @@ pub async fn guard(
     let agent = request.uri().path().split('/').nth(3).unwrap_or_default();
     let found = find(&state, agent)?;
     found.needs(capability)?;
-    if found.source.cmx2_raw().is_none() {
+    if !matches!(
+        found.source.connection(),
+        crate::source::ConnectionConfig::Cmx2(_)
+    ) {
         return Err(ApiError::NotBuilt(
             "this verb on an agent that is not a cmx2 daemon",
         ));

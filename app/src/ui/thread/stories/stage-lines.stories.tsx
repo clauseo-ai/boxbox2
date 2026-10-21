@@ -36,8 +36,9 @@ export const FreshNotFollowed = (): ReactElement => {
 const inFolder = (directory: string) => (): ReactElement => {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => (ref.current ? mountStageAlone(ref.current, { followed: true, shape: (fleet, thread, key) => {
-    const s = fleet.sessions[key];
-    return { fleet: s ? { ...fleet, sessions: { ...fleet.sessions, [key]: { ...s, info: { ...s.info, directory, projectID: directory } } } } : fleet, thread: { ...thread, messages: thread.messages.slice(0, 2) } };
+    const s = fleet.threads[key];
+    /* cmx2's project id and directory both the folder: the place's root and directory, as the server's translate makes them */
+    return { fleet: s ? { ...fleet, threads: { ...fleet.threads, [key]: { ...s, place: { ...(s.place ?? { name: "" }), root: directory, directory } } } } : fleet, thread: { ...thread, messages: thread.messages.slice(0, 2) } };
   } }) : undefined), []);
   return createElement("div", { ref, className: "shell-story" });
 };

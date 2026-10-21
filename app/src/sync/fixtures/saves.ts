@@ -1,54 +1,81 @@
 /* a recorded stream played through the reducer the way the worker plays
-   it, for the cache's tests: the home journal (ui/home/fixtures), with its
-   two busiest threads opened and a third held from the start, each read
-   from a recorded transcript (ui/thread/fixtures) so its pages are real
+   it, for the cache's tests: the protocol 3 journal tape
+   (server/goldens/protocol3/journal.sse.gz, the recorded cmx2 tape the
+   simulated encoder re-encoded), behind a hello and a reset as a fresh
+   connect gets them, with its two busiest threads opened and a third held
+   from the start, each read from a recorded transcript
+   (ui/thread/fixtures, made neutral by neutral.ts) so its pages are real
    pages, one of them carrying a photo. what the worker does with each
    result (mark it dirty, run its effects, save) is the caller's. */
 
-import { parseJournal, type Recorded } from "../../ui/home/fixtures/replay";
-import type { Frame, Message, SessionEntry } from "../protocol";
+import type { Frame, Message, Thread } from "../protocol";
 import { parseCursor } from "../protocol";
 import { type Action, type Effect, INITIAL_STATE, type Patch, reduce, type SyncState } from "../reducer";
+import { neutralMessage } from "./neutral";
+
+/** one frame of the tape: its sse id (null when it had none) and its data */
+export type Recorded = { id: string | null; frame: Frame };
+
+/** the frames of an sse text: an optional `id:` line and `data:` lines, then a blank line */
+export function parseTape(text: string): Recorded[] {
+  const out: Recorded[] = [];
+  for (const block of text.split("\n\n")) {
+    let id: string | null = null;
+    const data: string[] = [];
+    for (const line of block.split("\n")) {
+      if (line.startsWith("id: ")) id = line.slice(4);
+      else if (line.startsWith("data: ")) data.push(line.slice(6));
+    }
+    if (data.length > 0) out.push({ id, frame: JSON.parse(data.join("\n")) as Frame });
+  }
+  return out;
+}
+
+/** the tape's epoch: its ids are `EPOCH:<seq>` */
+const EPOCH = "EPOCH";
 
 /** a photo a person sent: an image keeps its data url in the thread (reducer.ts, `slimPart`), so its bytes are in every page write */
 function withPhoto(messages: Message[], at: number): Message[] {
   const target = messages[at];
   if (!target) return messages;
   const url = `data:image/png;base64,${"iVBORw0KGgo".repeat(20_000)}`;
-  const photo = { id: `prt_photo_${at}`, sessionID: target.info.sessionID, messageID: target.info.id, type: "file", mime: "image/png", filename: "photo.png", url };
+  const photo = { id: `prt_photo_${at}`, messageID: target.info.id, type: "image", mime: "image/png", filename: "photo.png", url, flavour: "attached" };
   const copy = [...messages];
   copy[at] = { info: target.info, parts: [...target.parts, photo as Message["parts"][number]] };
   return copy;
 }
 
-export const OPENED = ["bench:ses_426e19f7048b4b71becf", "bench:ses_0ec5613695a04a7aad16"] as const;
-export const HELD = "bench:ses_97580bb036e44e02a938";
+/** the tape's two threads with the most transcript entries, and the third, held */
+export const OPENED = ["bench:ses_f1db24a935fc4e40a63c", "bench:ses_e4f85b4aa9b04a7aa433"] as const;
+export const HELD = "bench:ses_2f14db9d662b46868ec3";
 
-/** what the replay is made of, read by the caller: the journal's text, and the messages of two recorded transcripts
-    (`{ messages }` of ui/thread/fixtures/cmx-deploy.json and notes-asks.json) */
-export type Recording = { journal: string; deploy: Message[]; notes: Message[] };
+/** what the replay is made of, read by the caller: the tape's text, and the cmx2 messages of two recorded transcripts
+    (`{ messages }` of ui/thread/fixtures/cmx-deploy.json and notes-asks.json), made neutral here */
+export type Recording = { tape: string; deploy: unknown[]; notes: unknown[] };
+
+const neutral = (raw: unknown[]): Message[] => raw.map((m) => neutralMessage(m as Parameters<typeof neutralMessage>[0]));
 
 /** the history each thread's read answers with */
 function history(recording: Recording, key: string): Message[] {
-  if (key === OPENED[0]) return withPhoto(recording.deploy, 120);
-  if (key === OPENED[1]) return recording.notes;
+  if (key === OPENED[0]) return withPhoto(neutral(recording.deploy), 120);
+  if (key === OPENED[1]) return neutral(recording.notes);
   return [];
 }
 
-/** `pad` idle sessions join the reset's snapshot, each a copy of the recorded session with the longest tail, so the fleet has
-    the size of a real one (docs/architecture.md: up to 300 windows, 1000 sessions) */
+/** `pad` idle threads join the reset's snapshot, each a copy of the recorded thread with the longest tail, so the fleet has
+    the size of a real one (docs/architecture.md: up to 300 windows, 1000 threads) */
 function padFleet(recorded: Recorded[], pad: number): void {
-  let template: SessionEntry | null = null;
+  let template: Thread | null = null;
   for (const { frame } of recorded) {
-    if (frame.type === "session" && (!template || frame.session.tail.length > template.tail.length)) template = frame.session;
+    if (frame.type === "thread" && (!template || frame.thread.tail.length > template.tail.length)) template = frame.thread;
   }
   const reset = recorded.find((r) => r.frame.type === "reset");
   if (!template || reset?.frame.type !== "reset") return;
-  const padding = Array.from({ length: pad }, (_, i): SessionEntry => {
+  const padding = Array.from({ length: pad }, (_, i): Thread => {
     const id = `ses_pad${String(i).padStart(4, "0")}`;
-    return { ...structuredClone(template), key: `bench:${id}`, id, status: null };
+    return { ...structuredClone(template), key: `bench:${id}`, id, activity: { state: "idle" } };
   });
-  reset.frame = { ...reset.frame, fleet: { ...reset.frame.fleet, sessions: [...reset.frame.fleet.sessions, ...padding] } };
+  reset.frame = { ...reset.frame, fleet: { ...reset.frame.fleet, threads: [...reset.frame.fleet.threads, ...padding] } };
 }
 
 /** a deterministic generator, so every build streams the same deltas */
@@ -60,28 +87,29 @@ function seeded(seed: number): () => number {
   };
 }
 
-/** `count` long answers of `length` characters each, streamed after the journal into the first opened thread as the daemon
+/** `count` long answers of `length` characters each, streamed after the tape into the first opened thread as the server
     streams one (deltas of 8 to 40 characters), each settled by its whole part, the last left streaming when `settle` is
-    false; numbered on from the journal's last entry */
+    false; numbered on from the tape's last entry */
 function streamAnswers(recorded: Recorded[], length: number, count: number, settle: boolean): void {
-  const last = recorded[recorded.length - 1]?.id ?? "";
-  const [epoch = "", tail = "0"] = last.split(":");
-  let seq = Number(tail);
+  let seq = 0;
   let upstream = 0;
-  for (const { frame } of recorded) if ("upstream" in frame && typeof frame.upstream === "number") upstream = Math.max(upstream, frame.upstream);
+  for (const { frame } of recorded) {
+    if ("seq" in frame && typeof frame.seq === "number") seq = Math.max(seq, frame.seq);
+    if ("upstream" in frame && typeof frame.upstream === "number") upstream = Math.max(upstream, frame.upstream);
+  }
   const key = OPENED[0];
-  const session = key.slice("bench:".length);
+  const thread = key.slice("bench:".length);
   const push = (frame: Record<string, unknown>) => {
     seq++;
-    recorded.push({ id: `${epoch}:${seq}`, frame: { ...frame, seq } as Frame });
+    recorded.push({ id: `${EPOCH}:${seq}`, frame: { seq, ...frame } as Frame });
   };
   const random = seeded(7);
   const words = "the ledger keeps every invoice by its number and the migration moves them in order, checking each total twice ";
   for (let answer = 0; answer < count; answer++) {
-    const messageID = `msg_${session.slice(4)}_long${answer}`;
-    const partID = `prt_${session.slice(4)}_long${answer}_0`;
-    const created = 1_790_841_100_000 + answer * 100_000;
-    push({ type: "message", key, upstream: ++upstream, info: { id: messageID, sessionID: session, role: "assistant", time: { created } } });
+    const messageID = `msg_${thread.slice(4)}_long${answer}`;
+    const partID = `prt_${thread.slice(4)}_long${answer}_0`;
+    const created = 1_792_053_400_000 + answer * 100_000;
+    push({ type: "message", key, upstream: ++upstream, message: { id: messageID, role: "assistant", created } });
     let text = "";
     while (text.length < length) {
       const size = 8 + Math.floor(random() * 33);
@@ -91,21 +119,26 @@ function streamAnswers(recorded: Recorded[], length: number, count: number, sett
       text += piece;
     }
     if (settle || answer < count - 1) {
-      push({ type: "part", key, upstream: ++upstream, part: { id: partID, sessionID: session, messageID, type: "text", text, time: { start: created, end: created + 60_000 } } });
+      push({ type: "part", key, upstream: ++upstream, part: { type: "text", id: partID, messageID, text, time: { start: created, end: created + 60_000 } } });
     }
   }
 }
 
 export type Step = { action: Action; state: SyncState; patches: readonly Patch[]; effects: readonly Effect[]; index: number };
 
-/** what the replay holds besides the journal: `pad` idle sessions in the fleet; `answers` long answers of `answer`
-    characters streamed after it, the last left unsettled when `settle` is false */
-export type ReplayOptions = { histories?: boolean; pad?: number; answer?: number; answers?: number; settle?: boolean };
+/** what the replay holds besides the tape: `pad` idle threads in the fleet; `answers` long answers of `answer` characters
+    streamed after it, the last left unsettled when `settle` is false; `frames`, only the tape's first frames */
+export type ReplayOptions = { histories?: boolean; pad?: number; answer?: number; answers?: number; settle?: boolean; frames?: number };
 
 /** every action of the replay in order, with what the reducer made of it. a read the reducer asks for is answered at once,
-    after the action that asked. without `histories` every read answers empty, so the threads hold only what streamed */
-export function* recordedSteps(recording: Recording, { histories = true, pad = 0, answer = 0, answers = 1, settle = true }: ReplayOptions = {}): Generator<Step> {
-  const recorded = parseJournal(recording.journal);
+    after the action that asked, stamped with the journal head as the server would. without `histories` every read answers
+    empty, so the threads hold only what streamed */
+export function* recordedSteps(recording: Recording, { histories = true, pad = 0, answer = 0, answers = 1, settle = true, frames }: ReplayOptions = {}): Generator<Step> {
+  const recorded: Recorded[] = [
+    { id: null, frame: { type: "hello", protocol: 3, epoch: EPOCH, head: 0, build: "BUILD", stream: "0".repeat(32), interest: { thread: null, under: [], holds: [] } } as Frame },
+    { id: `${EPOCH}:0`, frame: { type: "reset", seq: 0, epoch: EPOCH, reason: "none", fleet: { agents: [], threads: [], asks: [], order: [] } } as Frame },
+    ...parseTape(recording.tape).slice(0, frames),
+  ];
   if (pad > 0) padFleet(recorded, pad);
   if (answer > 0) streamAnswers(recorded, answer, answers, settle);
   let state = INITIAL_STATE;
@@ -121,15 +154,14 @@ export function* recordedSteps(recording: Recording, { histories = true, pad = 0
       for (const effect of result.effects) {
         if (effect.type === "hydrate") {
           const messages = histories ? history(recording, effect.key) : [];
-          queue.push({ type: "hydrated", key: effect.key, hydration: effect.hydration, upstreamEpoch: "u1", at: 0, messages, bytes: JSON.stringify(messages).length });
+          queue.push({ type: "hydrated", key: effect.key, hydration: effect.hydration, upstreamEpoch: "u1", at: 0, seq: state.cursor?.seq ?? 0, messages, bytes: JSON.stringify(messages).length });
         }
       }
       yield { action: next, state, patches: result.patches, effects: result.effects, index: index++ };
     }
   };
   for (const { id, frame } of recorded) {
-    const epoch = frame.type === "reset" ? frame.epoch : parseCursor(id)?.epoch;
-    yield* play({ type: "frame", frame, epoch });
+    yield* play({ type: "frame", frame, id: parseCursor(id) });
     if (frame.type === "reset") {
       for (const key of OPENED) yield* play({ type: "open", key, at: clock++ });
       yield* play({ type: "hold", key: HELD, at: clock++ });

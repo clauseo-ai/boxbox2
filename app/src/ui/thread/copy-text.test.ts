@@ -6,11 +6,12 @@ import { COPY_OUTPUT_CAP, LINE_MAX, cleanOutput, headTail } from "./evidence";
 import { homeAsTilde, shortPath, turnsOf } from "./model";
 import { type RowCtx, plural, stepModel } from "./rows";
 import type { WireMessage, WirePart } from "./wire";
+import { neutral } from "./fixtures/wire";
 
 const T0 = 1_790_000_000_000;
-const user: WireMessage = { info: { id: "u", role: "user", time: { created: T0 } } as WireMessage["info"], parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] };
-const shell = (command: string, output: string, extra: Record<string, unknown> = {}): WireMessage => ({
-  info: { id: "a", role: "assistant", time: { created: T0 + 100, completed: T0 + 5000 } } as WireMessage["info"],
+const user: WireMessage = neutral({ info: { id: "u", role: "user", time: { created: T0 } }, parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] });
+const shell = (command: string, output: string, extra: Record<string, unknown> = {}): WireMessage => neutral({
+  info: { id: "a", role: "assistant", time: { created: T0 + 100, completed: T0 + 5000 } },
   parts: [{ id: "s", type: "tool", callID: "c", tool: "bash", state: { status: "completed", input: { command }, output, metadata: { exit: 0 }, time: { start: T0 + 200, end: T0 + 900 }, ...extra } } as unknown as WirePart],
 });
 const stepOf = (command: string, output: string, input: Record<string, unknown> = {}) => {

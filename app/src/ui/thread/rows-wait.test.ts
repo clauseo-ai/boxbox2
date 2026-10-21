@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { type Step, arrivalsOf, turnsOf } from "./model";
 import { type Child, type RowCtx, stepModel, waitingOn } from "./rows";
 import type { WireMessage, WirePart } from "./wire";
+import { neutral } from "./fixtures/wire";
 
 const T0 = 1_790_000_000_000;
 const wait = (over: Partial<Step>): Step => ({ k: "step", id: "w1", callID: "c1", family: "wait", tool: "wait", status: "completed", object: "", result: "", add: 0, del: 0, ms: 60_000, at: T0, ...over }) as Step;
@@ -35,8 +36,8 @@ describe("who a finished wait heard from", () => {
   test("the model reads it from the part's metadata, and a correlation id makes it a wait for a reply", () => {
     const part = (state: Record<string, unknown>): WirePart => ({ id: "p", type: "tool", tool: "wait", callID: "c", state }) as unknown as WirePart;
     const msgs = (p: WirePart): WireMessage[] => [
-      { info: { id: "u", role: "user", time: { created: T0 } } as WireMessage["info"], parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] },
-      { info: { id: "a", role: "assistant", time: { created: T0 + 100, completed: T0 + 5000 } } as WireMessage["info"], parts: [p] },
+      neutral({ info: { id: "u", role: "user", time: { created: T0 } }, parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] }),
+      neutral({ info: { id: "a", role: "assistant", time: { created: T0 + 100, completed: T0 + 5000 } }, parts: [p] }),
     ];
     const done = turnsOf(msgs(part({ status: "completed", input: { timeout_ms: 600000 }, output: "arrived: job from the runtime", title: "wait for agents", metadata: { arrived: true, timed_out: false, items: [{ from: null, kind: "job" }] }, time: { start: T0, end: T0 + 1000 } })), "/")[0]?.items[0];
     expect(done).toMatchObject({ family: "wait", object: "a background job", result: "" });

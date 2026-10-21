@@ -442,12 +442,12 @@ into today's step group with its strip, and its asks are today's cards.
 what is new is what a conversation on a phone carries: voice both ways,
 pictures and files, quotes, reactions, the channel a message came in on,
 and runs the assistant starts on its own. every row below is drawn from
-the contract 2 part kinds and message fields (`docs/agents.md`: `audio`,
+the neutral part kinds and message fields (`docs/agents.md`: `audio`,
 `image`, `file`, a `text` part's `notice` flag, `origin`, `quote`, `reactions`), and every
 control on it is gated on a capability by name, never on the runtime.
 on the web these rows are built as standalone components with a story per
 state (`app/src/ui/assistant/`, ladle groups `assistant-voice` and
-`assistant-thread`), waiting for contract 2's store to feed them; what
+`assistant-thread`), waiting for the app's protocol 3 store to feed them; what
 they decided where this law is silent is in `design.md` (the agent
 surfaces on the web, as built).
 
@@ -532,7 +532,7 @@ it, so a note and the image it came with read as one delivery.
   strip under it in the palette's accent (see "the step group", which cmx
   threads have too). the words come from each step's `family` in the past
   tense and its count ("ran 2", "read 4", "searched 2"), or from the tool's
-  `state.title` for `other` ("checked calendar") once contract 2 feeds it
+  `state.title` for `other` ("checked calendar") once the app's protocol 3 store feeds it
   (cmx says "used 2"); at most three named, "2 more" past that. it opens to the ledger's rows as for cmx: the
   kind column carries the family's word (`run`, `read`, `search`, `edit`,
   `fetch`, `agent`, `ask`, `plan`, `skill`, `wait`), and for `other` the
@@ -1773,13 +1773,15 @@ who settled it. the stage watches the ask leave the fleet's list and
 stamps `perf.send verb=reply` from that moment.
 
 **routes** (behind the gate, the host's credential added by the server,
-bodies to and from cmx2 byte for byte; a host that cannot be reached or
-refuses the credential answers in boxbox's error shape):
+bodies to and from cmx2 byte for byte except the reads, which the server
+answers in protocol 3's neutral shapes (`docs/protocol.md`, section 11); a
+host that cannot be reached or refuses the credential answers in boxbox's
+error shape):
 
 | route | cmx2 | used by |
 |---|---|---|
-| `GET /api/hosts/:host/sessions/:session/messages` | `GET /session/:id/message`, with `x-cmx2-seq` | the worker's hydration (m2) |
-| `GET /api/hosts/:host/sessions/:session/messages/:message` | `GET /session/:id/message/:m` | the worker's refetch of one part (m2) |
+| `GET /api/agents/:agent/threads/:thread/messages` (whole, or a page by `turns`, `before`, `at`) | `GET /session/:id/message`, translated message by message to the neutral shapes, stamped `x-boxbox-seq` and `x-boxbox-upstream` (`protocol.md`, section 11) | the worker's hydration, which sends the etag back as `If-None-Match`; the byte-for-byte `/api/hosts/.../messages` proxy the worker read before protocol 3 is gone (the app moves in package a1) |
+| `GET /api/agents/:agent/threads/:thread/messages/:message` | `GET /session/:id/message/:m`, translated | the worker's refetch of one message, after an offset or `textOf` miss |
 | `POST /api/hosts/:host/questions/:ask` `{device, deviceClass, clientID, answers}` | `POST /question/:id/reply` | the ask card (m4's `asks.rs`: the fleet learns who answered first) |
 | `POST /api/hosts/:host/questions/:ask/reject` `{device, deviceClass, clientID}` | `POST /question/:id/reject` | "dismiss" |
 | `POST /api/hosts/:host/permissions/:ask` `{device, deviceClass, clientID, reply, message}` | `POST /permission/:id/reply` | the permission card |

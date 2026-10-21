@@ -4,10 +4,9 @@
 //! translation (`source/cmx2/translate.rs`). its agent is the connection,
 //! keyed by the connection's name, with every capability cmx2 has.
 //!
-//! contract 1's `/api/hosts` routes reach the daemon through it: the verbs
-//! whose answer is the daemon's bytes are its inherent methods
-//! (`Cmx2Raw`, `source/cmx2/verbs/`), the handlers' daemon calls moved
-//! whole, headers and caps included.
+//! the `/api/hosts` verb routes reach the daemon through it: their calls
+//! are its inherent methods (`source/cmx2/verbs/`), the handlers' daemon
+//! calls moved whole, headers and caps included.
 
 use std::sync::Arc;
 
@@ -20,10 +19,9 @@ use super::{Counters, HostStatus};
 use crate::config::HostConfig;
 use crate::source::cmx2::translate;
 use crate::source::{
-    AgentFacts, AgentSource, Answer, Archived, AskRef, Catalog, Cmx2Raw, ConnectionConfig,
-    ConnectionStatus, Exit, MediaBody, MediaSource, MessageWithParts, Page, Reading, Send,
-    SourceSender, Stamped, Start, TerminalSource, ThreadFacts, ThreadRef, Transcript, Verb,
-    VerbError,
+    AgentFacts, AgentSource, Answer, Archived, AskRef, Catalog, ConnectionConfig, ConnectionStatus,
+    Exit, MediaBody, MediaSource, MessageWithParts, Page, Reading, Send, SourceSender, Stamped,
+    Start, TerminalSource, ThreadFacts, ThreadRef, Transcript, Verb, VerbError,
 };
 use crate::wire::{Accepted, Born};
 
@@ -263,10 +261,6 @@ impl AgentSource for Cmx2Source {
     }
 
     fn terminal(&self) -> Option<&dyn TerminalSource> {
-        Some(self)
-    }
-
-    fn cmx2_raw(&self) -> Option<&Cmx2Raw> {
         Some(self)
     }
 }

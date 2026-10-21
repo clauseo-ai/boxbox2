@@ -213,10 +213,11 @@ export function picturesOf(state: unknown): { images: Picture[]; dropped: number
   return { images, dropped: Math.max(0, Math.floor(number(s?.["attachmentsDropped"]) ?? 0)) };
 }
 
-/** the photos a person sent with a message: its `file` parts whose mime and data url are an image a browser draws, in order */
+/** the photos a person sent with a message: its `image` and `file` parts whose mime and data url are an image a browser draws, in
+    order (the server makes a png, jpeg, gif or webp file an `image`; any other picture stays a `file`) */
 export function photosOf(parts: readonly WirePart[]): Picture[] {
   return parts.flatMap((p) => {
-    if (p.type !== "file") return [];
+    if (p.type !== "file" && p.type !== "image") return [];
     const r = p as Record<string, unknown>;
     const mime = string(r["mime"]), url = string(r["url"]);
     return mime !== undefined && url !== undefined && DRAWABLE.test(mime) && DRAWABLE_URL.test(url) ? [{ mime, filename: string(r["filename"]) ?? "", url }] : [];
@@ -253,10 +254,11 @@ function stepOf(part: ToolPart, root: string, messageAt: number): Base {
   const family = familyOf(tool);
   const made: Base = { step: { k: "step", id: part.id, callID: part.callID, family, tool, status: state.status, object: "", result: "", add: 0, del: 0, ms: spanMs(time), at: time?.start ?? time?.end ?? messageAt } };
   const step = made.step;
-  const out = state.status === "completed" ? state.output : state.status === "running" ? string(meta["output"]) ?? "" : "";
+  const out = state.status === "completed" ? (string(state.output) ?? "") : state.status === "running" ? string(meta["output"]) ?? "" : "";
   if (state.status === "error") {
-    step.error = state.error;
-    step.interrupted = boolean(meta["interrupted"]) || /aborted|interrupt|denied/i.test(state.error);
+    const error = string(state.error);
+    if (error !== undefined) step.error = error;
+    step.interrupted = boolean(meta["interrupted"]) || /aborted|interrupt|denied/i.test(error ?? "");
   }
   const path = shortPath(string(input["filePath"]) ?? string(input["path"]) ?? string(meta["path"]) ?? string(meta["filepath"]) ?? "", root);
   switch (family) {
@@ -424,10 +426,13 @@ function stepOf(part: ToolPart, root: string, messageAt: number): Base {
   return made;
 }
 
-/** the parts contract 6 names for imported (cmx) history only (cmx2 a15): skipped by the ledger, never counted unknown */
+/** the parts contract 6 names for imported (cmx) history only (cmx2 a15), `marker` parts now (or raw ones of these types, when the
+    server passed one on as it was): skipped by the ledger, never counted unknown */
 const IMPORTED_ONLY: ReadonlySet<string> = new Set(["step-start", "step-finish", "patch", "subtask"]);
+const importedOnly = (p: WirePart): boolean => IMPORTED_ONLY.has(p.type) || (p.type === "marker" && IMPORTED_ONLY.has(string((p as Record<string, unknown>)["marker"]) ?? ""));
 
-const textOf = (p: WirePart): string => string((p as { text?: unknown }).text) ?? "";
+/** a said or thought part's words: the store always holds a part's text (sync/reducer.ts), so none is no words */
+const wordsOf = (p: WirePart): string => string((p as { text?: unknown }).text) ?? "";
 
 /** a user message's origin: typed, queued, an agent's report (with who sent it, by name and by session), a runtime notice */
 function originOf(info: MessageInfo, parts: readonly WirePart[]): { by: Origin; text: string; from?: string; fromID?: string; note?: boolean } {
@@ -435,23 +440,23 @@ function originOf(info: MessageInfo, parts: readonly WirePart[]): { by: Origin; 
   const marked = (k: string) => texts.some((p) => boolean((p as Record<string, unknown>)[k]));
   const typed = texts.filter((p) => !boolean((p as Record<string, unknown>)["synthetic"]) && !boolean((p as Record<string, unknown>)["mail"]) && !boolean((p as Record<string, unknown>)["notice"]));
   const extra = info as Record<string, unknown>;
-  if (boolean(extra["notice"]) || marked("notice")) return { by: "notice", text: texts.map(textOf).join("\n") };
+  if (boolean(extra["notice"]) || marked("notice")) return { by: "notice", text: texts.map(wordsOf).join("\n") };
   const mail = record(extra["mail"]) ?? texts.map((p) => record((p as Record<string, unknown>)["mail"])).find((m) => m !== undefined);
   const mailFrom = string(mail?.["from"])?.replace(/^\/root(?:\/|$)/, "") || (mail ? "root" : undefined), mailFromID = string(mail?.["fromID"]);
   const kind = string(mail?.["kind"]);
   /* the daemon's mail kinds (cmx2's MailKind): a task is the brief that started an agent, a report and a message come
      from another agent, a job's notice and a system line are runtime notices */
-  if (kind === "task") return { by: "brief", text: texts.filter((p) => !boolean((p as Record<string, unknown>)["synthetic"])).map(textOf).join("\n"), ...(mailFrom !== undefined ? { from: mailFrom } : {}), ...(mailFromID !== undefined ? { fromID: mailFromID } : {}) };
-  if (kind === "job" || kind === "system") return { by: "notice", text: texts.map(textOf).join("\n") };
-  if (mail !== undefined || marked("mail")) return { by: "mail", text: texts.map(textOf).join("\n"), ...(kind === "message" ? { note: true } : {}), ...(mailFrom !== undefined ? { from: mailFrom } : {}), ...(mailFromID !== undefined ? { fromID: mailFromID } : {}) };
+  if (kind === "task") return { by: "brief", text: texts.filter((p) => !boolean((p as Record<string, unknown>)["synthetic"])).map(wordsOf).join("\n"), ...(mailFrom !== undefined ? { from: mailFrom } : {}), ...(mailFromID !== undefined ? { fromID: mailFromID } : {}) };
+  if (kind === "job" || kind === "system") return { by: "notice", text: texts.map(wordsOf).join("\n") };
+  if (mail !== undefined || marked("mail")) return { by: "mail", text: texts.map(wordsOf).join("\n"), ...(kind === "message" ? { note: true } : {}), ...(mailFrom !== undefined ? { from: mailFrom } : {}), ...(mailFromID !== undefined ? { fromID: mailFromID } : {}) };
   /* imported history marks a report as a synthetic text that starts with [from /root/name]: */
-  const imported = texts.find((p) => boolean((p as Record<string, unknown>)["synthetic"]) && /^\[from \/root[^\]]*\]:/.test(textOf(p)));
+  const imported = texts.find((p) => boolean((p as Record<string, unknown>)["synthetic"]) && /^\[from \/root[^\]]*\]:/.test(wordsOf(p)));
   if (!typed.length && imported) {
-    const m = /^\[from (\/root[^\]]*)\]:\s*/.exec(textOf(imported));
+    const m = /^\[from (\/root[^\]]*)\]:\s*/.exec(wordsOf(imported));
     const from = m?.[1]?.replace(/^\/root\//, "");
-    return { by: "mail", text: texts.map((p) => textOf(p).replace(/^\[from \/root[^\]]*\]:\s*/, "")).join("\n\n"), ...(from ? { from } : {}) };
+    return { by: "mail", text: texts.map((p) => wordsOf(p).replace(/^\[from \/root[^\]]*\]:\s*/, "")).join("\n\n"), ...(from ? { from } : {}) };
   }
-  return { by: boolean(extra["queued"]) ? "queued" : "you", text: typed.map(textOf).join("\n") };
+  return { by: boolean(extra["queued"]) ? "queued" : "you", text: typed.map(wordsOf).join("\n") };
 }
 
 /* ---------- remembering parts between passes ---------- */
@@ -569,31 +574,34 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
       const compacted = parts.some((p) => p.type === "compaction");
       const photos = photosIn(memo, seen, info.id, photosOf(parts));
       const sentFiles = sentFilesIn(memo, seen, info.id, sentFilesOf(parts, o.text));
-      cur = { id: info.id, by: compacted ? "compaction" : steered.has(info.id) ? "steer" : o.by, prompt: o.text, ...(o.from ? { from: o.from } : {}), ...(o.fromID ? { fromID: o.fromID } : {}), ...(o.note ? { note: true } : {}), at: info.time.created, end: info.time.created, items: [], status: "done", cost: 0, files: new Map(), compacted, unknownParts: 0, ...(photos.length ? { photos } : {}), ...(sentFiles.length ? { sentFiles } : {}) };
+      cur = { id: info.id, by: compacted ? "compaction" : steered.has(info.id) ? "steer" : o.by, prompt: o.text, ...(o.from ? { from: o.from } : {}), ...(o.fromID ? { fromID: o.fromID } : {}), ...(o.note ? { note: true } : {}), at: info.created, end: info.created, items: [], status: "done", cost: 0, files: new Map(), compacted, unknownParts: 0, ...(photos.length ? { photos } : {}), ...(sentFiles.length ? { sentFiles } : {}) };
       turns.push(cur);
       continue;
     }
     if (!cur) continue;
     if (cur.compacted && boolean(extra["summary"])) {
-      const said = parts.filter((p) => p.type === "text" && !boolean((p as Record<string, unknown>)["synthetic"])).map(textOf).join("\n\n");
+      const said = parts.filter((p) => p.type === "text" && !boolean((p as Record<string, unknown>)["synthetic"])).map(wordsOf).join("\n\n");
       cur.summary = cur.summary === undefined ? said : `${cur.summary}\n\n${said}`;
       continue;
     }
     cur.cost += number(extra["cost"]) ?? 0;
-    cur.end = info.time.completed ?? cur.end;
-    const model = string(extra["modelID"]), effort = string(extra["variant"]);
+    cur.end = info.completed ?? cur.end;
+    /* the model is "provider/model"; the turn names the model alone, as cmx2's `modelID` did */
+    const named = string(extra["model"]), effort = string(extra["effort"]);
+    const model = named?.slice(named.indexOf("/") + 1);
     if (model) cur.model = model;
     if (effort) cur.effort = effort;
-    if (info.time.completed === undefined) cur.status = "working";
+    if (info.completed === undefined || info.completed === null) cur.status = "working";
     const err = record(extra["error"]);
     if (err) {
       cur.status = err["name"] === "MessageAbortedError" || extra["finish"] === "aborted" ? "aborted" : "failed";
-      cur.error = string(record(err["data"])?.["message"]) ?? string(err["name"]) ?? "failed";
+      /* as cmx2's `data.message ?? name` read: an empty message stays empty, an absent one gives way to the name */
+      cur.error = string(err["message"]) ?? string(err["name"]) ?? "failed";
     } else if (extra["finish"] === "aborted") cur.status = "aborted";
     /* a part with no start of its own (cmx2 leaves `time.start` null on native tool parts, gotchas.md) starts no earlier than the
        part before it in the message: else a call made after the agent's words is dated to the message's creation, reads above
        them in time (the words at 15:19, the call at 15:18) and its run's clock counts from before it began */
-    let floor = info.time.created;
+    let floor = info.created;
     for (const p of parts) {
       const pt = timeOf((p as { time?: unknown }).time);
       const at = pt?.start ?? floor;
@@ -601,11 +609,11 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
       const streaming = boolean((p as Record<string, unknown>)["streaming"]);
       if (p.type === "text") {
         /* a part announced and still empty is kept while it streams: its row opens at the announcement, with its caret */
-        if (boolean((p as Record<string, unknown>)["synthetic"]) || (!textOf(p).trim() && !streaming)) continue;
-        cur.items.push(textItem(memo, seen, { k: "say", id: string(p["id"]) ?? "", text: textOf(p), at, streaming }));
+        if (boolean((p as Record<string, unknown>)["synthetic"]) || (!wordsOf(p).trim() && !streaming)) continue;
+        cur.items.push(textItem(memo, seen, { k: "say", id: string(p["id"]) ?? "", text: wordsOf(p), at, streaming }));
       } else if (p.type === "reasoning") {
-        if (!textOf(p).trim() && !streaming) continue;
-        cur.items.push(textItem(memo, seen, { k: "think", id: string(p["id"]) ?? "", text: textOf(p), ms: spanMs(timeOf((p as { time?: unknown }).time)), at, streaming }));
+        if (!wordsOf(p).trim() && !streaming) continue;
+        cur.items.push(textItem(memo, seen, { k: "think", id: string(p["id"]) ?? "", text: wordsOf(p), ms: spanMs(timeOf((p as { time?: unknown }).time)), at, streaming }));
       } else if (isToolPart(p)) {
         const step = stepIn(p, at, ctx, memo, seen);
         floor = Math.max(floor, step.at);
@@ -615,9 +623,9 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
           cur.files.set(step.object, f);
         }
         cur.items.push(step);
-      } else if (p.type === "compaction" || p.type === "file") {
-        /* a compaction rides the user message (handled above); an attached file is drawn from the message itself */
-      } else if (IMPORTED_ONLY.has(p.type)) {
+      } else if (p.type === "compaction" || p.type === "file" || p.type === "image") {
+        /* a compaction rides the user message (handled above); an attached file or picture is drawn from the message itself */
+      } else if (importedOnly(p)) {
         /* a step's start and finish (with its cost and tokens), the files it changed and a subtask someone started: parts
            only imported (cmx) history carries (cmx2 a15, contract 6). nothing draws them yet, and they are not unknown */
       } else cur.unknownParts++;

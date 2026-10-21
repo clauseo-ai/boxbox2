@@ -51,7 +51,7 @@ describe("which rows fold", () => {
   test("a pending ask from the fleet's list stands alone too", () => {
     const asking = step("shell");
     const t = turn([step("read"), asking]);
-    const ctx: RowCtx = { ...ctxOf(t), asks: new Map([[asking.callID, { id: "per_2", kind: "permission", request: {} }]]) };
+    const ctx: RowCtx = { ...ctxOf(t), asks: new Map([[asking.callID, { id: "per_2", kind: "permission", permission: null, questions: null }]]) };
     expect(shape(segmentsOf(ledgerOf()(t, ctx), { running: false, ctx }))).toEqual(["group(1)", "run"]);
   });
 });

@@ -15,9 +15,14 @@
 //! handler writes, so each batch decodes the moment it arrives and later
 //! frames still borrow from earlier ones. a stream is compressed only for a
 //! request that sends `Accept-Encoding: gzip`; any other gets the same
-//! bytes as before, unchanged.
+//! bytes as before, unchanged. at most `GZIP_STREAMS` streams hold a gzip
+//! context at once (`GzipStreams`); past that a new stream is identity,
+//! and the server says so once each time the cap is reached
+//! (`docs/protocol.md`, sections 2 and 17a).
 
 use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use axum::body::HttpBody;
 use axum::http::{HeaderMap, HeaderValue, Response, header};
@@ -100,12 +105,79 @@ pub fn mark_gzip(headers: &mut HeaderMap) {
 /// connection lives.
 pub struct Framed {
     encoder: Option<GzEncoder<Vec<u8>>>,
+    /// its place among the gzip streams, freed when the stream ends.
+    slot: Option<Slot>,
+}
+
+/// event streams that may hold a gzip context at once: 64 of about 300 kb.
+pub const GZIP_STREAMS: usize = 64;
+
+/// the count of event streams holding a gzip context, shared by every
+/// stream route; each `Framed` it hands out frees its place on drop.
+#[derive(Clone, Debug, Default)]
+pub struct GzipStreams {
+    inner: Arc<Places>,
+}
+
+#[derive(Debug, Default)]
+struct Places {
+    held: AtomicUsize,
+    /// the cap was met and said; cleared when a place frees, so the next
+    /// time it is met is said again.
+    said: AtomicBool,
+}
+
+/// one place held, given back on drop.
+#[derive(Debug)]
+struct Slot(Arc<Places>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.held.fetch_sub(1, Ordering::AcqRel);
+        self.0.said.store(false, Ordering::Release);
+    }
+}
+
+impl GzipStreams {
+    /// a gzip context for a stream whose client takes gzip, or none when
+    /// `GZIP_STREAMS` already hold one: that stream is identity.
+    #[must_use]
+    pub fn take(&self) -> Option<Framed> {
+        let places = &self.inner;
+        let taken = places
+            .held
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |held| {
+                (held < GZIP_STREAMS).then_some(held + 1)
+            })
+            .is_ok();
+        if !taken {
+            if !places.said.swap(true, Ordering::AcqRel) {
+                tracing::warn!(
+                    cap = GZIP_STREAMS,
+                    "{GZIP_STREAMS} event streams already hold a gzip context; new streams go uncompressed until one ends"
+                );
+            }
+            return None;
+        }
+        Some(Framed {
+            encoder: Some(GzEncoder::new(Vec::new(), Compression::default())),
+            slot: Some(Slot(Arc::clone(places))),
+        })
+    }
+
+    /// how many streams hold a gzip context now.
+    #[cfg(test)]
+    #[must_use]
+    pub fn held(&self) -> usize {
+        self.inner.held.load(Ordering::Acquire)
+    }
 }
 
 impl std::fmt::Debug for Framed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Framed")
             .field("finished", &self.encoder.is_none())
+            .field("counted", &self.slot.is_some())
             .finish()
     }
 }
@@ -121,6 +193,7 @@ impl Framed {
     pub fn new() -> Self {
         Self {
             encoder: Some(GzEncoder::new(Vec::new(), Compression::default())),
+            slot: None,
         }
     }
 
@@ -167,6 +240,23 @@ mod tests {
             })),
         };
         builder.body(body).unwrap()
+    }
+
+    #[test]
+    fn the_gzip_streams_give_out_64_places_and_take_each_back_when_it_ends() {
+        let streams = GzipStreams::default();
+        let held: Vec<Framed> = (0..GZIP_STREAMS).map_while(|_| streams.take()).collect();
+        assert_eq!(held.len(), GZIP_STREAMS);
+        assert!(streams.take().is_none());
+        assert!(
+            streams.inner.said.load(Ordering::Acquire),
+            "the cap was said"
+        );
+        assert_eq!(streams.held(), GZIP_STREAMS);
+        drop(held);
+        assert_eq!(streams.held(), 0);
+        assert!(!streams.inner.said.load(Ordering::Acquire));
+        assert!(streams.take().is_some());
     }
 
     #[test]

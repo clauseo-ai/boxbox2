@@ -1,6 +1,7 @@
 /* what the worker keeps in memory and what the ui's store holds (docs/architecture.md, what the cache keeps and lets
-   go): the real worker, its cache on fake-indexeddb and a fetch that serves the stream and the transcripts, with every
-   post applied to the real store as the ui applies it. the store holds only the threads the ui shows, and a thread shown
+   go): the real worker, its cache on fake-indexeddb and a fake server (fixtures/server.ts) that serves the stream, the
+   thread reads and the interest posts, confirming each on the stream, with every post applied to the real store as the
+   ui applies it. the store holds only the threads the ui shows, and a thread shown
    again is what it was; a thread nobody shows is cooled in time to its pages, the last three closed, the busy and the
    held excepted, and comes back from them as it was, reading nothing from the daemon; a reset reads again only what is
    shown, and the rest go cold and stale. */
@@ -11,34 +12,24 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { unwrap } from "solid-js/store";
 import { applyPatches, bootSync, setStream, state as ui } from "../store";
+import { type FakeServer, fakeServer } from "./fixtures/server";
+import { neutralMessage, snapshot as fleetOf, thread as fleetThread } from "./fixtures/neutral";
 import type { FromWorker } from "./messages";
-import { type FleetSnapshot, type Message, PROTOCOL, type SessionEntry } from "./protocol";
+import type { FleetSnapshot, Message } from "./protocol";
 import { type SyncState, viewOf } from "./reducer";
 import { COOL_AFTER_MS, Sync } from "./worker";
 
-const read = (name: string) => (JSON.parse(readFileSync(join(import.meta.dir, `../ui/thread/fixtures/${name}.json`), "utf8")) as { messages: Message[] }).messages;
+const read = (name: string): Message[] =>
+  (JSON.parse(readFileSync(join(import.meta.dir, `../ui/thread/fixtures/${name}.json`), "utf8")) as { messages: Parameters<typeof neutralMessage>[0][] }).messages.map(neutralMessage);
 const FIXTURES = [read("cmx-deploy"), read("notes-asks"), read("northstar-heavy")];
 const KEYS = ["bench:ses_a", "bench:ses_b", "bench:ses_c", "bench:ses_d", "bench:ses_e", "bench:ses_f"] as const;
 const transcriptOf = (key: string) => FIXTURES[(KEYS as readonly string[]).indexOf(key) % FIXTURES.length] ?? [];
 
-const session = (key: string, busy = false): SessionEntry => ({
-  key,
-  host: "bench",
-  id: key.slice(6),
-  info: { id: key.slice(6), slug: "s", projectID: "/w", directory: "/w", title: key, version: "0", time: { created: 1, updated: 2 }, source: "cmx2", cost: 0, tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } } },
-  status: (busy ? { type: "busy" } : null) as SessionEntry["status"],
-  agents: 0,
-  processes: 0,
-  tail: [],
-  needs: [],
-  read: null,
-});
-const snapshot = (busy: readonly string[] = []): FleetSnapshot => ({ hosts: [], sessions: KEYS.map((k) => session(k, busy.includes(k))), asks: [], order: [...KEYS] });
+const snapshot = (busy: readonly string[] = []): FleetSnapshot => fleetOf(KEYS.map((k) => fleetThread(k, { title: k, ...(busy.includes(k) ? { activity: { state: "busy", since: 1 } } : {}) })));
 
-const encoder = new TextEncoder();
 const scope = globalThis as unknown as Record<string, unknown>;
-const saved = { fetch: globalThis.fetch, postMessage: scope["postMessage"] };
-let push: (frame: unknown, id?: string) => void = () => {};
+const saved = { postMessage: scope["postMessage"] };
+let server: FakeServer;
 let reads: string[] = [];
 let sync: Sync | null = null;
 let clock = 1_000_000;
@@ -71,29 +62,17 @@ beforeEach(async () => {
     else if (message.type === "boot") bootSync(structuredClone(message.sync));
     else if (message.type === "stream") setStream(message.stream);
   };
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    if (url.startsWith("/api/stream")) {
-      let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
-      const body = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) });
-      init?.signal?.addEventListener("abort", () => controller?.error(new DOMException("aborted", "AbortError")), { once: true });
-      push = (frame, id) => controller?.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}data: ${JSON.stringify(frame)}\n\n`));
-      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
-    }
-    const transcript = /^\/api\/hosts\/bench\/sessions\/([^/]+)\/messages$/.exec(url);
-    if (transcript) {
-      const key = `bench:${decodeURIComponent(transcript[1] ?? "")}`;
-      reads.push(key);
-      return new Response(JSON.stringify(transcriptOf(key)), { status: 200, headers: { "x-cmx2-seq": "u1:50", "content-type": "application/json" } });
-    }
-    return new Response(null, { status: 204 });
-  }) as typeof fetch;
+  server = fakeServer();
+  server.transcript = (key) => {
+    reads.push(key);
+    return transcriptOf(key);
+  };
 });
 
 afterEach(async () => {
   sync?.stop();
   sync = null;
-  globalThis.fetch = saved.fetch;
+  server.restore();
   scope["postMessage"] = saved.postMessage;
   await Bun.sleep(5);
 });
@@ -108,11 +87,14 @@ const mirror = (key: string) => {
 async function start(busy: readonly string[] = []) {
   sync = new Sync("device", "mac", false, undefined, () => clock);
   await sync.boot(null);
-  await until("the stream", () => push !== undefined);
-  push({ type: "hello", epoch: "j1", head: 1, build: "test", protocol: PROTOCOL });
-  push({ type: "reset", epoch: "j1", seq: 1, reason: "none", fleet: snapshot(busy) }, "j1:1");
-  await until("the fleet", () => Object.keys(ui.fleet.sessions).length === KEYS.length);
+  await until("the stream", () => server.dials.length === 1);
+  server.head = 1;
+  server.hello();
+  server.push({ type: "reset", epoch: "j1", seq: 1, reason: "none", fleet: snapshot(busy) }, "j1:1");
+  await until("the fleet", () => Object.keys(ui.fleet.threads).length === KEYS.length);
 }
+
+const push = (frame: unknown, id?: string) => server.push(frame, id);
 
 /** the person opens a thread and the stage shows it, as client.ts says both */
 async function openAndShow(key: string) {
@@ -239,9 +221,12 @@ describe("a reset", () => {
     await openAndShow(KEYS[1]);
     const shown = held(KEYS[1]);
     (sync as Sync).hide(KEYS[0]);
-    // the reset lands at once, so only a thread already on disk as memory holds it goes cold
+    // the reset lands at once, so only a thread already on disk as memory holds it goes cold: the confirm that takes it out of
+    // interest writes its `left` to its head first
+    await until("the confirm", () => worker().interest.posts.length === 0);
     await (sync as Sync).save();
     reads = [];
+    server.epoch = "j2";
     push({ type: "reset", epoch: "j2", seq: 9, reason: "epoch", fleet: snapshot() }, "j2:9");
     await until("the reset", () => worker().cursor?.epoch === "j2");
     expect(worker().cold[KEYS[0]]).toMatchObject({ stale: true });
@@ -254,21 +239,27 @@ describe("a reset", () => {
     expect(reads).toEqual([KEYS[1], KEYS[0]]);
   });
 
-  test("lands at once, with no save first: a thread nobody shows that is not yet on disk is read again, as every thread was", async () => {
+  test("lands at once, with no save first: a thread nobody shows that is not yet on disk stays in memory, and is read when it is shown again", async () => {
     await start();
     await openAndShow(KEYS[0]);
     await openAndShow(KEYS[1]);
     (sync as Sync).hide(KEYS[0]);
     await (sync as Sync).save();
     // a message joins the hidden thread, and the reset follows before any save could write it
-    push({ type: "message", seq: 2, key: KEYS[0], upstream: 60, info: { id: "msg_zz_new", sessionID: "ses_a", role: "assistant", time: { created: 9 } } }, "j1:2");
+    push({ type: "message", seq: 30, key: KEYS[0], upstream: 60, message: { id: "msg_zz_new", role: "assistant", created: 9 } }, "j1:30");
     reads = [];
+    server.epoch = "j2";
     push({ type: "reset", epoch: "j2", seq: 9, reason: "epoch", fleet: snapshot([KEYS[2]]) }, "j2:9");
     // the snapshot's fleet reaches the store with the worker's next frame, waiting on no save
     await until("the reset", () => worker().cursor?.epoch === "j2");
-    await until("the snapshot in the store", () => ui.fleet.sessions[KEYS[2]]?.status?.type === "busy", 200);
+    await until("the snapshot in the store", () => ui.fleet.threads[KEYS[2]]?.activity.state === "busy", 200);
     expect(worker().cold[KEYS[0]]).toBeUndefined();
-    await until("both read again", () => reads.length === 2);
-    expect([...reads].sort()).toEqual([KEYS[0], KEYS[1]]);
+    await until("the shown one read again", () => reads.length === 1);
+    await Bun.sleep(50);
+    expect(reads).toEqual([KEYS[1]]);
+    // shown again it enters the interest with no left (the reset cleared it), so it is read
+    await openAndShow(KEYS[0]);
+    await until("read when shown", () => reads.length === 2);
+    expect(reads).toEqual([KEYS[1], KEYS[0]]);
   });
 });

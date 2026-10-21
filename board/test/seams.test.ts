@@ -188,12 +188,12 @@ describe("the recording proxy", () => {
     const abort = new AbortController();
     cleanups.push(() => abort.abort());
     let started = false;
-    const pending = fetch(`${proxy.origin}/api/board/stream?protocol=1`, { signal: abort.signal });
+    const pending = fetch(`${proxy.origin}/api/stream?view=board&protocol=3`, { signal: abort.signal });
     void pending.then(() => (started = true));
     /* the server's first frame may be what puts its headers on the wire */
     await until("the upstream stream", () => records.length > 0);
     await Bun.sleep(20);
-    push('data: {"type":"hello","protocol":1,"version":"t"}\n\n');
+    push('data: {"type":"hello","protocol":3,"version":"t"}\n\n');
     const res = await pending;
     expect(started).toBe(true);
     expect(records.find((r) => r.ch === "http-done")).toMatchObject({ status: 200 });
@@ -210,6 +210,75 @@ describe("the recording proxy", () => {
     /* the server ends the stream, as a replaced board stream ends */
     end();
     expect((await reader.read()).done).toBe(true);
+  });
+
+  test("a gzipped board stream reaches the daemon still gzipped, each sync-flushed frame as it lands, and is recorded as text", async () => {
+    /* the server gzips the board view (docs/protocol.md section 2): one deflate
+       stream per connection, sync-flushed after every batch. a daemon that asks
+       for gzip gets the server's bytes as they are, so a replay runs its own
+       inflater, and the proxy records the frames from an inflated copy */
+    const { createGunzip, createGzip, constants } = await import("node:zlib");
+    let asked = "";
+    const gz = createGzip();
+    const send = (text: string) => new Promise<void>((done) => {
+      gz.write(text);
+      gz.flush(constants.Z_SYNC_FLUSH, () => done());
+    });
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      idleTimeout: 0,
+      fetch: (req) => {
+        asked = req.headers.get("accept-encoding") ?? "";
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(c) {
+              gz.on("data", (chunk: Buffer) => c.enqueue(new Uint8Array(chunk)));
+              gz.on("end", () => c.close());
+            },
+          }),
+          { headers: { "content-type": "text/event-stream", "content-encoding": "gzip" } },
+        );
+      },
+    });
+    cleanups.push(() => upstream.stop(true));
+    const records: Record[] = [];
+    const proxy = startProxy(`http://127.0.0.1:${upstream.port}`, (r) => records.push(r));
+    cleanups.push(() => proxy.stop());
+    const abort = new AbortController();
+    cleanups.push(() => abort.abort());
+    const pending = fetch(`${proxy.origin}/api/stream?view=board&protocol=3`, { signal: abort.signal, headers: { "accept-encoding": "gzip" }, decompress: false });
+    await until("the upstream stream", () => records.length > 0);
+    await Bun.sleep(20);
+    await send('data: {"type":"hello","protocol":3,"version":"t"}\n\n');
+    const res = await pending;
+    expect(asked).toBe("gzip");
+    expect(res.headers.get("content-encoding")).toBe("gzip");
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("no body");
+    /* the daemon's side: inflate what arrives, as net.rs does */
+    const gunzip = createGunzip();
+    let text = "";
+    gunzip.on("data", (chunk: Buffer) => (text += chunk.toString()));
+    const take = async (want: string) => {
+      while (!text.includes(want)) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error(`ended before ${want}`);
+        gunzip.write(value);
+        await Bun.sleep(5);
+      }
+    };
+    await take('"hello"');
+    await send(': hb\n\ndata: {"type":"view","machines":[],"threads":[],"bindings":[]}\n\n');
+    await take('"view"');
+    await until("both frames recorded", () => records.filter((r) => r.ch === "sse").length === 2);
+    expect(records.filter((r) => r.ch === "sse").map((r) => (r.ch === "sse" ? (r.data as { type: string }).type : ""))).toEqual(["hello", "view"]);
+    /* the gzip trailer, then the end */
+    gz.end();
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
   });
 
   test("an unreachable server is a 502 and an unreachable outcome", async () => {

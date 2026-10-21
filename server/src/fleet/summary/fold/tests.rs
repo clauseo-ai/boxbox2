@@ -337,7 +337,7 @@ fn summary_wire_shape_matches_the_spec_example() {
     fold.push(&message("msg_40", Role::User, 2000.0, None, vec![mail]));
     let mut failed = message("msg_41", Role::Assistant, 2001.0, Some(2002.0), vec![]);
     failed.info.error = Some(MessageError {
-        message: "boom".to_owned(),
+        message: Some("boom".to_owned()),
         name: None,
     });
     fold.push(&failed);

@@ -5,7 +5,7 @@ import type { Message } from "./protocol";
 import { type Draft, type Photo, splitDraft } from "./outbox";
 import { INITIAL_STATE, type SyncState, type Thread } from "./reducer";
 
-const message = (n: number): Message => ({ info: { id: `msg_${n}`, sessionID: "ses_1", role: "assistant", time: { created: n } }, parts: [] });
+const message = (n: number): Message => ({ info: { id: `msg_${n}`, role: "assistant", created: n }, parts: [] });
 const messages = (count: number, from = 0) => Array.from({ length: count }, (_, i) => message(from + i));
 
 const thread = (key: string, count: number, over: Partial<Thread> = {}): Thread => ({
@@ -173,6 +173,26 @@ describe("the cache's writes", () => {
     await saveAll(thread("bench:a", 3, { openedAt: 0, heldAt: 44, bytes: 777 }));
     const [head] = (await open().loadBoot()).heads;
     expect(head).toMatchObject({ openedAt: 0, heldAt: 44, bytes: 777, sized: true, stale: false });
+  });
+
+  test("a head keeps the thread's left and etag (docs/protocol.md, left, exactly), warm or cold, and one without them reads without them", async () => {
+    await saveAll(thread("bench:a", 3, { left: 48_190, etag: '"3.e1.40.q"' }), thread("bench:b", 2));
+    const heads = (await open().loadBoot()).heads;
+    const a = heads.find((h) => h.key === "bench:a");
+    const b = heads.find((h) => h.key === "bench:b");
+    expect(a).toMatchObject({ left: 48_190, etag: '"3.e1.40.q"' });
+    expect(b && ("left" in b || "etag" in b)).toBe(false);
+    // a cold head written alone keeps them too, and drops them when they went
+    if (!a || !b) throw new Error("no heads");
+    const dirty = cleanDirty();
+    dirty.threads.set("bench:a", Number.POSITIVE_INFINITY);
+    dirty.threads.set("bench:b", Number.POSITIVE_INFINITY);
+    const { left: _gone, ...noLeft } = a;
+    await open().save({ ...INITIAL_STATE, cursor: { epoch: "j1", seq: 9 }, cold: { "bench:a": noLeft, "bench:b": { ...b, left: 50_000 } } }, dirty);
+    const again = (await open().loadBoot()).heads;
+    expect(again.find((h) => h.key === "bench:a")).not.toHaveProperty("left");
+    expect(again.find((h) => h.key === "bench:a")).toMatchObject({ etag: '"3.e1.40.q"' });
+    expect(again.find((h) => h.key === "bench:b")).toMatchObject({ left: 50_000 });
   });
 
   test("a head with no size is still written without one when only its head changes, so it reads as unsized again", async () => {

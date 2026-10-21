@@ -73,7 +73,6 @@ async fn hold_thread(fleet: &Fleet, id: &str) {
                 thread: Box::new(thread),
                 born: true,
             },
-            raw: None,
         })
         .await
         .unwrap();
@@ -175,7 +174,7 @@ async fn until(response: &mut reqwest::Response, read: &mut String, needle: &str
 async fn board_stream(world: &World, device: &str) -> (reqwest::Response, String) {
     let mut response = world
         .get(
-            &format!("/api/board/stream?protocol=1&device={device}&addrs={MAC},fd7a::7"),
+            &format!("/api/stream?view=board&protocol=3&device={device}&addrs={MAC},fd7a::7"),
             MAC,
         )
         .send()
@@ -201,7 +200,7 @@ async fn without_a_board_every_board_route_is_404_and_the_flag_is_ignored() {
     let cookie = sign_in(addr).await;
     let stream = reqwest::Client::new()
         .get(format!(
-            "http://{addr}/api/board/stream?protocol=1&device=b"
+            "http://{addr}/api/stream?view=board&protocol=3&device=b"
         ))
         .header("cookie", &cookie)
         .send()
@@ -237,7 +236,7 @@ async fn a_board_stream_that_takes_gzip_gets_each_write_decodable_on_arrival() {
     let world = World::new().await;
     let mut response = world
         .get(
-            &format!("/api/board/stream?protocol=1&device=board-z&addrs={MAC},fd7a::7"),
+            &format!("/api/stream?view=board&protocol=3&device=board-z&addrs={MAC},fd7a::7"),
             MAC,
         )
         .header("accept-encoding", "gzip")
@@ -265,7 +264,7 @@ async fn a_board_stream_that_takes_gzip_gets_each_write_decodable_on_arrival() {
     .await
     .unwrap_or_else(|_| panic!("no view in {read}"));
     assert!(
-        read.starts_with(r#"data: {"type":"hello","protocol":1,"#),
+        read.starts_with(r#"data: {"type":"hello","protocol":3,"#),
         "{read}"
     );
 }
@@ -275,7 +274,7 @@ async fn a_board_stream_says_hello_then_its_view() {
     let world = World::new().await;
     let (_stream, read) = board_stream(&world, "board-1").await;
     assert!(
-        read.starts_with(r#"data: {"type":"hello","protocol":1,"#),
+        read.starts_with(r#"data: {"type":"hello","protocol":3,"#),
         "{read}"
     );
     assert!(
@@ -289,7 +288,7 @@ async fn a_board_stream_says_hello_then_its_view() {
 async fn a_board_stream_on_another_protocol_or_with_a_bad_device_is_refused() {
     let world = World::new().await;
     let other = world
-        .get("/api/board/stream?protocol=2&device=b", MAC)
+        .get("/api/stream?view=board&protocol=2&device=b", MAC)
         .send()
         .await
         .unwrap();
@@ -297,14 +296,14 @@ async fn a_board_stream_on_another_protocol_or_with_a_bad_device_is_refused() {
     let body: serde_json::Value = serde_json::from_str(&other.text().await.unwrap()).unwrap();
     assert_eq!(body["error"]["code"], "board-protocol");
     let bad = world
-        .get("/api/board/stream?protocol=1&device=no%20spaces", MAC)
+        .get("/api/stream?view=board&protocol=3&device=no%20spaces", MAC)
         .send()
         .await
         .unwrap();
     assert_eq!(bad.status(), 400);
     let addrs = world
         .get(
-            "/api/board/stream?protocol=1&device=b&addrs=desk.local",
+            "/api/stream?view=board&protocol=3&device=b&addrs=desk.local",
             MAC,
         )
         .send()

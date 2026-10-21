@@ -10,12 +10,16 @@ import { type Entry, ledgerOf, namesOf, nthName, sameCtxFor, tally } from "./led
 import { type Item, type PartMemo, type Step, type Turn, projectRoot, turnsOf } from "./model";
 import { type Child, type RowCtx, clockS } from "./rows";
 import type { WireMessage, WirePart } from "./wire";
+import { neutral } from "./fixtures/wire";
+import { neutralPart } from "../../sync/fixtures/neutral";
 
 type Recorded = { session: { directory: string }; messages: WireMessage[] };
 type Mutable = { info: WireMessage["info"]; parts: WirePart[] };
 
 /* fetched, never imported: a megabyte json module makes the type checker build a literal type of it (gotchas.md) */
-const file = (await Bun.file(new URL("./fixtures/cmx-deploy.json", import.meta.url)).json()) as Recorded;
+const recorded = (await Bun.file(new URL("./fixtures/cmx-deploy.json", import.meta.url)).json()) as Recorded;
+/* recorded in cmx2's shapes, read as the server makes them neutral */
+const file: Recorded = { ...recorded, messages: recorded.messages.map(neutral) };
 const ROOT = projectRoot(file.session.directory, file.messages);
 const NOW = 1_790_000_000_000;
 const THOUGHT = "prt_streaming_thought";
@@ -26,7 +30,7 @@ function runningTurn(): { messages: Mutable[]; thought: Record<string, unknown> 
   const nextUser = file.messages.findIndex((m, i) => i > 0 && m.info.role === "user");
   const messages = structuredClone(file.messages.slice(0, nextUser - 1)) as Mutable[];
   const last = messages.at(-1) as Mutable; // the turn has 84 messages before its answer
-  delete (last.info.time as { completed?: number }).completed;
+  delete (last.info as { completed?: number }).completed;
   const thought: Record<string, unknown> = { id: THOUGHT, type: "reasoning", text: "first", streaming: true, time: { start: NOW - 4000 } };
   last.parts.push(thought as WirePart);
   return { messages, thought };
@@ -104,7 +108,7 @@ describe("the running turn, delta by delta", () => {
     // the store's patch for a message upsert carries every part again, as new objects with the same content
     const at = messages.length - 2;
     const message = messages[at] as Mutable;
-    messages[at] = { info: { ...structuredClone(message.info), tokens: { input: 1, output: 2, reasoning: 0, cache: { read: 0, write: 0 } } } as WireMessage["info"], parts: structuredClone(message.parts) as WirePart[] };
+    messages[at] = { info: structuredClone(message.info), parts: structuredClone(message.parts) as WirePart[] };
     const after = view(messages);
     expect(sameItems(before.turn.items, after.turn.items)).toEqual([]);
     expect(changed(before.entries, after.entries)).toEqual([]);
@@ -155,7 +159,7 @@ describe("the running turn, delta by delta", () => {
     const view = viewer();
     const before = view(messages);
     const last = messages.at(-1) as Mutable;
-    last.parts.push({ id: "prt_next_step", type: "tool", callID: "call_next", tool: "read", state: { status: "completed", input: { filePath: `${ROOT}/next.md` }, output: "x", title: "next.md", metadata: {}, time: { start: NOW - 2000, end: NOW - 1900 } } } as unknown as WirePart);
+    last.parts.push(neutralPart({ id: "prt_next_step", type: "tool", callID: "call_next", tool: "read", state: { status: "completed", input: { filePath: `${ROOT}/next.md` }, output: "x", title: "next.md", metadata: {}, time: { start: NOW - 2000, end: NOW - 1900 } } }));
     const after = view(messages);
     expect(after.entries.length).toBe(before.entries.length + 1);
     // the entries above the old newest are untouched; the old newest is rebuilt without its live body, the new one is current
@@ -244,13 +248,13 @@ describe("what a turn reads of its context", () => {
 
   test("another turn's ask, child or report changing leaves it as it was", () => {
     const turn = turnOf(step({}));
-    const other: RowCtx = { ...base, asks: new Map([["call_9", { id: "ask_1", kind: "question", request: {} }]]), children: new Map([["ses_other", child()]]), turns: [turnOf()] };
+    const other: RowCtx = { ...base, asks: new Map([["call_9", { id: "ask_1", kind: "question", permission: null, questions: null }]]), children: new Map([["ses_other", child()]]), turns: [turnOf()] };
     expect(sameCtxFor(turn, base, other)).toBe(true);
   });
 
   test("an ask on one of its own steps, or its agent's child, wakes it", () => {
     const turn = turnOf(step({}), spawn);
-    const asked: RowCtx = { ...base, asks: new Map([["call_1", { id: "ask_1", kind: "permission", request: {} }]]) };
+    const asked: RowCtx = { ...base, asks: new Map([["call_1", { id: "ask_1", kind: "permission", permission: null, questions: null }]]) };
     expect(sameCtxFor(turn, base, asked)).toBe(false);
     const working: RowCtx = { ...base, children: new Map([["ses_c", child({ state: "working" })]]) };
     expect(sameCtxFor(turn, base, working)).toBe(false);

@@ -1,27 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionEntry } from "../../sync/protocol";
+import { thread } from "../../sync/fixtures/neutral";
+import type { Thread } from "../../sync/protocol";
 import { EMPTY_FLEET, type Fleet } from "../../sync/reducer";
 import { RECENT_MS, sameOrder, windowKeys } from "./membership";
 
 const NOW = 1_800_000_000_000;
 
-function session(id: string, updated: number, status: SessionEntry["status"] = null, parentID?: string): SessionEntry {
-  return {
-    key: `h:${id}`,
-    host: "h",
-    id,
-    agents: 0,
-    processes: 0,
-    tail: [],
-    needs: [],
-    read: null,
-    status,
-    info: { id, projectID: "/r", directory: "/r", title: id, time: { created: 0, updated }, ...(parentID ? { parentID } : {}) } as SessionEntry["info"],
-  };
+function session(id: string, updated: number, activity: Thread["activity"] = { state: "idle" }, parent?: string): Thread {
+  return thread(`h:${id}`, { title: id, created: 0, updated, activity, place: { root: "/r", directory: "/r", name: "r" }, ...(parent ? { parent } : {}) });
 }
 
-function fleet(entries: SessionEntry[], order: string[], asks: Fleet["asks"] = {}): Fleet {
-  return { ...EMPTY_FLEET, sessions: Object.fromEntries(entries.map((e) => [e.key, e])), order, asks };
+function fleet(entries: Thread[], order: string[], asks: Fleet["asks"] = {}): Fleet {
+  return { ...EMPTY_FLEET, threads: Object.fromEntries(entries.map((e) => [e.key, e])), order, asks };
 }
 
 describe("what gets a window", () => {
@@ -33,9 +23,9 @@ describe("what gets a window", () => {
   test("working, parked and asking threads have windows however old they are", () => {
     const old = NOW - 3 * RECENT_MS;
     const f = fleet(
-      [session("busy", old, { type: "busy", since: old }), session("parked", old, { type: "idle", parked: { agents: 0, jobs: 1 } }), session("asks", old)],
+      [session("busy", old, { state: "busy", since: old }), session("parked", old, { state: "parked", agents: 0, jobs: 1 }), session("asks", old)],
       ["h:asks", "h:busy", "h:parked"],
-      { "h:q1": { host: "h", id: "q1", key: "h:asks", kind: "question", request: {} } },
+      { "h:q1": { agent: "h", id: "q1", key: "h:asks", thread: "h:asks", kind: "question" } },
     );
     expect(windowKeys(f, NOW)).toEqual(["h:asks", "h:busy", "h:parked"]);
   });
@@ -46,7 +36,7 @@ describe("what gets a window", () => {
   });
 
   test("a subagent is a tile on its parent, never a window of its own", () => {
-    const f = fleet([session("parent", NOW, { type: "busy", since: 1 }), session("child", NOW, { type: "busy", since: 2 }, "parent")], ["h:parent", "h:child"]);
+    const f = fleet([session("parent", NOW, { state: "busy", since: 1 }), session("child", NOW, { state: "busy", since: 2 }, "parent")], ["h:parent", "h:child"]);
     expect(windowKeys(f, NOW)).toEqual(["h:parent"]);
   });
 
@@ -57,7 +47,7 @@ describe("what gets a window", () => {
     expect(windowKeys(fleet([back, session("kept", NOW)], ["h:cleared", "h:kept"]), NOW)).toEqual(["h:cleared", "h:kept"]);
   });
 
-  test("an order entry the sessions do not hold is skipped", () => {
+  test("an order entry the threads do not hold is skipped", () => {
     expect(windowKeys(fleet([session("a", NOW)], ["h:gone", "h:a"]), NOW)).toEqual(["h:a"]);
   });
 });

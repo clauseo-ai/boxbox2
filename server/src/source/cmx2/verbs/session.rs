@@ -21,7 +21,7 @@ pub const ACCEPT_TIMEOUT: Duration = Duration::from_secs(20);
 /// a reply is small; a list of providers or files is a few hundred kb at most.
 const MAX_ANSWER: usize = 4 * 1024 * 1024;
 /// the daemon's headers a client needs; nothing else crosses.
-const PASSED: [&str; 2] = ["x-cmx2-seq", "x-cmx2-repeat"];
+const PASSED: [&str; 1] = ["x-cmx2-repeat"];
 /// who is answering, as the daemon shows it to the next client that tries.
 pub const CLIENT_NAME: &str = "boxbox";
 

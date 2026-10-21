@@ -407,7 +407,7 @@ palette and the mark, the tail's lines, the footer, and the dock's words.
 on the web the window, the agents screen's card and the start something
 row and picker are built as standalone components with a story per state
 (`app/src/ui/assistant/home/`, ladle group `assistant-home`), waiting for
-contract 2's store.
+the app's protocol 3 store.
 
 - **the window.** the assistant's palette is the material (`--p1..3`
   from its slot; coral for the first). the header leads with the round
@@ -595,7 +595,7 @@ guesses.
 
 | gap | what home does meanwhile | where it closes |
 |---|---|---|
-| ~~a window tail never takes deltas~~ | closed: the fleet folds `message.part.delta` into the tail; a session's entry goes out at most every 500 ms (it was 200) while only streamed text moves it (`model::TAIL_EVERY_MS`), flushed by the actor's clock, and the new words fade in | |
+| ~~a window tail never takes deltas~~ | closed: the fleet folds `message.part.delta` into the tail; a thread's tail goes out as a `thread.patch` tail op at most every 500 ms (it was 200) while only streamed text moves it (`model::TAIL_EVERY_MS`, `protocol.md` section 6), flushed by the actor's clock, and the new words fade in | |
 | ~~a tail item has no role~~ | closed: `TailItem.role` (`user`, `assistant`); your prompt is its own line on the right, its first 280 characters kept, and a prompt still queued stays out of the tail | |
 | ~~cmx2's synthetic parts enter the tail~~ | closed: `tail_item` skips `synthetic: true`, as the stage does | |
 | ~~no failure on a session (`session.error`)~~ | closed by m4: an open fault need feeds `Extra.failure` (`app/src/ui/inbox/extra.ts`) | |

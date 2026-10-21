@@ -1,0 +1,209 @@
+{
+ "cmx-deploy.json": [
+  "6494f39469f0b0ed",
+  "1818ab82704c8697",
+  "a322136d9216d961"
+ ],
+ "northstar-heavy.json": [
+  "bff3d73f598da25b",
+  "7ee21abe822d5808",
+  "5e61502b5fb9b402",
+  "4ad96c291278c2d3",
+  "2c6d9867bf3facee",
+  "df81d6337f375f58",
+  "89a05c3d0377a5d6"
+ ],
+ "northstar-heavy.json child ses_f9e06dac4ffeWesFqrB3Echd9w": [
+  "859aa0832daeb56f"
+ ],
+ "notes-asks.json": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "26d50a1218838b26",
+  "eb828c4d1ae9bbb3",
+  "331b973a126a819a",
+  "f85feef897b7b450",
+  "304e179b03662378",
+  "19573f481e981ec5"
+ ],
+ "notes-asks.json snapshot 0 permission pending: edit notes.md": [
+  "d2af4058e9e60bdd"
+ ],
+ "notes-asks.json snapshot 1 prose streaming": [
+  "f15635742a390b66"
+ ],
+ "notes-asks.json snapshot 2 question pending: greeting": [
+  "f15635742a390b66"
+ ],
+ "notes-asks.json snapshot 3 prose streaming, two queued": [
+  "323c25b47e20b978"
+ ],
+ "notes-asks.json snapshot 4 permission pending: shell for i in 1 2 3 4 5 6; do": [
+  "c1e516af14f627dc",
+  "f74a22b2c3c86282"
+ ],
+ "notes-asks.json snapshot 5 shell running with output": [
+  "c1e516af14f627dc",
+  "5f241bfbaeb7ec55"
+ ],
+ "notes-asks.json snapshot 6 queue drained": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70"
+ ],
+ "notes-asks.json snapshot 7 permission pending: read one.env": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "be6b5676c30dd947"
+ ],
+ "notes-asks.json snapshot 8 permission pending: read two.env": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "be6b5676c30dd947"
+ ],
+ "notes-asks.json snapshot 9 question pending: greeting": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "be6b5676c30dd947"
+ ],
+ "notes-asks.json snapshot 10 question pending: closing": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "be6b5676c30dd947"
+ ],
+ "notes-asks.json snapshot 11 asks settled": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4"
+ ],
+ "notes-asks.json snapshot 12 steered mid-stream": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af"
+ ],
+ "notes-asks.json snapshot 13 aborted mid-stream": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af"
+ ],
+ "notes-asks.json snapshot 14 permission pending: shell sleep 30": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "3f4faf1d36f908f2"
+ ],
+ "notes-asks.json snapshot 15 parked on a job": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "26d50a1218838b26"
+ ],
+ "notes-asks.json snapshot 16 woken by the job": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "26d50a1218838b26",
+  "eb828c4d1ae9bbb3"
+ ],
+ "notes-asks.json snapshot 17 final": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "26d50a1218838b26",
+  "eb828c4d1ae9bbb3",
+  "331b973a126a819a"
+ ],
+ "notes-asks.json snapshot 18 permission pending: edit notes.md": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "26d50a1218838b26",
+  "eb828c4d1ae9bbb3",
+  "331b973a126a819a",
+  "30d20b0dc428b8c1"
+ ],
+ "notes-asks.json snapshot 19 steered between steps": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "26d50a1218838b26",
+  "eb828c4d1ae9bbb3",
+  "331b973a126a819a",
+  "f85feef897b7b450",
+  "304e179b03662378"
+ ],
+ "notes-asks.json snapshot 20 steered turn done": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "26d50a1218838b26",
+  "eb828c4d1ae9bbb3",
+  "331b973a126a819a",
+  "f85feef897b7b450",
+  "304e179b03662378"
+ ],
+ "notes-asks.json snapshot 21 long reply streaming": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "26d50a1218838b26",
+  "eb828c4d1ae9bbb3",
+  "331b973a126a819a",
+  "f85feef897b7b450",
+  "304e179b03662378",
+  "e12255ade1067a6a"
+ ],
+ "notes-asks.json snapshot 22 aborted mid-stream, for real": [
+  "c1e516af14f627dc",
+  "0c3348c716735298",
+  "c015790691f4ba70",
+  "3f41f68df82abde4",
+  "ac4be45662b2e0e8",
+  "ba5cf536f56702af",
+  "26d50a1218838b26",
+  "eb828c4d1ae9bbb3",
+  "331b973a126a819a",
+  "f85feef897b7b450",
+  "304e179b03662378",
+  "19573f481e981ec5"
+ ]
+}

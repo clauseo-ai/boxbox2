@@ -7,12 +7,22 @@
 
    exactly once, in two layers (docs/architecture.md, the sync model):
 
-   - the journal: entries are numbered contiguously within an epoch. one at
-     or below the cursor was already applied (a duplicate, skipped and
-     counted); one past cursor + 1 means entries were lost, so the worker
-     reconnects from the cursor and the server replays the gap.
-   - a transcript: a thread is hydrated from cmx2's message list at the
-     upstream seq R its `x-cmx2-seq` names. sequenced transcript entries at
+   - the journal (docs/protocol.md, sections 4 and 5): entries are numbered
+     within an epoch, and a stream shows a subsequence of them (it skips the
+     transcript entries of threads outside its interest). one at or below the
+     cursor was already applied (a duplicate, skipped and counted); any higher
+     seq applies and moves the cursor, so a skipped seq is never a gap. what a
+     skipped seq can hide is a transcript entry of a thread outside interest,
+     and such a thread is never trusted as current: it carries `left`, the seq
+     after which it lacks its entries, and is made current again only by a
+     catch-up from `left` or a read that started at or after the seq at which
+     it entered interest (the no-gap rule, `hydrated`).
+   - a frame that cannot apply (a patch whose base the client does not hold
+     or that does not fit it, a catch-up or confirm that does not parse) is a
+     protocol error: nothing of it applies, the cursor is dropped and the
+     worker reconnects, which gets a reset.
+   - a transcript: a thread is hydrated from the read at the upstream seq R
+     its `x-boxbox-upstream` names. sequenced transcript entries at
      or below R are already in it (covered); above R they apply once, in
      order. deltas carry no seq, only their utf-16 offset into the part's
      text, so offsets decide: at the end it appends, inside it is covered,
@@ -49,21 +59,31 @@
    hold for it is refused without a read until the room could exist. */
 
 import type {
+  Agent,
   Ask,
+  Catchup,
   Cursor,
   DeltaEntry,
   Entry,
+  Fault,
   FleetSnapshot,
+  Thread as FleetThread,
   Frame,
   Hello,
-  HostState,
+  Interest,
+  InterestFrame,
+  InterestPost,
   Message,
   MessageInfo,
+  OrderOp,
   Part,
+  Reaction,
   RepoColourEntry,
-  SessionEntry,
+  Reset,
   ThreadEntry,
+  ThreadPatch,
 } from "./protocol";
+import { isTranscript, textOf } from "./protocol";
 import { type ColourAssignment, repoKey } from "../ui/window/repo";
 import { placeBefore } from "./order";
 import type { ReadTrouble } from "./read";
@@ -76,30 +96,29 @@ export type Counters = {
   duplicates: number;
   /** transcript entries already contained in a hydration or refetch, skipped as expected */
   covered: number;
-  /** journal entries that arrived past cursor + 1 */
-  gaps: number;
-  /** resets received: the server could not replay from the cursor */
+  /** resets received: the server could not catch the cursor up */
   resets: number;
   /** messages fetched again because an entry found one the thread lacks, or a delta found a hole */
   refetches: number;
 };
 
-export const ZERO_COUNTERS: Counters = { applied: 0, duplicates: 0, covered: 0, gaps: 0, resets: 0, refetches: 0 };
+export const ZERO_COUNTERS: Counters = { applied: 0, duplicates: 0, covered: 0, resets: 0, refetches: 0 };
 
 export type Fleet = {
-  /** host names in the server's order */
-  hostNames: string[];
-  hosts: Record<string, HostState>;
-  sessions: Record<string, SessionEntry>;
-  /** keyed `<host>:<ask id>` */
+  /** agent keys in the server's order */
+  agentNames: string[];
+  agents: Record<string, Agent>;
+  /** by thread key, `<agent>:<thread>` */
+  threads: Record<string, FleetThread>;
+  /** keyed `<agent>:<ask id>` */
   asks: Record<string, Ask>;
-  /** session keys in the server's window order */
+  /** thread keys in the server's window order */
   order: string[];
   /** each repo's colour as the server gave it and the person chose it, by `repoKey` (`host:root`) */
   colours: Record<string, ColourAssignment>;
 };
 
-export const EMPTY_FLEET: Fleet = { hostNames: [], hosts: {}, sessions: {}, asks: {}, order: [], colours: {} };
+export const EMPTY_FLEET: Fleet = { agentNames: [], agents: {}, threads: {}, asks: {}, order: [], colours: {} };
 
 export type ThreadStatus = "hydrating" | "live";
 
@@ -107,7 +126,8 @@ export type ThreadStatus = "hydrating" | "live";
 export type Held =
   | { kind: "info"; info: MessageInfo }
   | { kind: "part"; part: Part; resumed: boolean }
-  | { kind: "delta"; frame: DeltaEntry };
+  | { kind: "delta"; frame: DeltaEntry }
+  | { kind: "reactions"; reactions: Reaction[] };
 
 export type Thread = {
   key: string;
@@ -146,6 +166,16 @@ export type Thread = {
   /** why its read is failing while it waits to try again (read.ts), null while nothing failed: set by each failed try,
       cleared by the read that lands. in memory only, like the lease: a reload reads afresh and says what it finds */
   trouble: ReadTrouble | null;
+  /** the journal seq after which this thread lacks its transcript entries (docs/protocol.md, section 5, `left`): set when it
+      leaves interest (the confirm's seq) and when the stream drops while it is in interest (the cursor); cleared by an
+      accepted read, a catch-up and a reset. absent outside interest means it is read when it enters (the key goes without
+      `since`) */
+  left?: number;
+  /** the etag of the read it holds, for a revalidation (`If-None-Match`) */
+  etag?: string;
+  /** its read waits for the confirm of the interest it is entering, so the read starts at or after the confirm's seq
+      (docs/protocol.md, no gap at a switch): the hydrate goes out with the confirm (or the next hello) */
+  waiting?: true;
 };
 
 /** a thread whose pages are in the cache and not in memory: its head, as the cache saved it */
@@ -169,9 +199,37 @@ export type Cold = {
   bytes: number;
   sized: boolean;
   pages: number;
-  /** an entry for the thread came while it was cold, so its pages are behind the cursor: it is read again on restore */
+  /** an entry for the thread came while it was cold, or the journal may have passed it (a reset, `thread.stale`,
+      `thread.reset`), so its pages are behind: it is read again on restore */
   stale: boolean;
+  /** as `Thread.left` */
+  left?: number;
+  /** as `Thread.etag` */
+  etag?: string;
 };
+
+/** the interest protocol's state (docs/protocol.md, section 5) */
+export type InterestState = {
+  /** the open stream's id from its hello, for posts; null while no stream is open */
+  stream: string | null;
+  /** the interest the server applies: the connect query's (the hello's) or the last confirm's */
+  confirmed: Interest;
+  /** per key of `confirmed`, the journal seq at which it entered (H): a read of it is accepted only from H on */
+  entered: Record<string, number>;
+  /** the epoch of `entered`'s seqs: the hello's, kept when the stream drops. a seq means nothing in another epoch, so a read
+      stamped with another one is never weighed against H (`hydrated`) */
+  epoch: string | null;
+  /** what the worker last asked for: what the page shows (`want`), capped */
+  wanted: Interest;
+  /** the newest ask number posted on any stream */
+  ask: number;
+  /** posts not yet confirmed, oldest first, each with the keys it sent a `since` for */
+  posts: { ask: number; since: string[] }[];
+};
+
+export const NO_INTEREST: Interest = { thread: null, under: [], holds: [] };
+
+export const INITIAL_INTEREST: InterestState = { stream: null, confirmed: NO_INTEREST, entered: {}, epoch: null, wanted: NO_INTEREST, ask: 0, posts: [] };
 
 export type SyncState = {
   cursor: Cursor | null;
@@ -190,9 +248,10 @@ export type SyncState = {
       the answer to the read of the thread held again after it */
   reads: number;
   counters: Counters;
+  interest: InterestState;
 };
 
-export const INITIAL_STATE: SyncState = { cursor: null, head: 0, fleet: EMPTY_FLEET, threads: {}, cold: {}, unfit: {}, reads: 0, counters: ZERO_COUNTERS };
+export const INITIAL_STATE: SyncState = { cursor: null, head: 0, fleet: EMPTY_FLEET, threads: {}, cold: {}, unfit: {}, reads: 0, counters: ZERO_COUNTERS, interest: INITIAL_INTEREST };
 
 /** the ui's view of a thread: the part it renders */
 export type ThreadView = { key: string; status: ThreadStatus; messages: Message[]; /** set while its read is failing */ trouble?: ReadTrouble };
@@ -229,13 +288,32 @@ export type Effect =
       limit it was over: the person's thread cap, the held reserve, the byte cap, or (`unfit`) a held read that could
       not fit beside the thread on stage whatever else went */
   | { type: "evicted"; key: string; bytes: number; opened: boolean; cap: Cap }
-  /** a thread's head changed (recency, staleness) and is written with the next save */
-  | { type: "head"; key: string };
+  /** a thread's head changed (recency, staleness, `left`) and is written with the next save */
+  | { type: "head"; key: string }
+  /** a protocol error or a rule's miss, for telemetry (`sync.fault`, docs/protocol.md section 16) */
+  | { type: "fault"; what: Fault }
+  /** the interest to post to `POST /api/stream/{stream}/interest`: the page shows something else */
+  | { type: "interest-changed"; stream: string; post: InterestPost }
+  /** the confirm of the newest post landed (`sync.interest`): how many keys entered, came back stale, or were reset */
+  | { type: "confirmed"; ask: number; entering: number; stale: number; reset: number };
 
 export type Action =
-  /** `cool`, on a reset: the threads in memory that nobody shows and whose pages the cache holds as they are, with how many
-      pages that is. they go cold and stale instead of being read again (`reset`); every other thread is read again */
-  | { type: "frame"; frame: Frame; epoch: string | undefined; cool?: Readonly<Record<string, number>> }
+  /** a frame of the stream. `id` is its sse id line, parsed (null when it had none). `cool`, on a reset: the threads in
+      memory that nobody shows and whose pages the cache holds as they are, with how many pages that is. they go cold and
+      stale instead of being kept (`reset`). `since`, on a hello: the keys the connect's query sent a `since` for, recorded
+      when it dialled (absent, they are taken from the state, as a query made from it now would send them) */
+  | { type: "frame"; frame: Frame; id: Cursor | null; cool?: Readonly<Record<string, number>>; since?: readonly string[] }
+  /** a frame of a type this client does not know, with its id: ignored, and the cursor moves past it */
+  | { type: "skipped"; id: Cursor }
+  /** a frame that cannot apply because it does not parse (a catch-up or a confirm): a protocol error */
+  | { type: "broken"; what: Fault }
+  /** what the page shows: the thread on stage, the layers under it (bottom first; the nearest 8 count) and the children
+      held for them (the first 16 count). an interest that differs from the last one asked is posted (`interest-changed`)
+      while a stream is open; `streamQuery` gives it for the next connect either way. a hidden page asks for none */
+  | { type: "want"; thread: string | null; under: readonly string[]; holds: readonly string[] }
+  /** the stream closed (an error, a pagehide, an overflow): every thread in interest that is current takes the cursor as
+      its `left` */
+  | { type: "dropped" }
   /** threads nobody shows, whose pages the cache holds exactly as memory does, leave memory: each is cold, with `pages` pages
       (the worker's sweep, a few minutes after they closed). one that is being read or fetched again, or is gone, stays as it is */
   | { type: "cool"; threads: Readonly<Record<string, number>> }
@@ -251,8 +329,11 @@ export type Action =
       daemon). `bytes` is their size where the worker measured it, which it does for a head with none (`Cold.sized`). a
       thread that is no longer cold is left alone */
   | { type: "restored"; key: string; messages: Message[] | null; bytes?: number }
-  /** `bytes` is the read's size where the worker measured it, else it is measured here */
-  | { type: "hydrated"; key: string; hydration: number; upstreamEpoch: string; at: number; messages: Message[]; bytes?: number }
+  /** `bytes` is the read's size where the worker measured it, else it is measured here. `seq` is the journal head when the
+      server started the read (`x-boxbox-seq`, S): a thread that entered interest at H takes it only when S >= H. `seqEpoch`
+      is that stamp's epoch (absent: the stream's own). `at` and `upstreamEpoch` are the source event it reflects
+      (`x-boxbox-upstream`); `etag` its version */
+  | { type: "hydrated"; key: string; hydration: number; upstreamEpoch: string; at: number; seq: number; seqEpoch?: string; messages: Message[]; bytes?: number; etag?: string }
   | { type: "refetched"; key: string; hydration: number; messageID: string; message: Message | null }
   /** a try of read `hydration` failed and waits its backoff to try again: why, for a stage with nothing to show */
   | { type: "read-failed"; key: string; hydration: number; trouble: ReadTrouble }
@@ -297,9 +378,12 @@ class Work {
   readonly effects: Effect[] = [];
   counters: Counters;
   reads: number;
+  /** the interest as this reduction leaves it, which decides whether a read waits for a confirm (`defers`) */
+  interest: InterestState;
   constructor(readonly state: SyncState) {
     this.counters = state.counters;
     this.reads = state.reads;
+    this.interest = state.interest;
   }
   /** the number of a read about to start */
   nextRead(): number {
@@ -311,6 +395,14 @@ class Work {
   patch(path: readonly PathSegment[], value: unknown) {
     this.patches.push({ path, value });
   }
+  fault(what: Fault) {
+    this.effects.push({ type: "fault", what });
+  }
+  /** a read of `key` waits for a confirm: a post that asks for it is out, and the interest the server applies lacks it */
+  defers(key: string): boolean {
+    const interest = this.interest;
+    return interest.stream !== null && interest.posts.length > 0 && inInterest(interest.wanted, key) && !inInterest(interest.confirmed, key);
+  }
 }
 
 export function reduce(state: SyncState, action: Action): Result {
@@ -318,7 +410,19 @@ export function reduce(state: SyncState, action: Action): Result {
   let next: SyncState;
   switch (action.type) {
     case "frame":
-      next = applyFrame(work, state, action.frame, action.epoch, action.cool ?? {});
+      next = applyFrame(work, state, action.frame, action.id, action.cool ?? {}, action.since);
+      break;
+    case "skipped":
+      next = skipped(state, action.id);
+      break;
+    case "broken":
+      next = state.cursor === null ? state : protocolError(work, state, action.what);
+      break;
+    case "want":
+      next = want(work, state, action);
+      break;
+    case "dropped":
+      next = dropped(work, state);
       break;
     case "cool":
       next = cool(work, state, action.threads);
@@ -363,36 +467,305 @@ function unreachable(value: never): never {
   throw new Error(`the reducer met ${JSON.stringify(value)}, which its union does not declare`);
 }
 
-function applyFrame(work: Work, state: SyncState, frame: Frame, epoch: string | undefined, toCool: Readonly<Record<string, number>>): SyncState {
+function applyFrame(work: Work, state: SyncState, frame: Frame, id: Cursor | null, toCool: Readonly<Record<string, number>>, dialed?: readonly string[]): SyncState {
   switch (frame.type) {
     case "hello":
-      return hello(state, frame);
+      return hello(work, state, frame, dialed);
     case "reset":
-      return reset(work, state, frame.fleet, { epoch: frame.epoch, seq: frame.seq }, toCool);
+      return reset(work, state, frame, toCool);
+    case "caught":
+      return caught(work, state, id);
+    case "catchup":
+      return catchup(work, state, frame);
+    case "interest":
+      return confirm(work, state, frame, id);
+    case "thread.stale":
+      return threadStale(work, state, frame.key);
     default:
-      return entry(work, state, frame, epoch);
+      return entry(work, state, frame, id);
   }
 }
 
-function hello(state: SyncState, frame: Hello): SyncState {
-  return { ...state, head: frame.head };
+/* —— the cursor and protocol errors —— */
+
+/** the cursor moved to a control frame's id (`interest`, `caught`) or an unknown frame's: the head at that moment, never
+    behind what was applied. null when the frame cannot move it (no cursor, another epoch) */
+function advanced(cursor: Cursor | null, id: Cursor | null): Cursor | null {
+  if (cursor === null || id === null || id.epoch !== cursor.epoch) return null;
+  return id.seq > cursor.seq ? { epoch: cursor.epoch, seq: id.seq } : cursor;
 }
 
-function reset(work: Work, state: SyncState, snapshot: FleetSnapshot, cursor: Cursor, toCool: Readonly<Record<string, number>>): SyncState {
+function skipped(state: SyncState, id: Cursor): SyncState {
+  const cursor = advanced(state.cursor, id);
+  return cursor === null || cursor === state.cursor ? state : { ...state, cursor };
+}
+
+/** a frame that cannot apply: nothing of it did, the cursor goes (so the next connect gets a reset) and the worker
+    reconnects (docs/protocol.md, section 3) */
+function protocolError(work: Work, state: SyncState, what: Fault): SyncState {
+  work.fault(what);
+  work.effects.push({ type: "reconnect" });
+  return { ...state, cursor: null };
+}
+
+/* —— interest —— */
+
+const inInterest = (interest: Interest, key: string): boolean => interest.thread === key || interest.under.includes(key) || interest.holds.includes(key);
+
+const keysOf = (interest: Interest): string[] => [...(interest.thread === null ? [] : [interest.thread]), ...interest.under, ...interest.holds];
+
+const sameInterest = (a: Interest, b: Interest): boolean =>
+  a.thread === b.thread && a.under.length === b.under.length && a.holds.length === b.holds.length && a.under.every((k, i) => b.under[i] === k) && a.holds.every((k, i) => b.holds[i] === k);
+
+/** at most 8 layers (the nearest the stage) and 16 holds (the first), none twice (docs/protocol.md, section 5) */
+export const UNDER_CAP = 8;
+export const HOLDS_CAP = 16;
+
+export function interestOf(thread: string | null, under: readonly string[], holds: readonly string[]): Interest {
+  const seen = new Set<string>(thread === null ? [] : [thread]);
+  const layers: string[] = [];
+  for (let i = under.length - 1; i >= 0 && layers.length < UNDER_CAP; i--) {
+    const key = under[i] as string; // i is inside under
+    if (seen.has(key)) continue;
+    seen.add(key);
+    layers.unshift(key);
+  }
+  const held: string[] = [];
+  for (const key of holds) {
+    if (held.length >= HOLDS_CAP) break;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    held.push(key);
+  }
+  return { thread, under: layers, holds: held };
+}
+
+/** the `left` a key would be sent with as its `since`: a thread the client holds that lacks entries after it. a cold thread
+    already marked stale is read whatever it is sent with, so it goes without one */
+function sinceOf(state: SyncState, key: string): number | undefined {
+  const warm = state.threads[key];
+  if (warm) return warm.left;
+  const head = state.cold[key];
+  return head && !head.stale ? head.left : undefined;
+}
+
+function sinceFor(state: SyncState, interest: Interest): Record<string, number> {
+  const since: Record<string, number> = {};
+  for (const key of keysOf(interest)) {
+    const left = sinceOf(state, key);
+    if (left !== undefined) since[key] = left;
+  }
+  return since;
+}
+
+/** the query of the next stream: the interest the page wants, with each held key's `left` as its `since`
+    (docs/protocol.md, section 2) */
+export function streamQuery(state: SyncState): Interest & { since: Record<string, number> } {
+  const wanted = state.interest.wanted;
+  return { ...wanted, since: sinceFor(state, wanted) };
+}
+
+function want(work: Work, state: SyncState, action: Extract<Action, { type: "want" }>): SyncState {
+  const wanted = interestOf(action.thread, action.under, action.holds);
+  if (sameInterest(wanted, state.interest.wanted)) return state;
+  let interest: InterestState = { ...state.interest, wanted };
+  if (interest.stream !== null) interest = post(work, state, interest);
+  work.interest = interest;
+  return releaseWaiting(work, { ...state, interest }, (key) => !work.defers(key));
+}
+
+/** posts `wanted` under the next ask */
+function post(work: Work, state: SyncState, interest: InterestState): InterestState {
+  const ask = interest.ask + 1;
+  const since = sinceFor(state, interest.wanted);
+  const keys = Object.keys(since);
+  const body: InterestPost = { ask, ...interest.wanted, ...(keys.length > 0 ? { since } : {}) };
+  work.effects.push({ type: "interest-changed", stream: interest.stream as string, post: body }); // the callers checked the stream
+  return { ...interest, ask, posts: [...interest.posts, { ask, since: keys }] };
+}
+
+/** the reads that waited for a confirm go out, those `which` names */
+function releaseWaiting(work: Work, state: SyncState, which: (key: string) => boolean): SyncState {
+  let threads = state.threads;
+  for (const thread of Object.values(state.threads)) {
+    if (!thread.waiting || !which(thread.key)) continue;
+    if (threads === state.threads) threads = { ...state.threads };
+    const { waiting: _, ...rest } = thread;
+    threads[thread.key] = rest;
+    work.effects.push({ type: "hydrate", key: thread.key, hydration: thread.hydration });
+  }
+  return threads === state.threads ? state : { ...state, threads };
+}
+
+/** sets or clears a held thread's `left`, writing its head when it changed */
+function withLeft(work: Work, state: SyncState, key: string, left: number | undefined): SyncState {
+  const warm = state.threads[key];
+  const head = warm ? undefined : state.cold[key];
+  const holder = warm ?? head;
+  if (!holder || holder.left === left) return state;
+  work.effects.push({ type: "head", key });
+  if (warm) {
+    const { left: _, ...rest } = warm;
+    return { ...state, threads: { ...state.threads, [key]: left === undefined ? rest : { ...rest, left } } };
+  }
+  const { left: _, ...rest } = head as Cold; // holder was the head
+  return { ...state, cold: { ...state.cold, [key]: left === undefined ? rest : { ...rest, left } } };
+}
+
+/** a key in interest whose transcript the stream cannot vouch for is read from here: a thread in memory is read again
+    (showing what it holds meanwhile; with `drop`, the server reset it, so it shows nothing it held), a read already out
+    starting over, since it began before the key entered and the no-gap rule would only take it again; one that waits for
+    the confirm goes out with it. a cold one is marked stale, so its restore reads it */
+function readKey(work: Work, state: SyncState, key: string, drop: boolean): SyncState {
+  const warm = state.threads[key];
+  if (warm) {
+    let thread = warm;
+    if (drop) {
+      // nothing held is the read's any more: its etag would revalidate an empty thread as current
+      const { etag: _, ...rest } = thread;
+      thread = thread.messages.length > 0 ? grown({ ...rest, messages: [], baseline: {} }, -thread.bytes) : thread.etag === undefined ? thread : rest;
+      if (warm.messages.length > 0) work.patch(["threads", key, "messages"], []);
+    }
+    if (!thread.waiting) thread = rehydrate(work, thread);
+    return thread === warm ? state : { ...state, threads: { ...state.threads, [key]: thread } };
+  }
+  if (state.cold[key]) return { ...state, cold: staleAll(work, state.cold, (k) => k === key) };
+  return state;
+}
+
+function hello(work: Work, state: SyncState, frame: Hello, dialed: readonly string[] | undefined): SyncState {
+  const confirmed = interestOf(frame.interest.thread ?? null, frame.interest.under ?? [], frame.interest.holds ?? []);
+  const keys = keysOf(confirmed);
+  // which keys the connect sent a `since` for: the dial's query says, since a read that landed between the dial and the
+  // hello cleared its key's `left` and the state would say no since for a key whose catch-up is on its way
+  const since = new Set(dialed ?? Object.keys(sinceFor(state, confirmed)));
+  const entered: Record<string, number> = {};
+  for (const key of keys) entered[key] = frame.head;
+  let interest: InterestState = { ...state.interest, stream: frame.stream, confirmed, entered, epoch: frame.epoch, posts: [] };
+  work.interest = interest;
+  let next: SyncState = { ...state, head: frame.head, interest };
+  // a key without `since` gets nothing from the catch-up: it is read, from the hello on (H = head)
+  for (const key of keys) if (!since.has(key)) next = readKey(work, next, key, false);
+  // what the page asked for while the stream was connecting
+  if (!sameInterest(interest.wanted, confirmed)) {
+    interest = post(work, next, interest);
+    work.interest = interest;
+    next = { ...next, interest };
+  }
+  return releaseWaiting(work, next, (key) => !work.defers(key));
+}
+
+/** the confirm of a post (docs/protocol.md, the confirm). every confirm is taken in order, so the client's view of what the
+    server applies never skips one (a key that left at one and came back at the next without `since` is read); a confirm of
+    an ask that is not outstanding is old and changes nothing but the cursor */
+function confirm(work: Work, state: SyncState, frame: InterestFrame, id: Cursor | null): SyncState {
+  if (state.cursor === null) return state;
+  const cursor = advanced(state.cursor, id) ?? state.cursor;
+  const posted = state.interest.posts.find((p) => p.ask === frame.ask);
+  if (!posted) return cursor === state.cursor ? state : { ...state, cursor };
+  const H = frame.seq;
+  const before = state.interest.confirmed;
+  const confirmed = interestOf(frame.thread, frame.under, frame.holds);
+  const posts = state.interest.posts.filter((p) => p.ask > frame.ask);
+  const entered: Record<string, number> = {};
+  const entering: string[] = [];
+  for (const key of keysOf(confirmed)) {
+    const was = state.interest.entered[key];
+    if (inInterest(before, key) && was !== undefined) entered[key] = was;
+    else {
+      entered[key] = H;
+      entering.push(key);
+    }
+  }
+  const interest: InterestState = { ...state.interest, confirmed, entered, posts };
+  work.interest = interest;
+  let next: SyncState = { ...state, cursor, interest };
+  for (const key of keysOf(before)) if (!inInterest(confirmed, key)) next = withLeft(work, next, key, H);
+  const stale = new Set(frame.stale ?? []);
+  const reset = new Set(frame.reset ?? []);
+  const since = new Set(posted.since);
+  for (const key of keysOf(confirmed)) {
+    if (reset.has(key)) next = readKey(work, next, key, true);
+    else if (stale.has(key)) next = readKey(work, next, key, false);
+    else if (entering.includes(key) && !since.has(key)) next = readKey(work, next, key, false);
+    // in interest from here: current once its catch-up (applied ahead of this frame) or its read is in
+    next = withLeft(work, next, key, undefined);
+  }
+  next = releaseWaiting(work, next, (key) => !work.defers(key));
+  if (posts.length === 0) work.effects.push({ type: "confirmed", ask: frame.ask, entering: entering.length, stale: stale.size, reset: reset.size });
+  return next;
+}
+
+/** the end of a reconnect's catch-up: the cursor is the head, and every key in interest is current (its catch-up applied,
+    or its read under way) */
+function caught(work: Work, state: SyncState, id: Cursor | null): SyncState {
+  if (state.cursor === null) return state;
+  let next: SyncState = { ...state, cursor: advanced(state.cursor, id) ?? state.cursor };
+  for (const key of keysOf(state.interest.confirmed)) next = withLeft(work, next, key, undefined);
+  return next;
+}
+
+/** transcript entries from a cursor or a `since`, applied by the transcript rules alone: their seqs may sit on either side
+    of the cursor, which they never move. the server compacts them (per message its last `message`, in its place ahead of
+    its parts), so a message's newest upstream can come before its parts' older ones: they are gated by the read alone
+    (`catchingUp`), which is safe because the client holds nothing of the thread after its `since` and the compaction
+    keeps one newest entry per message and part. a thread whose read is out buffers them, and the read that lands covers
+    them: one that began before the catch-up's H is refused by the no-gap rule */
+function catchup(work: Work, state: SyncState, frame: Catchup): SyncState {
+  if (state.cursor === null) return state;
+  let next = state;
+  for (const one of frame.entries) if (isTranscript(one)) next = transcriptEntry(work, next, one, true);
+  return next;
+}
+
+/** this stream cannot give the thread's missed entries: its pages stay, and it is read before it is trusted, at once when it
+    is in interest */
+function threadStale(work: Work, state: SyncState, key: string): SyncState {
+  if (state.cursor === null) return state;
+  if (inInterest(state.interest.confirmed, key)) return withLeft(work, readKey(work, state, key, false), key, undefined);
+  if (state.threads[key]) return withLeft(work, state, key, undefined);
+  return state.cold[key] ? { ...state, cold: staleAll(work, state.cold, (k) => k === key) } : state;
+}
+
+/** the stream closed: each current thread in interest lacks what comes after the cursor */
+function dropped(work: Work, state: SyncState): SyncState {
+  const interest: InterestState = { ...state.interest, stream: null, posts: [] };
+  work.interest = interest;
+  let next: SyncState = { ...state, interest };
+  if (state.cursor === null) return next;
+  for (const key of keysOf(state.interest.confirmed)) if (sinceOf(next, key) === undefined) next = withLeft(work, next, key, state.cursor.seq);
+  return next;
+}
+
+/* —— a reset —— */
+
+function reset(work: Work, state: SyncState, frame: Reset, toCool: Readonly<Record<string, number>>): SyncState {
   work.count("resets");
+  const cursor = { epoch: frame.epoch, seq: frame.seq };
   // the colours travel outside the journal and arrive ahead of the reset on the same connection, so the snapshot has
   // none and the map stays as it is
-  const fleet = { ...fleetOf(snapshot), colours: state.fleet.colours };
-  // what the snapshot changed, not the whole fleet: a session it sends as it was keeps its identity in the ui
+  const fleet = { ...fleetOf(frame.fleet), colours: state.fleet.colours };
+  // what the snapshot changed, not the whole fleet: a thread it sends as it was keeps its identity in the ui
   changed(work, ["fleet"], state.fleet, fleet);
-  // the transcripts may have missed anything. the ones on screen are read again, and show what they had meanwhile; the rest
-  // go cold and stale, as a thread the journal passed while it was cold, and are read again only when they are wanted
+  // the transcripts may have missed anything, and a seq of another epoch seeds nothing: every `left` goes. the threads in
+  // interest are read again, and show what they had meanwhile (a read that started since the hello stands); the rest go
+  // cold and stale where the cache holds their pages as they are, and are read again only when they are wanted
+  const interest = state.interest.confirmed;
   const threads: Record<string, Thread> = {};
   const cold = { ...staleAll(work, state.cold, () => true) };
+  for (const [key, head] of Object.entries(cold)) {
+    if (head.left === undefined) continue;
+    const { left: _, ...rest } = head;
+    cold[key] = rest;
+    work.effects.push({ type: "head", key });
+  }
   for (const [key, thread] of Object.entries(state.threads)) {
+    const { left, ...rest } = thread;
+    if (left !== undefined) work.effects.push({ type: "head", key });
     const pages = toCool[key];
-    if (pages === undefined) threads[key] = rehydrate(work, thread);
-    else cold[key] = coldOf(work, thread, pages, true);
+    if (inInterest(interest, key)) threads[key] = rest.status === "hydrating" ? rest : rehydrate(work, rest);
+    else if (pages !== undefined) cold[key] = coldOf(work, rest, pages, true);
+    else threads[key] = rest;
   }
   return { ...state, cursor, head: Math.max(state.head, cursor.seq), fleet, threads, cold };
 }
@@ -418,6 +791,8 @@ function coldOf(work: Work, thread: Thread, pages: number, stale: boolean): Cold
     sized: true,
     pages,
     stale,
+    ...(thread.left === undefined ? {} : { left: thread.left }),
+    ...(thread.etag === undefined ? {} : { etag: thread.etag }),
   };
 }
 
@@ -438,14 +813,14 @@ function cool(work: Work, state: SyncState, which: Readonly<Record<string, numbe
 }
 
 export function fleetOf(snapshot: FleetSnapshot): Fleet {
-  const hosts: Record<string, HostState> = {};
-  for (const host of snapshot.hosts) hosts[host.name] = host;
-  const sessions: Record<string, SessionEntry> = {};
-  for (const session of snapshot.sessions) sessions[session.key] = session;
+  const agents: Record<string, Agent> = {};
+  for (const agent of snapshot.agents) agents[agent.key] = agent;
+  const threads: Record<string, FleetThread> = {};
+  for (const thread of snapshot.threads) threads[thread.key] = thread;
   const asks: Record<string, Ask> = {};
-  for (const ask of snapshot.asks) asks[askKey(ask.host, ask.id)] = ask;
+  for (const ask of snapshot.asks) asks[askKey(ask.agent, ask.id)] = ask;
   // a snapshot carries no colours: they come in frames of their own (protocol.ts, `ColourFrame`)
-  return { hostNames: snapshot.hosts.map((h) => h.name), hosts, sessions, asks, order: snapshot.order, colours: {} };
+  return { agentNames: snapshot.agents.map((a) => a.key), agents, threads, asks, order: snapshot.order, colours: {} };
 }
 
 /** the whole map, which replaces the one the fleet holds */
@@ -466,20 +841,23 @@ function colour(work: Work, state: SyncState, one: RepoColourEntry): SyncState {
 /** what the fleet keeps of a repo's colour: its key already names the host and root */
 const assignmentOf = (colour: RepoColourEntry): ColourAssignment => ({ auto: colour.auto, chosen: colour.chosen ?? null });
 
-const askKey = (host: string, id: string) => `${host}:${id}`;
+const askKey = (agent: string, id: string) => `${agent}:${id}`;
 
+/** the thread's read starts over under a new number; it waits for a confirm when the key is entering interest */
 function rehydrate(work: Work, thread: Thread): Thread {
-  const next: Thread = { ...thread, status: "hydrating", hydration: work.nextRead(), buffer: [], bufferBytes: 0, refetching: {}, heldBytes: 0 };
-  work.effects.push({ type: "hydrate", key: thread.key, hydration: next.hydration });
-  work.patch(["threads", thread.key, "status"], "hydrating");
+  const { waiting: _, ...rest } = thread;
+  const next: Thread = { ...rest, status: "hydrating", hydration: work.nextRead(), buffer: [], bufferBytes: 0, refetching: {}, heldBytes: 0 };
+  if (work.defers(thread.key)) next.waiting = true;
+  else work.effects.push({ type: "hydrate", key: thread.key, hydration: next.hydration });
+  if (thread.status !== "hydrating") work.patch(["threads", thread.key, "status"], "hydrating");
   return next;
 }
 
-function entry(work: Work, state: SyncState, frame: Entry, epoch: string | undefined): SyncState {
+function entry(work: Work, state: SyncState, frame: Entry, id: Cursor | null): SyncState {
   const cursor = state.cursor;
-  if (cursor === null || epoch !== cursor.epoch || frame.seq > cursor.seq + 1) {
-    // a reset comes first on any connection the server cannot replay, so this is a lost entry
-    work.count("gaps");
+  if (cursor === null || id === null || id.epoch !== cursor.epoch) {
+    // a reset comes first on any connection without a cursor, and the epoch changes only with one, so this stream is not
+    // the one the cursor is for (frames still in flight after a protocol error)
     work.effects.push({ type: "reconnect" });
     return state;
   }
@@ -487,33 +865,41 @@ function entry(work: Work, state: SyncState, frame: Entry, epoch: string | undef
     work.count("duplicates");
     return state;
   }
+  // a patch is checked whole before anything changes
+  let patched: FleetThread | null = null;
+  let order: string[] | null = null;
+  if (frame.type === "thread.patch") {
+    patched = patchedThread(state.fleet.threads[frame.key], frame);
+    if (patched === null) return protocolError(work, state, "patch-error");
+  } else if (frame.type === "order.patch") {
+    order = patchedOrder(state.fleet.order, frame.ops);
+    if (order === null) return protocolError(work, state, "patch-error");
+  }
   work.count("applied");
   const next = { ...state, cursor: { epoch: cursor.epoch, seq: frame.seq } };
   switch (frame.type) {
-    case "host":
-      return { ...next, fleet: host(work, next.fleet, frame.host) };
-    case "host.removed":
-      return { ...next, fleet: hostRemoved(work, next.fleet, frame.host) };
-    case "host.reset":
-      return hostReset(work, next, frame.host, frame.sessions, frame.asks);
-    case "session": {
-      const before = next.fleet.sessions[frame.session.key];
-      if (before) changed(work, ["fleet", "sessions", frame.session.key], before, frame.session);
-      else work.patch(["fleet", "sessions", frame.session.key], frame.session);
-      return { ...next, fleet: { ...next.fleet, sessions: { ...next.fleet.sessions, [frame.session.key]: frame.session } } };
+    case "agent":
+      return { ...next, fleet: agent(work, next.fleet, frame.agent) };
+    case "agent.removed":
+      return { ...next, fleet: agentRemoved(work, next.fleet, frame.agent) };
+    case "thread":
+      return { ...next, fleet: putThread(work, next.fleet, frame.thread) };
+    case "thread.patch":
+      return { ...next, fleet: putThread(work, next.fleet, patched as FleetThread) }; // checked above
+    case "thread.removed": {
+      const { [frame.key]: _removed, ...threads } = next.fleet.threads;
+      work.patch(["fleet", "threads", frame.key], undefined);
+      return { ...next, fleet: { ...next.fleet, threads } };
     }
-    case "session.removed": {
-      const { [frame.key]: _removed, ...sessions } = next.fleet.sessions;
-      work.patch(["fleet", "sessions", frame.key], undefined);
-      return { ...next, fleet: { ...next.fleet, sessions } };
-    }
+    case "thread.reset":
+      return threadReset(work, next, frame.key);
     case "ask": {
-      const key = askKey(frame.ask.host, frame.ask.id);
+      const key = askKey(frame.ask.agent, frame.ask.id);
       work.patch(["fleet", "asks", key], frame.ask);
       return { ...next, fleet: { ...next.fleet, asks: { ...next.fleet.asks, [key]: frame.ask } } };
     }
     case "ask.settled": {
-      const key = askKey(frame.host, frame.id);
+      const key = askKey(frame.agent, frame.id);
       const { [key]: _settled, ...asks } = next.fleet.asks;
       work.patch(["fleet", "asks", key], undefined);
       return { ...next, fleet: { ...next.fleet, asks } };
@@ -521,55 +907,104 @@ function entry(work: Work, state: SyncState, frame: Entry, epoch: string | undef
     case "order":
       work.patch(["fleet", "order"], frame.keys);
       return { ...next, fleet: { ...next.fleet, order: frame.keys } };
+    case "order.patch":
+      work.patch(["fleet", "order"], order);
+      return { ...next, fleet: { ...next.fleet, order: order as string[] } }; // checked above
     case "message":
     case "part":
     case "delta":
-    case "message.removed": {
-      const thread = next.threads[frame.key];
-      if (!thread) return { ...next, cold: staleAll(work, next.cold, (key) => key === frame.key) };
-      const grown = threadEntry(work, thread, frame);
-      const threads = { ...next.threads, [frame.key]: grown };
-      // a thread that the stream grows past the byte cap is evicted for it now, not at the next open or read
-      if (grown.bytes <= thread.bytes || totalBytes({ threads, cold: next.cold }) <= BYTE_CAP) return { ...next, threads };
-      return { ...next, ...makeRoom(work, next, threads, next.cold, frame.key) };
-    }
+    case "message.removed":
+    case "reactions":
+      return transcriptEntry(work, next, frame);
     default:
       return unreachable(frame);
   }
 }
 
-function host(work: Work, fleet: Fleet, state: HostState): Fleet {
-  const known = state.name in fleet.hosts;
-  work.patch(["fleet", "hosts", state.name], state);
-  const hostNames = known ? fleet.hostNames : [...fleet.hostNames, state.name];
-  if (!known) work.patch(["fleet", "hostNames"], hostNames);
-  return { ...fleet, hostNames, hosts: { ...fleet.hosts, [state.name]: state } };
+/** a transcript entry, from the journal or a catch-up: a cold thread's pages are behind it, a thread in memory takes it */
+function transcriptEntry(work: Work, state: SyncState, frame: ThreadEntry, catchingUp = false): SyncState {
+  const thread = state.threads[frame.key];
+  if (!thread) return { ...state, cold: staleAll(work, state.cold, (key) => key === frame.key) };
+  const grown = threadEntry(work, thread, frame, catchingUp);
+  const threads = { ...state.threads, [frame.key]: grown };
+  // a thread that the stream grows past the byte cap is evicted for it now, not at the next open or read
+  if (grown.bytes <= thread.bytes || totalBytes({ threads, cold: state.cold }) <= BYTE_CAP) return { ...state, threads };
+  return { ...state, ...makeRoom(work, state, threads, state.cold, frame.key) };
 }
 
-function hostRemoved(work: Work, fleet: Fleet, name: string): Fleet {
-  const { [name]: _removed, ...hosts } = fleet.hosts;
-  const hostNames = fleet.hostNames.filter((n) => n !== name);
-  work.patch(["fleet", "hosts", name], undefined);
-  work.patch(["fleet", "hostNames"], hostNames);
-  return { ...fleet, hostNames, hosts };
+/** a thread sent whole, or patched: what changed in it goes to the ui */
+function putThread(work: Work, fleet: Fleet, thread: FleetThread): Fleet {
+  const before = fleet.threads[thread.key];
+  if (before) changed(work, ["fleet", "threads", thread.key], before, thread);
+  else work.patch(["fleet", "threads", thread.key], thread);
+  return { ...fleet, threads: { ...fleet.threads, [thread.key]: thread } };
 }
 
-/** a host's upstream stream was reset: its part of the fleet is replaced and its open transcripts read again */
-function hostReset(work: Work, state: SyncState, name: string, entries: SessionEntry[], pending: Ask[]): SyncState {
-  const sessions: Record<string, SessionEntry> = {};
-  for (const [key, session] of Object.entries(state.fleet.sessions)) if (session.host !== name) sessions[key] = session;
-  for (const session of entries) sessions[session.key] = session;
-  const asks: Record<string, Ask> = {};
-  for (const [key, ask] of Object.entries(state.fleet.asks)) if (ask.host !== name) asks[key] = ask;
-  for (const ask of pending) asks[askKey(ask.host, ask.id)] = ask;
-  work.patch(["fleet", "sessions"], sessions);
-  work.patch(["fleet", "asks"], asks);
-  const threads = { ...state.threads };
-  for (const [key, thread] of Object.entries(state.threads)) {
-    if (key.startsWith(`${name}:`)) threads[key] = rehydrate(work, thread);
+/** the most items a tail holds */
+export const TAIL_ITEMS = 12;
+
+/** a thread patch applied to its base (docs/protocol.md, section 6; server/src/wire/patch.rs, `apply_thread`), or null
+    when it cannot apply: no base, a drop past the tail, a put past its length, a tail past 12 items */
+export function patchedThread(base: FleetThread | undefined, patch: ThreadPatch): FleetThread | null {
+  if (!base || base.key !== patch.key) return null;
+  let tail = base.tail;
+  if (patch.tail) {
+    if (patch.tail.drop > tail.length) return null;
+    tail = tail.slice(patch.tail.drop);
+    for (const [index, item] of patch.tail.put) {
+      if (index < tail.length) tail[index] = item;
+      else if (index === tail.length) tail.push(item);
+      else return null;
+    }
+    if (tail.length > TAIL_ITEMS) return null;
   }
-  const cold = staleAll(work, state.cold, (key) => key.startsWith(`${name}:`));
-  return { ...state, fleet: { ...state.fleet, sessions, asks }, threads, cold };
+  const next: Record<string, unknown> = { ...base };
+  if (patch.tail) next["tail"] = tail;
+  // a null in `set` is no change: the server sends only the fields that have a value
+  for (const [field, value] of Object.entries(patch.set ?? {})) if (value !== null && value !== undefined) next[field] = value;
+  for (const field of patch.unset ?? []) delete next[field];
+  return next as FleetThread;
+}
+
+/** order ops applied in turn to the list they were made against (docs/protocol.md, section 7), or null when one is out of
+    range */
+export function patchedOrder(base: readonly string[], ops: readonly OrderOp[]): string[] | null {
+  const next = [...base];
+  for (const op of ops) {
+    if (op[0] === "-") {
+      const [, at, count] = op;
+      if (at < 0 || count < 0 || at + count > next.length) return null;
+      next.splice(at, count);
+    } else {
+      const [, at, keys] = op;
+      if (at < 0 || at > next.length) return null;
+      next.splice(at, 0, ...keys);
+    }
+  }
+  return next;
+}
+
+function agent(work: Work, fleet: Fleet, state: Agent): Fleet {
+  const known = state.key in fleet.agents;
+  work.patch(["fleet", "agents", state.key], state);
+  const agentNames = known ? fleet.agentNames : [...fleet.agentNames, state.key];
+  if (!known) work.patch(["fleet", "agentNames"], agentNames);
+  return { ...fleet, agentNames, agents: { ...fleet.agents, [state.key]: state } };
+}
+
+function agentRemoved(work: Work, fleet: Fleet, key: string): Fleet {
+  const { [key]: _removed, ...agents } = fleet.agents;
+  const agentNames = fleet.agentNames.filter((n) => n !== key);
+  work.patch(["fleet", "agents", key], undefined);
+  work.patch(["fleet", "agentNames"], agentNames);
+  return { ...fleet, agentNames, agents };
+}
+
+/** the server cannot prove its journal holds every row of the thread: what is held of it goes, and it is read again; a
+    cold copy is marked stale (docs/protocol.md, thread.stale and thread.reset) */
+function threadReset(work: Work, state: SyncState, key: string): SyncState {
+  const next = readKey(work, state, key, true);
+  return inInterest(state.interest.confirmed, key) ? withLeft(work, next, key, undefined) : next;
 }
 
 /** marks the cold threads `which` names as behind the journal. their head is written, so a reload does not take
@@ -585,7 +1020,7 @@ function staleAll(work: Work, cold: Record<string, Cold>, which: (key: string) =
   return next;
 }
 
-/* —— a session entry, sent whole again —— */
+/* —— a thread sent whole again —— */
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -621,9 +1056,9 @@ function keepsOrder(before: Record<string, unknown>, after: Record<string, unkno
   return true;
 }
 
-/** the patches that make the ui's copy of `before` into `after`, touching only what differs. the server sends a busy
-    session's whole entry up to five times a second (its info, status, needs and a tail of twelve items) when one tail
-    item grew, so a reader of anything else would wake for nothing. an object changes key by key where that leaves its
+/** the patches that make the ui's copy of `before` into `after`, touching only what differs. a busy thread changes up to
+    twice a second (its activity, needs and a tail of twelve items) when one tail item grew, so a reader of anything else
+    would wake for nothing. an object changes key by key where that leaves its
     keys in `after`'s order, else it is set whole; an array is set whole when its length changed or most of its items did
     (a tail that moved on), else each changed item is set whole: an item the ui holds on to (the stage's review need) is
     never changed under it, a changed one is a new one, as when the whole entry was replaced. the ui ends deep-equal to
@@ -654,7 +1089,8 @@ function changed(work: Work, path: readonly PathSegment[], before: unknown, afte
 
 /* —— transcripts —— */
 
-function threadEntry(work: Work, thread: Thread, frame: ThreadEntry): Thread {
+/** `catchingUp`: an entry of a catch-up, gated by the read alone (`upstreamGate`) */
+function threadEntry(work: Work, thread: Thread, frame: ThreadEntry, catchingUp = false): Thread {
   if (thread.status === "hydrating") {
     const bufferBytes = (thread.bufferBytes ?? 0) + entryBytes(frame);
     if (thread.buffer.length >= BUFFER_CAP || bufferBytes > BUFFER_BYTES) return rehydrate(work, thread);
@@ -662,28 +1098,43 @@ function threadEntry(work: Work, thread: Thread, frame: ThreadEntry): Thread {
   }
   switch (frame.type) {
     case "message":
-      return upstreamGate(work, thread, frame.upstream, (t) => applyInfo(work, t, frame.info));
+      return upstreamGate(work, thread, frame.upstream, (t) => applyInfo(work, t, frame.message), catchingUp);
     case "part":
       if (frame.upstream === null) return applyPart(work, thread, frame.part, true);
-      return upstreamGate(work, thread, frame.upstream, (t) => applyPart(work, t, frame.part, false));
+      return upstreamGate(work, thread, frame.upstream, (t) => applyPart(work, t, frame.part, false), catchingUp);
     case "message.removed":
-      return upstreamGate(work, thread, frame.upstream, (t) => removeMessage(work, t, frame.messageID));
+      return upstreamGate(work, thread, frame.upstream, (t) => removeMessage(work, t, frame.messageID), catchingUp);
     case "delta":
       if (holding(thread, frame.messageID)) return hold(work, thread, frame.messageID, { kind: "delta", frame });
       return delta(work, thread, frame);
+    case "reactions":
+      return applyReactions(work, thread, frame.messageID, frame.reactions);
     default:
       return unreachable(frame);
   }
 }
 
+/** a message's reactions, set on its info. they carry no upstream seq: they apply in journal order, and one for a message
+    the thread lacks fetches it, as a delta does */
+function applyReactions(work: Work, thread: Thread, messageID: string, reactions: Reaction[]): Thread {
+  const held: Held = { kind: "reactions", reactions };
+  if (holding(thread, messageID)) return hold(work, thread, messageID, held);
+  const at = messageIndex(thread, messageID);
+  if (at < 0) return startRefetch(work, thread, messageID, [held]);
+  return upsertInfo(work, thread, { ...(thread.messages[at] as Message).info, reactions }); // at came from findIndex
+}
+
 /** a sequenced transcript entry applies once, and only past the read the thread was hydrated from;
-    null means the daemon did not log it, so it is newer than any read and carries nothing to dedupe on */
-function upstreamGate(work: Work, thread: Thread, upstream: number | null, apply: (t: Thread) => Thread): Thread {
+    null means the daemon did not log it, so it is newer than any read and carries nothing to dedupe on. a catch-up's
+    entries (`catchingUp`) are compacted out of upstream order, so only the read gates them, and the newest upstream
+    applied is raised to theirs: live entries after it keep the thread-wide gate */
+function upstreamGate(work: Work, thread: Thread, upstream: number | null, apply: (t: Thread) => Thread, catchingUp = false): Thread {
   if (upstream === null) return apply(thread);
   if (upstream <= thread.hydratedAt) {
     work.count("covered");
     return thread;
   }
+  if (catchingUp) return apply({ ...thread, lastUpstream: Math.max(thread.lastUpstream, upstream) });
   if (upstream <= thread.lastUpstream) {
     work.count("duplicates");
     return thread;
@@ -747,9 +1198,11 @@ function entryBytes(frame: ThreadEntry): number {
     case "part":
       return partBytes(frame.part);
     case "message":
-      return jsonWeight(frame.info);
+      return jsonWeight(frame.message);
     case "message.removed":
       return ENTRY_ENVELOPE;
+    case "reactions":
+      return jsonWeight(frame.reactions) + ENTRY_ENVELOPE;
     default:
       return unreachable(frame);
   }
@@ -763,6 +1216,8 @@ function heldBytes(entry: Held): number {
       return partBytes(entry.part);
     case "delta":
       return entryBytes(entry.frame);
+    case "reactions":
+      return jsonWeight(entry.reactions) + ENTRY_ENVELOPE;
     default:
       return unreachable(entry);
   }
@@ -817,10 +1272,32 @@ function removeMessage(work: Work, thread: Thread, id: string): Thread {
     `sentFilesOf`), so the url is emptied and the file's size kept. an image keeps its url: the thread draws it, and an
     original it cannot draw (a heic) is left as it came, as before */
 export function slimPart(part: Part): Part {
-  if (part.type !== "file" || part.mime.startsWith("image/") || !part.url.startsWith("data:")) return part;
-  const data = part.url.length - part.url.indexOf(",") - 1;
-  const size = typeof part["size"] === "number" ? part["size"] : Math.floor((data * 3) / 4);
-  return { ...part, url: "", size };
+  if (part.type !== "file") return part;
+  const mime = fieldOf(part, "mime");
+  const url = fieldOf(part, "url");
+  if (typeof mime !== "string" || mime.startsWith("image/") || typeof url !== "string" || !url.startsWith("data:")) return part;
+  const data = url.length - url.indexOf(",") - 1;
+  const known = fieldOf(part, "size");
+  const size = typeof known === "number" ? known : Math.floor((data * 3) / 4);
+  return { ...part, url: "", size } as Part;
+}
+
+/** a field of a part, whatever its type: an unknown part crosses raw, so even a known type is read field by field */
+const fieldOf = (part: Part, field: string): unknown => (part as Record<string, unknown>)[field];
+
+/** a settled part's `textOf`, when it came without its text (docs/protocol.md, section 8) */
+function settledText(part: Part): { length: number; hash: string } | null {
+  if (typeof fieldOf(part, "text") === "string") return null;
+  const of = fieldOf(part, "textOf");
+  if (typeof of !== "object" || of === null) return null;
+  const { length, hash } = of as Record<string, unknown>;
+  return typeof length === "number" && typeof hash === "string" ? { length, hash } : null;
+}
+
+/** the part with the text the client holds in place of its `textOf` */
+function withText(part: Part, text: string): Part {
+  const { textOf: _, ...rest } = part as Record<string, unknown>;
+  return { ...rest, text } as Part;
 }
 
 const slimMessage = (message: Message): Message => (message.parts.some((p) => p.type === "file") ? { info: message.info, parts: message.parts.map(slimPart) } : message);
@@ -829,12 +1306,26 @@ const slimMessage = (message: Message): Message => (message.parts.some((p) => p.
     (`resumed`: cmx2 sends it once, whole, with no seq) replaces what is held unless it would shorten text
     already applied, which only a snapshot taken before a later hydration could do */
 function applyPart(work: Work, thread: Thread, sent: Part, resumed: boolean): Thread {
-  const part = slimPart(sent);
+  let part = slimPart(sent);
   const entry: Held = { kind: "part", part, resumed };
   if (holding(thread, part.messageID)) return hold(work, thread, part.messageID, entry);
   const at = messageIndex(thread, part.messageID);
-  if (at < 0) return startRefetch(work, thread, part.messageID, [entry]);
+  const settled = settledText(part);
+  if (at < 0) {
+    if (settled) work.fault("hash-miss");
+    return startRefetch(work, thread, part.messageID, [entry]);
+  }
   const held = (thread.messages[at] as Message).parts.find((p) => p.id === part.id); // at came from findIndex
+  if (settled) {
+    // a settled text sent once: the held text stands when it is the one the server built, else the server's copy is read
+    // (the message fetched again), never a text this client did not get
+    const text = held ? fieldOf(held, "text") : undefined;
+    if (typeof text !== "string" || !sameText(text, settled)) {
+      work.fault("hash-miss");
+      return startRefetch(work, thread, part.messageID, []);
+    }
+    part = withText(part, text);
+  }
   if (resumed && held && textLength(held, "text") > textLength(part, "text")) {
     work.count("covered");
     return thread;
@@ -854,7 +1345,7 @@ function putPart(work: Work, thread: Thread, at: number, part: Part): Thread {
     parts[index] = part;
     work.patch([...base, index], part);
   } else {
-    const place = placeBefore(parts, part.id);
+    const place = placeBefore(parts, part);
     parts.splice(place, 0, part);
     if (place === parts.length - 1) work.patch([...base, place], part);
     else work.patch(base, parts);
@@ -865,8 +1356,12 @@ function putPart(work: Work, thread: Thread, at: number, part: Part): Thread {
 }
 
 function textLength(part: Part, field: string): number {
-  const value = part[field];
+  const value = fieldOf(part, field);
   return typeof value === "string" ? value.length : 0;
+}
+
+function sameText(text: string, settled: { length: number; hash: string }): boolean {
+  return text.length === settled.length && textOf(text).hash === settled.hash;
 }
 
 function delta(work: Work, thread: Thread, frame: DeltaEntry): Thread {
@@ -877,13 +1372,13 @@ function delta(work: Work, thread: Thread, frame: DeltaEntry): Thread {
   const index = message.parts.findIndex((p) => p.id === frame.partID);
   if (index < 0) {
     // offset 0 is the part's birth; anywhere past it the start of the text was missed
-    if (frame.offset === 0 && frame.field === "text") return putPart(work, thread, at, bornText(message, frame));
+    if (frame.offset === 0 && frame.field === "text") return putPart(work, thread, at, bornText(frame));
     return startRefetch(work, thread, frame.messageID, [held]);
   }
   const part = message.parts[index] as Part; // index came from findIndex on these parts
-  const text = part[frame.field];
-  if (text !== undefined && typeof text !== "string") return thread;
-  const had = text ?? "";
+  const text = fieldOf(part, frame.field);
+  if (text !== undefined && text !== null && typeof text !== "string") return thread;
+  const had = typeof text === "string" ? text : "";
   const end = frame.offset + frame.delta.length;
   let added: string;
   if (frame.offset === had.length) {
@@ -907,8 +1402,8 @@ function delta(work: Work, thread: Thread, frame: DeltaEntry): Thread {
 }
 
 /** the part a first delta creates: text, still streaming, until the whole part arrives and replaces it */
-function bornText(message: Message, frame: DeltaEntry): Part {
-  return { id: frame.partID, sessionID: message.info.sessionID, messageID: frame.messageID, type: "text", text: frame.delta, streaming: true };
+function bornText(frame: DeltaEntry): Part {
+  return { id: frame.partID, messageID: frame.messageID, type: "text", text: frame.delta, streaming: true };
 }
 
 /** asks the worker for a message, with what waits for it. one already being fetched takes the entry too: its
@@ -950,7 +1445,14 @@ function fresh(work: Work, key: string, openedAt: number, heldAt: number, leased
     leased,
     bytes: 0,
     trouble: null,
+    // a key entering interest is read from the confirm on (`Work.defers`)
+    ...(work.defers(key) ? { waiting: true as const } : {}),
   };
+}
+
+/** a fresh thread's read goes out now, unless it waits for a confirm */
+function startRead(work: Work, thread: Thread): void {
+  if (!thread.waiting) work.effects.push({ type: "hydrate", key: thread.key, hydration: thread.hydration });
 }
 
 /** the person opens a thread. one already held (for another thread, or cached) is promoted: the read it has stays,
@@ -971,7 +1473,7 @@ function open(work: Work, state: SyncState, key: string, at: number): SyncState 
     return { ...roomy, ...makeRoom(work, roomy, state.threads, { ...state.cold, [key]: { ...head, openedAt: at, leased: false } }, key) };
   }
   const thread = fresh(work, key, at, 0, false);
-  work.effects.push({ type: "hydrate", key, hydration: thread.hydration });
+  startRead(work, thread);
   work.patch(["threads", key], viewOf(thread));
   return { ...roomy, ...makeRoom(work, roomy, { ...state.threads, [key]: thread }, state.cold, key) };
 }
@@ -996,7 +1498,7 @@ function holdFor(work: Work, state: SyncState, key: string, at: number): SyncSta
   const thread = fresh(work, key, 0, at, true);
   const room = makeRoom(work, state, { ...state.threads, [key]: thread }, state.cold, key);
   if (room.threads[key]) {
-    work.effects.push({ type: "hydrate", key, hydration: thread.hydration });
+    startRead(work, thread);
     work.patch(["threads", key], viewOf(thread));
   }
   return { ...state, ...room };
@@ -1047,6 +1549,8 @@ function restored(work: Work, state: SyncState, action: Extract<Action, { type: 
     leased: head.leased,
     bytes: action.messages ? (action.bytes ?? head.bytes) : 0,
     trouble: null,
+    ...(head.left === undefined ? {} : { left: head.left }),
+    ...(head.etag === undefined || !action.messages ? {} : { etag: head.etag }),
   };
   if (again) {
     thread = rehydrate(work, thread);
@@ -1165,8 +1669,26 @@ function makeRoom(
 function hydrated(work: Work, state: SyncState, action: Extract<Action, { type: "hydrated" }>): SyncState {
   const held = state.threads[action.key];
   if (!held || held.status !== "hydrating" || held.hydration !== action.hydration) return state;
+  // the no-gap rule (docs/protocol.md, section 5): a thread that entered interest at H takes a read that started at or after
+  // H; one that started earlier may lack an entry the stream never sent it, so it is taken again
+  const entered = state.interest.entered[action.key];
+  // a read stamped with another epoch than H's came from a server whose journal started over (a restart that lost its state),
+  // answered between the drop and the next hello: its S cannot be weighed against H, and taking it again would ask the same
+  // server the same question until the hello (a loop of whole reads). its messages are shown, and `left` stays: the next
+  // connect still sends `since` with the old cursor, which the new server answers with a reset (another epoch), and the
+  // reset reads every thread in interest again
+  const otherEpoch = entered !== undefined && action.seqEpoch !== undefined && action.seqEpoch !== state.interest.epoch;
+  if (entered !== undefined && !otherEpoch && action.seq < entered) {
+    work.fault("read-late");
+    return { ...state, threads: { ...state.threads, [action.key]: rehydrate(work, held) } };
+  }
+  // an accepted read clears `left` (docs/protocol.md, `left`, exactly): in interest it is current from here, and outside it
+  // it goes without `since` when it enters, so it is read then
+  if (held.left !== undefined && !otherEpoch) work.effects.push({ type: "head", key: action.key });
+  const { left: _left, etag: _etag, ...bare } = held;
+  const rest = otherEpoch && held.left !== undefined ? { ...bare, left: held.left } : bare;
   let thread: Thread = {
-    ...held,
+    ...rest,
     status: "live",
     upstreamEpoch: action.upstreamEpoch,
     hydratedAt: action.at,
@@ -1179,6 +1701,7 @@ function hydrated(work: Work, state: SyncState, action: Extract<Action, { type: 
     heldBytes: 0,
     bytes: action.bytes ?? sizeOf(action.messages),
     trouble: null,
+    ...(action.etag === undefined ? {} : { etag: action.etag }),
   };
   viewChanged(work, held, thread);
   for (const buffered of held.buffer) thread = threadEntry(work, thread, buffered);
@@ -1260,7 +1783,7 @@ function mergeMessage(work: Work, thread: Thread, snapshot: Message): Thread {
   for (const part of snapshot.parts) {
     const index = parts.findIndex((p) => p.id === part.id);
     if (index < 0) {
-      parts.splice(placeBefore(parts, part.id), 0, part);
+      parts.splice(placeBefore(parts, part), 0, part);
       by += partBytes(part);
     } else if (textLength(parts[index] as Part, "text") <= textLength(part, "text")) {
       by += partBytes(part) - partBytes(parts[index] as Part);
@@ -1283,6 +1806,8 @@ function reapply(work: Work, thread: Thread, messageID: string, entry: Held): Th
       return applyPart(work, thread, entry.part, entry.resumed);
     case "delta":
       return delta(work, thread, entry.frame);
+    case "reactions":
+      return applyReactions(work, thread, messageID, entry.reactions);
     default:
       return unreachable(entry);
   }

@@ -74,16 +74,29 @@ order.
    cmx2 does not log deltas: a part that was streaming across the gap
    arrives once as a full `message.part.updated` at the resume seq, and
    live deltas continue after it. on `stream.reset` it reconciles from
-   rest reads that carry `x-cmx2-seq` (a2), applies only later events, and
-   emits one `reset` into the journal for the affected host. no merge
-   heuristics exist anywhere.
-2. **server to browser.** the fleet actor appends every normalized event
-   to the **journal**, a ring with its own `(epoch, seq)`. a client stream
-   is `GET /api/stream` with `Last-Event-ID`; the server replays from the
-   ring and goes live. if the cursor has fallen out of the ring or is from
-   another epoch (the server restarted with a new ring), the first frame
-   is `reset` plus a snapshot of the fleet model, and the worker replaces
-   its cache atomically. every frame ready when the socket takes bytes
+   rest reads that carry `x-cmx2-seq` (a2) and applies only later events.
+   that read is quiet: it journals only what moved (a gone thread
+   removed, each thread whole, which the encoder drops when unchanged,
+   gone asks settled), then a `thread.reset` for every thread it held
+   (`protocol.md`, section 10, the quiet re-read). no merge heuristics
+   exist anywhere.
+2. **server to browser.** the fleet actor runs each change the model
+   makes through one encoder (`fleet/encode.rs`: thread and order
+   patches, text deltas in 100 ms batches, finished text once) and
+   appends what it gives to the **journal**, a ring with its own
+   `(epoch, seq)`. a client stream is protocol 3 (`protocol.md`):
+   `GET /api/stream` with `Last-Event-ID` and its interest (the open
+   thread, the layers under it, the children it holds). overview entries
+   reach every stream, transcript entries only the streams whose interest
+   holds their thread (so a stream's ids skip seqs, and a skipped seq is
+   never a gap), and `POST /api/stream/{stream}/interest` moves the
+   interest with an in-band confirm (section 5). a resume is one compact
+   catch-up from the cursor (each key that moved once, whole; tombstones;
+   per interest key its compacted transcript or `thread.stale`; then
+   `caught`; `fleet/catchup.rs`, `fleet/keys.rs`), never a replay of
+   the ring. no cursor, a cursor from another epoch (the server restarted
+   with a new ring) or one below the tombstone floor gets `reset` with
+   the journaled fleet instead. every frame ready when the socket takes bytes
    goes out in one write (up to 64 kb), and a client that sends
    `Accept-Encoding: gzip` gets the stream through its own gzip context,
    sync-flushed after each write so nothing waits to decode
@@ -91,8 +104,9 @@ order.
 3. **worker to ui.** the worker applies events to its indexeddb cache and
    posts **patches** to the ui thread, coalesced to one message per
    animation frame. the ui never parses the stream and never talks to
-   indexeddb. a patch costs what changed: a session the server sends
-   whole again is compared with the one held and patched leaf by leaf
+   indexeddb. a patch costs what changed: a thread the server patches
+   (`thread.patch`) or sends whole again is compared with the one held
+   and patched leaf by leaf
    (an array item that changed goes whole, so nothing the ui holds
    changes under it), and a delta posts only the words it adds, as an
    append the ui joins to the text it holds. the ui's store holds only the
@@ -114,8 +128,22 @@ order.
    (`app/src/sync/gate.ts`, `landing.ts`), so the caught-up second never
    runs out with the store behind the replay (`ui/caught-up.ts`; the wire
    replay times it, and fails the hidden queue that was reverted for racing
-   it). a reset diffs the snapshot against the fleet held, so a session it
-   sends as it was keeps its identity in the ui.
+   it). a reset diffs the snapshot against the fleet held, so a thread it
+   sends as it was keeps its identity in the ui. what the ui shows is also
+   what the stream's interest names: the worker takes the stage from
+   `open` (and, when the stage closes over a layer, the layer opened last
+   becomes the stage, as `docs/protocol.md` section 5 says), the layers under it from the threads the person opened that the
+   ui still shows (bottom first, the nearest 8; a thread a press shows is
+   no layer until its click opens it, so a press posts no interest), and the holds from `hold`
+   until `release` (the first 16), and the reducer posts the interest
+   (`POST /api/stream/{stream}/interest`) whenever it changes, before the
+   open, hold or show that would read a thread entering it; a read of an
+   entering thread waits for the in-band confirm, so it lines up with the
+   stream. a post the server cannot take (404: the stream ended; any other
+   failure) is never posted again: the worker dials again with the interest
+   in the query. a page hidden for 30 s asks for the overview only, and
+   asks for what it shows again, with each thread's `left`, when it is
+   shown; `pagehide` closes the stream and `pageshow` dials again.
 
 **cold launch** reads the cache (fleet model plus the open thread's pages)
 and paints on the first frame, then the worker resumes the stream from the
@@ -128,16 +156,33 @@ costs nothing because of the cursor (`scars.md`: sse established but dead).
 
 **transcripts.** the journal carries every event, but the worker keeps
 transcripts only for threads it has pages for (opened by the person, held
-for another thread, or cached; see the indexeddb layout). opening a thread hydrates through the server from cmx2's
-`GET /session/:id/message` stamped with `x-cmx2-seq` (a2), including the
-in-flight message (a5); the worker then applies journal events after that
-seq. the stamp is also the answer's weak etag: a read sent back as
-`If-None-Match` is answered 304, without the daemon, while the fleet has
-seen no transcript event for the session past it, the session is plain
-idle, and the host's stream is connected with no frame skipped since
-(`fleet/model/marks.rs`); the worker does not send it yet. parts are keyed by the daemon's ids: `message.part.updated` replaces
-a part whole, `message.part.delta` appends at its `offset` (a1),
-`message.removed` deletes. deltas in boxbox's own journal replay to a
+for another thread, or cached; see the indexeddb layout). opening a thread reads it under
+`/api/agents/{agent}/threads/{thread}/messages` (`http/agents/read.rs`):
+the source's answer (cmx2's `GET /session/:id/message`, with the
+in-flight message, a5) translated message by message as it streams,
+stamped `x-boxbox-seq` (the journal head when the read began) and
+`x-boxbox-upstream` (the source event it reflects); the client applies
+journal entries after it. its etag comes from the thread's versions
+(`Fleet::versions`: `v`, `rv`), so a revalidation of an unchanged thread
+is a 304 without the source (`protocol.md`, section 11). a thread that
+entered the interest at seq H takes a read only from H on, else it is read
+again and `sync.fault` says `read-late`; H keeps its epoch, and a read
+stamped with another one, answered by a restarted server between a drop and
+the next hello, is shown but never weighed against H and leaves `left` as it
+was, so the next connect's reset reads it again. the worker sends `If-None-Match` by hand (its reads
+are `cache: "no-store"`) only when the thread's head holds an etag, and a 304
+stands as the read: the messages it holds, with the answer's stamps. without
+an etag every read is whole. parts are keyed by the daemon's ids: a `part`
+entry (cmx2's `message.part.updated`) replaces a part whole, a `delta`
+appends at its `offset` (a1), `message.removed` deletes. a settled text
+part may come with `textOf` instead of its words (`docs/protocol.md`,
+section 8): when the hash and length match the words the thread holds it
+keeps them, and when they do not, or the part is not held, it fetches the
+message again and `sync.fault` says `hash-miss`. the entries of a
+`catchup` frame apply by the same rules but never move the cursor, and
+pass the upstream gate against the read alone: the server compacts a
+message to its last info ahead of its parts, so their upstream seqs come
+out of order (section 9). deltas in boxbox's own journal replay to a
 browser exactly once by journal seq; the offset check catches any gap and
 turns it into a refetch of that one message. a delta at offset 0 for a part
 the thread does not hold is that part's birth and creates it, so a reply
@@ -173,9 +218,9 @@ message, never by shared locks on the hot path:
 | task | owns | talks to |
 |---|---|---|
 | upstream watcher, one per host | the host's connection, `(epoch, seq)`, backoff | sends decoded events to the fleet actor |
-| fleet actor | the fleet model: hosts, sessions index, window tails, asks, needs, read, the board's projection while a board listens, presence | appends to the journal, asks push to decide |
-| journal | the ring of normalized events and its `(epoch, seq)` | serves replays to client streams |
-| client stream, one per connection | a bounded outbound channel | reads the journal, writes sse |
+| fleet actor | the fleet model: hosts, sessions index, window tails, asks, needs, read, the board's projection while a board listens, presence; protocol 3's encoder (patch bases, pending deltas, settled-text tracking), the stream keys (`fleet/keys.rs`: per key its newest seq and versions, tombstones) and the stream map (per stream its id, interest, owner and last confirmed ask) | appends to the journal, hands each stream its entries and confirm blocks, asks push to decide |
+| journal | the ring of encoded entries and its `(epoch, seq)` | answers a since key's transcript for a catch-up |
+| client stream, one per connection | a bounded outbound channel and the confirm block it is draining | writes sse; ends its map entry when it drops |
 | push | subscriptions, presence, pending "done" timers, per-device rate and dedupe | sqlite, the web push services |
 | store writer | `boxbox.db` | everyone, through a channel |
 | telemetry | the day's .jsonl file | appends in batches |
@@ -214,15 +259,20 @@ owner; every map has an eviction rule. the caps:
 
 | thing | cap | on overflow |
 |---|---|---|
-| journal ring | 16 mb or 100,000 events (from m9 this is contract 2's ring; contract 1's sits beside it while contract 1 lives, 8 mb or 50,000 events, each ring with its own epoch, `agents.md`, the transition) | oldest events fall out; a cursor older than the floor gets `reset` plus a snapshot; a cursor from the other contract's epoch gets `reset` with reason `epoch` |
-| model caps (m9) | order 300, sessions 1000, adopted 20, clears 2000, needs 500 open and 200 served, each kept twice: once over cmx2 threads, once over every other source's (`agents.md`, the transition) | each side evicts by today's rule; contract 1 reads the cmx2 side only, so an assistant never changes a contract 1 frame |
+| journal ring | 16 mb or 100,000 entries, one ring and one epoch (`journal.rs`) | oldest entries fall out; a since key whose entries are gone gets `thread.stale` (`protocol.md`, section 9) |
+| model caps | order 300, sessions 1000, adopted 20, clears 2000, needs 500 open and 200 served, over every source's threads together | each evicts by its rule |
+| stream map (`fleet/mod.rs`, `Subscriber`) | one entry per open stream: its id, an interest of 1 thread, 8 layers and 16 holds, its owner (a hash of the session token) and last confirmed ask | removed when the stream ends, falls behind, stalls on a confirm or fails a send; a post past the interest caps answers 400 |
+| confirm block (`fleet/catchup.rs`) | 1 mb of catch-up frames (each at most 256 kb) per stream, one in flight, outside the 512 kb outbound cap, drained through the stream's `pending` | a key past it goes `thread.stale`; a post meeting an unread block waits for it to drain, until the block is 30 s old (counted from when it was handed to the stream), then the stream is closed and the post answers 404; a block drained by then closes nothing |
+| tombstones (`fleet/keys.rs`) | 10,000 rows or 7 days of removals and settlements | oldest dropped, the floor rises; a cursor below it gets `reset` with reason `expired` |
+| patch bases (`fleet/encode.rs`) | one `Thread` per kept thread (at most 1000), plus the order | evicted with the session |
+| pending deltas (`fleet/encode.rs`) | 100 ms per part, 1 mb in all | past it, all are journaled at once |
+| settled-text tracking and remembered digests (`fleet/encode.rs`) | 4,096 streaming parts (length and hash of their built text), each dropped once a part with `time.end` is journaled; 4,096 parts and 4,096 messages (a digest of the last state journaled, which still drops the step-end re-send) | oldest dropped; a dropped part's next update goes whole, a forgotten digest lets one unchanged re-send through |
+| newest-turn message ids (`fleet/keys.rs`, for `rv`) | 1,000 per thread and 16,384 over every thread (`TURN_IDS`, `ALL_TURN_IDS`): about 1.3 mb at the cap, counting some 80 bytes an id with its set's overhead | past either, every entry of the thread whose set would grow counts toward `rv` until its next turn starts; a removed thread or a reset frees its ids |
 | client outbound channel | 512 kb of plain frames queued in the actor for one stream; what the stream already handed on is on top: hyper's write buffer (16 writes or about 408 kb, each write at most 64 kb of frames before compression) and the kernel's socket buffers, compressed bytes for a client that takes gzip. measured once with a client that never reads (`http/stream.rs`, `a_stalled_client_holds_a_bounded_amount_with_gzip_and_without`, loopback on a mac): 155 kb handed on with gzip (4.3 mb of frames), 1.6 mb without | the stream is closed; the client resumes from its cursor. a slow phone can never grow the server past these |
-| client stream gzip context, one per connection that takes gzip | about 300 kb (the 32 kb window and deflate's state), for the connection's life | n/a |
+| client stream gzip context, one per connection that takes gzip (`http/compress.rs`, `GzipStreams`) | about 300 kb (the 32 kb window and deflate's state), for the connection's life; at most 64 such streams at once, the board view's among them | past 64 a new stream is identity, and one warning says the cap was met (said again only after a place frees and the cap is met anew) |
 | upstream sse line buffer | 8 mb per frame (a tool part's 4 mb of image attachments, whole) | the frame is logged and skipped, the stream survives |
-| transcript hydration proxy | streamed, never buffered whole; gzip on the wire (`http/compress.rs`) | n/a |
 | thread reads and pages (`/api/agents/.../messages`, `source/cmx2/verbs/read.rs`, `http/agents/page.rs`) | one message at a time, at most 32 mb; a page holds its turns, at most 64 or, past the first, 1 mb of json, each message once and one turn at most 64 mb; a body silent for 45 s ends the read | a message past 32 mb fails the read (502); a page drops its oldest turns, and one that would hold a turn past 64 mb answers 413 |
 | thread summaries (`fleet/summary.rs`) | 64 threads or 8 mb of json; children's numbers apart, 1,024 or 1 mb; one computation per key at a time, at most one per thread per 10 s while `rv` holds; 64 children read per summary, 4 at once, 10 s each, 15 s in all; failed children remembered 30 s, 1,024 at most | least recently used first; a child past the count or late is listed by key |
-| transcript marks (`fleet/model/marks.rs`) | per host, the last transcript seq of at most 2048 sessions | the oldest mark is forgotten and the host's floor rises to it, so older stamps go to the daemon |
 | worker cache (indexeddb) and the threads in its memory | 40 opened threads, 16 held-only threads beside them, and 50 mb for both, by the size of each thread's json (a read's body, then every change applied) | the count caps evict their own kind, longest unused first; the byte cap evicts held-only threads first, then opened ones longest ago first, never the thread on stage or the one the open or read is for (the indexeddb layout, above) |
 | worker sse frame buffer (`app/src/sync/sse.ts`) | 32 mb of text for one frame, four times the largest the server forwards | the connection is dropped, `perf.sync` says `overflow`, and the stream resumes from the cursor with a growing backoff |
 | worker saves | one committing and one waiting, whatever the disk's speed | a save asked for while one commits joins the one waiting |
@@ -239,13 +289,19 @@ owner; every map has an eviction rule. the caps:
 | message photos in flight | 100 mb of memory: two messages at the body limit (25 mb), each counted twice (the bytes read, then the strings parsed from them), taken from the announced size before a byte is read; a body over 25 mb is refused as it passes the limit (413) | a message waits up to 2 minutes for room, holding nothing, then is answered 503 `photos-busy`; words (under 256 kb) never wait. measured in `composer.md`: linux returns to idle (9 mb) after every burst |
 | process | steady rss 64 mb for 3 hosts and 300 sessions (a message with photos is a peak on top of it, bounded by the row above, for the seconds it is in flight); from m9, 80 mb steady for 3 cmx2 connections, 1 openclaw connection and 300 windows, and 211 mb at peak (the arithmetic below); systemd `MemoryMax=256M` as the backstop, never the plan | the soak test fails the build |
 
-**the m9 arithmetic.** steady: today's 64 mb, plus 8 mb for the contract 1
-ring, plus 4 mb for the model's second copy of each cmx2 thread (the
-neutral shapes beside the raw objects contract 1 encodes from, at most
-1000 threads, against the snapshot's 256 kb for 300) and the threads of
-other sources, plus 4 mb per socket connection in steady use (its id map
-of 10,000 rows, 2 mb of cache pages, a seen index far below its cap):
-80 mb with one openclaw connection. peak, every bound full at once: a
+**the m9 arithmetic.** the plan budgeted 8 mb for a contract 1 ring and
+4 mb for a second copy of each cmx2 thread; protocol 3 built neither
+(`protocol.md`, section 15), and spends that 12 mb on its own state
+instead: the patch bases (one `Thread` per kept thread, about 1 mb for
+1000 against the snapshot's 256 kb for 300), the stream keys' agent and
+ask bodies and tombstones (10,000 rows of a few hundred bytes, about
+3 mb), the encoder's tracking and digests (under 1 mb), the newest-turn
+id sets (16,384 ids over every thread, about 1.3 mb at that cap), pending
+deltas (1 mb at most) and a confirm block per stream catching up (1 mb
+each, one in flight). steady is still today's 64 mb, plus those 12 mb, plus 4
+mb per socket connection in steady use (its id map of 10,000 rows, 2 mb
+of cache pages, a seen index far below its cap): 80 mb with one
+openclaw connection. peak, every bound full at once: a
 socket connection's buffers add 27 mb over its steady share (16 mb
 reader, 9.2 mb seen index, 2 mb live text, 2 mb copy buffers, 1 mb held
 events, less the 4 mb already counted), uploads add 4 mb, and a message
@@ -256,7 +312,8 @@ past the backstop's margin and needs the backstop raised by 32 mb a
 connection in the same change.
 
 the v1 balloon is impossible by construction: resyncs are bounded (a1,
-a2), one reset emits one event and not one per scope, streams can't queue
+a2), a host read journals only what moved and one `thread.reset` per
+thread it held, never a whole snapshot per scope, streams can't queue
 without bound, and nothing is serialized once per listener (events are
 serialized once, into the journal, and shared by reference).
 
@@ -323,9 +380,9 @@ route, status and latency in one structured line.
 before each input and drains its effects after: needs raised and served
 go to telemetry (`need.raised`, `need.served`, `need.cleared`) and to
 `boxbox.db` through one writer task; notices go to push; read marks go
-to the store. each session entry carries its open needs and its merged
-read mark, so the stream and every surface render the same answer with no
-new frame type. `GET /api/needs` answers the ledger with `x-boxbox-seq`,
+to the store. each thread carries its open needs and its merged read
+mark (sent as `thread.patch` fields when they move), so the stream and
+every surface render the same answer with no new frame type. `GET /api/needs` answers the ledger with `x-boxbox-seq`,
 the journal position it reflects. the ledger holds at most 500 open needs
 (the oldest news expires first, never an ask) and 200 served ones; a
 session keeps at most 16 device marks. presence reaches the fleet from
@@ -348,10 +405,10 @@ why solid:
   store applies them with structural sharing and wakes only the
   components that read those paths. a reading over the whole fleet keeps
   that promise only if it reads each session in a memo of its own
-  (`ui/fleet-index.ts`): `Object.values(state.fleet.sessions)` in one memo
-  reads every session, so any frame re-ran it over all of them. home's
+  (`ui/fleet-index.ts`): `Object.values(state.fleet.threads)` in one memo
+  reads every thread, so any frame re-ran it over all of them. home's
   window list, host count, views and streaming label and the stage's
-  agents and kin are built that way, and cost the session a frame names.
+  agents and kin are built that way, and cost the thread a frame names.
   the screens' one second clocks (`ui/clock.ts`) stop while the page is
   hidden, ticking only to reach a moment logic named (home's 12 hours,
   the composer's offline word), and come back on the tick a clock that
@@ -416,21 +473,32 @@ pages while the meta names a save this tab has not seen is refused the same
 way. the cursor is put last, and a save that throws part way is
 aborted. once a minute while the
 stream is up, `perf.sync` counts what the connection cost: frames,
-bytes received, patches posted and about their bytes, saves, records put
-and about their bytes.
+bytes received, seqs the stream skipped (from its ids), patches posted and
+about their bytes, saves, records put and about their bytes, with the view
+(home, thread, hidden). each connection's opening is a `sync.catchup` row
+(caught or reset, frames, bytes, stale and reset threads, the time to it),
+each confirm of an interest post a `sync.interest` row, and each rule that
+caught something (`patch-error`, `catchup-error`, `read-late`,
+`hash-miss`) a `sync.fault` row.
 
 **the reducer** is one exhaustive function over the journal's event
 union, generated from the server's types; the typescript compiler fails
 the build if a new event kind is not handled (`scars.md`:
-`message.removed` must be handled). it is pure and tested with recorded
-journals.
+`message.removed` must be handled). it checks a whole frame before it
+applies any of it: a frame that cannot apply to what it holds (a patch for
+a thread it does not have, an order op out of range: `docs/protocol.md`,
+section 3) applies nothing, says `sync.fault` `patch-error` (`catchup-error`
+for a catch-up), drops the
+cursor and dials again, so the next connection starts with a reset. it is
+pure and tested with recorded journals and the protocol 3 wire replay
+(`verification.md`, the protocol 3 client).
 
-**indexeddb layout** (v5): `meta` (cursor, epoch, build id), `fleet` (the
-model as a record per session, ask and host, one per other field, and an
-index of the fields and of each map's keys in order, so a session that
-changes writes that session alone and the fleet read back keeps its key
-order; v4 split the one record earlier versions wrote, in place, in the
-upgrade), `thread:<host:session>` a head, a baseline, pages and chunks:
+**indexeddb layout** (v6): `meta` (cursor, epoch, build id), `fleet` (the
+model as a record per thread, ask and agent, one per other field, and an
+index of the fields and of each map's keys in order, so a thread that
+changes writes that thread alone and the fleet read back keeps its key
+order), `thread:<agent:thread>` a head (with the thread's `left` and
+`etag` when it has them), a baseline, pages and chunks:
 the last message, the one a stream grows, alone in the last page, before
 it pages of 50, and what is left in pages of 32, 16, 8, 4, 2 and 1, so a
 change to a message rewrites that message and a new message rewrites a few
@@ -452,9 +520,12 @@ fold. while a part streams the worker saves once a second instead of every
 second more from it). the head is written with
 every save of its thread and so holds no baseline (a number per part,
 which grows with the thread): the baseline has its own record, written
-when it changes. v5 moved each head's baseline out in place, in the
-upgrade; a v4 build after a rollback fails to open the newer database and
-runs without its cache. `drafts` (a target's words) and `draftPhotos` (its photos, written only when the set changes), `outbox` (sends not yet echoed by client id, telemetry rows under `row:`, and this device's replies to asks under `ask:`, at most 200, the oldest dropped first: `app/src/sync/replies.ts`), `prefs`.
+when it changes. v6 is protocol 3's: the upgrade from any earlier version
+clears `fleet`, `threads` and the meta's cursor (contract 1 and cmx2
+shapes), so the first connect gets a reset and each thread reads its newest
+page when it is next opened, and keeps the stores below; a build before v6
+fails to open the newer database and runs without its cache. `media` (image
+bytes, empty until a later build fills it), `drafts` (a target's words) and `draftPhotos` (its photos, written only when the set changes), `outbox` (sends not yet echoed by client id, telemetry rows under `row:`, and this device's replies to asks under `ask:`, at most 200, the oldest dropped first: `app/src/sync/replies.ts`), `prefs`.
 
 **what the cache keeps and lets go.** a thread is *opened* (the person
 opened it: `openedAt` is the time) or only *held* for another thread (a
@@ -488,12 +559,12 @@ thread's read lands and as the stream grows it, not only when a thread is
 opened. a thread's size is counted from its parts' words and an envelope for
 text, and a weight of the json for any other part (strings by their length,
 never made into text), so a big tool output is not stringified on each change. a
-thread's head records `openedAt`, `heldAt`, `bytes` and its pages' count (not
-the lease).
+thread's head records `openedAt`, `heldAt`, `bytes`, its pages' count, and the
+`left` and `etag` of protocol 3 when it has them (not the lease).
 
 **the worker cools what nobody shows.** a thread the ui stops showing stays
 in memory for 5 minutes, and the 3 the person closed last stay whatever their
-age, as do threads whose session is busy and children a lane holds; the rest
+age, as do threads that are busy and children a lane holds; the rest
 are cooled: their messages leave memory and they are cold, their pages in the
 cache, read back when they are opened again (a lane's children, released or
 not, stay shown while their parent is drawn, so its details read them as
@@ -504,7 +575,8 @@ is cooled. a reset reads again only the threads on screen: every other thread
 whose pages the cache holds as memory does (nothing of it marked or being
 written) goes cold and stale, read again when it is wanted, so a server restart
 costs a device what it shows, not every thread it opened; one with changes not
-yet on disk is read again, as before. the reset lands at once and never waits
+yet on disk stays in memory, and is read when it is shown again (it enters the
+interest with no `left`). the reset lands at once and never waits
 on a save: the stream said live at the hello, and its caught-up second must
 find the snapshot's fleet in the store. a thread read again reaches
 the ui as the messages that differ and the ones that joined, not whole
@@ -677,8 +749,8 @@ service worker posts the answer through the same route as the ui, with a
 
 the board is an optional add-on with its own channel (decisions 78 to 81).
 `docs/board.md` holds how it is built: the view the fleet actor computes
-while a board listens, `/api/board/stream` and `/api/board/act`, the board's
-mac found by client address, and the id-less `board.*` frames on
+while a board listens, `/api/stream?view=board` and `/api/board/act`, the
+board's mac found by client address, and the id-less `board.*` frames on
 `/api/stream?board=1`. with no `[board]` in `boxbox.toml` the channel is
 dormant: its routes are not registered, the fleet actor holds no projection
 and starts no timer, and the app stream ignores the flag. with `[board]`, the
@@ -729,10 +801,10 @@ utf-16 units, as cmx2 defines it.
   shadows them.
 - **connections and agents** (m9): `boxbox.toml` gains `[[cmx2]]` (with
   `[[host]]` read as it), `[[openclaw]]` and `[[hermes]]`. each entry is a
-  connection with 1 to n agents. contract 2's verbs live under
-  `/api/agents/{agent}/...`, media under `/api/media`, and today's
-  `/api/hosts/{host}/...` routes stay as contract 1 while it lives
-  (`agents.md`). the host bullets below describe cmx2 connections.
+  connection with 1 to n agents. the verbs of every agent live under
+  `/api/agents/{agent}/...`, media under `/api/media`, and the cmx2 verb
+  routes under `/api/hosts/{host}/...` stay (`protocol.md`, q2; the
+  transcript proxy under them went with contract 1, `agents.md`). the host bullets below describe cmx2 connections.
 - **hosts** come from two places, merged by the upstream supervisor (the
   one owner of the host list): `boxbox.toml` (mode 0600), each host's
   name, url and daemon password, edited only in the file; and pairing from
@@ -764,7 +836,7 @@ utf-16 units, as cmx2 defines it.
     (`working`, `asking`, `subagent`, `unknown`, each with words). a
     clear also marks the thread seen. marks live in `boxbox.db`'s
     `clears` (migration 4), capped at 2000, oldest evicted, and reach the
-    app as `SessionEntry.cleared`.
+    app as `Thread.cleared`.
   - `GET /api/history?q&host&before&limit` reads each daemon's session
     list (`/session`, archived left out by cmx2), filters title and repo
     on the server (scanning up to four pages of 100 per host), merges
@@ -844,13 +916,11 @@ utf-16 units, as cmx2 defines it.
   the same table (migration 10), subject `host:root`, value `{auto,
   chosen}`. the fleet actor gives a repo its colour in the step that first
   shows a session of it and writes the row through its writer. colours
-  never enter contract 1's journal, its `reset` or `GET /api/fleet`
-  (`agents.md`, section 2: contract 1 never gains a change type): a
-  stream that asks with `GET /api/stream?colours=1` also gets id-less
-  `ColourFrame`s from the actor, in journal order: the whole map after
-  `hello` (and again before a replay page if it moved meanwhile), then a
-  `colour` frame ahead of the entry that first shows a new repo, and one
-  per choice. a stream without the flag gets contract 1 byte for byte.
+  never enter the journal, `reset` or `GET /api/fleet`: every stream but
+  the board's gets id-less `ColourFrame`s from the actor, in journal
+  order: the whole map after `hello`, then a `colour` frame ahead of the
+  entry that first shows a new repo, and one per choice (`protocol.md`,
+  section 2; the `colours=1` flag is gone).
   `PUT /api/prefs/colours` (`{host, root,
   chosen}`, one of the ten names or null for automatic) goes through the
   actor too, for a repo the fleet has a colour or a session for, and

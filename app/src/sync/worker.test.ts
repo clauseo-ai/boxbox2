@@ -2,16 +2,24 @@
    writes, on fake timers: the stall timer drops a connection exactly
    STALL_MS after its last byte, and a frame past the parser's cap drops
    the connection, is logged, and is dialled again with a backoff that
-   grows, not every half second. */
+   grows, not every half second. and the worker's side of protocol 3
+   against a fake server (fixtures/server.ts): what the page shows becomes
+   the stream's query and its interest posts, a hidden page asks for the
+   overview only after 30 s, a catch-up ends at `caught`, ids the stream
+   skipped are counted, and reads take the new routes and revalidate. */
 
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { type FakeServer, fakeServer } from "./fixtures/server";
+import { snapshot, thread } from "./fixtures/neutral";
+import type { Message } from "./protocol";
 import { PROTOCOL } from "./protocol";
-import { Sync } from "./worker";
+import type { SyncState } from "./reducer";
+import { HIDDEN_AFTER_MS, streamUrl, Sync } from "./worker";
 
 type Dial = { at: number; signal: AbortSignal; push(text: string): void };
 
 const encoder = new TextEncoder();
-const hello = `data: ${JSON.stringify({ type: "hello", epoch: "e1", head: 0, build: "test", protocol: PROTOCOL })}\n\n`;
+const hello = `data: ${JSON.stringify({ type: "hello", epoch: "e1", head: 0, build: "test", protocol: PROTOCOL, stream: "0".repeat(32), interest: { thread: null, under: [], holds: [] } })}\n\n`;
 
 let dials: Dial[] = [];
 let rows: { kind: string; props: Record<string, unknown> }[] = [];
@@ -41,24 +49,6 @@ beforeEach(() => {
   // no indexeddb: the worker runs without a cache, so nothing here waits on one
   scope["indexedDB"] = undefined;
   scope["postMessage"] = () => {};
-  jest.useFakeTimers();
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    if (url.startsWith("/api/telemetry")) {
-      const body = JSON.parse(String(init?.body)) as { events: { kind: string; props: Record<string, unknown> }[] };
-      rows.push(...body.events);
-      return new Response(null, { status: 204 });
-    }
-    if (!url.startsWith("/api/stream")) return new Response(null, { status: 404 });
-    const signal = init?.signal ?? new AbortController().signal;
-    let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
-    const body = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) });
-    signal.addEventListener("abort", () => controller?.error(new DOMException("aborted", "AbortError")), { once: true });
-    const dial: Dial = { at: performance.now(), signal, push: (text) => controller?.enqueue(encoder.encode(text)) };
-    dials.push(dial);
-    serve(dial);
-    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
-  }) as typeof fetch;
 });
 
 afterEach(() => {
@@ -71,6 +61,27 @@ afterEach(() => {
 });
 
 describe("the worker's stream loop", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/telemetry")) {
+        const body = JSON.parse(String(init?.body)) as { events: { kind: string; props: Record<string, unknown> }[] };
+        rows.push(...body.events);
+        return new Response(null, { status: 204 });
+      }
+      if (!url.startsWith("/api/stream")) return new Response(null, { status: 404 });
+      const signal = init?.signal ?? new AbortController().signal;
+      let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+      const body = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) });
+      signal.addEventListener("abort", () => controller?.error(new DOMException("aborted", "AbortError")), { once: true });
+      const dial: Dial = { at: performance.now(), signal, push: (text) => controller?.enqueue(encoder.encode(text)) };
+      dials.push(dial);
+      serve(dial);
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as typeof fetch;
+  });
+
   test("drops a connection STALL_MS after its last byte, however many bytes came before", async () => {
     serve = (dial) => dial.push(hello);
     sync = new Sync("device", "mac");
@@ -108,5 +119,239 @@ describe("the worker's stream loop", () => {
     const overflows = rows.filter((row) => row.kind === "perf.sync" && row.props["what"] === "overflow");
     expect(overflows.length).toBeGreaterThanOrEqual(4);
     expect(overflows.every((row) => Number(row.props["received"]) > cap)).toBe(true);
+  });
+});
+
+/* —— protocol 3 —— */
+
+const A = "bench:ses_a";
+const B = "bench:ses_b";
+const C = "bench:ses_c";
+const message = (id: string): Message => ({ info: { id, role: "assistant", created: 1 }, parts: [{ type: "text", id: `prt_${id}`, messageID: id, text: `words of ${id}` }] });
+
+let server: FakeServer;
+
+async function until(what: string, ok: () => boolean, ms = 3_000) {
+  const start = Date.now();
+  while (!ok()) {
+    if (Date.now() - start > ms) throw new Error(`waited for ${what}`);
+    await Bun.sleep(2);
+  }
+}
+
+const state = (): SyncState => (sync as unknown as { state: SyncState }).state;
+
+/** a booted worker on a live stream: the hello, then a reset at seq 5 with three idle threads */
+async function live(board = false): Promise<Sync> {
+  const s = new Sync("device", "mac", board);
+  sync = s;
+  await s.boot(null);
+  await until("the dial", () => server.dials.length === 1);
+  server.head = 5;
+  server.hello();
+  server.push({ type: "reset", seq: 5, epoch: "j1", reason: "none", fleet: snapshot([thread(A), thread(B), thread(C)]) }, "j1:5");
+  await until("the reset", () => state().cursor?.seq === 5);
+  return s;
+}
+
+/** the person opens a thread and the stage shows it, as client.ts says both */
+async function openAndShow(key: string) {
+  const s = sync as Sync;
+  await s.open(key);
+  s.show(key);
+}
+
+const settled = () => state().interest.posts.length === 0;
+
+describe("protocol 3: what the page shows", () => {
+  beforeEach(() => {
+    server = fakeServer();
+    server.transcript = (key) => [message(`msg_${key.slice(10)}_1`)];
+  });
+  afterEach(() => server.restore());
+
+  test("a stream's query names the stage, the layers, the holds and each one's left, keys encoded and lists joined by commas", () => {
+    expect(streamUrl({ thread: null, under: [], holds: [], since: {} }, false)).toBe("/api/stream");
+    expect(streamUrl({ thread: null, under: [], holds: [], since: {} }, true)).toBe("/api/stream?board=1");
+    expect(streamUrl({ thread: B, under: [A], holds: [C, "h:x y"], since: { [B]: 12, [A]: 9 } }, true)).toBe(
+      "/api/stream?thread=bench%3Ases_b&under=bench%3Ases_a&holds=bench%3Ases_c,h%3Ax%20y&since=bench%3Ases_b:12,bench%3Ases_a:9&board=1",
+    );
+  });
+
+  test("the first dial asks for no colours flag; opening, layering and holding post the interest in order; a pagehide and pageshow dial again with all of it in the query, each key with its left", async () => {
+    const s = await live();
+    expect(server.dials[0]?.url).toBe("/api/stream");
+    await openAndShow(A);
+    await until("a read", () => state().threads[A]?.status === "live");
+    // an entry for the stage moves the cursor past the confirm
+    server.push({ seq: 7, type: "message", key: A, upstream: 60, message: { id: "msg_a_2", role: "assistant", created: 2 } }, "j1:7");
+    await openAndShow(B);
+    await s.hold(C);
+    await until("the confirms", () => settled() && state().threads[B]?.status === "live" && state().threads[C]?.status === "live");
+    expect(server.posts.map((p) => [p.url, p.body])).toEqual([
+      [`/api/stream/${server.stream}/interest`, { ask: 1, thread: A, under: [], holds: [] }],
+      [`/api/stream/${server.stream}/interest`, { ask: 2, thread: B, under: [A], holds: [] }],
+      [`/api/stream/${server.stream}/interest`, { ask: 3, thread: B, under: [A], holds: [C] }],
+    ]);
+    // the reads waited for their confirm and took the new route
+    expect(server.reads.map((r) => r.url)).toEqual(["/api/agents/bench/threads/ses_a/messages", "/api/agents/bench/threads/ses_b/messages", "/api/agents/bench/threads/ses_c/messages"]);
+    const cursor = state().cursor?.seq ?? 0;
+    expect(cursor).toBe(7);
+    // pagehide: the stream closes and every key in interest keeps the cursor as its left; pageshow dials at once with them
+    await s.pause();
+    expect(server.dials[0]?.signal.aborted).toBe(true);
+    s.resume();
+    await until("the second dial", () => server.dials.length === 2);
+    expect(server.dials[1]?.url).toBe(`/api/stream?thread=bench%3Ases_b&under=bench%3Ases_a&holds=bench%3Ases_c&since=bench%3Ases_b:7,bench%3Ases_a:7,bench%3Ases_c:7`);
+    expect(server.dials[1]?.headers["last-event-id"]).toBe("j1:7");
+  });
+
+  test("a layer the page stops showing leaves the interest, keeps the confirm's seq as its left, and comes back with it as its since, read by no one", async () => {
+    const s = await live();
+    await openAndShow(A);
+    await openAndShow(B);
+    await until("both read", () => settled() && state().threads[B]?.status === "live" && state().threads[A]?.status === "live");
+    server.push({ seq: 9, type: "thread.patch", key: A, set: { updated: 3 } }, "j1:9");
+    s.hide(A);
+    await until("the confirm", () => settled() && server.posts.length === 3);
+    expect(server.posts[2]?.body).toEqual({ ask: 3, thread: B, under: [], holds: [] });
+    expect(state().threads[A]?.left).toBe(9);
+    const reads = server.reads.length;
+    // back on stage over B: it enters with its left, and the server's catch-up (none here) is all it needs
+    await openAndShow(A);
+    await until("the confirm", () => settled() && server.posts.length === 4);
+    expect(server.posts[3]?.body).toEqual({ ask: 4, thread: A, under: [B], holds: [], since: { [A]: 9 } });
+    await Bun.sleep(20);
+    expect(server.reads.length).toBe(reads);
+    expect(state().threads[A]?.left).toBeUndefined();
+  });
+
+  test("closing the stage over a layer makes the layer the stage: the post names it as the thread, with no since and no read", async () => {
+    const s = await live();
+    await openAndShow(A);
+    await openAndShow(B);
+    await until("both read", () => settled() && state().threads[B]?.status === "live" && state().threads[A]?.status === "live");
+    const reads = server.reads.length;
+    s.hide(B);
+    await until("the confirm", () => settled() && server.posts.length === 3);
+    expect(server.posts[2]?.body).toEqual({ ask: 3, thread: A, under: [], holds: [] });
+    // and closing that one too goes home
+    s.hide(A);
+    await until("the confirm", () => settled() && server.posts.length === 4);
+    expect(server.posts[3]?.body).toEqual({ ask: 4, thread: null, under: [], holds: [] });
+    await Bun.sleep(20);
+    expect(server.reads.length).toBe(reads);
+  });
+
+  test("a post the server answers 404 dials again at once with the interest in the query; one that fails otherwise dials again after the backoff, never posting it again", async () => {
+    const s = await live();
+    server.postStatus = 404;
+    await openAndShow(A);
+    await until("the second dial", () => server.dials.length === 2, 400);
+    expect(server.dials[1]?.url).toBe("/api/stream?thread=bench%3Ases_a");
+    expect(server.posts).toHaveLength(1);
+    server.hello({ thread: A, under: [], holds: [] });
+    await until("the hello's read", () => state().threads[A]?.status === "live");
+    server.postStatus = 500;
+    const started = Date.now();
+    await s.hold(C);
+    await until("the third dial", () => server.dials.length === 3);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(200);
+    // the stage was current when the stream dropped, so it goes with the cursor as its since; the child was never read
+    expect(server.dials[2]?.url).toBe("/api/stream?thread=bench%3Ases_a&holds=bench%3Ases_c&since=bench%3Ases_a:5");
+    expect(server.posts).toHaveLength(2);
+  });
+
+  test("a catch-up ends at caught: the stream says resumed and how many frames it replayed, the catch-up row says what it cost, and the ids it skipped are counted", async () => {
+    const s = await live();
+    await s.pause();
+    s.resume();
+    await until("the second dial", () => server.dials.length === 2);
+    server.hello();
+    server.push({ seq: 9, type: "thread.patch", key: A, set: { updated: 3 } }, "j1:9");
+    server.push({ type: "catchup", entries: [] });
+    // a type this client does not know moves the cursor past it
+    server.push({ seq: 30, type: "thread.someday", key: A }, "j1:30");
+    server.push({ type: "caught", seq: 40 }, "j1:40");
+    await until("caught", () => state().cursor?.seq === 40);
+    await s.pause();
+    // the connection's minute row is written as its read ends, after the pause's own flush
+    await Bun.sleep(10);
+    await s.flush();
+    await until("the rows", () => server.rows.filter((r) => r.kind === "perf.sync").length === 2);
+    const streams = server.rows.filter((r) => r.kind === "app.stream");
+    expect(streams.map((r) => r.props)).toEqual([
+      { state: "open", resumed: 0, replayed: 0 },
+      // a pagehide is not a drop: no time down is said
+      { state: "reopen", resumed: 1, replayed: 3 },
+    ]);
+    const catchups = server.rows.filter((r) => r.kind === "sync.catchup").map((r) => r.props);
+    expect(catchups[0]).toMatchObject({ how: "reset", reason: "none", frames: 1 });
+    expect(catchups[1]).toMatchObject({ how: "caught", frames: 4, stale: 0, resets: 0 });
+    expect(Number(catchups[1]?.["bytes"])).toBeGreaterThan(50);
+    // ids 5, 9, 30, 40: 3 + 20 + 9 seqs skipped, on the second connection's minute row
+    const minutes = server.rows.filter((r) => r.kind === "perf.sync" && r.props["what"] === "minute").map((r) => r.props);
+    expect(minutes.at(-1)).toMatchObject({ view: "home", skipped: 32 });
+  });
+
+  test("reads revalidate with the etag they hold: a 304 keeps what the thread holds as the read, and a read without one sends no If-None-Match", async () => {
+    server.etag = (key) => (key === A ? '"3.j1.5.q"' : undefined);
+    await live();
+    await openAndShow(A);
+    await openAndShow(B);
+    await until("both read", () => settled() && state().threads[A]?.status === "live" && state().threads[B]?.status === "live");
+    expect(state().threads[A]?.etag).toBe('"3.j1.5.q"');
+    expect(state().threads[B]).not.toHaveProperty("etag");
+    const before = state().threads[A]?.messages;
+    // the stream cannot vouch for both: each is read again, A by its etag
+    server.push({ type: "thread.stale", key: A });
+    server.push({ type: "thread.stale", key: B });
+    await until("read again", () => server.reads.length === 4 && state().threads[A]?.status === "live" && state().threads[B]?.status === "live");
+    expect(server.reads.slice(2).map((r) => [r.key, r.headers["if-none-match"]])).toEqual([
+      [A, '"3.j1.5.q"'],
+      [B, undefined],
+    ]);
+    expect(state().threads[A]?.messages).toEqual(before as Message[]);
+    expect(state().threads[A]?.etag).toBe('"3.j1.5.q"');
+  });
+});
+
+describe("protocol 3: a hidden page", () => {
+  beforeEach(() => {
+    server = fakeServer();
+    server.transcript = (key) => [message(`msg_${key.slice(10)}_1`)];
+  });
+  afterEach(() => server.restore());
+
+  test("asks for the overview only after 30 s hidden, keeps the confirm's seq as the stage's left, and on visible asks for it again with that left", async () => {
+    const s = await live();
+    await openAndShow(A);
+    await until("read", () => settled() && state().threads[A]?.status === "live");
+    server.push({ seq: 8, type: "thread.patch", key: A, set: { updated: 3 } }, "j1:8");
+    jest.useFakeTimers();
+    s.visibility(true);
+    await advance(HIDDEN_AFTER_MS - 1_000, 1_000);
+    expect(server.posts).toHaveLength(1);
+    await advance(1_000, 100);
+    expect(server.posts[1]?.body).toEqual({ ask: 2, thread: null, under: [], holds: [] });
+    jest.useRealTimers();
+    await until("the confirm", () => settled());
+    expect(state().threads[A]?.left).toBe(8);
+    s.visibility(false);
+    await until("the confirm", () => settled() && server.posts.length === 3);
+    expect(server.posts[2]?.body).toEqual({ ask: 3, thread: A, under: [], holds: [], since: { [A]: 8 } });
+  });
+
+  test("shown again before 30 s, it asks for nothing", async () => {
+    const s = await live();
+    await openAndShow(A);
+    await until("read", () => settled());
+    jest.useFakeTimers();
+    s.visibility(true);
+    await advance(HIDDEN_AFTER_MS - 1_000, 1_000);
+    s.visibility(false);
+    await advance(5_000, 1_000);
+    jest.useRealTimers();
+    expect(server.posts).toHaveLength(1);
   });
 });

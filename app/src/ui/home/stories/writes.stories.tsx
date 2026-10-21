@@ -15,10 +15,9 @@ import { mountShell } from "../../../shell/stories/mount";
 import { applyPatches, state } from "../../../store";
 import type { Message } from "../../../sync/protocol";
 import type { Patch } from "../../../sync/reducer";
-import journal from "../fixtures/journal.ndjson?raw";
+import journal from "../fixtures/journal-p3.ndjson?raw";
 import { simulate } from "../fixtures/fleet-sim";
 import { clearName, doneLabel, doneName, nameSuffixes } from "../../window/clearing";
-import { repoName } from "../../window/repo";
 import { probeWrites } from "./writes-probe";
 
 export default { title: "writes" };
@@ -31,10 +30,10 @@ const param = (name: string): number => Number(new URLSearchParams(location.sear
     window's clear (clear.tsx, the same windows and suffixes) and the bar's "clear N", whose name and words name one count.
     returns how many it looked at and what disagreed */
 function landed(root: HTMLElement): { looked: number; stale: string[] } {
-  const showHost = state.fleet.hostNames.length > 1;
+  const showHost = state.fleet.agentNames.length > 1;
   const windows = state.fleet.order.flatMap((key) => {
-    const entry = state.fleet.sessions[key];
-    return entry ? [{ key, host: entry.host, repo: repoName(entry.info.projectID), title: entry.info.title.trim() || "untitled" }] : [];
+    const entry = state.fleet.threads[key];
+    return entry ? [{ key, host: entry.agent, repo: entry.place?.name ?? "", title: entry.title.trim() || "untitled" }] : [];
   });
   const suffixes = nameSuffixes(windows, showHost);
   const byKey = new Map(windows.map((w) => [w.key, w]));
@@ -71,8 +70,8 @@ function run(story: "home" | "thread") {
         const steps = param("steps") || 400;
         const sim = simulate(journal, { sessions: 300, steps, seed: 11, fine: param("whole") !== 1 });
         const own = [...state.fleet.order];
-        const sessions = Object.values(sim.start.sessions).map((s) => ({ path: ["fleet", "sessions", s.key], value: s }) as Patch);
-        applyPatches([...sessions, { path: ["fleet", "order"], value: [...own, ...sim.start.order] }, { path: ["fleet", "hostNames"], value: [...new Set([...state.fleet.hostNames, ...sim.start.hostNames])] }]);
+        const threads = Object.values(sim.start.threads).map((t) => ({ path: ["fleet", "threads", t.key], value: t }) as Patch);
+        applyPatches([...threads, { path: ["fleet", "order"], value: [...own, ...sim.start.order] }, { path: ["fleet", "agentNames"], value: [...new Set([...state.fleet.agentNames, ...sim.start.agentNames])] }]);
         await sleep(1000);
         const key = story === "thread" ? state.openThread : null;
         const thread = key ? state.threads[key] : undefined;
@@ -80,9 +79,10 @@ function run(story: "home" | "thread") {
         const at = thread?.messages.length ?? 0;
         if (key && template) {
           const message = JSON.parse(JSON.stringify(template)) as Message;
-          message.info = { ...message.info, id: "msg_writes", time: { created: Date.now() } } as Message["info"];
+          const { completed: _completed, ...info } = message.info;
+          message.info = { ...info, id: "msg_writes", created: Date.now() };
           message.parts = [{ ...(message.parts.find((p) => p.type === "text") ?? message.parts[0]), id: "prt_writes", messageID: "msg_writes", type: "text", text: "", streaming: true } as Message["parts"][number]];
-          applyPatches([{ path: ["fleet", "sessions", key, "status"], value: { type: "busy", queued: 0, since: Date.now() } }, { path: ["threads", key, "messages", at], value: message }]);
+          applyPatches([{ path: ["fleet", "threads", key, "activity"], value: { state: "busy", since: Date.now() } }, { path: ["threads", key, "messages", at], value: message }]);
         }
         probe = probeWrites(el);
         const began = performance.now();
@@ -106,7 +106,7 @@ function run(story: "home" | "thread") {
           }
           /* now and then a window on screen is renamed: a name that does change is written in the batch that changed it */
           const renamed = n % 25 === 5 ? el.querySelector<HTMLElement>(".win[data-key] .wclear")?.closest<HTMLElement>(".win")?.dataset["key"] : undefined;
-          if (renamed && state.fleet.sessions[renamed]) patches.push({ path: ["fleet", "sessions", renamed, "info", "title"], value: `renamed at ${n}` });
+          if (renamed && state.fleet.threads[renamed]) patches.push({ path: ["fleet", "threads", renamed, "title"], value: `renamed at ${n}` });
           if (patches.length > 0) applyPatches(patches);
           const seen = landed(el);
           looked += seen.looked;

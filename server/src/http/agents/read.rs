@@ -23,29 +23,18 @@ use crate::http::error::{ApiError, ErrorBody};
 use crate::source::{MessageWithParts, Stamp, ThreadRef, VerbError};
 use crate::wire::{Message, Part, Role};
 
-/// the journal's view of one thread when a read starts: the stub of the
-/// fleet's `versions` until the protocol 3 journal lands with it.
-#[derive(Clone, Debug)]
-pub struct Versions {
-    /// the journal head when asked, `<epoch>:<seq>`.
-    pub at: String,
-    pub v: Option<u64>,
-    pub rv: Option<u64>,
-    pub encoder: u32,
-}
+pub use crate::fleet::Versions;
 
-/// the journal head and the thread's versions.
+/// the journal head and the thread's versions, from the fleet.
 ///
 /// # Errors
 /// the fleet is stopping.
-pub async fn versions(state: &AppState, _key: &str) -> Result<Versions, ApiError> {
-    let now = state.fleet.needs().await.map_err(|_| ApiError::Stopping)?;
-    Ok(Versions {
-        at: now.at.to_string(),
-        v: None,
-        rv: None,
-        encoder: crate::wire::ENCODER,
-    })
+pub async fn versions(state: &AppState, key: &str) -> Result<Versions, ApiError> {
+    state
+        .fleet
+        .versions(key.to_owned())
+        .await
+        .map_err(|_| ApiError::Stopping)
 }
 
 /// a page query (`docs/protocol.md`, section 11): with none of `turns`,
@@ -105,7 +94,7 @@ impl PageQuery {
 /// the etag of a read: `"<encoder>.<epoch>.<v or rv>.<q>"`.
 #[must_use]
 pub fn etag(versions: &Versions, n: u64, q: &str) -> String {
-    let epoch = versions.at.rsplit_once(':').map_or("", |(e, _)| e);
+    let epoch = &versions.at.epoch;
     format!("\"{}.{epoch}.{n}.{q}\"", versions.encoder)
 }
 
@@ -245,7 +234,7 @@ pub fn cache_of(
 /// the `rv` query value of an immutable page: `<epoch>.<rv>`.
 #[must_use]
 pub fn rv_value(versions: &Versions, rv: u64) -> String {
-    let epoch = versions.at.rsplit_once(':').map_or("", |(e, _)| e);
+    let epoch = &versions.at.epoch;
     format!("{epoch}.{rv}")
 }
 
@@ -288,7 +277,7 @@ impl Turns {
 /// `x-boxbox-seq` and `x-boxbox-upstream` on a read's answer.
 pub fn stamp(response: &mut Response, versions: &Versions, upstream: Option<&Stamp>) {
     let headers = response.headers_mut();
-    if let Ok(value) = HeaderValue::from_str(&versions.at) {
+    if let Ok(value) = HeaderValue::from_str(&versions.at.to_string()) {
         headers.insert("x-boxbox-seq", value);
     }
     if let Some(Ok(value)) =
@@ -312,7 +301,8 @@ fn thread_ref(found: &super::Found, thread: &str) -> ThreadRef {
     path = "/api/agents/{agent}/threads/{thread}/messages",
     params(("agent" = String, Path), ("thread" = String, Path)),
     responses(
-        (status = 200, description = "the thread's messages, translated, with `x-boxbox-seq` and `x-boxbox-upstream`; `cache-control: private, no-cache`", body = Object),
+        (status = 200, description = "the thread's messages, translated, with `x-boxbox-seq` and `x-boxbox-upstream`; `cache-control: private, no-cache` and an etag on the thread's version", body = Object),
+        (status = 304, description = "`if-none-match` names the thread's version: nothing moved, the source was not asked"),
         (status = 401, description = "not signed in", body = ErrorBody),
         (status = 404, description = "no such agent or thread", body = ErrorBody),
         (status = 502, description = "the agent did not answer", body = ErrorBody),
@@ -330,6 +320,10 @@ pub async fn messages(
     if let Some(anchor) = query.anchor()? {
         return paged(&found, &target, &versions, &query, anchor, &headers).await;
     }
+    let tag = whole_tag(&versions);
+    if let Some(unchanged) = whole_unchanged(&versions, tag.as_deref(), &headers) {
+        return Ok(unchanged);
+    }
     let reading = found
         .source
         .read(&target)
@@ -343,12 +337,34 @@ pub async fn messages(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, no-cache"),
-    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(NO_CACHE));
+    if let Some(Ok(value)) = tag.as_deref().map(HeaderValue::from_str) {
+        headers.insert(header::ETAG, value);
+    }
     stamp(&mut response, &versions, upstream.as_ref());
     Ok(response)
+}
+
+/// the whole read's etag, on `v` like the newest page's (section 11); none
+/// for a thread the journal holds no version for. its query part is
+/// `whole`, never the normalised hash: no query normalises to 8 turns,
+/// which until the app pages is another body under the same url shape.
+fn whole_tag(versions: &Versions) -> Option<String> {
+    versions.v.map(|v| etag(versions, v, WHOLE))
+}
+
+/// the query part of the whole read's etag.
+const WHOLE: &str = "whole";
+
+/// the 304 a whole read answers when the client holds what `v` names,
+/// without asking the source.
+fn whole_unchanged(
+    versions: &Versions,
+    tag: Option<&str>,
+    headers: &HeaderMap,
+) -> Option<Response> {
+    let tag = tag?;
+    names(headers, tag).then(|| unchanged(versions, tag, NO_CACHE))
 }
 
 /// the page shape around a whole read, written as the messages come: a
@@ -530,7 +546,7 @@ pub(crate) mod tests {
     }
     fn at(v: Option<u64>, rv: Option<u64>) -> Versions {
         Versions {
-            at: "0a1b2c3d4e5f:90".into(),
+            at: crate::journal::Cursor::parse("0a1b2c3d4e5f:90").unwrap(),
             v,
             rv,
             encoder: 1,
@@ -547,6 +563,38 @@ pub(crate) mod tests {
             in_rv_turn,
             unfinished,
         }
+    }
+
+    #[test]
+    fn a_whole_read_carries_the_etag_on_v_and_answers_304_when_it_is_named() {
+        let held = at(Some(156), Some(40));
+        let tag = whole_tag(&held).unwrap();
+        assert_eq!(tag, "\"1.0a1b2c3d4e5f.156.whole\"");
+        // the client names it: 304 with the etag, no-cache and x-boxbox-seq
+        let mut asked = HeaderMap::new();
+        asked.insert(
+            header::IF_NONE_MATCH,
+            HeaderValue::from_str(&format!("W/{tag}")).unwrap(),
+        );
+        let answer = whole_unchanged(&held, Some(&tag), &asked).unwrap();
+        assert_eq!(answer.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(answer.headers()[header::ETAG], tag.as_str());
+        assert_eq!(answer.headers()[header::CACHE_CONTROL], NO_CACHE);
+        assert!(answer.headers().contains_key("x-boxbox-seq"));
+        // a transcript entry moved v: the old tag no longer names it
+        let moved = at(Some(157), Some(40));
+        let fresh = whole_tag(&moved).unwrap();
+        assert_ne!(fresh, tag);
+        assert!(whole_unchanged(&moved, Some(&fresh), &asked).is_none());
+        // no if-none-match, or no version held: the source is read
+        assert!(whole_unchanged(&held, Some(&tag), &HeaderMap::new()).is_none());
+        assert_eq!(whole_tag(&at(None, None)), None);
+        // the whole read and the newest page of 8 turns never share a tag
+        let eight = PageQuery {
+            turns: Some(8),
+            ..PageQuery::default()
+        };
+        assert_ne!(Some(etag(&held, 156, &eight.hash())), Some(tag));
     }
 
     #[test]

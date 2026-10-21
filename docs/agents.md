@@ -23,31 +23,32 @@ law in `design.md`, `home.md`, `thread.md` and `composer.md`.
 | agent | someone you talk to. 1 to n per connection: a cmx2 daemon is one agent, an openclaw gateway has one agent per `agents.entries` row, a hermes gateway one per profile |
 | agent key | the agent's name on the wire, `[a-z0-9-]{1,32}`, and the first half of every thread key |
 | thread | one conversation with one agent, keyed `<agent>:<thread>` |
-| contract | the version of the wire a client speaks. contract 1 is today's; contract 2 is this file's |
+| neutral wire | boxbox's own shapes for everything that crosses to a client (section 1), once called contract 2. devices get them over protocol 3 (`protocol.md`), which replaced contract 1, the cmx2-shaped wire before it |
 | capability | something an agent can do. clients render from capabilities, never from the source |
 | media | bytes boxbox keeps for a part: an upload, or a copy of something an agent sent |
 
-today boxbox is cmx2-shaped at three depths: the watcher, the reducer and
-the wire. `fleet::Upstream` carries `cmx2::Event` (`server/src/fleet/mod.rs:86-109`),
-the reducer matches its variants (`server/src/fleet/model.rs:826-901`), and
-cmx2's session, status, message, part and ask objects go to clients byte
-for byte (`server/src/fleet/change.rs:6-8,73-86,121-126,215-217`), where both
-clients type them as cmx2 (`app/src/sync/protocol.ts:13-16,39,53-65`). every
-section below removes one of those depths without changing what cmx2
-threads do.
+before m9 boxbox was cmx2-shaped at three depths: the watcher, the
+reducer and the wire. `fleet::Upstream` carried `cmx2::Event`, the reducer
+matched its variants, and contract 1 sent cmx2's session, status, message,
+part and ask objects to clients byte for byte. the seam (section 4) took
+out the first two; protocol 3 took out the third, raw passthrough
+included (`protocol.md`, section 15). cmx2 threads behave as they did.
 
 ## 1. the neutral wire
 
-contract 2 is boxbox's own documented shapes for everything that crosses
-to a client. no source object crosses raw. the one deliberate exception is
+the neutral wire (once called contract 2) is boxbox's own documented
+shapes for everything that crosses to a client; protocol 3 carries them
+to devices (`protocol.md`). no source object crosses raw. the one deliberate exception is
 a tool call's `input` and `metadata`, which stay the source's json (below,
 the part union), because the rich rows that read them are keyed by tool
 name and have nothing neutral to read instead.
 
 the shapes are rust types in `server/src/wire/` (one module per shape),
 described with utoipa like every other boxbox type, so the web app's types
-and the ios app's drift test both come from the one openapi document. they
-sit beside contract 1's types (`fleet/change.rs`), which do not change.
+and the ios app's drift test both come from the one openapi document.
+protocol 3's frames, patches and interest post are in
+`server/src/wire/stream.rs` and `wire/patch.rs`; contract 1's types
+(`fleet/change.rs`) are gone.
 
 ### the agent
 
@@ -106,12 +107,13 @@ RunItem = { thread: string, name?: string, at: number, preview: string }
   (`openclaw.md`, the version policy, owns the words). cmx2 has no pin of
   its own beyond `contract`: `pinned` is null and `untested` false.
 - the agents of one connection share its `connection` object. a change to
-  the connection emits one `agent` change per agent on it.
+  the connection emits one `agent` change per agent on it whose state
+  moved; an agent equal to the one last journaled is not sent again.
 
 ### the thread
 
-the contract 2 `Thread` replaces contract 1's `SessionEntry` with its raw
-`info` and `status` (`change.rs:113-143`).
+the `Thread` replaced contract 1's `SessionEntry`, which carried cmx2's
+raw `info` and `status`.
 
 ```
 Thread {
@@ -132,6 +134,7 @@ Thread {
   model?: string, effort?: string,              // what the thread runs with now
   context?: { used: number, limit: number, compactAt?: number },   // spend capability
   cost?: number,                                                    // spend capability
+  tokens?: { input, output, cacheRead, cacheWrite },                // cmx2 today
   vcs?: { branch: string, dirty: boolean },
   changes?: { additions: number, deletions: number, files: number },
   browseOnly?: true,                            // imported history: read, never send
@@ -141,11 +144,11 @@ Thread {
 ```
 
 `agents`, `processes`, `tail`, `needs`, `read` and `cleared` are already
-boxbox's own and keep their meaning (`change.rs:127-142`). `TailItem.kind`
-gains `image` and `audio` in contract 2. tails are encoded per contract:
-the model builds a tail once from neutral parts, and contract 1's encoder
-maps `image` and `audio` to `file`, which is what a cmx2 image is in a
-contract 1 tail today (`change.rs:194-199`).
+boxbox's own and keep their meaning. `TailItem.kind` adds `image` and
+`audio` to contract 1's text, reasoning, tool and file; the model builds a
+tail once from neutral parts (`fleet/model.rs`, `TailItem`, mapped to
+`wire::TailItem`), and protocol 3 sends a changed tail as a
+`thread.patch` tail op (`protocol.md`, section 6).
 
 - **`said`** is when a turn last wrote text for you or raised an ask. a
   source whose agent runs on its own (openclaw, hermes: scheduled runs,
@@ -157,8 +160,8 @@ contract 1 tail today (`change.rs:194-199`).
   reports on the thread (openclaw's `lastRunError`, `openclaw.md`); it holds
   until the next run starts. cmx2 reports errors on messages and never sends
   it. a cmx2 `retry` comes from the raw status: the model folds retry into
-  busy for ranking and turns (`model.rs:2761-2763`), and that fold stays;
-  only the contract 2 encoding shows `retry`.
+  busy for ranking and turns, and that fold stays; only the wire's
+  `activity` shows `retry`.
 - **`generation`** is an opaque string that changes when the agent swaps
   the conversation behind the key (openclaw: a rewind or branch switch, a
   hash of its session id). the client sends back the one it last saw on
@@ -341,34 +344,22 @@ wants you"` without one, where the agent name is `label.name`, else
 
 ### the stream
 
-`GET /api/stream?protocol=2`. the frames have the shapes of contract 1,
-with these change types, each with its journal `seq` first:
-
-| change | carries | replaces in contract 1 |
-|---|---|---|
-| `agent` | `{agent: Agent}` | `host` |
-| `agent.removed` | `{agent: key}` | `host.removed` |
-| `agent.reset` | `{agent, threads: Thread[], asks: Ask[]}` | `host.reset` |
-| `thread` | `{thread: Thread}`, whole | `session` |
-| `thread.removed` | `{key}` | `session.removed` |
-| `thread.reset` | `{key}` | new |
-| `ask` | `{ask: Ask}` | `ask` |
-| `ask.settled` | `AskSettled` (above) | `ask.settled` |
-| `order` | `{keys}` | `order` |
-| `message` | `{key, upstream, message: Message}` | `message` |
-| `part` | `{key, upstream, part: Part}` | `part` |
-| `delta` | `{key, messageID, partID, field, delta, offset}` | `delta`, unchanged |
-| `message.removed` | `{key, upstream, messageID}` | unchanged |
-| `reactions` | `{key, messageID, reactions: Reaction[]}` | new |
-
-`hello` says `protocol: 2`; `reset` carries `fleet: {agents, threads,
-asks, order}`. a contract 2 client advances its cursor past a change type
-it does not know and ignores it, so a later server can add one; contract 1
-never gains one (section 2). `upstream` keeps its meaning: the source's seq
-for the event when it has one, so a client applies it only past the read
-it lands on; null when the source does not number it, which makes it newer
-than any read. deltas keep the utf-16 `offset` rule (`change.rs:88-103`):
-a source that does not stream sends whole parts only. a source's live
+devices get these shapes over protocol 3: `GET /api/stream`, whose
+frames, entries, interest, patches and catch-up `protocol.md` specifies
+(sections 2 to 9). the journal entries are `agent`, `agent.removed`,
+`thread` (whole), `thread.patch`, `thread.removed`, `thread.reset`,
+`ask`, `ask.settled`, `order`, `order.patch`, `message`, `part`, `delta`,
+`message.removed` and `reactions`; the control frames are `hello`
+(`protocol: 3` and the stream's id), `reset` (`fleet: {agents, threads,
+asks, order}`), `caught`, `catchup`, `interest`, `thread.stale` and the
+repo colours. contract 1's `host.reset` and `session.*` changes are gone:
+a host read is a quiet re-read that journals what moved and a
+`thread.reset` for every thread it held (`protocol.md`, section 10).
+`upstream` keeps its meaning: the source's seq for the event when it has
+one, so a client applies it only past the read it lands on; null when the
+source does not number it, which makes it newer than any read. deltas
+keep the utf-16 `offset` rule: a source that does not stream sends whole
+parts only. a source's live
 preview (text the gateway streams before the row is committed,
 `openclaw.md`) is a part of a provisional message whose id the source
 mints, so its deltas have a part to land on; clients get live text only
@@ -412,10 +403,10 @@ is `ready`.
 
 ### the cmx2 mapping, field by field
 
-the cmx2 source fills contract 2 from the same objects contract 1 passes
-raw. a field not named here does not cross.
+the cmx2 source fills the neutral shapes from cmx2's objects, which no
+longer cross raw. a field not named here does not cross.
 
-| contract 2 | cmx2 | note |
+| neutral | cmx2 | note |
 |---|---|---|
 | `Thread.key`, `.agent`, `.id` | `<host>:<info.id>`, host, `info.id` | unchanged identity |
 | `Thread.title` | `info.title` | |
@@ -434,7 +425,8 @@ raw. a field not named here does not cross.
 | `Thread.changes` | `info.summary` | |
 | `Thread.browseOnly` | `info.source == "cmx"` | imported history |
 | `Thread.said`, `.generation`, `.sends`, `.origin` | none | absent on every cmx2 thread |
-| not carried | `slug`, `version`, `tokens`, `revert`, `share` | nothing reads them |
+| `Thread.tokens` | `info.tokens` (input, output, cache read and write) | |
+| not carried | `slug`, `version`, `revert`, `share` | nothing reads them |
 | `Message.id`, `.role` | `id`, `role` | |
 | `Message.created`, `.completed` | `time.created`, `time.completed` | |
 | `Message.clientID`, `.queued`, `.steer` | `clientID`, `queued`, `steer` | |
@@ -458,104 +450,35 @@ raw. a field not named here does not cross.
 
 ## 2. the transition
 
-the ios app pins a boxbox server commit (`boxbox.pin`), decodes with
-hand-written codable checked by a drift test against the pinned
-`vendor/boxbox.json`, and stops with "out of date" on a `hello` whose
-protocol is not 1 (`BoxboxKit/Sources/BoxboxKit/Sync/Fleet/FleetReducer.swift:89-110`
-in the ios repo). bumping `PROTOCOL` in place would strand every installed
-copy. so the server speaks both contracts at once, and the client picks.
+the plan here was two wires at once: contract 1 frozen for installed
+clients beside contract 2 behind `?protocol=2`, with two journals, two
+epochs, every model cap kept twice (once over cmx2 threads, once over the
+rest) and a `stream_days` count to say when contract 1 could go. none of
+that was built. the owner's round three decisions replaced both wires
+with protocol 3 in one change (`protocol.md`; decisions 25, 36 and 37
+are superseded):
 
-- **the contract version** is the `protocol` number `hello` already
-  carries (`change.rs:18-20`). contract 2 is `protocol: 2`.
-- **the pick.** a client asks for contract 2 with `?protocol=2` on
-  `GET /api/stream`, `GET /api/fleet`, `GET /api/needs` and
-  `GET /api/history`, and uses the `/api/agents/...` routes. a request
-  without the parameter is contract 1, so an installed client that has
-  never heard of contract 2 gets today's frames for its cmx2 threads.
-- **contract 1 is frozen, cmx2 only, and isolated.** it carries the cmx2
-  agents, each under its host name, with the same frames, the same raw
-  objects and the same routes (`/api/hosts/{host}/...`). agents of any
-  other source, their threads, asks, needs, clears and order keys are left
-  out of it entirely. a push for a non-cmx2 thread, and the `push.served`
-  dismissal of one (`fleet/mod.rs:993-994`), is never sent to a device
-  whose subscription says contract 1 (the subscribe body gains
-  `protocol`, absent is 1, and `push_devices` gains a `protocol` column in
-  one of the new migrations, section 4, what a source persists). the ios app does not subscribe to push
-  today, so this protects old pwa pages.
-- **contract 1 never gains a change type,** and no field changes type or
-  meaning. what it must carry anew comes opt-in and outside the journal:
-  repo colours (decision 82) are id-less `ColourFrame`s on
-  `GET /api/stream?colours=1` only, the way the board's frames come on
-  `board=1`, and neither `reset` nor `GET /api/fleet` gains a field. the ios decoder drops an unknown type without advancing
-  (`StreamFrameDecoder.swift:77-84,148-150` in the ios repo), the next
-  entry then reads as a seq gap (`FleetReducer.swift:136-139`), and the
-  stream reconnects in a loop. cmx2's `Connection` status encodes to
-  today's `HostStatus` bytes (`change.rs:16`: connection, health, frames,
-  memory, cursor).
-- **caps are per contract, so assistant traffic can never change a
-  contract 1 frame.** today every cap in the model is fleet wide: `reorder`
-  ranks every session and keeps `MAX_ORDER` 300 (`model.rs:60,1737-1777`),
-  a window needs its key in that order (`model.rs:949-962`), tails are read
-  for windows only (`model.rs:918-927`), and `evict` holds all sessions to
-  `MAX_SESSIONS` 1000 (`model.rs:57,1659-1660`). left shared, a busy
-  assistant would push cmx2 threads out of their windows and tails, evict
-  cmx2 sessions, and change contract 1's order. so the model keeps each
-  of these caps twice, with today's number and today's rule: once counted
-  over cmx2 threads only, once over the threads of every other source.
-  that covers the order (300), the session cap (1000), adopted threads
-  (`MAX_ADOPTED` 20, `model.rs:64`), clears (`MAX_CLEARS` 2000,
-  `clears.rs:27`) and the needs ledger (`MAX_OPEN` 500 and `MAX_SERVED`
-  200, `needs.rs:22-24`). contract 1's order, windows, tails, evictions,
-  clears and needs come from the cmx2 side alone, computed exactly as
-  today, so contract 1's journal is a function of cmx2 inputs and commands
-  only. contract 2's order ranks every thread the model holds together and
-  keeps the first 300; a cmx2 thread can hold a contract 1 window while
-  contract 2 ranks it lower. tails are read for a thread with a window in
-  either contract.
-- **two journals, two epochs.** the fleet actor appends each change to a
-  contract 1 journal (only what contract 1 carries, encoded from the raw
-  cmx2 objects as today) and a contract 2 journal (everything, encoded
-  from the neutral shapes). each has its own seq, so neither has holes:
-  both clients treat a skipped seq as a gap (`app/src/sync/reducer.ts`,
-  and the ios reducer above). each has its own epoch, two independent
-  random ids minted at each server start in today's form
-  (`fleet/mod.rs:523`), so a cursor carries the contract it came from. a
-  cursor whose epoch is not the asked contract's gets `reset` with reason
-  `epoch` and the asked contract's snapshot, never a replay: an ios build
-  that moves to contract 2 while the server runs resumes with a contract 1
-  cursor and is reset, not fed contract 2 from that seq (the stream and
-  the ios reducer judge a cursor by epoch and seq only,
-  `fleet/mod.rs:865-875`, `FleetReducer.swift:135-139`). `/api/fleet`'s
-  cursor and `/api/needs`'s `x-boxbox-seq` (`http/needs.rs:65-67`) are the
-  asked contract's. each change is still encoded once per journal and
-  shared by every stream of that contract. the contract 1 ring is capped at
-  8 MiB or 50,000 events, the contract 2 ring at today's 16 MiB or 100,000
-  (`architecture.md`, memory). contract 1's ring is half of today's
-  (`journal.rs:18-20`), so a contract 1 client away long enough gets an
-  `expired` reset about twice as soon; that changes how far back a resume
-  reaches, never a frame.
-- **the web app** is embedded in the binary, so it moves to contract 2 in
-  the same release. a stale cached page meets `protocol: 2` in its own
-  hello only if it asked for 2; one that did not gets contract 1 and keeps
-  working until its next load.
-- **the ios app** moves to contract 2 in one build: its pin moves to a
-  server commit that serves both, its codable types follow the new schemas,
-  and the drift test covers them. the server ships first; an installed
-  older build keeps contract 1 throughout. a contract 2 build that meets a
-  server whose hello answers `protocol: 1` to `?protocol=2` says the server
-  is older than the app and to update the server, and sends nothing.
-- **the board** reads its own channel (`docs/board.md`), which the server
-  computes from the fleet model, so it needs no contract and sees every kind
-  of agent. contract 1 lives as long as it needs.
-- **what removes contract 1.** the server counts streams by contract: its
-  `client stream open` log line (`http/stream.rs:80`) gains `protocol`, and
-  it keeps a count of stream opens per contract per day in `boxbox.db`
-  (`stream_days`, the last 400 days). contract 1 is deleted in one
-  commit, with its journal, its types, the `/api/hosts` routes and the
-  raw payloads the cmx2 source carries for it, when all of these hold:
-  the ios build installed on every device the person uses speaks contract
-  2, and `stream_days` shows no
-  contract 1 stream for 14 days in a row. the commit quotes those rows.
+- **one wire.** `GET /api/stream` speaks protocol 3 only; `hello` says
+  `protocol: 3`. there is no `?protocol` pick on the stream,
+  `/api/fleet`, `/api/needs` or `/api/history`, one journal and one
+  epoch, and the model's caps (order 300, sessions 1000, adopted 20,
+  clears 2000, needs 500 open and 200 served) count every thread
+  together. `push_devices` has no `protocol` column.
+- **no raw passthrough.** cmx2's objects stop at the source: the cmx2
+  transcript proxy and its routes
+  `/api/hosts/{host}/sessions/{session}/messages[/{message}]` (the
+  `DELETE` that unsends stays), `Cmx2Raw` and `x-cmx2-seq` on answers to
+  devices are gone. threads read under `/api/agents/...` (section 1, the
+  stream). the other verb routes under `/api/hosts` stay (`protocol.md`,
+  the owner's q2).
+- **the web app** is embedded in the binary and moves with the server.
+- **the ios app** stops connecting until a build that speaks protocol 3:
+  its hello check refuses any protocol but the one it was built for
+  (accepted by the owner).
+- **the board** declares its view on `/api/stream?view=board` (board
+  protocol 3, `docs/board.md`); `/api/board/stream` is gone.
+- **repo colours** reach every stream but the board's; `colours=1` is
+  gone (`architecture.md`, repo colours).
 
 ## 3. thread ids for foreign keys
 
@@ -650,7 +573,8 @@ pub enum SourceEvent {
     ThreadRemoved { thread: String },
     /// the source cannot prove every row reached the journal: `thread.reset`.
     ThreadReset { thread: String },
-    Activity { thread: String, activity: Activity },
+    /// `queued`: prompts admitted behind the running turn (`Thread.queued`).
+    Activity { thread: String, activity: Activity, queued: u32 },
     /// a turn ended: busy becomes idle, parked stays parked (today's
     /// SessionIdle, `model.rs:869-882`); raises done as today.
     TurnEnded { thread: String },
@@ -679,10 +603,6 @@ Upstream::Source {
     agent: Arc<str>,
     seq: Option<u64>,
     event: SourceEvent,
-    /// cmx2 only, while contract 1 lives: the whole event payload, byte
-    /// for byte, as today (`model.rs:804-818` reads info, part, status
-    /// and request out of it), for the contract 1 journal.
-    raw: Option<Box<RawValue>>,
 }
 ```
 
@@ -698,9 +618,13 @@ the translation is total and one to one: every event the reducer consumes
 today yields exactly one `SourceEvent` (`session.idle` is `TurnEnded`,
 never an idle `Activity`; a merged or discarded worktree is
 `ReviewSettled`), and an unknown part type becomes the `unknown` part,
-never a dropped event. today's one skip, the payload that lacks what it
-decoded with (`fleet/mod.rs:787-789`), stays the only one. otherwise
-contract 1 would lose a frame the raw path carries today.
+never a dropped event. the one skip is a payload that lacks what it
+decoded with. no raw payload rides beside the event: the only cmx2 json
+the server keeps is an adopted thread's session info, held on
+`ThreadFacts.raw` for its `boxbox.db` row (`fleet/adopted.rs`) and never
+by the fleet. a `record` build (`--features record`) also holds each raw
+cmx2 input until its translated event reaches the actor, for the tape; a
+default build carries none of it.
 
 **`seq` on `Upstream::Source`** feeds two things: the agent-wide floors
 (`stale()`, `model.rs:1361-1373`, `seq <= floor` per domain) and the
@@ -755,25 +679,13 @@ pub trait AgentSource: Send + Sync + 'static {
     fn reload(..), fn restart(..), fn memory(..)                       // admin
     fn terminal(&self) -> Option<&dyn TerminalSource> { None }         // terminal
 }
-
-/// the cmx2 source only, while contract 1 lives: today's passthroughs.
-pub trait Cmx2Raw {
-    fn transcript_raw(&self, host: &str, session: &str, query: &RawQuery) -> BoxFuture<'_, Result<Response, VerbError>>;
-    fn message_raw(&self, host: &str, session: &str, message: &str) -> BoxFuture<'_, Result<Response, VerbError>>;
-    fn prompt_raw(&self, host: &str, session: &str, body: Bytes) -> BoxFuture<'_, Result<Response, VerbError>>;
-}
 ```
 
-contract 1's transcript, message and send routes pass the daemon's body
-through untouched today: the bytes stream (gzip included)
-with `x-cmx2-seq`, `x-next-cursor` and `x-cmx2-repeat`
-(`http/transcript.rs:1-5,25,167`), and a send's 202 or 409 is cmx2's answer
-byte for byte (`http/session.rs:125-135`; a new thread's `Born` is
-already boxbox's own, `http/compose.rs:816-828`). the typed `transcript`, `message` and
-`prompt` cannot reproduce that, so the cmx2 source also implements
-`Cmx2Raw`, whose bodies are those handlers' current calls moved whole,
-and the `/api/hosts` routes call it. contract 2's routes call the typed
-verbs, which translate message by message. `Cmx2Raw` goes with contract 1.
+contract 1 had a `Cmx2Raw` trait for the transcript, message and send
+routes that passed the daemon's body through byte for byte. it went with
+contract 1 (section 2): threads read through the typed `transcript` and
+`message` verbs, translated message by message, and the `/api/hosts`
+verb routes call the cmx2 source directly (`http/agents`, `agents::cmx2`).
 
 - `Send` is `{client_id, text, attachments: [{media, transcript?}], quote?,
   model?, effort?, generation?}` on prompt, steer and queue; `Start` adds
@@ -847,15 +759,14 @@ and columns come as migrations after the current six (`store/schema.rs`):
   gets no acknowledgement from the fleet actor, so a cursor row is written
   after the changes it covers were sent into the fleet channel. a crash
   between the two replays an idempotent read, and a restart is a new
-  journal epoch that every client re-reads anyway. pruned with
+  journal epoch that every client re-reads anyway (until protocol 3's
+  full resume is built, `protocol.md` section 10). pruned with
   `thread_ids` (section 3).
 - `source_secrets (connection, name, value)`: a gateway device key pair,
   its device token and the connection's instance id (openclaw's, with
   `device_key` in the file taking the key's place when set). never logged,
   never in an api answer, mode 0600 like the file.
 - `media`, `media_refs`, `media_sidecars`: section 6.
-- `stream_days (protocol, day, opens)`: section 2, what removes contract 1.
-- `push_devices` gains `protocol`: section 2.
 
 ### what a source journals
 
@@ -935,8 +846,8 @@ whole, headers and caps included:
 
 | handler | verb | capability |
 |---|---|---|
-| `transcript::messages`, `transcript::message` | `transcript_raw`, `message_raw` (contract 1); `transcript`, `message` (contract 2) | none |
-| `asks::prompt` | `prompt_raw` (contract 1); `prompt` (contract 2) | none |
+| `agents::read` (the thread reads) | `transcript`, `message` | none |
+| `asks::prompt` | `prompt` | none |
 | `asks::abort` | `abort` | none |
 | `compose::start` | `start` | threads (and places, worktree when asked) |
 | `asks::permission`, `asks::question`, `asks::reject` | `answer` | approvals, questions |
@@ -958,20 +869,20 @@ whole, headers and caps included:
 
 the cmx2-only verbs stay cmx2's behind their capabilities: terminal,
 branch review, worktree, compaction, `@` files, repos and folders, and
-with them queue, steer, slash commands, `!` lines and admin. contract 1's
-`/api/hosts/{host}/...` routes call `Cmx2Raw` or the same verbs as
-today; contract 2's `/api/agents/{agent}/...` routes call the typed verbs.
+with them queue, steer, slash commands, `!` lines and admin. the
+`/api/hosts/{host}/...` verb routes call the cmx2 source; the
+`/api/agents/{agent}/...` routes call the typed verbs of any source.
 
 ### the routes
 
-every verb has one contract 2 route. `T` is
+every verb has one `/api/agents` route. `T` is
 `/api/agents/{agent}/threads/{thread}`. every write carries `{device,
 deviceClass, clientID}` as today's do, and the capability check comes
 first (below).
 
-| verb | contract 2 | contract 1 (today, cmx2 only) | capability |
+| verb | route | the `/api/hosts` route kept for cmx2 (q2) | capability |
 |---|---|---|---|
-| hydrate | `GET T/messages`, `GET T/messages/{message}` | `GET /api/hosts/{host}/sessions/{session}/messages`, `.../messages/{message}` | none |
+| read | `GET T/messages`, `GET T/messages/{message}`, `GET T/summary` | none (the transcript proxy went with contract 1) | none |
 | prompt | `POST T/prompt` | `.../prompt` | none |
 | abort | `POST T/abort` | `.../abort` | none |
 | steer | `POST T/steer` | `.../steer` | steer |
@@ -992,20 +903,20 @@ first (below).
 | terminal | `/api/agents/{agent}/pty...`, the same shapes as today | `/api/hosts/{host}/pty...` | terminal |
 | pair, forget | `POST /api/connections/pair` with `source`, `DELETE /api/connections/{name}` | `POST /api/hosts/pair`, `DELETE /api/hosts/{host}` | none |
 
-keyed routes serve both contracts, because a thread key is the same in
-both: `POST /api/read` (a read mark; the source's `mark_read` also tells
+keyed routes serve every agent, because a thread key names its agent:
+`POST /api/read` (a read mark; the source's `mark_read` also tells
 an agent that keeps read state, section 7), `POST /api/clear` (keys,
 including a runs window's `<agent>:runs`, section 7), `POST /api/presence`,
-and the media routes (section 6). `GET /api/history`, `GET /api/fleet`
-and `GET /api/needs` answer in the asked contract's shapes, with
-`?protocol=2` for contract 2 (history rows then carry `agent` and the
-contract 2 `Thread`, and take `?agent=` to filter).
+and the media routes (section 6). `GET /api/fleet` answers the neutral
+fleet `{agents, threads, asks, order}` with `x-boxbox-seq`, built from
+the journaled state (`protocol.md`, sections 6 and 15); `GET /api/needs`
+and `GET /api/history` answer as they did, with no `?protocol`.
 
 - **as built (m9, `http/agents/`).** the trait verbs (prompt, steer, queue,
   run now, unsend, abort, compact, react, archive, adopt, answer, new
   thread, models) are `routes.rs`; the cmx2-only capabilities with no trait
   verb (terminal, review, places, files, shell, commands, admin) are served
-  by contract 1's handlers behind the same check (`agents::guard`), in the
+  by the `/api/hosts` handlers behind the same check (`agents::guard`), in the
   shapes they answer today, and 501 `not-built` for an agent with the
   capability on a source that is not cmx2. `GET /api/agents` lists every
   agent with its connection's state (the agents screen's data). a plain
@@ -1308,7 +1219,7 @@ cannot prove the send did not land, and says so.
   a retry with the same client id safe (`x-cmx2-repeat`), so today's
   outbox rule stands.
 
-- **as built (m9, `source/sends.rs`).** every contract 2 send goes
+- **as built (m9, `source/sends.rs`).** every `/api/agents` send goes
   through one ledger keyed by agent and client id, 256 per connection: the
   first request calls the source in its own task (a dropped client cannot
   cut a send off halfway); a request that arrives while it runs shares its
@@ -1343,7 +1254,7 @@ treats them by what they did, not how they began (decision 44):
   thread in the order. it stays in history.
 - **a run that asks is an ordinary window:** its ask raises a need and
   ranks it like any thread that wants you.
-- **a run that talks** joins its assistant's one runs window. contract 2's
+- **a run that talks** joins its assistant's one runs window. the
   order carries the key `<agent>:runs` (never a thread id: no source mints
   `runs`) while the agent has a talking scheduled run unseen, ranked with
   the idle windows below every done thread. its content is `Agent.runs`:
@@ -1356,7 +1267,7 @@ treats them by what they did, not how they began (decision 44):
 - a run that lands inside a thread that already has a window (a runtime
   that runs its jobs in the main thread) follows the same rules turn by
   turn: a quiet turn leaves that thread where it was.
-- contract 1 never carries any of this: cmx2 has no scheduled runs.
+- cmx2 has no scheduled runs, so none of this touches a cmx2 thread.
 
 ## 8. identity
 
@@ -1426,28 +1337,19 @@ gateway, says how). nothing here ever points at a gateway or daemon the
 session did not start (AGENTS.md, the live fleet).
 
 1. **types.** `cargo check`, `tsc --noEmit`, the ios build. `just api`
-   regenerates the app's types from the utoipa document with both
-   contracts in it; the ios drift test passes against the new
-   `vendor/boxbox.json` for the contract 2 types and still for contract 1.
+   regenerates the app's types from the utoipa document; the ios drift
+   test passes against the new `vendor/boxbox.json` once the ios app
+   speaks protocol 3.
 2. **unit.**
    - the cmx2 translation table: one test per domain event, frame in,
      `SourceEvent` out.
    - every existing model test (`model.rs:3081` onward, written as cmx2
      frames) passes unchanged through the cmx2 source.
-   - contract 1 identity, with a busy assistant connected: the recorded
-     cmx2 session (its upstream frames, the commands boxbox took: mark
-     read, clear, adopt, a review answered, presence, and the clock of
-     every input, since tails flush on time, `model.rs:1137-1147`) is
-     replayed into the model alone, then again interleaved with a scripted
-     openclaw session that runs past 300 windows and 1,000 threads of its
-     own. the contract 1 journal bytes, with epoch and build normalised,
-     are equal across the two runs and equal to the journal before the
-     seam, frame by frame. so are the contract 1 `hello` and `reset`
-     snapshot at the end (no foreign agent, thread, ask or order key;
-     `seq` the contract 1 head).
-   - cursors across contracts: a contract 1 cursor sent with
-     `?protocol=2`, and a contract 2 cursor sent without it, each get
-     `reset` with reason `epoch` and the asked contract's snapshot.
+   - protocol 3 over the recorded cmx2 tape (`fleet/replay/tests.rs`,
+     `proofs.rs`): the journal applied in order equals the model after
+     every step, and a client through view switches, hidden spells and
+     dropped streams equals a read at its cursor (`protocol.md`, section
+     16; `verification.md`, the protocol 3 goldens).
    - the seam's cmx2 events: `session.idle` keeps a parked thread parked,
      a born thread asks for no tail read, a merged or discarded worktree
      settles its review need, and an ask settle picks its floor by kind.
@@ -1460,8 +1362,6 @@ session did not start (AGENTS.md, the live fleet).
    - media: range answers (206, 200 for several ranges, 416), etag and
      304, 410 after eviction, eviction order with pins and the 24 hour
      floor, sniffing refusals, the upload's memory stays under its buffer.
-   - two journals: contract 1 sees no foreign agent and no seq holes;
-     contract 1 never sees an `image` or `audio` tail kind.
    - what a source journals: a held thread whose gateway committed more
      rows than a tail while boxbox was away gets every row or a
      `thread.reset`, never a silent gap; a thread with no seen index
@@ -1480,16 +1380,11 @@ session did not start (AGENTS.md, the live fleet).
 3. **real loop.** the cmx2 dev daemon, the openclaw dev gateway and the
    boxbox dev server on 3001 with one connection to each, driven with curl
    and agent-browser through the real ui.
-   - cmx2 through contract 2: the scripted session and the exactly-once
-     suite (`verification.md`) pass with the web app on contract 2.
-   - contract 1 beside it: a contract 1 stream (curl) shows only the cmx2
-     agent, and its frames match the recorded ones while the assistant is
-     busy. the golden answers recorded before the seam match after it:
-     `/api/fleet`, `/api/needs` (body and `x-boxbox-seq`), the
-     hydration routes (body, `x-cmx2-seq`, `x-next-cursor`, gzip), the
-     prompt 202 and 409 bodies, push payloads and titles, a pty redial
-     with its cursor, review merge and discard. the board reads its own channel
-     (`docs/board.md`), not contract 1, so it is not checked here.
+   - cmx2 through protocol 3: the scripted session and the exactly-once
+     suite (`verification.md`) pass with the web app on protocol 3.
+   - the golden answers recorded before the seam match after it:
+     `/api/needs` (body), the prompt 202 and 409 bodies, push payloads and
+     titles, a pty redial with its cursor, review merge and discard.
    - openclaw: a new thread with no place, text, a voice note up (m4a,
      webm and ogg, each with a device transcript), a spoken reply down (a scripted tts
      directive) with its spoken text, an image both ways, a generated
@@ -1505,17 +1400,15 @@ session did not start (AGENTS.md, the live fleet).
      store with a tiny cap evicting while a client plays.
    - every gated control is absent for the assistant and its route answers
      422 when driven by curl.
-4. **devices.** the installed ios build from before this work, against
-   the new server: it connects on contract 1, shows every cmx2 thread, and
-   never sees the assistant (the transition's proof); after a soak with a
-   busy assistant beside the cmx2 agents, its counters show 0 gaps, 0
-   undecodable frames and 0 dropped (`FleetState.swift`). the contract 2 ios
-   build: the assistant's card in coral with a round mark, voice notes
+4. **devices.** the ios build that speaks protocol 3 (the one from
+   before stops connecting, section 2): after a soak with a busy
+   assistant beside the cmx2 agents, its counters show 0 gaps, 0
+   undecodable frames and 0 dropped (`FleetState.swift`); the assistant's card in coral with a round mark, voice notes
    recorded and played (scrub, speed, locked screen, background), photos
    saved, files opened. the installed phone and mac pwas for the same.
-5. **budgets.** idle and steady rss with both journals and two
+5. **budgets.** idle and steady rss with the journal and two
    connections, and the peak with every source buffer full, against the
    process budget in `architecture.md`; the
-   contract 2 snapshot under 256 kb for 300 threads; first byte of the
+   reset snapshot under 256 kb for 300 threads; first byte of the
    media route; an upload at the body limit with the server's memory
    printed; the soak in `m9` with zero reloads.

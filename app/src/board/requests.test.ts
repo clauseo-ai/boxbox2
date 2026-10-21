@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { thread } from "../sync/fixtures/neutral";
 import { EMPTY_FLEET, type Fleet } from "../sync/reducer";
 import { composeHost, focusable, focusPlan, holdsWords } from "./requests";
 
@@ -32,8 +33,13 @@ describe("a board focus and the sheets over home", () => {
 
 describe("which requests the app can take", () => {
   const now = 1_800_000_000_000;
-  const entry = (updated: number, parentID?: string) => ({ info: { time: { updated }, ...(parentID ? { parentID } : {}) }, status: null });
-  const fleet = { ...EMPTY_FLEET, order: ["desk:a", "desk:child", "desk:old"], sessions: { "desk:a": entry(now - 1000), "desk:child": entry(now - 1000, "a"), "desk:old": entry(now - 13 * 3600_000) } } as unknown as Fleet;
+  // a thread at rest (idle, no status in cmx2), its parent's key when it is a child
+  const entry = (key: string, updated: number, parent?: string) => thread(key, { updated, activity: { state: "idle" }, ...(parent ? { parent } : {}) });
+  const fleet: Fleet = {
+    ...EMPTY_FLEET,
+    order: ["desk:a", "desk:child", "desk:old"],
+    threads: { "desk:a": entry("desk:a", now - 1000), "desk:child": entry("desk:child", now - 1000, "a"), "desk:old": entry("desk:old", now - 13 * 3600_000) },
+  };
 
   test("a focus needs a window home draws for its key", () => {
     expect(focusable(fleet, "desk:a", now)).toBe(true);

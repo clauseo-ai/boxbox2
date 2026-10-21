@@ -1,5 +1,5 @@
 //! a thread: one conversation with one agent, keyed `<agent>:<thread>`
-//! (`docs/agents.md`, the thread). replaces contract 1's `SessionEntry`
+//! (`docs/agents.md`, the thread). replaced contract 1's `SessionEntry`
 //! with its raw `info` and `status`.
 
 use serde::{Deserialize, Serialize};
@@ -91,7 +91,9 @@ pub struct Place {
 pub enum Activity {
     Idle,
     Busy {
-        since: f64,
+        /// absent when the runtime did not say when the turn started.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<f64>,
     },
     Retry {
         attempt: u32,
@@ -172,7 +174,7 @@ pub enum SendStateKind {
 }
 
 /// one part as a window shows it. contract 2's kinds add `image` and
-/// `audio`; contract 1's encoder maps both to `file`.
+/// `audio`; the fleet's tails still show both as `file`, as windows always drew them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[schema(as = ThreadTailItem)]
 pub struct TailItem {
@@ -182,7 +184,7 @@ pub struct TailItem {
     pub message_id: String,
     pub kind: TailKind,
     #[schema(value_type = String)]
-    pub role: crate::fleet::change::TailRole,
+    pub role: TailRole,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -190,6 +192,14 @@ pub struct TailItem {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
+}
+
+/// who wrote the part's message: your prompt sits on the right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TailRole {
+    User,
+    Assistant,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

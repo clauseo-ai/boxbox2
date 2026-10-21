@@ -14,7 +14,7 @@ import { bootSync, setCompaction, setModels, setOutbox, setPrefs, state } from "
 import type { StreamStatus } from "../../../sync/messages";
 import type { Draft, OutboxView } from "../../../sync/outbox";
 import { EMPTY_FLEET } from "../../../sync/reducer";
-import type { Ask, SessionEntry } from "../../../sync/protocol";
+import type { Ask, Thread } from "../../../sync/protocol";
 import { colourStyle, hashColour, REPO_COLOURS } from "../../window/repo";
 import { Composer } from "../composer";
 import { NewThreadDock } from "../dock";
@@ -126,7 +126,7 @@ type Drive = {
 const three = (): OutboxView[] => [sent("c3", PROMPTS.steer, "queued", { verb: "steer" }), sent("c1", PROMPTS.docs, "queued", { at: AT + 5000 }), sent("c2", PROMPTS.push, "queued", { at: AT + 9000 })];
 
 type Setup = {
-  entry: SessionEntry;
+  entry: Thread;
   /** the host's model list: here (the default), being read for good, or refused */
   models?: "loading" | "failed";
   /** the host with the models that pile up (25 across six providers) */
@@ -319,9 +319,9 @@ function answerReads(models: "loading" | "failed" | undefined, compact: "hang" |
 
 function boot(setup: Pick<Setup, "entry" | "asks" | "draft" | "outbox" | "stream" | "models" | "many" | "none" | "favorites">): void {
   const asks: Record<string, Ask> = {};
-  for (const ask of setup.asks ?? []) asks[ask.id] = ask;
+  for (const ask of setup.asks ?? []) asks[`${ask.agent}:${ask.id}`] = ask;
   bootSync({
-    fleet: { ...EMPTY_FLEET, sessions: { [KEY]: setup.entry }, order: [KEY], hostNames: [HOST], asks },
+    fleet: { ...EMPTY_FLEET, threads: { [KEY]: setup.entry }, order: [KEY], agentNames: [HOST], asks },
     threads: {},
     stream: setup.stream === "down" ? { state: "down", since: Date.now() - 64_000, lastEventAt: Date.now() - 64_000 } : LIVE,
     drafts: setup.draft ? { [KEY]: setup.draft } : {},
@@ -410,7 +410,7 @@ export function mountComposer(el: HTMLElement, story: ComposerStory): () => void
 function mountHome(el: HTMLElement, story: HomeStory, restore: () => void): () => void {
   installMotionProperties();
   boot({ entry: IDLE, many: story === "sheet-model", favorites: FAVORITES });
-  if (story === "sheet-hosts") bootSync({ fleet: { ...EMPTY_FLEET, sessions: { [KEY]: IDLE }, order: [KEY], hostNames: [HOST, OTHER], asks: {} }, threads: {}, stream: LIVE, drafts: {}, outbox: [] });
+  if (story === "sheet-hosts") bootSync({ fleet: { ...EMPTY_FLEET, threads: { [KEY]: IDLE }, order: [KEY], agentNames: [HOST, OTHER], asks: {} }, threads: {}, stream: LIVE, drafts: {}, outbox: [] });
   const nowhere = story === "dock-nowhere";
   // the sheet that lets go on send, wired as home wires it: away and the dock's making line, a tap on the dock brings it back
   const [away, setAway] = createSignal(false);

@@ -10,10 +10,13 @@
 
 use serde::{Deserialize, Serialize};
 
-/// bumped only for a change an older daemon would misread. the server answers
-/// a stream asking for another protocol with 409, and the daemon says so in
-/// its log instead of drawing a wrong board.
-pub const PROTOCOL: u32 = 1;
+/// the board stream's protocol, daemon to server (the keypad's usb protocol
+/// is `board/daemon/src/protocol.rs`, frozen by decision 1). bumped only for
+/// a change an older daemon would misread. the server answers a stream asking
+/// for another protocol with 409, and the daemon says so in its log instead
+/// of drawing a wrong board. 3 is the device protocol (`docs/protocol.md`):
+/// the board view moved onto `/api/stream`, gzipped; its frames are the same.
+pub const PROTOCOL: u32 = 3;
 
 /// at most this many threads ride a view: four pages of nine keys. the board
 /// cannot show more without paging past what anyone reads on a keypad, and
@@ -23,8 +26,9 @@ pub const MAX_THREADS: usize = 36;
 /// at most this many machine lights: `/ * - +` (decision 78).
 pub const MAX_MACHINES: usize = 4;
 
-/// `GET /api/board/stream?protocol=1&device=board-…&addrs=…`, an sse stream
-/// of [`Frame`]s. `addrs` is every address of the mac the daemon runs on
+/// `GET /api/stream?view=board&protocol=3&device=board-…&addrs=…`, an sse
+/// stream of [`Frame`]s, gzipped when the daemon sends `accept-encoding: gzip`
+/// (it always does). `addrs` is every address of the mac the daemon runs on
 /// (tailnet v4 and v6, lan), comma separated: the server matches app windows
 /// against them to find the windows on the board's mac, since a browser
 /// cannot say which machine it is on.
@@ -32,6 +36,9 @@ pub const MAX_MACHINES: usize = 4;
 #[cfg_attr(feature = "openapi", derive(utoipa::IntoParams))]
 #[serde(rename_all = "camelCase")]
 pub struct StreamQuery {
+    /// `board`: the device stream's board view (`docs/protocol.md` section 5).
+    #[serde(default)]
+    pub view: Option<String>,
     pub protocol: u32,
     /// the daemon's device id, `[A-Za-z0-9_-]{1,64}`, kept in its state dir.
     pub device: String,

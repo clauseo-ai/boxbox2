@@ -8,6 +8,7 @@ import { type JSX as SolidJSX, createComponent, createSignal, onCleanup, onMount
 import { render } from "solid-js/web";
 import { type Item, type Say, type Step, type Turn, turnsOf } from "../model";
 import type { WireMessage } from "../wire";
+import { neutralMessage } from "../../../sync/fixtures/neutral";
 import { type Child, type FoldRow, type Row, type RowCtx, type RowModel, clock, endRows, foldModel, kindOf, modelOf, rowsOf, stepModel } from "../rows";
 import { watchMeasure } from "../measure";
 import { isChain } from "../shell";
@@ -441,15 +442,16 @@ function scriptTurn(shape: "running" | "settled" | "several" | "one-line"): { tu
     : shape === "one-line" ? [runTool("x1", "return (await shell.exec({ command: 'git status --short' })).output", S0 + said + 1000, 900)]
     : [runTool("x1", SCRIPT, undefined, undefined)];
   const done = shape !== "running";
+  /* written in cmx2's shapes, made neutral as the server's translate makes them */
   const messages: WireMessage[] = [
-    { info: { id: "u_s", role: "user", time: { created: S0 } }, parts: [{ id: "u_s_p", type: "text", text: "why does the group look broken on the mac?" }] } as unknown as WireMessage,
+    { info: { id: "u_s", role: "user", time: { created: S0 } }, parts: [{ id: "u_s_p", type: "text", text: "why does the group look broken on the mac?" }] },
     { info: { id: "a_s", role: "assistant", time: { created: S0 + 1500, ...(done ? { completed: S0 + 200_000 } : {}) } }, parts: [
       { id: "t_s", type: "reasoning", text: "the strip is drawn in groups.ts and strip.tsx; a look at both and at the logs first.", time: { start: S0 + 2000, end: S0 + 30_000 } },
       { id: "w_s", type: "text", text: "I'll take a quick read-only look first, then say what i find.", time: { start: S0 + said - 2000, end: S0 + said } },
       ...steps,
       ...(done ? [{ id: "w_e", type: "text", text: "found it: the strip's running bar took the home bar's styles.", time: { start: S0 + 199_000, end: S0 + 200_000 } }] : []),
-    ] } as unknown as WireMessage,
-  ];
+    ] },
+  ].map((m) => neutralMessage(m as unknown as { info: Record<string, unknown>; parts: Record<string, unknown>[] }));
   const turns = turnsOf(messages, "/w/boxbox2");
   const turn = turns[0];
   if (!turn) throw new Error("no turn");

@@ -167,14 +167,14 @@ export function Stage(props: StageProps) {
   onMount(() => installMotion());
 
   /* ---------- what the lines say ---------- */
-  const session = () => state.fleet.sessions[key()];
+  const session = () => state.fleet.threads[key()];
   /* the name and repo the stage says: the session's, or for a thread the fleet does not hold, what home knows of it (an
      agent's: the row that opened it and its parent's repo) */
   const title = () => (session() ? data.title() : (props.fallback?.title ?? data.title()));
   const repoRoot = () => (session() ? data.repoRoot() : (props.fallback?.root ?? data.repoRoot()));
   /* a subagent's stage knows its parent (`parentID`): the back returns there, the title says whose agent it is */
-  const parentKey = () => { const p = session()?.info.parentID; return p ? `${data.host()}:${p}` : (props.parent ?? null); };
-  const parentTitle = () => { const k = parentKey(); return k ? state.fleet.sessions[k]?.info.title || k.slice(data.host().length + 1) : ""; };
+  const parentKey = () => { const p = session()?.parent; return p ? `${data.host()}:${p}` : (props.parent ?? null); };
+  const parentTitle = () => { const k = parentKey(); return k ? state.fleet.threads[k]?.title || k.slice(data.host().length + 1) : ""; };
   const lastTurn = () => data.turns().at(-1);
   const stepsOfLast = () => lastTurn()?.items.filter((x) => x.k === "step").length ?? 0;
   /* the agents this thread started: the fleet's children, named by the rows that started them where a spawn row did,
@@ -221,12 +221,12 @@ export function Stage(props: StageProps) {
   const reading = createMemo(() => readingOf({ empty: showsNothing(), stalled: stalled(), streamDown: state.stream.state === "down", held: data.held(), hydrating: data.hydrating(), trouble: data.trouble() }));
   const retryReading = () => { rereadThread(key()); setPatience((n) => n + 1); };
   const status = createMemo(() => {
-    const s = session()?.status;
+    const s = session()?.activity;
     const asks = data.asks().size;
     const last = lastTurn();
     if (offline()) return { text: `offline, last update ${state.stream.lastEventAt ? clockFmt.format(state.stream.lastEventAt) : "unknown"}`, live: false, agents: false };
     if (asks) return { text: asks === 1 ? "wants you" : `wants you, ${asks} asks`, live: true, agents: false };
-    if (s?.type === "retry") return { text: `retrying, attempt ${s.attempt}: ${s.message}`, live: true, agents: false };
+    if (s?.state === "retry") return { text: `retrying, attempt ${s.attempt}: ${s.message}`, live: true, agents: false };
     if (data.working() && last) {
       /* a turn sitting in a wait is not working: it says what it waits on (design.md, the live line). the agents at
          work under it when there are any, else the agent it messaged just before, else a job's notice or a message */
@@ -241,10 +241,10 @@ export function Stage(props: StageProps) {
       }
       return { text: `working ${clockDur(Math.max(0, data.now() - last.at))}, ${plural(stepsOfLast(), "step")}`, live: true, agents: false };
     }
-    if (s?.type === "idle" && s.parked) {
+    if (s?.state === "parked") {
       /* a thread whose agents are at work is working, whatever the daemon calls its own turn (design.md, the window) */
-      if (s.parked.agents > 0) return { text: `working ${clockDur(Math.max(0, data.now() - (s.since ?? data.now())))}, ${plural(s.parked.agents, "agent")}`, live: true, agents: true };
-      return { text: `parked, waiting on ${plural(s.parked.jobs, "job")}`, live: false, agents: false };
+      if (s.agents > 0) return { text: `working ${clockDur(Math.max(0, data.now() - (s.since || data.now())))}, ${plural(s.agents, "agent")}`, live: true, agents: true };
+      return { text: `parked, waiting on ${plural(s.jobs, "job")}`, live: false, agents: false };
     }
     const r = reading();
     if (r) return { text: readingWords(r).status, live: false, agents: false };
@@ -734,7 +734,7 @@ export function Stage(props: StageProps) {
     });
     onCleanup(() => { cancelAnimationFrame(frame); io?.disconnect(); });
   }));
-  const pinned = () => { if (askInView()) return null; const a = [...data.asks().values()][0]; if (!a) return null; const q = a.kind === "question" ? String((a.request["questions"] as Array<{ question?: string }> | undefined)?.[0]?.question ?? "a question") : `${String(a.request["permission"] ?? "use")} ${String((a.request["patterns"] as string[] | undefined)?.[0] ?? "")}`.trim(); return { id: a.id, text: q }; };
+  const pinned = () => { if (askInView()) return null; const a = [...data.asks().values()][0]; if (!a) return null; const q = a.kind === "question" ? String(a.questions?.[0]?.question ?? "a question") : `${String(a.permission?.title ?? "use")} ${String(a.permission?.patterns[0] ?? "")}`.trim(); return { id: a.id, text: q }; };
   /* ---------- a review scrolled out of view is carried by a line above the dock as well (docs/design.md); an ask's line
      outranks it, so there is one at a time, and a card on screen needs none ---------- */
   const [reviewBox, setReviewBox] = createSignal<HTMLElement>();
@@ -791,8 +791,8 @@ export function Stage(props: StageProps) {
   const listed = createMemo(() => data.turns().filter((t) => t.by !== "notice"));
   const changed = createMemo(() => filesChanged(data.turns()));
   /* what the thread and every agent under it have cost (details-model.ts, spendOf): the facts line and the details say the whole */
-  const spent = createMemo(() => spendOf(data.turns(), session()?.info, data.kin(), agents()));
-  const facts = createMemo(() => factsOf(data.turns(), session()?.info, spent().agents));
+  const spent = createMemo(() => spendOf(data.turns(), session(), data.kin(), agents()));
+  const facts = createMemo(() => factsOf(data.turns(), session(), spent().agents));
   const [here, setHere] = createSignal<string | null>(null);
   createEffect(on(() => scroller, () => scroller.addEventListener("scroll", () => setHere(turnAtLine(turnEls())?.dataset["turn"] ?? null), { passive: true })));
   const goTo = (t: Turn) => {
@@ -860,7 +860,7 @@ export function Stage(props: StageProps) {
     get turns() { return data.turns(); },
     get agents() { return agents(); },
     get files() { return changed(); },
-    get info() { return session()?.info; },
+    get info() { return session(); },
     get spend() { return spent(); },
     get now() { return data.now(); },
     openAgent: (id, name) => openAgent(`${data.host()}:${id}`, name),
@@ -901,11 +901,11 @@ export function Stage(props: StageProps) {
   const liveId = createMemo(() => {
     if (!data.working()) return undefined;
     const turns = data.turns();
-    const s = session()?.status;
+    const s = session()?.activity;
     /* when the session began working, by the daemon's clock, as the messages' times are. the busy status can arrive a
        moment before the new prompt does, and the turn before it, ended earlier, must not be live for that moment: a turn
        belongs to this run if it was still going when the run began */
-    const since = s?.type === "busy" || s?.type === "retry" ? s.since : undefined;
+    const since = s?.state === "busy" || s?.state === "retry" ? s.since || undefined : undefined;
     for (let i = turns.length - 1; i >= 0; i--) {
       const t = turns[i] as Turn;
       if (t.by === "queued" && t.status !== "working" && !t.items.length) continue;
@@ -1183,7 +1183,7 @@ export function Stage(props: StageProps) {
             <Show when={pinned()}>{(p) => <button class="pinned" aria-label={`wants you: ${p().text}. go to it`} onClick={() => toAsk(p().id)}><i /><span><b>wants you</b> {p().text}</span></button>}</Show>
             <Show when={reviewPinned()}>{(r) => <button class="pinned" data-kind="review" aria-label={r().name} onClick={toReview}><i /><span><b>ready to merge</b> {r().note}</span></button>}</Show>
             <Show when={splitKey(key())}>
-              {(place) => <Composer target={{ kind: "session", host: place().host, session: place().session, directory: data.directory() }} mount="bar" title={title()} onScreen={() => transcriptEnd} onSent={sent} agents={{ count: agents().length, open: () => enter("details") }} colour={colour()} dropZone={() => stageEl} />}
+              {(place) => <Composer target={{ kind: "session", host: place().agent, session: place().thread, directory: data.directory() }} mount="bar" title={title()} onScreen={() => transcriptEnd} onSent={sent} agents={{ count: agents().length, open: () => enter("details") }} colour={colour()} dropZone={() => stageEl} />}
             </Show>
           </div>
         </div>

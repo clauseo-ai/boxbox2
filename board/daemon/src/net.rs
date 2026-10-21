@@ -1,5 +1,5 @@
 //! the server, while a board is plugged in and only then: the stream reader
-//! (`GET /api/board/stream`), the poster (`POST /api/board/act` and
+//! (`GET /api/stream?view=board`, gzipped), the poster (`POST /api/board/act` and
 //! telemetry), and the login they share. both threads end with the plug:
 //! an idle daemon holds no connection.
 //!
@@ -514,7 +514,7 @@ impl Stream {
             match status.code {
                 200 => {
                     *connected = true;
-                    return self.read(conn, status.chunked);
+                    return self.read(conn, &status);
                 }
                 401 if attempt == 0 => {
                     cookie = Some(self.auth.login(agent, Some(&current))?);
@@ -559,7 +559,7 @@ impl Stream {
         };
         let mut reader = BufReader::with_capacity(8 * 1024, io);
         let request = format!(
-            "GET /api/board/stream?protocol={PROTOCOL}&device={}&addrs={} HTTP/1.1\r\nhost: {}\r\naccept: text/event-stream\r\ncache-control: no-cache\r\ncookie: {cookie}\r\nuser-agent: boxbox-board/{}\r\n\r\n",
+            "GET /api/stream?view=board&protocol={PROTOCOL}&device={}&addrs={} HTTP/1.1\r\nhost: {}\r\naccept: text/event-stream\r\naccept-encoding: gzip\r\ncache-control: no-cache\r\ncookie: {cookie}\r\nuser-agent: boxbox-board/{}\r\n\r\n",
             self.device,
             self.addrs,
             origin.host_header,
@@ -570,17 +570,20 @@ impl Stream {
         Ok(Conn { reader })
     }
 
-    fn read(&self, conn: Conn, chunked: bool) -> Result<End, NetError> {
+    fn read(&self, conn: Conn, status: &Status) -> Result<End, NetError> {
         let _ = self.tx.send(Msg::StreamUp {
             generation: self.generation,
         });
         self.log.info("stream.up", "");
-        let mut body = Body {
-            inner: conn.reader,
-            chunked,
-            left: 0,
-            done: false,
-        };
+        let mut body = decoded(
+            Body {
+                inner: conn.reader,
+                chunked: status.chunked,
+                left: 0,
+                done: false,
+            },
+            status.gzip,
+        );
         let mut parser = Parser::new();
         let mut buf = [0u8; 4096];
         loop {
@@ -652,6 +655,21 @@ struct Conn {
 struct Status {
     code: u16,
     chunked: bool,
+    /// `content-encoding: gzip`: the server keeps one deflate stream per
+    /// connection and sync-flushes it after every batch and heartbeat, so a
+    /// frame inflates as soon as its bytes arrive.
+    gzip: bool,
+}
+
+/// the body as text: inflated when the server gzipped it, as is otherwise.
+/// the gzip reader hands back whatever a read inflates and blocks only when
+/// it has inflated nothing, so a sync-flushed frame never waits for the next.
+fn decoded<R: Read + Send + 'static>(body: R, gzip: bool) -> Box<dyn Read + Send> {
+    if gzip {
+        Box::new(flate2::read::GzDecoder::new(body))
+    } else {
+        Box::new(body)
+    }
 }
 
 fn read_status(reader: &mut impl BufRead) -> Result<Status, NetError> {
@@ -664,6 +682,7 @@ fn read_status(reader: &mut impl BufRead) -> Result<Status, NetError> {
         .filter(|_| line.starts_with("HTTP/1."))
         .ok_or(NetError::Garbled)?;
     let mut chunked = false;
+    let mut gzip = false;
     let mut total = 0usize;
     loop {
         line.clear();
@@ -676,14 +695,21 @@ fn read_status(reader: &mut impl BufRead) -> Result<Status, NetError> {
         if header.is_empty() {
             break;
         }
-        if let Some((name, value)) = header.split_once(':')
-            && name.trim().eq_ignore_ascii_case("transfer-encoding")
-            && value.to_ascii_lowercase().contains("chunked")
-        {
-            chunked = true;
+        if let Some((name, value)) = header.split_once(':') {
+            let name = name.trim();
+            let value = value.trim().to_ascii_lowercase();
+            if name.eq_ignore_ascii_case("transfer-encoding") && value.contains("chunked") {
+                chunked = true;
+            } else if name.eq_ignore_ascii_case("content-encoding") && value == "gzip" {
+                gzip = true;
+            }
         }
     }
-    Ok(Status { code, chunked })
+    Ok(Status {
+        code,
+        chunked,
+        gzip,
+    })
 }
 
 /// a response body: chunked, or read to the close.
@@ -895,7 +921,98 @@ mod tests {
         let raw = b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\nrest";
         let mut r = &raw[..];
         let s = read_status(&mut r)?;
-        assert_eq!((s.code, s.chunked), (200, true));
+        assert_eq!((s.code, s.chunked, s.gzip), (200, true, false));
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nvary: accept-encoding\r\n\r\n";
+        let mut r = &raw[..];
+        let s = read_status(&mut r)?;
+        assert_eq!((s.code, s.chunked, s.gzip), (200, false, true));
+        Ok(())
+    }
+
+    /// bytes as the network hands them: each send is one read, and a read
+    /// with nothing sent blocks, as a quiet socket does.
+    struct Wire(std::sync::mpsc::Receiver<Vec<u8>>, Vec<u8>);
+
+    impl Read for Wire {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.1.is_empty() {
+                match self.0.recv() {
+                    Ok(bytes) => self.1 = bytes,
+                    Err(_) => return Ok(0),
+                }
+            }
+            let n = buf.len().min(self.1.len());
+            buf[..n].copy_from_slice(&self.1[..n]);
+            self.1.drain(..n);
+            Ok(n)
+        }
+    }
+
+    /// the server sync-flushes its deflate stream after every batch: each
+    /// frame must reach the parser as soon as its chunk arrives, while the
+    /// gzip stream is still open, never held for the next batch.
+    #[test]
+    fn a_gzipped_chunked_stream_hands_over_each_frame_as_it_lands() -> std::io::Result<()> {
+        use std::io::Write as _;
+        let (wire_tx, wire_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (frame_tx, frame_rx) = std::sync::mpsc::channel::<String>();
+        let reader = std::thread::spawn(move || -> Result<(), NetError> {
+            let mut conn = BufReader::new(Wire(wire_rx, Vec::new()));
+            let status = read_status(&mut conn)?;
+            assert!(status.chunked && status.gzip);
+            let mut body = decoded(
+                Body {
+                    inner: conn,
+                    chunked: true,
+                    left: 0,
+                    done: false,
+                },
+                status.gzip,
+            );
+            let mut parser = Parser::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = body.read(&mut buf)?;
+                if n == 0 {
+                    return Ok(());
+                }
+                for data in parser.feed(&buf[..n]).map_err(std::io::Error::other)? {
+                    let _ = frame_tx.send(data);
+                }
+            }
+        });
+        let chunk = |bytes: &[u8]| {
+            let mut out = format!("{:x}\r\n", bytes.len()).into_bytes();
+            out.extend_from_slice(bytes);
+            out.extend_from_slice(b"\r\n");
+            out
+        };
+        let send = |bytes: Vec<u8>| wire_tx.send(bytes).map_err(std::io::Error::other);
+        send(b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-encoding: gzip\r\ntransfer-encoding: chunked\r\n\r\n".to_vec())?;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(6));
+        let frames = [
+            r#"{"type":"hello","protocol":3,"version":"t"}"#,
+            r#"{"type":"replaced"}"#,
+        ];
+        let wait = Duration::from_secs(5);
+        for frame in frames {
+            gz.write_all(format!("data: {frame}\n\n").as_bytes())?;
+            gz.flush()?;
+            send(chunk(&std::mem::take(gz.get_mut())))?;
+            let got = frame_rx.recv_timeout(wait).map_err(std::io::Error::other)?;
+            assert_eq!(got, frame);
+        }
+        gz.write_all(b": hb\n\n")?;
+        gz.flush()?;
+        send(chunk(&std::mem::take(gz.get_mut())))?;
+        send(chunk(&gz.finish()?))?;
+        send(b"0\r\n\r\n".to_vec())?;
+        drop(wire_tx);
+        reader
+            .join()
+            .map_err(|_| std::io::Error::other("reader panicked"))?
+            .map_err(std::io::Error::other)?;
+        assert!(frame_rx.try_recv().is_err());
         Ok(())
     }
 }

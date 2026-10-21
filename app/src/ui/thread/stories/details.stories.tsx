@@ -8,7 +8,8 @@
 import { type ReactElement, createElement, useEffect, useRef } from "react";
 import { createComponent } from "solid-js";
 import { render } from "solid-js/web";
-import type { SessionInfo } from "../../../sync/protocol";
+import type { Thread } from "../../../sync/protocol";
+import { thread } from "../../../sync/fixtures/neutral";
 import { type AgentRow, type Kin, filesChanged, spendOf } from "../details-model";
 import { Panel, type DetailsData, type TurnsData } from "../details";
 import type { Item, Turn } from "../model";
@@ -46,12 +47,12 @@ const agents: AgentRow[] = [
   { id: "ses_dddd4444", child: { ...child("idle", 0), held: false }, name: "scout", at: T0, reported: false, label: "scout dddd" },
 ];
 
-const info = {
-  id: "ses_x", cost: 1.84,
-  tokens: { input: 130_000, output: 41_000, cache: { read: 1_180_000, write: 62_000 } },
+const info: Thread = thread("studio:ses_x", {
+  cost: 1.84,
+  tokens: { input: 130_000, output: 41_000, cacheRead: 1_180_000, cacheWrite: 62_000 },
   context: { used: 82_000, limit: 200_000, compactAt: 160_000 },
   vcs: { branch: "feature/inspector-column", dirty: true },
-} as unknown as SessionInfo;
+});
 
 /* the agents' spend: the reviewer started a scout of its own, and the archived scout's spend is not known any more */
 const kin: Kin[] = [
@@ -63,7 +64,7 @@ const kin: Kin[] = [
 ];
 const detailsOf = (extra: Partial<DetailsData> = {}): DetailsData => ({ turns, agents, files: filesChanged(turns), info, spend: spendOf(turns, info, kin, agents), now: Date.now(), openAgent: (id) => console.info("the story would open", id), ...extra });
 const turnsOfList: TurnsData = { listed: turns, here: "t2", label: (t) => t.prompt || `${t.from ?? "an agent"} reported`, goTo: (t) => console.info("the story would go to", t.id) };
-const quietInfo = { id: "ses_y", cost: 0, tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } } } as unknown as SessionInfo;
+const quietInfo: Thread = thread("studio:ses_y", { cost: 0, tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
 const quiet = { turns: [] as Turn[], agents: [] as AgentRow[], files: filesChanged([]), info: quietInfo, spend: spendOf([], quietInfo, [], []) };
 
 type Where = "inspector" | "docked" | "sheet";

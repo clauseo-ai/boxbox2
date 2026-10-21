@@ -1,9 +1,12 @@
 //! the board's routes (`docs/board.md`, the channel), registered only with
 //! `[board]` in `boxbox.toml` and behind the gate like every api route:
 //!
-//! - `GET /api/board/stream`: the daemon's sse stream: `hello`, the view
-//!   whenever it changes, `pin` when the app arms a pairing, `: hb` every
-//!   15 s, and `replaced` when another board stream takes over.
+//! - the board view of `GET /api/stream` (`?view=board&protocol=3&device=…`,
+//!   `docs/protocol.md`, section 5, the board): the daemon's sse stream:
+//!   `hello`, the view whenever it changes, `pin` when the app arms a
+//!   pairing, `: hb` every 15 s, and `replaced` when another board stream
+//!   takes over. no journal entries, no colours, no cursor; it takes no
+//!   interest posts.
 //! - `POST /api/board/act`: one verb. 204 when it was carried out: for a
 //!   focus or a compose, when a window on the board's mac took it; for a
 //!   reply or a flush, when the agent took it. so the daemon's telemetry
@@ -87,15 +90,21 @@ fn thread_of(key: &str) -> Result<ThreadRef, ApiError> {
     }
 }
 
-/// the board's stream: daemon only, its shapes are `board/wire`'s and stay
-/// out of the app's api document.
-pub async fn stream(
-    State(state): State<Arc<AppState>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    Query(query): Query<StreamQuery>,
+/// the board's view of `/api/stream`: daemon only, its frames are
+/// `board/wire`'s (`http/stream.rs` hands the request here).
+///
+/// # Errors
+/// no `[board]`, another protocol, a bad device or address list, the store
+/// or the fleet down.
+pub async fn view(
+    state: Arc<AppState>,
+    peer: SocketAddr,
+    headers: &HeaderMap,
+    uri: &axum::http::Uri,
 ) -> Result<Response, ApiError> {
     let board = Arc::clone(board(&state)?);
+    let Query(query) = Query::<StreamQuery>::try_from_uri(uri)
+        .map_err(|rejection| ApiError::BadRequest(rejection.body_text()))?;
     if query.protocol != PROTOCOL {
         return Err(ApiError::BoardProtocol {
             asked: query.protocol,
@@ -108,7 +117,7 @@ pub async fn stream(
         ));
     }
     let addrs = addr::list(&query.addrs).map_err(ApiError::BadRequest)?;
-    let observed = addr::client(peer, &headers);
+    let observed = addr::client(peer, headers);
     let bindings = state
         .store
         .call(|connection| store::load(connection))
@@ -135,9 +144,14 @@ pub async fn stream(
         protocol: PROTOCOL,
         version: env!("CARGO_PKG_VERSION").to_owned(),
     }));
-    let gzip = crate::http::compress::takes_gzip(&headers);
+    let framed = if crate::http::compress::takes_gzip(headers) {
+        state.gzip_streams.take()
+    } else {
+        None
+    };
+    let gzip = framed.is_some();
     let stream = BoardStream {
-        gzip: gzip.then(crate::http::compress::Framed::new),
+        gzip: framed,
         board,
         fleet: state.fleet.clone(),
         generation: joined.generation,

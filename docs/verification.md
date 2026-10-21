@@ -204,8 +204,9 @@ session streaming, for each disruption:
 3. restart the cmx2 daemon.
 4. hide the tab for 10 minutes (and on the phone, lock it).
 
-after each: the worker's transcript for the session equals the daemon's
-`GET /session/:id/message` byte for byte (diff printed, empty); the
+after each: the worker's transcript for the session equals the server's
+translated read, `GET /api/agents/{agent}/threads/{thread}/messages`
+with every page joined (json with keys sorted; diff printed, empty); the
 reducer's duplicate-apply counter is zero; the ui never showed a
 "reconnecting" state for a resume under 5 s.
 
@@ -222,7 +223,8 @@ server). the browser is agent-browser's, loading the app through the
 relay. per case it opens a fresh session in the app, streams a scripted
 reply into it through the daemon, disrupts mid-stream, waits for the
 daemon to settle the session, and compares `window.boxbox.transcript(key)`
-with the daemon's `GET /session/:id/message` byte for byte, printing the
+with the server's read of the thread (protocol 3 messages, every page from
+the newest back, keys sorted; whether the bytes also match is printed), printing the
 reducer's counters (`duplicates` must be 0; `covered` counts the expected
 overlap between a hydration and the entries after it). cases: `drops`
 (20 cuts), `server` (the binary stopped and started: a new journal epoch,
@@ -232,6 +234,54 @@ for the given minutes), `reload` (a full page reload mid-answer: the
 characters painted from indexeddb before the stream resumes, then the
 reply continuing). `bench/stalled.ts --minutes 10 --load` is the stalled
 reader; `--with-stalled` runs it beside the `hidden` case.
+`CMX2_ATTACH=1` uses a daemon the caller started (the one in the bench
+dir's `daemon.json`) and leaves it running, refusing the `daemon` case;
+`BENCH_DIR` moves the bench dir and `RELAY_PORT` the relay.
+
+## the protocol 3 client (round three)
+
+the web app's side of `docs/protocol.md`, section 16, runs in `bun test
+app/src/sync` with no daemon and no server:
+
+- **the wire replay** (`wire.test.ts`, `fixtures/wire-replay.ts`): the
+  protocol 3 journal tape (`server/goldens/protocol3/journal.sse.gz`) and
+  the cases it lacks (an effort unset and set, a removal by `order.patch`,
+  a message removed, a 24,000 character answer) published one entry a tick
+  by a simulated protocol 3 server (`fixtures/server.ts`, `JournalServer`:
+  the overview and the interest's transcripts per stream, interest posts
+  confirmed in-band behind their catch-up, compact catch-ups from a
+  cursor, reads stamped with `x-boxbox-seq`, `x-boxbox-upstream` and an
+  etag, settled text sent as `textOf`). each seeded schedule switches
+  home, A, B over A holding C ten times with and without `since`, hides
+  the page briefly and past 30 s, drops the connection, injects two
+  protocol errors and loses the long answer's last delta. it checks the
+  store against the worker at every apply, every thread in the confirmed
+  interest against the server's read at the client's position, and the
+  final fleet and threads against the server's. seven runs vary read
+  latency, a ring that passes old cursors, raw catch-ups and a source
+  ahead of the journal.
+- **one recording, two wires** (`two-wire.test.ts`): what main (contract 1)
+  derives from the recorded tape, kept in `fixtures/two-wire-main.json.gz`,
+  against what the branch derives from the protocol 3 tape: the fleet,
+  home's windows, and each thread's turns, ruler, turns panel and
+  details, deep equal. the threads part needs solid's browser build, so
+  it runs in the justfile's `bun test --conditions browser` line.
+- **the rules** (`rules.test.ts`, `catchup.test.ts`): the cursor on a
+  filtered stream, each protocol error leaving the state as it was with
+  the cursor dropped, interest posts and confirms, `left`, the no-gap rule
+  (`read-late`), `textOf` (`hash-miss`), and a compacted catch-up applied
+  in full.
+- **the worker** (`worker.test.ts`, `memory.test.ts`, `read.test.ts`,
+  `restart.test.ts`, `press-interest.test.ts`, `press.test.ts`, against
+  `fakeServer`): the stream's query, posts and their failures, the
+  overview after 30 s hidden, catch-ups ending at `caught`, reads on the
+  agent routes revalidated by etag, a read from another journal epoch
+  refused, one answered by a restarted server before its hello shown once
+  and never weighed against the old epoch's H, closing a stage making its
+  layer the stage, and a press posting no interest.
+- **the cache upgrade** (`saves.test.ts`, `cache.test.ts`): v3, v4 and v5
+  databases (`fixtures/cache-v*.json`) open as v6 with `fleet`, `threads`
+  and the cursor cleared and every other store kept record for record.
 
 ## the push matrix (m4)
 
@@ -422,38 +472,47 @@ verification). it owns the pinned daemon on 4890, a cutter on 4892 between
 boxbox and the daemon (cutting it is the relay's upstream dropping), and
 the release binary on 3031, and prints `lsof` on its ports when it stops.
 
-## contract 1 goldens (m9)
+## the recorded tape and the protocol 3 goldens
 
-m9's gate proves contract 1 frozen across the agent source seam
-(`plan.md`, m9; `agents.md`, verification). the baseline was recorded on
-main before the seam, in `server/goldens/contract1/`:
+m9 recorded a cmx2 session on main before the agent source seam, to prove
+contract 1 frozen across it (`plan.md`, m9). contract 1 is gone
+(`protocol.md`, section 15), its goldens with it; the recording stays as
+the input every protocol 3 proof replays. in `server/goldens/contract1/`:
 
 - `tape.jsonl.gz`: a session against the cmx2 dev daemon, as the fleet
   actor took it: every upstream frame, host read and tail read on the wire,
   every command (mark read, clear, adopt, a review answered, asks answered,
-  sends, stream pages, fleet and needs reads), presence, and the tail clock,
+  sends, stream opens, fleet and needs reads), presence, and the tail clock,
   each with the `now_ms` it ran at. the session runs past the caps: 1,100
   threads (57 evicted at 1,000), the order full at 300, 40 turns in windows.
-- `live.json.gz`: what that server sent: the whole journal from cursor 0,
-  every stream the bench opened, every `/api/fleet` and `/api/needs` answer.
-- `golden/`: the end of the session as today's server answers it, epoch and
-  build normalised: `hello` and `reset`, resumes inside, at and past the
-  head, from another epoch and from before the ring (expired), the fleet,
-  the needs with `x-boxbox-seq`, and the payload and title of every push.
+- `live.json.gz`: what that server sent; the `/api/needs` bodies are
+  still held to it.
+
+`server/goldens/protocol3/` holds what today's server answers for the
+tape, epoch and build normalised and hello's stream id as 32 zeros: the
+journal (`journal.sse.gz`), the home, thread and switch views, `hello` and
+`reset`, resumes inside the journal and at its head (each a compact
+catch-up ending in `caught`), ahead of it, from another epoch and from
+below the tombstone floor (expired), the fleet, the needs with their seq,
+and the payload and title of every push.
 
 `cargo test fleet::replay` (part of `just check`, no daemon) replays the
-tape through the actor and holds the journal byte for byte against the live
-one, replays it twice and compares, and holds every stream, fleet and needs
-answer and every golden. recorded frames enter at one place,
-`Replay::upstream` in `server/src/fleet/replay.rs`: `fleet::Upstream`
-before the seam, the cmx2 source after it. the seam moves that function and
-nothing else.
+tape through the actor and holds every golden, and proves the protocol
+(`fleet/replay/tests.rs`, `tests/proofs.rs`): the journal applied in order
+equals the model after every step; a client through seeded view switches,
+hidden spells and dropped streams equals a read at its cursor at every
+step; catch-ups from random cursors end as a stream that never dropped; a
+lost delta heals by a re-read; every malformed frame is caught before it
+applies. `cargo test protocol3_bytes_per_minute_of_tape_by_view --
+--nocapture` prints the bytes per minute by view (`protocol.md`, section
+17). recorded frames enter at one place, `Replay::upstream` in
+`server/src/fleet/replay.rs`, through the cmx2 source.
 
 recording again (only for a new baseline, never to make a test pass):
 `bun bench/golden.ts record` (the pinned daemon on 4950, the bench model on
 4951, a server built with `--features record` on 3051; `GOLDEN_WORLD`,
 `GOLDEN_DAEMON_PORT` and `GOLDEN_BOXBOX_PORT` move them), then
-`BOXBOX_GOLDENS=write cargo test goldens`.
+`BOXBOX_GOLDENS=write cargo test protocol3`.
 
 ### the live goldens
 
@@ -462,11 +521,12 @@ held by `bun bench/golden-live.ts check` against a live pinned daemon
 (4954, the bench model on 4955, a copy of `target/debug/boxbox` on 4957;
 `GOLDEN_LIVE_BINARY` names another build, `GOLDEN_LIVE_WORLD` another
 world). it runs one session and compares each answer with its file in
-`server/goldens/contract1/live/`: the transcript and one message, plain and
-gzipped, with `x-cmx2-seq`, `x-next-cursor` and their pages; history and
-its pages; a prompt's 202, its repeat, and the 409 of its client id on
-another thread; a terminal redialled with its cursor, from 0 and with -1; a
-checkout's review read, merged, discarded and refused (uncommitted work).
+`server/goldens/contract1/live/`: history and its pages; a prompt's 202,
+its repeat, and the 409 of its client id on another thread; a terminal
+redialled with its cursor, from 0 and with -1; a checkout's review read,
+merged, discarded and refused (uncommitted work). its transcript and
+message goldens read the `/api/hosts/.../messages` proxy that went with
+contract 1, so they cannot pass (`open.md`).
 ids, times, seqs, shas, the world
 directory, the minted passwords and the machine's name become placeholders
 before anything is written or compared. it prints a table, one row per

@@ -16,9 +16,8 @@ import { NO_MESSAGES, type TurnsOptions, createTurns } from "./turns";
 import { type Wanted, createHolds, isRead } from "./holds";
 import type { ThreadCaches } from "./memo-cache";
 import type { Child, ChildState, PendingAsk, RowCtx } from "./rows";
-import { number, record, string } from "./wire";
+import { number } from "./wire";
 import type { Kin } from "./details-model";
-import { repoRootOf } from "../composer/place";
 import { repoColour } from "../window/colours";
 import { createClock } from "../clock";
 import { parentIndex } from "../fleet-index";
@@ -93,7 +92,7 @@ const sameChild = (a: Child | undefined, b: Child | undefined): boolean => a ===
 
 export function createThreadData(key: Accessor<string>, thinking: Accessor<"open" | "rows">, caches?: ThreadCaches, turnsOptions?: TurnsOptions): ThreadData {
   const host = () => key().split(":")[0] ?? "";
-  const session = () => state.fleet.sessions[key()];
+  const session = () => state.fleet.threads[key()];
   const thread = () => state.threads[key()];
   /* the store holds a thread only while something shows it (sync/client.ts): this layer does for as long as it is drawn, so a
      thread leaving the stage keeps its data through its way out */
@@ -103,22 +102,20 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
     onCleanup(() => hideThread(shown));
   });
   const rawMessages = () => thread()?.messages ?? NO_MESSAGES;
-  const directory = () => session()?.info.directory ?? "";
-  const repoRoot = () => {
-    const info = session()?.info;
-    return info ? repoRootOf(info) : "";
-  };
+  const directory = () => session()?.place?.directory ?? "";
+  /* the place's root is what composer/place.ts's repoRootOf made of cmx2's project id and directory, as the server's translate does */
+  const repoRoot = () => session()?.place?.root ?? "";
   const root = createMemo(() => projectRoot(directory(), rawMessages()));
   /* the asks on this thread: a new map only when one of them came or went, so the fleet answering for other threads wakes nothing here */
   const asks = createMemo(() => {
     const out = new Map<string, PendingAsk & { callID: string }>();
     for (const a of Object.values(state.fleet.asks)) {
       if (a.key !== key()) continue;
-      const callID = string(record(a.request["tool"])?.["callID"]) ?? "";
-      out.set(a.id, { id: a.id, kind: a.kind, request: a.request, callID });
+      const callID = a.tool?.callID ?? "";
+      out.set(a.id, { id: a.id, kind: a.kind, permission: a.permission ?? null, questions: a.questions ?? null, callID });
     }
     return out;
-  }, new Map(), { equals: (a, b) => a.size === b.size && [...a].every(([id, x]) => { const y = b.get(id); return y !== undefined && y.kind === x.kind && y.request === x.request && y.callID === x.callID; }) });
+  }, new Map(), { equals: (a, b) => a.size === b.size && [...a].every(([id, x]) => { const y = b.get(id); return y !== undefined && y.kind === x.kind && y.permission === x.permission && y.questions === x.questions && y.callID === x.callID; }) });
   const asksByCall = createMemo(() => {
     const out = new Map<string, PendingAsk>();
     for (const a of asks().values()) if (a.callID) out.set(a.callID, a);
@@ -132,11 +129,11 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
     return out;
   }, new Map(), { equals: (a, b) => a.size === b.size && [...a].every(([call, r]) => b.get(call) === r) });
   const { turns, count, ids, turnOf, more, grow, all } = createTurns(rawMessages, root, key, caches, { ...turnsOptions, need: () => new Set(asksByCall().keys()) });
-  const title = () => session()?.info.title || key().split(":")[1] || key();
+  const title = () => session()?.title || key().split(":")[1] || key();
   /* the repo's root, as its window reads it (window/view.ts), so a worktree's stage keeps its repo's colour */
   const tone = createMemo(() => {
-    const info = session()?.info;
-    return toneOfColour(repoColour({ host: host(), root: info ? repoRootOf(info) : directory() || key() }));
+    const s = session();
+    return toneOfColour(repoColour({ host: host(), root: s ? (s.place?.root ?? "") : directory() || key() }));
   });
 
   /* the agents' reports, which an agent row links to: the mail turns alone, which a delta to the running turn never changes */
@@ -166,7 +163,7 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
       const own = createTurns(() => state.threads[k]?.messages ?? NO_MESSAGES, root, () => k, caches);
       const items = createMemo(() => own.turns().flatMap((t) => t.items));
       const summary = createMemo<Child | undefined>(() => {
-        const entry = state.fleet.sessions[k];
+        const entry = state.fleet.threads[k];
         /* the fleet knows the parent and not the child: the fleet holds only each host's newest 300 threads, so an agent's own
            session is often older than them, or it was archived. which is not known, so it is not called gone: its door opens it
            by its key (a thread the server cannot find says so, reading.ts), and its state is idle, as the ios app has it. the
@@ -177,13 +174,15 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
         const there = state.threads[k];
         const loaded = isRead(there);
         const all = items();
-        const first = loaded ? (state.threads[k]?.messages[0]?.info.time.created ?? entry?.info.time.created ?? 0) : entry?.info.time.created ?? 0;
+        const first = loaded ? (state.threads[k]?.messages[0]?.info.created ?? entry?.created ?? 0) : entry?.created ?? 0;
         /* a thread not held says how long its session lasted from the fleet's own times: created to last updated */
-        const end = loaded ? (state.threads[k]?.messages.at(-1)?.info.time.completed ?? first) : entry?.info.time.updated ?? first;
+        const end = loaded ? (state.threads[k]?.messages.at(-1)?.info.completed ?? first) : entry?.updated ?? first;
         const asked = Object.values(state.fleet.asks).some((a) => a.key === k);
-        const status = entry?.status;
-        const state_: ChildState = !entry ? "idle" : asked ? "wants" : status?.type === "busy" || status?.type === "retry" ? "working" : status?.type === "idle" && status.parked ? "parked" : "idle";
-        return { steps: loaded ? all.reduce((n, x) => n + (x.k === "step" ? 1 : 0), 0) : 0, ms: Math.max(0, end - first), items: all, held: loaded, state: state_, since: status?.since ?? first, created: entry?.info.time.created ?? first, title: entry?.info.title ?? "" };
+        const activity = entry?.activity;
+        const state_: ChildState = !entry ? "idle" : asked ? "wants" : activity?.state === "busy" || activity?.state === "retry" ? "working" : activity?.state === "parked" ? "parked" : "idle";
+        /* an idle thread carries no since (cmx2's idle-not-parked since has no neutral home): it falls to the first message, as a thread with no status did */
+        const since = activity && "since" in activity ? activity.since || undefined : undefined;
+        return { steps: loaded ? all.reduce((n, x) => n + (x.k === "step" ? 1 : 0), 0) : 0, ms: Math.max(0, end - first), items: all, held: loaded, state: state_, since: since ?? first, created: entry?.created ?? first, title: entry?.title ?? "" };
       }, undefined, { equals: sameChild });
       return { summary, dispose };
     }));
@@ -251,10 +250,10 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
       if (seen.has(id)) continue;
       seen.add(id);
       const k = `${host()}:${id}`;
-      const entry = state.fleet.sessions[k];
+      const entry = state.fleet.threads[k];
       const held = state.threads[k];
-      const cost = entry ? entry.info.cost : held ? held.messages.reduce((n, m) => n + (m.info.role === "assistant" ? (number((m.info as Record<string, unknown>)["cost"]) ?? 0) : 0), 0) : null;
-      out.push({ id, parent, title: entry?.info.title ?? "", at: entry?.info.time.created ?? held?.messages[0]?.info.time.created ?? 0, cost, gone: !entry });
+      const cost = entry ? (entry.cost ?? 0) : held ? held.messages.reduce((n, m) => n + (m.info.role === "assistant" ? (number(m.info.cost) ?? 0) : 0), 0) : null;
+      out.push({ id, parent, title: entry?.title ?? "", at: entry?.created ?? held?.messages[0]?.info.created ?? 0, cost, gone: !entry });
       for (const next of under.get(id) ?? []) queue.push([id, next]);
     }
     return out;
@@ -262,11 +261,11 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
 
   const working = createMemo(() => {
     const last = turns().at(-1);
-    const status = session()?.status;
-    return last?.status === "working" || status?.type === "busy" || status?.type === "retry";
+    const activity = session()?.activity;
+    return last?.status === "working" || activity?.state === "busy" || activity?.state === "retry";
   });
   /* agents at work under this thread: its held children in a turn, or the daemon's own count while it waits on them */
-  const agentsWorking = createMemo(() => { const s = session()?.status; return (s?.type === "idle" && (s.parked?.agents ?? 0) > 0) || [...children().values()].some((c) => c.state === "working"); });
+  const agentsWorking = createMemo(() => { const s = session()?.activity; return (s?.state === "parked" && s.agents > 0) || [...children().values()].some((c) => c.state === "working"); });
   /* the working clock: it runs while a turn or an agent under it does, from the moment it starts, and stops while the page is
      hidden, since nothing but the screen reads it (ui/clock.ts) */
   const now = createClock({ active: () => working() || agentsWorking() });

@@ -46,7 +46,10 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** the fleet model now. */
+        /**
+         * the fleet model now, with `x-boxbox-seq`: the journal position it
+         *     reflects, so a stream resumed from it carries every later change.
+         */
         get: operations["snapshot"];
         put?: never;
         post?: never;
@@ -569,26 +572,6 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
-    "/api/hosts/{host}/sessions/{session}/messages": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * the session's messages, as cmx2's `GET /session/{session}/message`
-         *     answers them, the one still streaming included (cmx2-asks a5).
-         */
-        get: operations["messages"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/hosts/{host}/sessions/{session}/messages/{message}": {
         parameters: {
             query?: never;
@@ -596,11 +579,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /**
-         * one message of the session, `{info, parts}`, streaming or finished; a
-         *     client re-reads a part through this when a delta shows it missed text.
-         */
-        get: operations["message"];
+        get?: never;
         put?: never;
         post?: never;
         /** takes back a queued prompt before the model sees it ("unsend"). */
@@ -1062,6 +1041,26 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/stream/{stream}/interest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * what a stream shows from now on (`docs/protocol.md`, section 5): the
+         *     confirm arrives on the stream itself, its catch-up ahead of it.
+         */
+        post: operations["interest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/telemetry": {
         parameters: {
             query?: never;
@@ -1093,8 +1092,11 @@ export type components = {
             /** @enum {string} */
             state: "idle";
         } | {
-            /** Format: double */
-            since: number;
+            /**
+             * Format: double
+             * @description absent when the runtime did not say when the turn started.
+             */
+            since?: number | null;
             /** @enum {string} */
             state: "busy";
         } | {
@@ -1368,6 +1370,7 @@ export type components = {
             /** @description why the turn ended ("aborted", ...). */
             finish?: string | null;
             id: string;
+            mail?: components["schemas"]["Mail"] | null;
             /** @description what this message ran with or asked for. */
             model?: string | null;
             /** @description a runtime or boxbox note rather than a prompt. */
@@ -1462,18 +1465,6 @@ export type components = {
              */
             archived: number;
         };
-        /** @description a permission or a question waiting on a person. */
-        Ask: {
-            host: string;
-            id: string;
-            /** @description the session's key, `<host>:<sessionID>`. */
-            key: string;
-            kind: components["schemas"]["AskKind"];
-            /** @description cmx2's `PermissionRequest` or `QuestionRequest`, as the daemon wrote it. */
-            request: Record<string, never>;
-        };
-        /** @enum {string} */
-        AskKind: "permission" | "question";
         /** @description how an ask ended. */
         AskSettled: {
             agent: string;
@@ -1594,90 +1585,6 @@ export type components = {
             /** @description a new thread may start in a fresh worktree. */
             worktree: boolean;
         };
-        /** @description a change to the fleet model, discriminated on `type`. */
-        Change: {
-            host: components["schemas"]["HostStatus"];
-            /** @enum {string} */
-            type: "host";
-        } | {
-            host: string;
-            /** @enum {string} */
-            type: "host.removed";
-        } | {
-            asks: components["schemas"]["Ask"][];
-            host: string;
-            sessions: components["schemas"]["SessionEntry"][];
-            /** @enum {string} */
-            type: "host.reset";
-        } | {
-            session: components["schemas"]["SessionEntry"];
-            /** @enum {string} */
-            type: "session";
-        } | {
-            key: string;
-            /** @enum {string} */
-            type: "session.removed";
-        } | {
-            ask: components["schemas"]["Ask"];
-            /** @enum {string} */
-            type: "ask";
-        } | {
-            host: string;
-            id: string;
-            /** @enum {string} */
-            type: "ask.settled";
-        } | {
-            keys: string[];
-            /** @enum {string} */
-            type: "order";
-        } | {
-            /** @description cmx2's `MessageInfo`, as the daemon wrote it. */
-            info: Record<string, never>;
-            key: string;
-            /** @enum {string} */
-            type: "message";
-            /**
-             * Format: int64
-             * @description the daemon's seq for this event; apply it only past the seq of
-             *     the transcript read it lands on. null when the daemon did not
-             *     log it, which makes it newer than any read.
-             */
-            upstream?: number | null;
-        } | {
-            key: string;
-            /** @description cmx2's `Part`, as the daemon wrote it. */
-            part: Record<string, never>;
-            /** @enum {string} */
-            type: "part";
-            /**
-             * Format: int64
-             * @description null on the daemon's resume re-send of a part still streaming,
-             *     which carries its full text so far and no seq.
-             */
-            upstream?: number | null;
-        } | {
-            delta: string;
-            field: string;
-            key: string;
-            messageID: string;
-            /**
-             * Format: int64
-             * @description utf-16 units of the part's text before this delta: a client
-             *     appends only when it equals what it holds, skips what it
-             *     already has, and re-reads the part on a gap.
-             */
-            offset: number;
-            partID: string;
-            /** @enum {string} */
-            type: "delta";
-        } | {
-            key: string;
-            messageID: string;
-            /** @enum {string} */
-            type: "message.removed";
-            /** Format: int64 */
-            upstream?: number | null;
-        };
         Changes: {
             /** Format: int64 */
             additions: number;
@@ -1770,30 +1677,6 @@ export type components = {
             /** Format: int64 */
             used: number;
         };
-        /** @description the stream's frames that are not journal entries. */
-        Control: {
-            /** @description the server's build; a newer one lights "update ready". */
-            build: string;
-            /** @description the journal this server holds; a restart mints a new one. */
-            epoch: string;
-            /**
-             * Format: int64
-             * @description the journal's newest seq.
-             */
-            head: number;
-            /** Format: int32 */
-            protocol: number;
-            /** @enum {string} */
-            type: "hello";
-        } | {
-            epoch: string;
-            fleet: components["schemas"]["FleetSnapshot"];
-            reason: components["schemas"]["ResetReason"];
-            /** Format: int64 */
-            seq: number;
-            /** @enum {string} */
-            type: "reset";
-        };
         /** @description one device's appearance. */
         DevicePrefs: {
             /** @default system */
@@ -1845,7 +1728,7 @@ export type components = {
              *     (with `retry-after`), `generation-changed`, `not-confirmed`,
              *     `not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,
              *     and the board's `no-board`, `no-board-window`, `board-busy`,
-             *     `no-such-machine`, `board-protocol`.
+             *     `no-such-machine`, `board-protocol`; protocol 3's `no-such-stream`.
              */
             code: string;
             /** @description for people, in the interface's voice. */
@@ -1879,14 +1762,6 @@ export type components = {
             /** @description window keys, first first, at most 300; a runs window is `<agent>:runs`. */
             order: string[];
             threads: components["schemas"]["Thread"][];
-        };
-        /** @description the whole fleet model, as `reset` and `GET /api/fleet` carry it. */
-        FleetSnapshot: {
-            asks: components["schemas"]["Ask"][];
-            hosts: components["schemas"]["HostStatus"][];
-            /** @description the window order: session keys, first first. */
-            order: string[];
-            sessions: components["schemas"]["SessionEntry"][];
         };
         /** @description a folder on the host, for the new-thread sheet's picker. */
         Folder: {
@@ -2184,17 +2059,6 @@ export type components = {
             thread?: string | null;
             under?: string[];
         };
-        /**
-         * @description one journal entry: a change to the fleet model, at its place in the
-         *     journal.
-         */
-        JournalEntry: components["schemas"]["Change"] & {
-            /**
-             * Format: int64
-             * @description contiguous within an epoch; the entry's sse id is `<epoch>:<seq>`.
-             */
-            seq: number;
-        };
         /** @description shown joined with " · ": "cmx · vm-a", "assistant · openclaw · vm-b". */
         Label: {
             /** @description the config's `machine`, else the connection's name. */
@@ -2272,7 +2136,8 @@ export type components = {
             message?: string | null;
         };
         MessageError: {
-            message: string;
+            /** @description the runtime's words, absent when it gave none. */
+            message?: string | null;
             /** @description the runtime's error name (`MessageAbortedError` for a stopped turn). */
             name?: string | null;
         };
@@ -2737,11 +2602,6 @@ export type components = {
             /** @description `<provider>/<model>`, as the host's `/config/providers` lists it. */
             model?: string | null;
         };
-        /**
-         * @description why a stream began with `reset`.
-         * @enum {string}
-         */
-        ResetReason: "none" | "epoch" | "expired" | "invalid";
         Restarting: {
             host: string;
         };
@@ -2822,42 +2682,6 @@ export type components = {
         Session: {
             signedIn: boolean;
         };
-        /**
-         * @description one session in the fleet, identity `host:session` (repos never merge
-         *     across hosts).
-         */
-        SessionEntry: {
-            /**
-             * Format: int32
-             * @description child sessions with a turn running now.
-             */
-            agents: number;
-            /**
-             * Format: double
-             * @description set while the person has this thread cleared off home: the session's
-             *     `time.updated` when they cleared it. absent otherwise, and the moment
-             *     the thread does something new (`clears.rs`).
-             */
-            cleared?: number | null;
-            host: string;
-            id: string;
-            /** @description cmx2's `SessionInfo`, as the daemon wrote it. */
-            info: Record<string, never>;
-            /** @description `<host>:<sessionID>`. */
-            key: string;
-            /** @description what waits on a person here, most pressing first (`needs.rs`). */
-            needs: components["schemas"]["Need"][];
-            /**
-             * Format: int32
-             * @description background jobs a parked session waits on.
-             */
-            processes: number;
-            read?: components["schemas"]["ReadMark"] | null;
-            /** @description cmx2's `SessionStatus`; null when idle and not parked. */
-            status?: Record<string, never> | null;
-            /** @description the window's tail: the last parts, oldest first, at most 12. */
-            tail: components["schemas"]["TailItem"][];
-        };
         /** @description who settled an ask first, as the daemon says (cmx2 a6). */
         SettledBy: {
             /**
@@ -2897,11 +2721,6 @@ export type components = {
             text: string;
         };
         /**
-         * @description one frame's data on `GET /api/stream`: a control frame or a journal
-         *     entry, discriminated on `type` across both.
-         */
-        StreamFrame: components["schemas"]["Control"] | components["schemas"]["JournalEntry"];
-        /**
          * @description why a stream began with `reset`.
          * @enum {string}
          */
@@ -2920,35 +2739,6 @@ export type components = {
             auth: string;
             p256dh: string;
         };
-        /**
-         * @description one part as a window shows it, reduced to what the window needs. parts
-         *     a window does not show (step markers, snapshots, the context the daemon
-         *     adds to a prompt, a prompt still queued) never enter a tail. streamed
-         *     text grows the part as it arrives (`message.part.delta`).
-         */
-        TailItem: {
-            /**
-             * @description the agent that sent the part, when it is another agent's report or
-             *     note (cmx2's mail envelope): the window says who, not "you".
-             */
-            from?: string | null;
-            kind: components["schemas"]["TailKind"];
-            messageID: string;
-            partID: string;
-            /** @description who wrote the part's message: your prompt sits on the right. */
-            role: components["schemas"]["TailRole"];
-            /** @description the tool's state (`pending`, `running`, `completed`, `error`). */
-            state?: string | null;
-            /**
-             * @description at most 280 characters: the end of the agent's text, the start of
-             *     your prompt, or the tool's title.
-             */
-            text: string;
-            /** @description the tool's name, on tool parts. */
-            tool?: string | null;
-        };
-        /** @enum {string} */
-        TailKind: "text" | "reasoning" | "tool" | "file";
         /**
          * @description a tail's change: drop `drop` items from the front, then put each item at
          *     its index (replacing; the index equal to the length appends). the result
@@ -2971,11 +2761,6 @@ export type components = {
                 }
             ][];
         };
-        /**
-         * @description cmx2's message roles, as the daemon names them.
-         * @enum {string}
-         */
-        TailRole: "user" | "assistant";
         /**
          * @description the body is read whatever its content type says, because
          *     `navigator.sendBeacon` posts `text/plain`.
@@ -3169,7 +2954,7 @@ export type components = {
         };
         /**
          * @description one part as a window shows it. contract 2's kinds add `image` and
-         *     `audio`; contract 1's encoder maps both to `file`.
+         *     `audio`; the fleet's tails still show both as `file`, as windows always drew them.
          */
         ThreadTailItem: {
             from?: string | null;
@@ -3454,13 +3239,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description every host, session and ask, and the window order */
+            /** @description every agent, thread and ask, and the window order, with `x-boxbox-seq: <epoch>:<seq>` */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FleetSnapshot"];
+                    "application/json": components["schemas"]["Fleet"];
                 };
             };
             /** @description not signed in */
@@ -5142,136 +4927,6 @@ export interface operations {
             };
         };
     };
-    messages: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description the etag of a read the client holds */
-                "If-None-Match"?: string | null;
-            };
-            path: {
-                /** @description the host's name in boxbox.toml */
-                host: string;
-                /** @description the daemon's session id */
-                session: string;
-                /** @description at most this many messages, newest last; all of them when absent. */
-                limit: number | null;
-                /** @description the `x-next-cursor` of the page after this one. */
-                before: number | null;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description cmx2's message list, byte for byte, with `x-cmx2-seq` and the same stamp as a weak etag */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>[];
-                };
-            };
-            /** @description the read whose etag was sent is still the transcript; `x-cmx2-seq` is its stamp */
-            304: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description not signed in */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description no such host, or the daemon has no such session */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description the host did not answer */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    message: {
-        parameters: {
-            query?: never;
-            header?: {
-                /** @description the etag of a read the client holds */
-                "If-None-Match"?: string | null;
-            };
-            path: {
-                /** @description the host's name in boxbox.toml */
-                host: string;
-                /** @description the daemon's session id */
-                session: string;
-                /** @description the daemon's message id */
-                message: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description cmx2's `{info, parts}`, byte for byte, with `x-cmx2-seq` and the same stamp as a weak etag */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-            /** @description the read whose etag was sent still holds; `x-cmx2-seq` is its stamp */
-            304: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description not signed in */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description no such host, session or message */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            /** @description the host did not answer */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     unsend: {
         parameters: {
             query?: never;
@@ -6601,6 +6256,20 @@ export interface operations {
                  *     `Last-Event-ID`; the header wins when both are sent.
                  */
                 after?: string;
+                /** @description the open thread, `<agent>:<thread>`; absent for the overview only. */
+                thread?: string;
+                /** @description the layers under the stage, comma separated, at most 8. */
+                under?: string;
+                /**
+                 * @description the children held for the stage and its layers, comma separated, at
+                 *     most 16.
+                 */
+                holds?: string;
+                /**
+                 * @description for each interest key the client already holds, its `left`:
+                 *     `<key>:<seq>,<key>:<seq>`. ignored when the stream starts with a reset.
+                 */
+                since?: string;
                 /**
                  * @description a desktop window that would show the board's digits and obey its
                  *     focus and compose (`docs/board.md`, where the board is). ignored
@@ -6609,12 +6278,19 @@ export interface operations {
                  */
                 board?: boolean;
                 /**
-                 * @description `colours=1`: the stream also carries repo colours as id-less
-                 *     `ColourFrame`s outside the journal: the whole map after `hello`, then
-                 *     each change ahead of the entry that first shows its repo. a stream
-                 *     that does not ask gets contract 1 exactly as it was.
+                 * @description `board`: the board daemon's stream, with `protocol`, `device` and
+                 *     `addrs` (board/wire's stream query); it gets board/wire's frames only.
                  */
-                colours?: boolean;
+                view?: string;
+                /**
+                 * @description with `view=board`: the board protocol the daemon speaks; another
+                 *     than the server's answers 409.
+                 */
+                protocol?: number;
+                /** @description with `view=board`: the daemon's device id. */
+                device?: string;
+                /** @description with `view=board`: every address of the board's mac, comma separated. */
+                addrs?: string;
             };
             header?: {
                 /** @description the id of the last frame applied, `<epoch>:<seq>` */
@@ -6625,17 +6301,96 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description an sse stream: `hello`, then a replay or a `reset`, then live entries; each frame's data is one of these */
+            /** @description an sse stream: `hello`, then the catch-up ending in `caught` or a `reset`, then live entries; each frame's data is one of these (`view=board`: board/wire's frames instead) */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": components["schemas"]["StreamFrame"];
+                    "text/event-stream": components["schemas"]["AgentStreamFrame"];
+                };
+            };
+            /** @description more than 8 layers or 16 holds, a malformed key or since, or a view other than board */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             /** @description not signed in */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `view=board` on a server without `[board]` */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `view=board` with another board protocol than the server's: update the daemon */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    interest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the stream's id, as its `hello` named it */
+                stream: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InterestPost"];
+            };
+        };
+        responses: {
+            /** @description taken: its confirm (or none, for an `ask` not above the last applied) comes on the stream */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description more than 8 layers or 16 holds, or a malformed key */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description `no-such-stream`: it ended, is another session's or a board stream, or did not read its last confirm in 30 s; reconnect with the interest in the query */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

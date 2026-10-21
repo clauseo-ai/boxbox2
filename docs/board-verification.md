@@ -220,7 +220,7 @@ in printed `diff empty (leds, board, calls, radio)` for all three.
 
 1. the native daemon (`board/daemon`, decision 78) honours the seams in
    `docs/board.md`. the harness drives it only through them.
-2. the server's board channel answers `/api/board/stream` and
+2. the server's board channel answers `/api/stream?view=board` and
    `/api/board/act` with `[board]` configured. `world-v2.ts` stages it from
    the checkout, and `--smoke --board` checks the stream answers.
 3. run `bun board/trace/replay.ts all --daemon target/release/boxbox-board

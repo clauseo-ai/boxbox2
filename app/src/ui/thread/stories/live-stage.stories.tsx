@@ -12,7 +12,9 @@ import "../../../shell/stories/server";
 import { type ReactElement, createElement, useEffect, useRef } from "react";
 import { mountShell } from "../../../shell/stories/mount";
 import { applyPatches, state } from "../../../store";
-import type { Message, Part } from "../../../sync/protocol";
+import type { Ask, Message, Part } from "../../../sync/protocol";
+import { neutralMessage } from "../../../sync/fixtures/neutral";
+import { isToolPart, string } from "../wire";
 import northstarUrl from "../fixtures/northstar-heavy.json?url";
 
 export default { title: "stage" };
@@ -58,17 +60,24 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const param = (name: string): number => Number(new URLSearchParams(location.search).get(name)) || 0;
 const speed = (): number => Math.max(0.25, param("speed") || 1);
 
-const QUESTION = { question: "which upscale path should the device run use?", header: "upscale path", options: [{ label: "metal", description: "answer metal" }, { label: "software", description: "answer software" }], custom: true };
+const QUESTION = { question: "which upscale path should the device run use?", header: "upscale path", options: [{ label: "metal", description: "answer metal" }, { label: "software", description: "answer software" }], custom: true, multiple: false };
+
+type Recorded = { info: Record<string, unknown>; parts: Record<string, unknown>[] };
+/** the heavy session's messages, recorded in cmx2's shapes, made neutral as the server's translate makes them */
+const northstar = async (): Promise<{ messages: Message[] }> => ({ messages: ((await (await fetch(northstarUrl)).json()) as { messages: Recorded[] }).messages.map(neutralMessage) });
+/** a message's info born again at `created`, not yet completed */
+const bornAt = (info: Message["info"], created: number, completed?: number): Message["info"] => { const { completed: _was, ...rest } = info; return { ...rest, created, ...(completed === undefined ? {} : { completed }) }; };
 
 /** the agent asks and waits: a running question step in a new message, and the daemon's pending ask for it */
 function askOn(key: string, at: number, last: Message): void {
-  const sessionID = last.info.sessionID, messageID = "msg_ask", callID = "call_ask", id = "que_ask";
-  const [host] = key.split(":");
+  const messageID = "msg_ask", callID = "call_ask", id = "que_ask";
+  const [host = ""] = key.split(":");
   const start = Date.now();
-  const message = { info: { ...last.info, id: messageID, time: { created: start } }, parts: [{ type: "tool", id: "prt_ask", sessionID, messageID, tool: "question", callID, state: { status: "running", input: { questions: [QUESTION] }, time: { start } } }] };
+  const message: Message = { info: { ...bornAt(last.info, start), id: messageID }, parts: [{ type: "tool", id: "prt_ask", messageID, tool: "question", family: "ask", callID, state: { status: "running", input: { questions: [QUESTION] }, time: { start } } }] };
+  const ask: Ask = { key, agent: host, id, thread: key, kind: "question", questions: [QUESTION], tool: { messageID, callID } };
   applyPatches([
     { path: ["threads", key, "messages", at], value: message },
-    { path: ["fleet", "asks", `${host}:${id}`], value: { key, host, id, kind: "question", request: { id, sessionID, questions: [QUESTION], tool: { messageID, callID } } } },
+    { path: ["fleet", "asks", `${host}:${id}`], value: ask },
   ]);
 }
 
@@ -79,12 +88,12 @@ const ANSWER = "the tvOS build is done and the three streams now share one upsca
 async function playMessage(key: string, at: number, source: Message, gone: () => boolean, rate = speed()): Promise<void> {
   const born = Date.now();
   const parts: Part[] = [];
-  const put = (completed?: number) => applyPatches([{ path: ["threads", key, "messages", at], value: { info: { ...source.info, time: { created: born, ...(completed === undefined ? {} : { completed }) } }, parts: [...parts] } }]);
+  const put = (completed?: number) => applyPatches([{ path: ["threads", key, "messages", at], value: { info: bornAt(source.info, born, completed), parts: [...parts] } }]);
   put();
   for (const part of source.parts) {
     if (gone()) return;
     const start = Date.now();
-    if ((part.type === "text" || part.type === "reasoning") && part.text !== "") {
+    if ((part.type === "text" || part.type === "reasoning") && typeof part.text === "string" && part.text !== "") {
       const words = part.text.split(/(\s+)/);
       const index = parts.push({ ...part, text: "", streaming: true, time: { start } } as Part) - 1;
       for (let w = 0; w < words.length; w += 10) {
@@ -94,8 +103,8 @@ async function playMessage(key: string, at: number, source: Message, gone: () =>
         await sleep(80 / rate);
       }
       parts[index] = { ...part, time: { start, end: Date.now() } } as Part;
-    } else if (part.type === "tool") {
-      const output = part.state.status === "completed" && part.tool.endsWith("exec_command") ? part.state.output.split("\n") : [];
+    } else if (isToolPart(part)) {
+      const output = part.state.status === "completed" && part.tool.endsWith("exec_command") ? (part.state.output ?? "").split("\n") : [];
       // a command that wrote a good deal of output writes it in eight pieces over its run
       const beats = output.length > 6 ? 8 : 1;
       const run = Math.min(2600, Math.max(200, spanOf(part) / 25)) / rate;
@@ -137,18 +146,18 @@ function heavyTurn(options: HeavyOptions): ReactElement {
       while (!gone && !el.dataset["ready"]) await sleep(100);
       const key = state.openThread;
       if (gone || !key) return;
-      const file = (await (await fetch(northstarUrl)).json()) as { messages: Message[] };
+      const file = await northstar();
       const users = file.messages.flatMap((m, i) => (m.info.role === "user" ? [i] : []));
       const from = users[1] ?? 0, to = users[2] ?? file.messages.length;
       const turn = file.messages.slice(from, to);
       const last = turn.at(-1);
       if (!last) return;
-      const reply: Message = { info: { ...last.info, id: "msg_reply", time: { created: 0 } }, parts: [{ type: "text", id: "prt_reply", sessionID: last.info.sessionID, messageID: "msg_reply", text: ANSWER } as Part] } as Message;
+      const reply: Message = { info: { ...bornAt(last.info, 0), id: "msg_reply" }, parts: [{ type: "text", id: "prt_reply", messageID: "msg_reply", text: ANSWER }] };
       // the history above the turn is settled; the session is at work and nothing waits on the person
       applyPatches([
         { path: ["threads", key, "messages"], value: file.messages.slice(0, from) },
         { path: ["fleet", "asks"], value: {} },
-        { path: ["fleet", "sessions", key, "status"], value: { type: "busy", since: Date.now() } },
+        { path: ["fleet", "threads", key, "activity"], value: { state: "busy", since: Date.now() } },
       ]);
       // the stage lands at the end of the history it was given, as it does when it opens a thread, before the turn begins
       await sleep(600);
@@ -156,7 +165,7 @@ function heavyTurn(options: HeavyOptions): ReactElement {
       await sleep(900);
       const user = turn[0] as Message;
       const parts = options.photo ? [...user.parts, photoPart(user)] : user.parts;
-      applyPatches([{ path: ["threads", key, "messages", from], value: { info: { ...user.info, time: { created: Date.now() } }, parts } }]);
+      applyPatches([{ path: ["threads", key, "messages", from], value: { info: bornAt(user.info, Date.now()), parts } }]);
       await sleep(300);
       if (options.watch) unwatch = options.watch(el);
       const played = [...turn.slice(1), reply].slice(0, options.messages ?? Number.POSITIVE_INFINITY);
@@ -169,7 +178,7 @@ function heavyTurn(options: HeavyOptions): ReactElement {
       }
       unwatch();
       unwatch = () => {};
-      if (options.messages === undefined) applyPatches([{ path: ["fleet", "sessions", key, "status"], value: { type: "idle", since: Date.now() } }]);
+      if (options.messages === undefined) applyPatches([{ path: ["fleet", "threads", key, "activity"], value: { state: "idle" } }]);
       el.dataset["done"] = "1";
     })();
     return () => { gone = true; unwatch(); stop(); };
@@ -191,7 +200,7 @@ function photoPart(user: Message): Part {
     for (let i = 0; i < pixels.data.length; i += 4) { const v = (i * 2654435761) >>> 24; pixels.data[i] = v; pixels.data[i + 1] = (v * 7) & 255; pixels.data[i + 2] = 200; pixels.data[i + 3] = 255; }
     g.putImageData(pixels, 0, 0);
   }
-  return { type: "file", id: "prt_photo", sessionID: user.info.sessionID, messageID: user.info.id, mime: "image/jpeg", filename: "whiteboard.jpg", url: canvas.toDataURL("image/jpeg", 0.85) } as unknown as Part;
+  return { type: "image", id: "prt_photo", messageID: user.info.id, mime: "image/jpeg", filename: "whiteboard.jpg", url: canvas.toDataURL("image/jpeg", 0.85), flavour: "attached" };
 }
 
 /** counts, while the turn streams, how often the page made again what was already on it: thumbnails (an img node added, each one a
@@ -291,23 +300,23 @@ export const FootRoom = (): ReactElement => {
       while (!gone && !el.dataset["ready"]) await sleep(100);
       const key = state.openThread;
       if (gone || !key) return;
-      const file = (await (await fetch(northstarUrl)).json()) as { messages: Message[] };
+      const file = await northstar();
       const users = file.messages.flatMap((m, i) => (m.info.role === "user" ? [i] : []));
       const from = users[1] ?? 0, to = users[2] ?? file.messages.length;
       const turn = file.messages.slice(from, to);
       /* the messages up to the first one that writes words after a run of steps: the fold this story is about */
-      const words = turn.findIndex((m, i) => i > 2 && m.parts.some((p) => p.type === "text" && p.text.trim() !== ""));
+      const words = turn.findIndex((m, i) => i > 2 && m.parts.some((p) => p.type === "text" && (string(p.text) ?? "").trim() !== ""));
       const played = turn.slice(1, words < 0 ? turn.length : words + 1);
       applyPatches([
         { path: ["threads", key, "messages"], value: file.messages.slice(0, from) },
         { path: ["fleet", "asks"], value: {} },
-        { path: ["fleet", "sessions", key, "status"], value: { type: "busy", since: Date.now() } },
+        { path: ["fleet", "threads", key, "activity"], value: { state: "busy", since: Date.now() } },
       ]);
       await sleep(600);
       el.querySelector<HTMLElement>(".stage-scroll")?.scrollTo({ top: Number.MAX_SAFE_INTEGER });
       await sleep(600);
       const user = turn[0] as Message;
-      applyPatches([{ path: ["threads", key, "messages", from], value: { info: { ...user.info, time: { created: Date.now() } }, parts: user.parts } }]);
+      applyPatches([{ path: ["threads", key, "messages", from], value: { info: bornAt(user.info, Date.now()), parts: user.parts } }]);
       unwatch = watchDrops(el);
       for (const [i, message] of played.entries()) {
         if (gone) return;
@@ -362,21 +371,21 @@ export const OpenLive = (): ReactElement => {
     let gone = false, unwatch = () => {};
     void (async () => {
       while (!gone && !el.dataset["ready"]) await sleep(100);
-      const [first, second] = Object.keys(state.fleet.sessions).filter((k) => !state.threads[k]);
+      const [first, second] = Object.keys(state.fleet.threads).filter((k) => !state.threads[k]);
       if (gone || !first || !second) return;
-      const file = (await (await fetch(northstarUrl)).json()) as { messages: Message[] };
+      const file = await northstar();
       const users = file.messages.flatMap((m, i) => (m.info.role === "user" ? [i] : []));
       const from = users[1] ?? 0, to = users[2] ?? file.messages.length;
       const turn = file.messages.slice(from, to);
-      const words = turn.findIndex((m, i) => i > 2 && m.parts.some((p) => p.type === "text" && p.text.trim() !== ""));
+      const words = turn.findIndex((m, i) => i > 2 && m.parts.some((p) => p.type === "text" && (string(p.text) ?? "").trim() !== ""));
       const played = turn.slice(1, words < 0 ? turn.length : words + 1);
       /* the thread as it stands when it is opened: the turns before, the prompt, and the run up to `held` of its messages, working */
       const held = Math.max(1, played.length - (param("left") || 6));
       /* its clocks moved to now, so the run's strip reads the recorded part and the part played after it on one clock */
-      const last = played[held - 1]?.info.time.created ?? Date.now();
+      const last = played[held - 1]?.info.created ?? Date.now();
       const shift = Date.now() - last;
       const opening = JSON.parse(JSON.stringify([...file.messages.slice(0, from + 1), ...played.slice(0, held)]).replace(/"(created|completed|start|end)":(\d{13})/g, (_s, k: string, v: string) => `"${k}":${Number(v) + shift}`)) as Message[];
-      const busy = (key: string) => ({ path: ["fleet", "sessions", key, "status"], value: { type: "busy", since: Date.now() - 200_000 } });
+      const busy = (key: string) => ({ path: ["fleet", "threads", key, "activity"], value: { state: "busy", since: Date.now() - 200_000 } });
       const open = (key: string) => el.querySelector<HTMLElement>(`.win[data-key="${CSS.escape(key)}"] .win-open`)?.click();
       applyPatches([
         busy(first),

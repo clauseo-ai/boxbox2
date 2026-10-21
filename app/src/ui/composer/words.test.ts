@@ -169,6 +169,11 @@ describe("the live line", () => {
     expect(liveLine([asked])).toBeNull();
   });
 
+  test("a picture or a sound in the tail reads as a file, as it did before the tail had those kinds", () => {
+    expect(liveLine([{ kind: "image", text: "gap.jpg", messageID: "m", partID: "i", role: "assistant" }])).toEqual({ kind: "file", text: "gap.jpg", prose: false, key: "m/i" });
+    expect(liveLine([{ kind: "audio", text: "voice note", messageID: "m", partID: "a", role: "assistant" }])?.kind).toBe("file");
+  });
+
   test("a heading's hashes and a list's bullet are not the line's words", () => {
     expect(liveLine([{ kind: "text", text: "## the plan\n- read the **notes**", messageID: "m", partID: "p", role: "assistant" }])?.text).toBe("the plan read the **notes**");
   });
@@ -272,6 +277,10 @@ describe("how full the context is", () => {
   test("a thread that reports no window, or a window of nothing, has no fill to draw", () => {
     expect(contextFill(undefined)).toBeNull();
     expect(contextFill({ used: 10, limit: 0 })).toBeNull();
+  });
+
+  test("a compaction point the daemon did not give, or gave as nothing, is no tick", () => {
+    expect(contextFill({ used: 128_000, limit: 200_000, compactAt: null })).toEqual({ percent: 64, mark: null, words: "128k of 200k tokens" });
   });
 
   test("a context past its window reads as full, and with no compaction point there is no tick", () => {

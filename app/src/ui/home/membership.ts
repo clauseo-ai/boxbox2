@@ -13,21 +13,26 @@
    sits on a thread that was neither working nor asking. */
 
 import { type Accessor, createMemo, untrack } from "solid-js";
+import type { Thread } from "../../sync/protocol";
 import type { Fleet } from "../../sync/reducer";
 import { keyed } from "../fleet-index";
 
 /** a thread touched this recently keeps its window */
 export const RECENT_MS = 12 * 60 * 60 * 1000;
 
+/** working, retrying or waiting parked: every state but at rest (idle) or failed. contract 1 sent no status for a
+    thread at rest, so this is the old `status !== null` */
+const activeOf = (thread: Thread): boolean => thread.activity.state !== "idle" && thread.activity.state !== "failed";
+
 export function windowKeys(fleet: Fleet, now: number): string[] {
   const asking = new Set(Object.values(fleet.asks).map((ask) => ask.key));
   const keys: string[] = [];
   for (const key of fleet.order) {
-    const entry = fleet.sessions[key];
-    if (!entry || entry.info.parentID) continue;
-    if (entry.cleared != null) continue;
-    const active = entry.status !== null || asking.has(key);
-    if (active || now - entry.info.time.updated < RECENT_MS) keys.push(key);
+    const thread = fleet.threads[key];
+    if (!thread || thread.parent) continue;
+    if (thread.cleared != null) continue;
+    const active = activeOf(thread) || asking.has(key);
+    if (active || now - thread.updated < RECENT_MS) keys.push(key);
   }
   return keys;
 }
@@ -49,11 +54,11 @@ export function createWindowKeys(fleet: () => Fleet, now: Accessor<number>): { k
   const asking = createMemo(() => new Set(Object.values(fleet().asks).map((ask) => ask.key)), new Set<string>(), { equals: sameSet });
   const order = () => fleet().order;
   const standings = keyed<Standing>(order, (key) => {
-    const entry = fleet().sessions[key];
-    if (!entry || entry.info.parentID) return "out";
-    if (entry.cleared != null) return "out";
-    if (entry.status !== null || asking().has(key)) return "active";
-    return entry.info.time.updated;
+    const thread = fleet().threads[key];
+    if (!thread || thread.parent) return "out";
+    if (thread.cleared != null) return "out";
+    if (activeOf(thread) || asking().has(key)) return "active";
+    return thread.updated;
   });
   /* the oldest touch still inside its 12 hours: it changes exactly when a thread's window comes or goes by the clock */
   const oldest = createMemo(() => {

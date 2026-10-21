@@ -63,7 +63,7 @@ fn session_updated_is_a_thread_not_born() {
 }
 
 #[test]
-fn a_project_that_is_not_a_path_roots_the_place_at_the_directory_and_names_it_by_title() {
+fn a_project_that_is_not_a_path_roots_the_place_at_the_directory_and_names_it_by_the_project() {
     let raw = info("ses_1").replace(r#""projectID":"/w/app""#, r#""projectID":"global""#);
     let thread = thread_from_json(RawValue::from_string(raw).unwrap()).unwrap();
     let place = thread.place.unwrap();
@@ -92,8 +92,21 @@ fn session_status_is_activity_with_retry_kept_apart_from_busy() {
     );
     assert!(matches!(
         translate(&busy),
-        Some(SourceEvent::Activity { activity: Activity::Busy { since }, .. }) if (since - 5.0).abs() < f64::EPSILON
+        Some(SourceEvent::Activity { activity: Activity::Busy { since: Some(since) }, .. }) if (since - 5.0).abs() < f64::EPSILON
     ));
+    // a busy status without a start leaves it absent, never 0
+    let unstamped = payload(
+        "session.status",
+        r#"{"sessionID":"ses_1","status":{"type":"busy"}}"#,
+    );
+    let Some(SourceEvent::Activity { activity, .. }) = translate(&unstamped) else {
+        panic!("not an activity");
+    };
+    assert_eq!(activity, Activity::Busy { since: None });
+    assert_eq!(
+        serde_json::to_string(&activity).unwrap(),
+        r#"{"state":"busy"}"#
+    );
     let retry = payload(
         "session.status",
         r#"{"sessionID":"ses_1","status":{"type":"retry","attempt":2,"message":"rate limited","next":9}}"#,
@@ -649,4 +662,219 @@ fn a_streaming_flag_reads_as_a_bool_and_anything_else_as_false() {
         };
         assert_eq!(text.streaming, streaming, "{extra}");
     }
+}
+
+#[test]
+fn a_busy_status_carries_the_prompts_waiting_behind_its_turn() {
+    let busy = payload(
+        "session.status",
+        r#"{"sessionID":"ses_1","status":{"type":"busy","since":5,"queued":2}}"#,
+    );
+    assert!(matches!(
+        translate(&busy),
+        Some(SourceEvent::Activity { queued: 2, .. })
+    ));
+    let idle = payload(
+        "session.status",
+        r#"{"sessionID":"ses_1","status":{"type":"idle","queued":3}}"#,
+    );
+    assert!(
+        matches!(
+            translate(&idle),
+            Some(SourceEvent::Activity { queued: 0, .. })
+        ),
+        "only a running turn has prompts waiting behind it"
+    );
+}
+
+#[test]
+fn a_tools_attachments_are_neutral_images_and_files_named_after_the_tool_part() {
+    let raw = RawValue::from_string(
+        r#"{"id":"prt_s_3_1","sessionID":"s","messageID":"msg_3","type":"tool","callID":"c1","tool":"read","state":{"status":"completed","input":{},"output":"","title":"x","metadata":{},"time":{"start":1,"end":2},"attachments":[{"type":"file","mime":"image/png","filename":"shot.png","url":"data:image/png;base64,AA=="},{"type":"file","mime":"application/pdf","filename":"spec.pdf","url":"data:application/pdf;base64,AA=="}]}}"#.into(),
+    )
+    .unwrap();
+    let Part::Tool(tool) = part(&raw) else {
+        panic!("not a tool part");
+    };
+    let attachments = tool.state.attachments.unwrap();
+    let Part::Image(image) = &attachments[0] else {
+        panic!("{:?}", attachments[0]);
+    };
+    assert_eq!(
+        (
+            image.id.as_str(),
+            image.message_id.as_str(),
+            image.mime.as_str()
+        ),
+        ("prt_s_3_1.a0", "msg_3", "image/png")
+    );
+    assert_eq!(image.at, None);
+    assert_eq!(image.filename.as_deref(), Some("shot.png"));
+    assert_eq!(image.flavour, Flavour::Attached);
+    let Part::File(file) = &attachments[1] else {
+        panic!("{:?}", attachments[1]);
+    };
+    assert_eq!(
+        (file.id.as_str(), file.filename.as_str()),
+        ("prt_s_3_1.a1", "spec.pdf")
+    );
+    assert_eq!(
+        file.url.as_deref(),
+        Some("data:application/pdf;base64,AA==")
+    );
+}
+
+#[test]
+fn a_question_that_says_nothing_of_custom_answers_takes_them() {
+    let request = RawValue::from_string(
+        r#"{"id":"que_1","sessionID":"ses_1","questions":[{"question":"which?","header":"h","options":[]},{"question":"and?","header":"h","options":[],"custom":false}]}"#.into(),
+    )
+    .unwrap();
+    let ask = ask("desk", AskKind::Question, &request).unwrap();
+    let questions = ask.questions.unwrap();
+    assert!(
+        questions[0].custom,
+        "absent means a typed answer is allowed"
+    );
+    assert!(!questions[1].custom);
+}
+
+#[test]
+fn a_message_carries_its_mail_envelope() {
+    let info = RawValue::from_string(
+        r#"{"id":"msg_1","sessionID":"ses_1","role":"user","time":{"created":1},"mail":{"kind":"report","from":"/root/h1","fromID":"ses_9"}}"#.into(),
+    )
+    .unwrap();
+    let message = message(&info).unwrap();
+    let mail = message.mail.unwrap();
+    assert_eq!(
+        (
+            mail.kind.as_str(),
+            mail.from.as_deref(),
+            mail.from_id.as_deref()
+        ),
+        ("report", Some("/root/h1"), Some("ses_9"))
+    );
+    let plain = RawValue::from_string(
+        r#"{"id":"msg_2","sessionID":"ses_1","role":"user","time":{"created":1}}"#.into(),
+    )
+    .unwrap();
+    assert!(message_of(&plain).mail.is_none());
+}
+
+fn message_of(info: &RawValue) -> Message {
+    message(info).unwrap()
+}
+
+#[test]
+fn a_message_error_is_sent_for_any_error_object_with_its_words_only_when_given() {
+    let with = |error: &str| {
+        let info = format!(
+            r#"{{"id":"msg_1","sessionID":"ses_1","role":"assistant","time":{{"created":1}}{error}}}"#
+        );
+        message(&RawValue::from_string(info).unwrap())
+            .unwrap()
+            .error
+    };
+    assert_eq!(with(""), None);
+    assert_eq!(
+        with(r#","error":{}"#),
+        Some(MessageError {
+            message: None,
+            name: None
+        })
+    );
+    let aborted = with(r#","error":{"name":"MessageAbortedError"}"#).unwrap();
+    assert_eq!(
+        (aborted.message.as_deref(), aborted.name.as_deref()),
+        (None, Some("MessageAbortedError"))
+    );
+    // absent words stay absent on the wire, never ""
+    assert_eq!(
+        serde_json::to_string(&aborted).unwrap(),
+        r#"{"name":"MessageAbortedError"}"#
+    );
+    let said = with(r#","error":{"name":"APIError","data":{"message":"overloaded"}}"#).unwrap();
+    assert_eq!(
+        (said.message.as_deref(), said.name.as_deref()),
+        (Some("overloaded"), Some("APIError"))
+    );
+}
+
+#[test]
+fn a_repo_is_named_exactly_as_the_apps_repo_name_reads_a_root() {
+    for (project, name) in [
+        ("/home/me/src/api", "api"),
+        ("/w/app/", "app"),
+        ("/w/app//", "app"),
+        (r"C:\src\api\", "api"),
+        (r"/mixed\path/api", "api"),
+        ("global", "global"),
+        ("/", "/"),
+        ("", ""),
+    ] {
+        assert_eq!(repo_name(project), name, "{project:?}");
+    }
+}
+
+#[test]
+fn a_thread_whose_project_leaves_no_segment_is_named_by_the_project_not_its_title() {
+    let raw = info("ses_1").replace(r#""projectID":"/w/app""#, r#""projectID":"/""#);
+    let thread = thread_from_json(RawValue::from_string(raw).unwrap()).unwrap();
+    assert_eq!(thread.place.unwrap().name, "/");
+}
+
+#[test]
+fn a_malformed_pattern_question_or_option_drops_only_itself() {
+    let permission = ask(
+        "desk",
+        AskKind::Permission,
+        &RawValue::from_string(
+            r#"{"id":"per_1","sessionID":"ses_1","permission":"bash","patterns":["ls",3,"pwd"],"always":["ls *",null]}"#
+                .to_owned(),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+    .permission
+    .unwrap();
+    assert_eq!(permission.patterns, ["ls", "pwd"]);
+    assert_eq!(permission.always, ["ls *"]);
+    let questions = ask(
+        "desk",
+        AskKind::Question,
+        &RawValue::from_string(
+            r#"{"id":"que_1","sessionID":"ses_1","questions":[
+                {"question":"first?","header":"one","options":[{"label":"a"},{"nolabel":1},{"label":"b"}]},
+                {"header":"no question text"},
+                {"question":"third?","header":"three","custom":false,"multiple":"yes"},
+                {"question":"fourth?","header":"four","custom":false}
+            ]}"#
+            .to_owned(),
+        )
+        .unwrap(),
+    )
+    .unwrap()
+    .questions
+    .unwrap();
+    // the second has no words and goes; a malformed field costs only itself
+    assert_eq!(
+        questions
+            .iter()
+            .map(|q| (q.question.as_str(), q.header.as_str(), q.custom))
+            .collect::<Vec<_>>(),
+        [
+            ("first?", "one", true),
+            ("third?", "three", false),
+            ("fourth?", "four", false)
+        ]
+    );
+    assert_eq!(
+        questions[0]
+            .options
+            .iter()
+            .map(|o| o.label.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
 }

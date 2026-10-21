@@ -2,15 +2,18 @@
    (docs/architecture.md, the worker to the ui): while its parent is drawn, a released child stays in the store, so its step
    count, its report state and, for an archived child, its cost are what they were while it was held, which is what main
    showed; when the parent leaves the stage the store lets it go. the real worker runs in this process with its cache on
-   fake-indexeddb, and the sync client's verbs are routed to it, so live.ts, the holds and the worker's filter are the app's
-   own. solid's browser build only (`bun test --conditions browser`, the justfile's check). */
+   fake-indexeddb, against the fake protocol 3 server (sync/fixtures/server.ts), and the sync client's verbs are routed to it,
+   so live.ts, the holds and the worker's filter are the app's own. the transcripts are cmx2's messages made neutral
+   (sync/fixtures/neutral.ts). solid's browser build only (`bun test --conditions browser`, the justfile's check). */
 
 import "fake-indexeddb/auto";
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import { createMemo, createRoot, createSignal } from "solid-js";
 import { unwrap } from "solid-js/store";
+import { neutralMessage, thread } from "../../sync/fixtures/neutral";
+import { type FakeServer, fakeServer } from "../../sync/fixtures/server";
 import type { FromWorker } from "../../sync/messages";
-import type { FleetSnapshot, Message, Part, SessionEntry } from "../../sync/protocol";
+import type { FleetSnapshot, Message, Thread } from "../../sync/protocol";
 import type { Sync } from "../../sync/worker";
 import type { AgentRow, Kin } from "./details-model";
 
@@ -29,24 +32,26 @@ const CHILD = `${HOST}:ses_child`;
 const GONE = `${HOST}:ses_gone`;
 const T0 = 1_790_000_000_000;
 
-const entry = (key: string, parentID?: string): SessionEntry => ({
-  key,
-  host: HOST,
-  id: key.slice(HOST.length + 1),
-  info: { id: key.slice(HOST.length + 1), slug: "s", projectID: "/w", directory: "/w", title: key, version: "0", time: { created: T0, updated: T0 + 9_000 }, source: "cmx2", cost: 0.5, tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } }, ...(parentID ? { parentID } : {}) },
-  status: null,
-  agents: 0,
-  processes: 0,
-  tail: [],
-  needs: [],
-  read: null,
-}) as SessionEntry;
-const user = (session: string, n: number): Message => ({ info: { id: `msg_${session}_u${n}`, sessionID: session, role: "user", time: { created: T0 + n * 1000 } }, parts: [{ id: `prt_${session}_u${n}`, sessionID: session, messageID: `msg_${session}_u${n}`, type: "text", text: `ask ${n}` }] }) as Message;
-const tool = (session: string, message: string, n: number, name: string, metadata: Record<string, unknown> = {}): Part =>
-  ({ id: `prt_${message}_${n}`, sessionID: session, messageID: message, type: "tool", callID: `call_${message}_${n}`, tool: name, state: { status: "completed", input: { filePath: `/w/f${n}.ts`, brief: "do it" }, output: "x", metadata, time: { start: T0 + n, end: T0 + n + 10 } } }) as unknown as Part;
-const assistant = (session: string, n: number, parts: (id: string) => Part[], cost = 0): Message => {
+/** a cmx2 part or message as the daemon wrote it: the fixtures are made neutral the way translate.rs makes them */
+type Raw = Record<string, unknown>;
+const threadOf = (key: string, parent?: string): Thread => thread(key, { title: key, created: T0, updated: T0 + 9_000, cost: 0.5, ...(parent ? { parent } : {}) });
+const user = (session: string, n: number): Message =>
+  neutralMessage({ info: { id: `msg_${session}_u${n}`, sessionID: session, role: "user", time: { created: T0 + n * 1000 } }, parts: [{ id: `prt_${session}_u${n}`, sessionID: session, messageID: `msg_${session}_u${n}`, type: "text", text: `ask ${n}` }] });
+const tool = (session: string, message: string, n: number, name: string, metadata: Raw = {}): Raw => ({
+  id: `prt_${message}_${n}`,
+  sessionID: session,
+  messageID: message,
+  type: "tool",
+  callID: `call_${message}_${n}`,
+  tool: name,
+  state: { status: "completed", input: { filePath: `/w/f${n}.ts`, brief: "do it" }, output: "x", metadata, time: { start: T0 + n, end: T0 + n + 10 } },
+});
+const assistant = (session: string, n: number, parts: (id: string) => Raw[], cost = 0): Message => {
   const id = `msg_${session}_a${n}`;
-  return { info: { id, sessionID: session, role: "assistant", cost, time: { created: T0 + n * 1000 + 100, completed: T0 + n * 1000 + 900 } } as Message["info"], parts: [...parts(id), { id: `prt_${id}_t`, sessionID: session, messageID: id, type: "text", text: `said ${n}` } as Part] };
+  return neutralMessage({
+    info: { id, sessionID: session, role: "assistant", cost, time: { created: T0 + n * 1000 + 100, completed: T0 + n * 1000 + 900 } },
+    parts: [...parts(id), { id: `prt_${id}_t`, sessionID: session, messageID: id, type: "text", text: `said ${n}` }],
+  });
 };
 const spawn = (child: string) => ({ child_session_id: child, agents: [{ name: child, id: child }] });
 const TRANSCRIPTS: Record<string, Message[]> = {
@@ -55,7 +60,7 @@ const TRANSCRIPTS: Record<string, Message[]> = {
   // archived: the fleet no longer has it, so its cost is read from its messages
   [GONE]: [user("ses_gone", 0), assistant("ses_gone", 0, (m) => [tool("ses_gone", m, 1, "read")], 0.25)],
 };
-const snapshot: FleetSnapshot = { hosts: [], sessions: [entry(PARENT), entry(CHILD, "ses_parent")], asks: [], order: [PARENT, CHILD] };
+const snapshot: FleetSnapshot = { agents: [], threads: [threadOf(PARENT), threadOf(CHILD, "ses_parent")], asks: [], order: [PARENT, CHILD] };
 
 /* the client's verbs go to the worker in this process, as client.ts posts them to the real one */
 let sync: Sync | null = null;
@@ -75,19 +80,18 @@ type Store = typeof import("../../store");
 type Live = typeof import("./live");
 type Details = typeof import("./details-model");
 type Worker = typeof import("../../sync/worker");
-type Protocol = typeof import("../../sync/protocol");
 const at = (path: string): string => path;
 const store = reactive ? ((await import(at("../../store"))) as Store) : ({} as Store);
 const live = reactive ? ((await import(at("./live"))) as Live) : ({} as Live);
 const details = reactive ? ((await import(at("./details-model"))) as Details) : ({} as Details);
 const workerModule = reactive ? ((await import(at("../../sync/worker"))) as Worker) : ({} as Worker);
-const protocol = reactive ? ((await import(at("../../sync/protocol"))) as Protocol) : ({} as Protocol);
 
-const saved = { fetch: globalThis.fetch, postMessage: (globalThis as Record<string, unknown>)["postMessage"] };
+const savedPost = (globalThis as Record<string, unknown>)["postMessage"];
+let server: FakeServer | null = null;
 afterAll(() => {
   sync?.stop();
-  globalThis.fetch = saved.fetch;
-  (globalThis as Record<string, unknown>)["postMessage"] = saved.postMessage;
+  server?.restore();
+  (globalThis as Record<string, unknown>)["postMessage"] = savedPost;
 });
 
 async function until(what: string, ok: () => boolean, ms = 5_000) {
@@ -101,33 +105,21 @@ async function until(what: string, ok: () => boolean, ms = 5_000) {
 describe.skipIf(!reactive)("a released child in the details panel's agents list", () => {
   test("reads as it did while held for as long as its parent is drawn, and leaves the store when the parent leaves", async () => {
     let clock = T0;
-    let push: (frame: unknown, id?: string) => void = () => {};
-    const encoder = new TextEncoder();
     (globalThis as Record<string, unknown>)["postMessage"] = (message: FromWorker) => {
       if (message.type === "patches") store.applyPatches(structuredClone(message.patches));
       else if (message.type === "boot") store.bootSync(structuredClone(message.sync));
       else if (message.type === "stream") store.setStream(message.stream);
     };
-    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-      const url = String(input);
-      if (url.startsWith("/api/stream")) {
-        let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
-        const body = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) });
-        init?.signal?.addEventListener("abort", () => controller?.error(new DOMException("aborted", "AbortError")), { once: true });
-        push = (frame, id) => controller?.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}data: ${JSON.stringify(frame)}\n\n`));
-        return new Response(body, { status: 200 });
-      }
-      const read = /sessions\/([^/]+)\/messages$/.exec(url);
-      if (read) return new Response(JSON.stringify(TRANSCRIPTS[`${HOST}:${decodeURIComponent(read[1] ?? "")}`] ?? []), { status: 200, headers: { "x-cmx2-seq": "u1:50" } });
-      return new Response(null, { status: 204 });
-    }) as typeof fetch;
+    server = fakeServer();
+    const fake = server;
+    fake.transcript = (key) => TRANSCRIPTS[key] ?? [];
 
     const worker = new workerModule.Sync("device", "mac", false, undefined, () => clock);
     sync = worker;
     await worker.boot(null);
-    push({ type: "hello", epoch: "j1", head: 1, build: "test", protocol: protocol.PROTOCOL });
-    push({ type: "reset", epoch: "j1", seq: 1, reason: "none", fleet: snapshot }, "j1:1");
-    await until("the fleet", () => store.state.fleet.sessions[CHILD] !== undefined);
+    fake.hello();
+    fake.push({ type: "reset", epoch: fake.epoch, seq: 1, reason: "none", fleet: snapshot }, `${fake.epoch}:1`);
+    await until("the fleet", () => store.state.fleet.threads[CHILD] !== undefined);
     await worker.open(PARENT);
 
     const view = createRoot((dispose) => ({ data: live.createThreadData(() => PARENT, () => "rows"), dispose }));

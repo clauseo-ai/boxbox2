@@ -288,7 +288,7 @@ export function effortChoices(input: { accepted: readonly string[]; current: str
 }
 
 /** a thread's context as the daemon reports it (a10): tokens in it now, the model's window, and where automatic compaction runs */
-export type ContextInfo = { used: number; limit: number; compactAt?: number | undefined };
+export type ContextInfo = { used: number; limit: number; compactAt?: number | null | undefined };
 
 export type ContextFill = {
   /** the share of the window in use, 0 to 100 */
@@ -307,11 +307,12 @@ export function tokensWords(tokens: number): string {
 }
 
 /** how full the context is, or null when the daemon did not say (an imported thread, a model with no known window) */
-export function contextFill(context: ContextInfo | undefined): ContextFill | null {
+export function contextFill(context: ContextInfo | null | undefined): ContextFill | null {
   if (!context || !(context.limit > 0) || !(context.used >= 0)) return null;
   const share = Math.min(1, context.used / context.limit);
-  const mark = context.compactAt !== undefined && context.compactAt > 0 ? Math.min(1, context.compactAt / context.limit) : null;
-  const auto = context.compactAt !== undefined && context.compactAt > 0 ? `, it compacts by itself at ${tokensWords(context.compactAt)}` : "";
+  const compactAt = typeof context.compactAt === "number" && context.compactAt > 0 ? context.compactAt : null;
+  const mark = compactAt === null ? null : Math.min(1, compactAt / context.limit);
+  const auto = compactAt === null ? "" : `, it compacts by itself at ${tokensWords(compactAt)}`;
   return { percent: Math.round(share * 100), mark: mark === null ? null : Math.round(mark * 100) / 100, words: `${tokensWords(context.used)} of ${tokensWords(context.limit)} tokens${auto}` };
 }
 

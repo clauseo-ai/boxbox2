@@ -16,13 +16,13 @@ it is verified`. closed items move to the bottom with the commit.
   fails, then sign-out: the database is not empty afterwards
   (`sync/worker.ts`, `sync/cache.ts` `Saver`)
 
-- [sync] a session removed and added again inside one ui post keeps its
-  old place in the ui's `fleet.sessions` while the worker has it last;
+- [sync] a thread removed and added again inside one ui post keeps its
+  old place in the ui's `fleet.threads` while the worker has it last;
   settings' repo colours, settings' repo list and the composer's sheet
   list repos in that insertion order, which shows when two repos have
   equal timestamps (the same before the perf lane; coalesce keeps order
   only 4 or more segments deep). · coalesce a delete and a set of
-  `fleet.sessions.<k>` in one post and compare key order with applying
+  `fleet.threads.<k>` in one post and compare key order with applying
   each in turn (`sync/reducer.ts` coalesce)
 
 - [board] a board focus or compose the app drops still answers 204 to the
@@ -205,20 +205,13 @@ it is verified`. closed items move to the bottom with the commit.
   tests). `BOXBOX_PORT` moves only boxbox. · start `just dev` in two
   worktrees: the second stops on "port 3002 is taken".
 
-- [sync] a thread is still read whole: opening one with 1375 messages is a
-  10 mb read (gzip on the wire now, but parsed and held whole in the worker and
-  the ui). paging it (newest page first by `limit`, older by `before` and
-  `x-next-cursor`, both already served by `transcript.rs`) needs the reducer's
-  `hydrated` to keep a `before` cursor, an `older` action that prepends, a
-  decision for entries about messages older than the window (ignore, and
-  refetch them when the older page lands), pages in the cache that do not
-  shift when older ones are prepended (today a page is `floor(index / 50)`
-  from the first message), and the ui's whole-thread totals to read the
-  daemon's own (`details-model.ts`: `filesChanged`, `spentOf`, `spendOf`,
-  `modelsOf`, `switches`, `rosterOf`, `ranOf`; `live.ts`: the spawn rows that
-  find children, and the cost of a session the fleet let go). found by
-  perf-sync, not started. · open a thread with a few thousand messages and
-  watch `/messages` and the worker's heap.
+- [sync] the web app still reads a thread whole: opening one with 1375
+  messages is a 10 mb read, parsed and held whole in the worker and the ui.
+  the server serves pages now (`GET T/messages?turns&before&at`,
+  `http/agents/page.rs`, and `T/summary` for the whole-thread totals,
+  `protocol.md` sections 11 and 12); the app moves to them with protocol 3
+  (package a1). · open a thread with a few thousand messages and watch
+  `/messages` and the worker's heap.
 
 - [home] the arrangement effect (`home.tsx`, "moving between arrangements
   rebuilds the stage") reads `before` after `on(..., { defer: true })`, which
@@ -313,12 +306,8 @@ it is verified`. closed items move to the bottom with the commit.
 - [sync] the fleet snapshot is about 810 kb at 300 sessions against the
   256 kb budget; nothing holds it. · a test over a 300-session fixture
   under 256 kb, or the budget rewritten with a reason.
-- [sync] a streaming tail beat journals the whole 2.8 kb session entry;
-  a `tail.item {key, item}` upsert by part id would cost about 0.4 kb
-  (reducer arm in app/src/sync plus server/src/fleet). · the journal
-  holds about 16 minutes of five streaming threads instead of 3.
 - [sync] `boot` should carry `cached: boolean`; the shell's gate guesses
-  from `fleet.hostNames.length > 0`. · a cold offline launch shows the
+  from `fleet.agentNames.length > 0`. · a cold offline launch shows the
   cached state without the guess.
 - [sync] persist the stream's `lastEventAt`, so an offline cold launch
   says "offline, last update 23:41" rather than "offline". · that copy on
@@ -360,8 +349,8 @@ it is verified`. closed items move to the bottom with the commit.
 - [agents] the cmx2 source reads a thread whole, streamed and translated
   message by message (`source/cmx2/verbs/read.rs`, `GET T/messages` and
   `T/messages/{message}`); its `transcript` by daemon pages and `thread`
-  answer `VerbError::NotBuilt`, and contract 1 still reaches the daemon
-  through `Cmx2Raw`, unaffected. every other verb has its
+  answer `VerbError::NotBuilt` (the paged reads cut pages from the whole
+  streamed read, `http/agents/page.rs`). every other verb has its
   `/api/agents` route (verbs2 lane). `[[hermes]]` entries are read, checked
   and reserve their names, and the supervisor says once per connection that
   no source of their kind is built in yet (`[[openclaw]]` entries run, see
@@ -370,20 +359,21 @@ it is verified`. closed items move to the bottom with the commit.
 
 ### left open by the verbs2 lane (2026-10-15)
 
-- [agents] contract 2's routes are not in the openapi document: their
-  `utoipa::path`s are written (`http/agents/routes.rs`) but not listed in
-  `http/openapi.rs`, since listing them pulls every contract 2 schema into
-  `app/src/api/boxbox.json` and that belongs with the neutral wire's types.
+- [agents] the `/api/agents` verb routes are not in the openapi document:
+  their `utoipa::path`s are written (`http/agents/routes.rs`) but not
+  listed in `http/openapi.rs`. they were held back because listing them
+  pulled every neutral schema into `app/src/api/boxbox.json`; protocol 3
+  has since put those schemas there, so only the listing is left.
   · `rg -n 'agents::routes' server/src/http/openapi.rs` finds nothing.
 - [agents] a new cmx2 thread through `POST /api/agents/{agent}/threads` is
   armed for done after the source answers (birth and first prompt are one
-  trait call), where contract 1 arms between the two. a turn that ends before
+  trait call), where `POST /api/hosts/{host}/sessions` arms between the two. a turn that ends before
   the arm lands pushes no done to the device. · `http/agents/routes.rs`,
   `start`.
 - [agents] the cmx2 source builds its `data:` urls under its own photo
-  budget (`upstream/source.rs`, `Shared`), the same size as contract 1's
-  route budget but not shared with it: while both contracts run, the peak is
-  twice the one budget. · `rg -n 'PHOTO_BUDGET_MIB' server/src`.
+  budget (`upstream/source.rs`, `Shared`), the same size as the
+  `/api/hosts` routes' budget but not shared with it: with both route
+  sets in use, the peak is twice the one budget. · `rg -n 'PHOTO_BUDGET_MIB' server/src`.
 - [agents] a config reload does not check its connection names against the
   keys in `agents` (startup and pairing do): a reload that renames a
   connection to an agent's key is taken. · `main.rs`, `refuse_agent_keys`.
@@ -643,6 +633,45 @@ it is verified`. closed items move to the bottom with the commit.
   monitor on the installed mac app with the display asleep, before and
   after, against the same fleet
 
+### left open by the protocol 3 server (2026-10-21)
+
+- [sync] the interest confirm's 30 s stall has no http test: the actor
+  side (a post meeting an unread block is busy, waits for it to drain, and
+  past 30 s the stream is closed) is tested in `fleet/mod.rs`, and the
+  handler's wait in `http/stream.rs` (`confirmed`, the block's 30 s) on
+  paused time without the route. ·
+  an http test that leaves a confirm block unread for 30 s sees the second
+  post answer 404 `no-such-stream` and the stream end.
+- [sync] the encoder's remembered message and part states are not
+  narrowed to each thread's newest turn as `protocol.md` section 8's last
+  paragraph says: they are 4,096 parts and 4,096 messages, oldest out
+  first (`fleet/encode.rs`, `REMEMBERED`), so a busy fleet can forget a
+  digest and journal one unchanged re-send. · a test where an older
+  turn's message is re-sent after 4,096 newer ones and nothing is
+  journaled.
+- [sync] full resume on restart (`protocol.md` section 10) is not built:
+  the stream keys and patch bases live in memory only (`fleet/keys.rs`
+  is shaped for `stream_keys` and `stream_gone`), so a restart is a new
+  epoch and every device takes a `reset`. · restart the dev server and a
+  stream resumes with a catch-up, not a reset.
+- [sync] the home, thread and switch goldens in `server/goldens/protocol3/`
+  are built by the test from the journal, not recorded from the server's
+  own interest switch. · a golden recorded through
+  `POST /api/stream/{stream}/interest`.
+- [verify] `bench/golden-live.ts` still reads the `/api/hosts/.../messages`
+  proxy for its transcript and message goldens (`server/goldens/contract1/live/transcript-*.json`,
+  `message-*.json`), a route protocol 3 removed, so those rows cannot pass (not run since).
+  they want moving to `/api/agents/.../messages` (and new files) or
+  deleting. · `bun bench/golden-live.ts check` prints every row equal.
+- [board] the board daemon still asks `/api/board/stream`, which the
+  server no longer serves: a board shows nothing until the daemon moves to
+  `/api/stream?view=board` with board protocol 3 (package b). · the
+  daemon's log shows a 200 and `hello` with protocol 3.
+- [app] the web app still reads contract 1 (`app/src/sync/protocol.ts`,
+  the reducer, `/api/hosts/.../messages` reads): `tsc -p app` fails until
+  it moves to protocol 3 (package a1). · `bunx tsc --noEmit -p app` is
+  clean.
+
 ### housekeeping
 
 - the real drive makes one scratch haiku session per run on 4097 under
@@ -653,6 +682,11 @@ it is verified`. closed items move to the bottom with the commit.
   not a second download, in the first-load budget.
 
 ## closed
+
+- [sync] a streaming tail beat journaled the whole 2.8 kb session entry:
+  closed by protocol 3, which journals a `thread.patch` with a tail op
+  (`protocol.md` section 6, about 400 b per 500 ms per busy thread before
+  gzip; `fleet/encode.rs`).
 
 - [openclaw] `SIGUSR2` and the `bootId`: settled by the occonn lane
   (2026-10-15). with the dev gateway's supervisor, `kill -USR2` sends

@@ -19,19 +19,19 @@
         "info": {
           "parentID": "old-busy",
           "time": {
-            "updated": 3599999000
+            "updated": 3599999000.0
           }
         },
         "status": {
-          "since": 5,
-          "type": "busy"
+          "since": 5.0,
+          "state": "busy"
         }
       },
       "desk:cleared": {
         "cleared": 3599998000.0,
         "info": {
           "time": {
-            "updated": 3599998000
+            "updated": 3599998000.0
           }
         },
         "status": null
@@ -39,7 +39,7 @@
       "desk:done": {
         "info": {
           "time": {
-            "updated": 3599997000
+            "updated": 3599997000.0
           }
         },
         "status": null
@@ -47,7 +47,7 @@
       "desk:old": {
         "info": {
           "time": {
-            "updated": 3553200000
+            "updated": 3553200000.0
           }
         },
         "status": null
@@ -55,7 +55,7 @@
       "desk:old-asking": {
         "info": {
           "time": {
-            "updated": 3553200000
+            "updated": 3553200000.0
           }
         },
         "status": null
@@ -63,18 +63,18 @@
       "desk:old-busy": {
         "info": {
           "time": {
-            "updated": 3553200000
+            "updated": 3553200000.0
           }
         },
         "status": {
-          "since": 5,
-          "type": "busy"
+          "since": 5.0,
+          "state": "busy"
         }
       },
       "desk:recent": {
         "info": {
           "time": {
-            "updated": 3599999000
+            "updated": 3599999000.0
           }
         },
         "status": null

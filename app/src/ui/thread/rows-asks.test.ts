@@ -6,11 +6,12 @@ import { turnsOf } from "./model";
 import { type RowCtx, stepModel } from "./rows";
 import type { AskReply } from "../../sync/replies";
 import type { WireMessage, WirePart } from "./wire";
+import { neutral } from "./fixtures/wire";
 
 const T0 = 1_790_000_000_000;
-const user: WireMessage = { info: { id: "u", role: "user", time: { created: T0 } } as WireMessage["info"], parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] };
-const asked = (questions: unknown[]): WireMessage => ({
-  info: { id: "a", role: "assistant", time: { created: T0 + 100 } } as WireMessage["info"],
+const user: WireMessage = neutral({ info: { id: "u", role: "user", time: { created: T0 } }, parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] });
+const asked = (questions: unknown[]): WireMessage => neutral({
+  info: { id: "a", role: "assistant", time: { created: T0 + 100 } },
   parts: [{ id: "q", type: "tool", callID: "c", tool: "question", state: { status: "running", input: { questions }, time: { start: T0 + 200 } } } as unknown as WirePart],
 });
 const question = (header: string, text: string) => ({ header, question: text, options: [{ label: "a", description: "first" }, { label: "b", description: "second" }] });
@@ -43,8 +44,8 @@ describe("an ask's row", () => {
 
 /* a settled ask's row reads this device's record of its reply (sync/replies.ts) from the context, by the step's call id */
 describe("a settled ask's record", () => {
-  const edited = (status: "completed" | "error"): WireMessage => ({
-    info: { id: "a", role: "assistant", time: { created: T0 + 100 } } as WireMessage["info"],
+  const edited = (status: "completed" | "error"): WireMessage => neutral({
+    info: { id: "a", role: "assistant", time: { created: T0 + 100 } },
     parts: [{ id: "e", type: "tool", callID: "c", tool: "edit", state: { status, input: { filePath: "/r/a.ts" }, ...(status === "error" ? { error: "the user rejected permission to use this tool" } : { output: "" }), time: { start: T0 + 200, end: T0 + 900 } } } as unknown as WirePart],
   });
   const reply = (r: Partial<AskReply>): AskReply => ({ thread: "desk:ses", callID: "c", askID: "per", kind: "permission", reply: { k: "permit", reply: "once" }, who: { here: true }, at: T0 + 800, ...r });
@@ -68,7 +69,7 @@ describe("a settled ask's record", () => {
   });
 
   test("a question's record is not a permission's line: it is the who and when of the question's own record", () => {
-    const q: WireMessage = { info: { id: "a", role: "assistant", time: { created: T0 + 100 } } as WireMessage["info"], parts: [{ id: "q", type: "tool", callID: "c", tool: "question", state: { status: "completed", input: { questions: [question("", "which?")] }, metadata: { answers: [["a"]] }, output: "", time: { start: T0 + 200, end: T0 + 900 } } } as unknown as WirePart] };
+    const q: WireMessage = neutral({ info: { id: "a", role: "assistant", time: { created: T0 + 100 } }, parts: [{ id: "q", type: "tool", callID: "c", tool: "question", state: { status: "completed", input: { questions: [question("", "which?")] }, metadata: { answers: [["a"]] }, output: "", time: { start: T0 + 200, end: T0 + 900 } } } as unknown as WirePart] });
     const row = modelOf(q, new Map([["c", reply({ kind: "question", reply: { k: "answers", answers: [["a"]] }, who: { by: "ipad" }, at: 5 })]]));
     expect("permit" in row).toBe(false);
     expect(row.body?.k === "ask" && row.body.record).toEqual({ who: { by: "ipad" }, at: 5 });

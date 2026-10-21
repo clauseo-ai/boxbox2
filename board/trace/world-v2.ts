@@ -317,8 +317,8 @@ if (import.meta.main && process.argv.includes("--smoke")) {
     }
     console.log(`smoke: quiet ${await world.quiet()} (every busy thread waits on an ask), pin ${PIN.slice(0, 7)}`);
     if (process.argv.includes("--board")) {
-      const stream = await world.boxbox("GET", "/api/board/stream?protocol=1&device=board-smoke000&addrs=127.0.0.1");
-      console.log(`smoke: GET /api/board/stream -> ${stream.status}`);
+      const stream = await world.boxbox("GET", "/api/stream?view=board&protocol=3&device=board-smoke000&addrs=127.0.0.1");
+      console.log(`smoke: GET /api/stream?view=board -> ${stream.status}`);
       await stream.body?.cancel();
       if (stream.status !== 200) failed = true;
     }

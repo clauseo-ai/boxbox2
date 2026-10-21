@@ -7,6 +7,7 @@
    the side (the sse channel), so the normalizer can read the asks a reply
    names by index. */
 
+import { createGunzip } from "node:zlib";
 import type { Server } from "bun";
 import type { Record } from "./records";
 
@@ -77,6 +78,12 @@ export function startProxy(upstream: string, onRecord: (record: Record) => void,
       onRecord({ ch: "http", t: now(), id, method: req.method, path: recordedPath(path), directory: req.headers.get("x-opencode-directory"), body: parseBody(text) });
       const headers = forwardable(req.headers);
       headers.set("x-forwarded-for", BOARD_MAC);
+      /* a caller that takes gzip gets the server's gzip bytes as they are, so
+         a replay exercises the daemon's own inflater (the board stream is
+         gzipped, docs/protocol.md section 2); the proxy inflates a copy to
+         record the frames */
+      const gzip = /\bgzip\b/.test(req.headers.get("accept-encoding") ?? "");
+      if (gzip) headers.set("accept-encoding", "gzip");
       let res: Response;
       try {
         res = await fetch(`${upstream}${path}`, {
@@ -85,6 +92,7 @@ export function startProxy(upstream: string, onRecord: (record: Record) => void,
           ...(text === "" ? {} : { body: text }),
           redirect: "manual",
           signal: req.signal,
+          ...(gzip ? { decompress: false } : {}),
         });
       } catch (error) {
         onRecord({ ch: "http-done", t: now(), id, status: null });
@@ -92,16 +100,25 @@ export function startProxy(upstream: string, onRecord: (record: Record) => void,
       }
       onRecord({ ch: "http-done", t: now(), id, status: res.status });
       const answer = forwardable(res.headers);
+      const gzipped = gzip && res.headers.get("content-encoding") === "gzip";
+      if (gzipped) answer.set("content-encoding", "gzip");
       if (!res.body || !(res.headers.get("content-type") ?? "").startsWith("text/event-stream")) {
         return new Response(res.body, { status: res.status, headers: answer });
       }
       /* each chunk is read on its way through, never held: no tee, so nothing buffers behind a slow reader */
       const feed = sseFrames((data) => onRecord({ ch: "sse", t: now(), data }));
       const decoder = new TextDecoder();
+      const inflate = gzipped ? createGunzip() : null;
+      inflate?.on("data", (chunk: Buffer) => feed(decoder.decode(chunk, { stream: true })));
+      inflate?.on("error", () => {});
       const through = new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) {
-          feed(decoder.decode(chunk, { stream: true }));
+          if (inflate) inflate.write(chunk);
+          else feed(decoder.decode(chunk, { stream: true }));
           controller.enqueue(chunk);
+        },
+        flush() {
+          inflate?.end();
         },
       });
       return new Response(res.body.pipeThrough(through), { status: res.status, headers: answer });

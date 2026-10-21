@@ -56,7 +56,7 @@ export function History() {
   const [stuck, setStuck] = createSignal<{ key: string; why: string } | null>(null);
   let generation = 0;
 
-  const machines = createMemo(() => state.fleet.hostNames);
+  const machines = createMemo(() => state.fleet.agentNames);
   const searching = () => term() !== "";
 
   /** reads one page and the pages behind it while a search finds nothing; a newer question abandons this one */
@@ -134,14 +134,14 @@ export function History() {
   const open = async (view: RowView) => {
     if (opening()) return;
     setStuck(null);
-    if (!state.fleet.sessions[view.key]) {
+    if (!state.fleet.threads[view.key]) {
       setOpening(view.key);
       const id = view.key.slice(view.key.indexOf(":") + 1);
       try {
         const { error, response } = await api.POST("/api/hosts/{host}/sessions/{session}/adopt", { params: { path: { host: view.host, session: id } } });
         if (!response.ok) throw new Error(said(error, response.status));
         const until = performance.now() + ADOPT_WAIT_MS;
-        while (!state.fleet.sessions[view.key]) {
+        while (!state.fleet.threads[view.key]) {
           if (performance.now() > until) throw new Error("it was found, but has not reached this device yet. tap it again in a moment.");
           await new Promise((resolve) => setTimeout(resolve, 40));
         }
@@ -278,7 +278,7 @@ function HistoryRow(props: RowProps) {
   const view = createMemo(() =>
     rowView(
       props.row,
-      state.fleet.sessions[props.row.key],
+      state.fleet.threads[props.row.key],
       Object.values(state.fleet.asks).filter((ask) => ask.key === props.row.key),
       colourMap(),
       props.now(),

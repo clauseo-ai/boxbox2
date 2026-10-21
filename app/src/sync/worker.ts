@@ -6,16 +6,23 @@
    boot reads the cache's meta, fleet and thread heads, and the pages of the
    one thread the url opens, and posts them before the stream opens, so a
    cold launch or a reload paints what it had on the first frame; then the
-   stream resumes from the cached cursor and the server replays the gap.
-   every other thread's pages are read when it is opened or held, before the
-   wire is asked, and reach the ui as that thread's patch. */
+   stream resumes from the cached cursor and the server catches it up
+   (docs/protocol.md, protocol 3). every other thread's pages are read when
+   it is opened or held, before the wire is asked, and reach the ui as that
+   thread's patch.
+
+   the stream carries transcripts only for the threads the page shows (its
+   interest): the stage, the layers under it and the children held for
+   them, which the worker derives from what the page already tells it
+   (`open`, `show`, `hide`, `hold`, `release`) and the reducer posts when
+   it changes. a page hidden for 30 s asks for the overview only. */
 
 import { Backoff } from "./backoff";
 import { Cache, type SaveStats, Saver, weight } from "./cache";
 import { PageGate } from "./gate";
 import type { Emit, FromWorker, StreamStatus, SyncCounters, ToWorker, UiSync } from "./messages";
 import { inDaemonOrderAll } from "./order";
-import { formatCursor, type Frame, type Message, parseCursor, PROTOCOL, routeFrame, splitKey } from "./protocol";
+import { type Cursor, formatCursor, type Frame, type InterestPost, type Message, parseCursor, PROTOCOL, type Reset, routeFrame, splitKey } from "./protocol";
 import {
   type Action,
   type Cold,
@@ -25,6 +32,7 @@ import {
   INITIAL_STATE,
   type Patch,
   reduce,
+  streamQuery,
   type SyncState,
   type ThreadView,
   viewOf,
@@ -63,6 +71,27 @@ export const COOL_AFTER_MS = 5 * 60_000;
 export const KEEP_WARM = 3;
 /** while threads nobody shows are warm, they are looked at again at least this often (a session that stopped being busy) */
 const COOL_SWEEP_MS = 30_000;
+/** a page hidden this long asks for the overview only, and catches up from each thread's `left` when it is shown again
+    (docs/protocol.md, hidden for 30 s) */
+export const HIDDEN_AFTER_MS = 30_000;
+
+/** what the page shows, as the stream's interest names it */
+type View = { thread: string | null; under: string[]; holds: string[] };
+
+const NO_VIEW: View = { thread: null, under: [], holds: [] };
+
+/** a stream url's query (docs/protocol.md, transport): each key encoded, the lists joined by literal commas */
+export function streamUrl(query: ReturnType<typeof streamQuery>, board: boolean): string {
+  const params: string[] = [];
+  const keys = (list: readonly string[]) => list.map(encodeURIComponent).join(",");
+  if (query.thread !== null) params.push(`thread=${encodeURIComponent(query.thread)}`);
+  if (query.under.length > 0) params.push(`under=${keys(query.under)}`);
+  if (query.holds.length > 0) params.push(`holds=${keys(query.holds)}`);
+  const since = Object.entries(query.since);
+  if (since.length > 0) params.push(`since=${since.map(([key, left]) => `${encodeURIComponent(key)}:${left}`).join(",")}`);
+  if (board) params.push("board=1");
+  return params.length > 0 ? `/api/stream?${params.join("&")}` : "/api/stream";
+}
 
 /** everything the worker says to the ui goes through it: held while the page is hidden (gate.ts) */
 const gate = new PageGate((message) => scope.postMessage(message));
@@ -103,8 +132,31 @@ export class Sync {
   private downSince: number | null = null;
   private opened = false;
   private stats = { connects: 0, resumes: 0, replayed: 0, maxDownMs: 0 };
-  /** the connection's replay, until the stream reaches the hello's head */
-  private replay: { head: number; count: number; resumed: boolean; downMs: number | null } | null = null;
+  /** the connection's catch-up, from its hello until its `caught` or its reset */
+  private replay: { count: number; resumed: boolean; downMs: number | null } | null = null;
+  /** what the connection's opening cost (`sync.catchup`), from the dial until its `caught` or its reset */
+  private opening: { at: number; frames: number; bytes: number; stale: number; resets: number } | null = null;
+  /** the epoch of the connection's journal (its hello's, or its reset's): a read stamped with another is not this stream's */
+  private streamEpoch: string | null = null;
+  /** the keys the open connection's query sent a `since` for, for its hello */
+  private dialedSince: readonly string[] = [];
+  /** the highest id this connection showed, for the seqs it skipped (`perf.sync`) */
+  private lastId: Cursor | null = null;
+  /** interest posts not yet confirmed, by ask, with when each went (`sync.interest`), and the catch-up bytes that came since */
+  private readonly asked = new Map<number, number>();
+  private interestBytes = 0;
+
+  /** the page is hidden (`visibility`); `away` once it has been for HIDDEN_AFTER_MS, when the stream asks for the overview only */
+  private hidden = false;
+  private away = false;
+  private hiddenTimer: ReturnType<typeof setTimeout> | undefined;
+  private booted = false;
+  /** the thread on stage: the last one the person opened, until the ui stops showing it */
+  private stage: string | null = null;
+  /** the threads held for another (a child under its parent), in the order they were held, until released */
+  private readonly held = new Set<string>();
+  /** when each thread was last opened, which orders the layers under the stage */
+  private readonly openedAt = new Map<string, number>();
 
   private pending: Patch[] = [];
   /** the threads the ui shows (the stage, the layers under it, the children it holds): the only ones its store holds, so the
@@ -129,7 +181,7 @@ export class Sync {
     STREAMING_SAVE_MS,
   );
   /** what the connection cost since `since`, told once a minute while it is up (`perf.sync`): counts and sizes, no content */
-  private tally = { since: 0, frames: 0, received: 0, posts: 0, patches: 0, posted: 0, saves: 0, puts: 0, stored: 0 };
+  private tally = { since: 0, frames: 0, received: 0, skipped: 0, posts: 0, patches: 0, posted: 0, saves: 0, puts: 0, stored: 0 };
 
   /** hydrations and refetches in flight, so an effect repeated before its answer does not fetch twice */
   private readonly fetching = new Set<string>();
@@ -196,8 +248,14 @@ export class Sync {
       };
     }
     // the thread the url opens paints on the first frame, so its pages are read now; no other thread's are. the ui shows it
-    // (its open, sent next, says so too)
-    if (open) this.shown.add(open);
+    // (its open, sent next, says so too), and the first connect asks for it in its query
+    if (open) {
+      this.shown.add(open);
+      this.stage = open;
+      this.openedAt.set(open, this.tick());
+    }
+    this.booted = true;
+    this.want();
     if (open) await this.restore(open, true);
     const ms = Math.round(performance.now() - started);
     const composer = (await this.cache?.loadComposer(open).catch(() => null)) ?? { drafts: {}, outbox: [], rows: [], replies: [] };
@@ -220,22 +278,82 @@ export class Sync {
     return this.clock;
   }
 
-  /** the person opens a thread. the reducer takes it first (a cold thread is promoted where it is, so the read of its pages
-      cannot race an eviction of it), then a cold one comes back from the cache, so the wire is asked only for what the
-      cache lacks */
+  /* —— what the page shows, as the stream's interest (docs/protocol.md, interest) —— */
+
+  /** the stage, the layers under it (the threads the person opened that the ui still shows, bottom first) and the children
+      held for them; nothing while the page has been hidden for HIDDEN_AFTER_MS. a thread a press shows (`pressedFrom`) is no
+      layer: the person has not opened it, so a press that no click follows posts no interest and causes no catch-up, and
+      the click's open makes it the stage */
+  private view(): View {
+    if (this.away) return NO_VIEW;
+    const thread = this.stage;
+    const holds = [...this.held].filter((key) => key !== thread);
+    return { thread, under: this.layers(thread), holds };
+  }
+
+  /** the threads under `thread`: the ones the person opened that the ui still shows, bottom first */
+  private layers(thread: string | null): string[] {
+    const opened = (key: string) => this.openedAt.get(key) ?? 0;
+    const layer = (key: string) => key !== thread && !this.held.has(key) && !this.pressedFrom.has(key) && this.openedAt.has(key);
+    return [...this.shown].filter(layer).sort((a, b) => opened(a) - opened(b));
+  }
+
+  /** tells the reducer what the page shows; it posts the interest when it changed, and a read of a key entering it waits for
+      the confirm, so this goes before the open, hold or show that would read one */
+  private want(): void {
+    if (this.booted) this.dispatch({ type: "want", ...this.view() });
+  }
+
+  /** the page was hidden or shown. hidden for HIDDEN_AFTER_MS, the stream asks for the overview only; shown again, for what
+      the page shows, with each thread's `left`, so it catches up before the page does anything */
+  visibility(hidden: boolean): void {
+    if (hidden === this.hidden) return;
+    this.hidden = hidden;
+    clearTimeout(this.hiddenTimer);
+    this.hiddenTimer = undefined;
+    if (hidden) {
+      this.hiddenTimer = setTimeout(() => {
+        this.hiddenTimer = undefined;
+        this.away = true;
+        this.want();
+      }, HIDDEN_AFTER_MS);
+      return;
+    }
+    if (!this.away) return;
+    this.away = false;
+    this.want();
+  }
+
+  /** the person opens a thread: it goes on stage. the reducer takes it first (a cold thread is promoted where it is, so the
+      read of its pages cannot race an eviction of it), then a cold one comes back from the cache, so the wire is asked only
+      for what the cache lacks */
   async open(key: string): Promise<void> {
-    this.dispatch({ type: "open", key, at: this.tick() });
+    this.stage = key;
+    await this.take(key);
+  }
+
+  private async take(key: string): Promise<void> {
+    const at = this.tick();
+    this.openedAt.set(key, at);
+    // the click that follows a press: the person sees it now, so it is a layer once another thread covers it
+    this.pressedFrom.delete(key);
+    this.want();
+    this.dispatch({ type: "open", key, at });
     await this.restore(key, false);
   }
 
   /** a thread held for another (a child's lane): taken and restored like an open, and counted apart from the person's own */
   async hold(key: string): Promise<void> {
+    this.held.add(key);
+    this.want();
     this.dispatch({ type: "hold", key, at: this.tick() });
     await this.restore(key, false);
   }
 
   release(key: string): void {
+    this.held.delete(key);
     this.dispatch({ type: "release", key });
+    this.want();
   }
 
   /** the ui shows a thread (on stage, a layer under it, a child it holds): it gets the thread as the worker holds it now, and
@@ -246,6 +364,8 @@ export class Sync {
     if (press) this.pressedFrom.set(key, this.closedAt.get(key) ?? 0);
     else this.pressedFrom.delete(key);
     this.closedAt.delete(key);
+    // a layer shown again is in interest again before its restore can read it
+    this.want();
     const thread = this.state.threads[key];
     if (thread) {
       this.pending.push({ path: ["threads", key], value: viewOf(thread) });
@@ -258,8 +378,11 @@ export class Sync {
       thread they did see out of the KEEP_WARM */
   hide(key: string, press = false): void {
     if (!this.shown.delete(key)) return;
+    // the stage closing over a layer makes that layer the stage (docs/protocol.md, no gap at a switch): the one opened last
+    if (this.stage === key) this.stage = this.layers(key).at(-1) ?? null;
     const before = this.pressedFrom.get(key);
     this.pressedFrom.delete(key);
+    this.want();
     this.closedAt.set(key, press && before !== undefined ? before : this.now());
     this.pending.push({ path: ["threads", key], value: undefined, closed: true });
     this.scheduleFrame();
@@ -281,8 +404,8 @@ export class Sync {
     }
     const now = this.now();
     const busy = (key: string) => {
-      const status = this.state.fleet.sessions[key]?.status?.type;
-      return status === "busy" || status === "retry";
+      const state = this.state.fleet.threads[key]?.activity.state;
+      return state === "busy" || state === "retry";
     };
     const warm = Object.values(this.state.threads).filter((t) => !this.shown.has(t.key));
     for (const t of warm) if (!this.closedAt.has(t.key)) this.closedAt.set(t.key, now);
@@ -347,7 +470,7 @@ export class Sync {
       taken) is opened again, which restores or reads it */
   async reread(key: string): Promise<void> {
     if (this.state.threads[key]) this.dispatch({ type: "reread", key });
-    else await this.open(key);
+    else await this.take(key);
   }
 
   /** reads a cold thread's pages and puts it back in memory. reads of one thread are shared; an entry that passes the
@@ -422,8 +545,12 @@ export class Sync {
       try {
         const headers: Record<string, string> = { accept: "text/event-stream" };
         if (this.state.cursor) headers["last-event-id"] = formatCursor(this.state.cursor);
-        // the app always asks for the repo colours, which travel beside the journal (protocol.ts, `ColourFrame`)
-        const res = await fetch(this.board ? "/api/stream?colours=1&board=1" : "/api/stream?colours=1", { headers, signal: connection.signal, credentials: "same-origin", cache: "no-store" });
+        this.opening = { at: performance.now(), frames: 0, bytes: 0, stale: 0, resets: 0 };
+        this.lastId = this.state.cursor;
+        // the interest rides in the query, with each held thread's `left`; every stream gets the repo colours
+        const query = streamQuery(this.state);
+        this.dialedSince = Object.keys(query.since);
+        const res = await fetch(streamUrl(query, this.board), { headers, signal: connection.signal, credentials: "same-origin", cache: "no-store" });
         if (res.status === 401) signedOut = true;
         else if (res.ok && res.body) overflowed = (await this.read(res.body, connection)) === "overflow";
       } catch {
@@ -431,6 +558,7 @@ export class Sync {
       } finally {
         this.life.signal.removeEventListener("abort", stop);
         this.boardLost();
+        this.ended();
       }
       if (this.life.signal.aborted) break;
       if (signedOut) {
@@ -496,15 +624,26 @@ export class Sync {
   /* —— what the connection costs (`perf.sync`) —— */
 
   private tallyStart(): void {
-    this.tally = { since: performance.now(), frames: 0, received: 0, posts: 0, patches: 0, posted: 0, saves: 0, puts: 0, stored: 0 };
+    this.tally = { since: performance.now(), frames: 0, received: 0, skipped: 0, posts: 0, patches: 0, posted: 0, saves: 0, puts: 0, stored: 0 };
   }
 
-  /** the window so far, when anything came in it, and a new window from `now` */
+  /** the window so far, when anything came in it, and a new window from `now`; `view` is what the page shows as it is written */
   private tallyEmit(now: number): void {
     const { since, ...counts } = this.tally;
+    const view = this.away ? "hidden" : this.stage === null ? "home" : "thread";
     // a worker that stopped (a sign-out) writes no more rows
-    if (counts.received > 0 && !this.life.signal.aborted) this.telemetry.emit("perf.sync", { what: "minute", ...counts }, { ms: Math.round(now - since) });
+    if (counts.received > 0 && !this.life.signal.aborted) this.telemetry.emit("perf.sync", { what: "minute", view, ...counts }, { ms: Math.round(now - since) });
     this.tallyStart();
+  }
+
+  /** an id the stream showed: the seqs between it and the last one are entries it skipped (other threads' transcripts) */
+  private sawId(id: Cursor): void {
+    const last = this.lastId;
+    if (last && last.epoch === id.epoch) {
+      if (id.seq > last.seq + 1) this.tally.skipped += id.seq - last.seq - 1;
+      if (id.seq <= last.seq) return;
+    }
+    this.lastId = id;
   }
 
   private tallySave(stats: SaveStats): void {
@@ -515,7 +654,7 @@ export class Sync {
 
   private onFrame(sse: SseFrame): void {
     this.tally.frames++;
-    const routed = routeFrame(sse.data, this.board, true);
+    const routed = routeFrame(sse.data, this.board);
     if (!routed) return;
     // so is a colour frame: the reducer takes it as an action of its own, never as an entry
     if (routed.to === "colours") {
@@ -528,6 +667,18 @@ export class Sync {
       post({ type: "board", frame: routed.frame });
       return;
     }
+    // an id moves the cursor whatever the frame: a type this client does not know is skipped and still moves it
+    const id = parseCursor(sse.id);
+    if (id) this.sawId(id);
+    if (routed.to !== "journal" || routed.frame.type !== "hello") this.count(routed.to === "journal" ? routed.frame.type : routed.to, sse.data.length);
+    if (routed.to === "skip") {
+      if (id) this.dispatch({ type: "skipped", id });
+      return;
+    }
+    if (routed.to === "broken") {
+      this.dispatch({ type: "broken", what: routed.what });
+      return;
+    }
     const frame = routed.frame;
     if (frame.type === "hello") {
       if (frame.protocol !== PROTOCOL) {
@@ -535,49 +686,88 @@ export class Sync {
         this.stop();
         return;
       }
-      this.wentLive(frame.head);
+      this.streamEpoch = frame.epoch;
+      this.wentLive();
     }
-    const epoch = parseCursor(sse.id)?.epoch;
-    if (frame.type === "reset") return this.reset(frame, epoch);
-    this.dispatch({ type: "frame", frame, epoch });
-    this.sender.frame(frame);
+    if (frame.type === "reset") return this.reset(frame, id);
+    this.dispatch(frame.type === "hello" ? { type: "frame", frame, id, since: this.dialedSince } : { type: "frame", frame, id });
+    // the outbox matches its sends' echoes in a catch-up's entries as in live ones
+    if (frame.type === "catchup") for (const entry of frame.entries) this.sender.frame(entry);
+    else this.sender.frame(frame);
     if (frame.type !== "hello") {
       // the status the ui holds is a copy (`setStream` posts it), so the worker's own is changed in place, not made anew per frame
       this.stream.lastEventAt = Date.now();
-      if (this.replay) {
-        this.replay.count++;
-        if (frame.seq >= this.replay.head) this.replayDone(true);
-      }
+      if (frame.type === "caught") this.caughtUp();
     }
   }
 
-  /** the server could not replay from the cursor: the threads on screen are read again, and every other thread whose pages the
+  /** a frame after the hello: counted into the connection's catch-up until its `caught` or reset, and a catch-up frame that
+      comes ahead of a confirm into that confirm's bytes */
+  private count(type: string, bytes: number): void {
+    if (this.replay && type !== "caught" && type !== "reset") this.replay.count++;
+    const opening = this.opening;
+    if (opening) {
+      opening.frames++;
+      opening.bytes += bytes;
+      if (type === "thread.stale") opening.stale++;
+      if (type === "thread.reset") opening.resets++;
+    } else if (type === "catchup" && this.asked.size > 0) this.interestBytes += bytes;
+  }
+
+  /** the server could not catch the cursor up: the threads on screen are read again, and every other thread whose pages the
       cache holds as memory does goes cold and stale (read again when it is wanted), so a reset costs what is on screen. one
-      with changes not yet on disk is read again, as every thread was before. the reset lands at once, never after a save:
-      the stream said live at the hello, and its caught-up second (ui/caught-up.ts) must find the snapshot's fleet in the
+      with changes not yet on disk stays in memory, and is read when it is shown again. the reset lands at once, never after a
+      save: the stream said live at the hello, and its caught-up second (ui/caught-up.ts) must find the snapshot's fleet in the
       store */
-  private reset(frame: Extract<Frame, { type: "reset" }>, epoch: string | undefined): void {
+  private reset(frame: Reset, id: Cursor | null): void {
+    // a reset may start another epoch on this connection: the reads that follow are stamped with it
+    this.streamEpoch = frame.epoch;
     const cool: Record<string, number> = {};
     for (const key of Object.keys(this.state.threads)) {
       const pages = this.coolable(key);
       if (pages !== null) cool[key] = pages;
     }
-    this.dispatch({ type: "frame", frame, epoch, cool });
+    this.dispatch({ type: "frame", frame, id, cool });
     this.sender.frame(frame);
+    this.openingDone("reset", frame.reason);
     this.replayDone(false);
     for (const key of Object.keys(cool)) this.closedAt.delete(key);
   }
 
-  private wentLive(head: number): void {
+  /** the catch-up ended (`caught`): the stream is live, resumed from the cursor */
+  private caughtUp(): void {
+    this.openingDone("caught", null);
+    this.replayDone(true);
+  }
+
+  /** what the connection's opening cost, once (`sync.catchup`) */
+  private openingDone(how: "reset" | "caught", reason: Reset["reason"] | null): void {
+    const opening = this.opening;
+    if (!opening) return;
+    this.opening = null;
+    const { at, ...counts } = opening;
+    this.telemetry.emit("sync.catchup", { how, ...(reason === null ? {} : { reason }), ...counts }, { ms: Math.round(performance.now() - at) });
+  }
+
+  /** the connection is over, however it ended: every thread in interest takes the cursor as its `left`, and what was asked
+      of it is forgotten */
+  private ended(): void {
+    this.streamEpoch = null;
+    this.lastId = null;
+    this.opening = null;
+    this.asked.clear();
+    this.interestBytes = 0;
+    if (!this.life.signal.aborted) this.dispatch({ type: "dropped" });
+  }
+
+  private wentLive(): void {
     const now = Date.now();
     const downMs = this.downSince === null ? null : now - this.downSince;
     if (downMs !== null) this.stats.maxDownMs = Math.max(this.stats.maxDownMs, downMs);
     this.downSince = null;
     this.stats.connects++;
-    this.replay = { head, count: 0, resumed: this.state.cursor !== null, downMs };
+    this.replay = { count: 0, resumed: this.state.cursor !== null, downMs };
     this.setStream({ state: "live", since: now, lastEventAt: this.stream.lastEventAt });
-    const cursor = this.state.cursor;
-    if (cursor && cursor.seq >= head) this.replayDone(true);
   }
 
   /** the connection caught up (or reset): the stream is live, and telemetry says how it got there */
@@ -667,11 +857,52 @@ export class Sync {
       case "head":
         this.saver.markThread(effect.key, Number.POSITIVE_INFINITY);
         return;
+      case "fault":
+        this.telemetry.emit("sync.fault", { what: effect.what });
+        return;
+      case "interest-changed":
+        void this.postInterest(effect.stream, effect.post);
+        return;
+      case "confirmed": {
+        const at = this.asked.get(effect.ask);
+        for (const ask of this.asked.keys()) if (ask <= effect.ask) this.asked.delete(ask);
+        this.telemetry.emit("sync.interest", { entering: effect.entering, catchup: this.interestBytes, stale: effect.stale, reset: effect.reset }, at === undefined ? {} : { ms: Math.round(performance.now() - at) });
+        this.interestBytes = 0;
+        return;
+      }
       default:
         effect satisfies never;
     }
   }
 
+  /** posts what the page shows to the stream (docs/protocol.md, declaring): the confirm comes in-band. a post the server
+      cannot take (the stream ended: 404; any other failure) is never guessed at or posted again: the stream is dialled again
+      with the interest in its query, at once for a 404 and after the backoff otherwise */
+  private async postInterest(stream: string, body: InterestPost): Promise<void> {
+    this.asked.set(body.ask, performance.now());
+    let res: Response | null = null;
+    try {
+      res = await fetch(`/api/stream/${encodeURIComponent(stream)}/interest`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: this.life.signal,
+      });
+      void res.body?.cancel().catch(() => undefined);
+    } catch {
+      /* aborted or refused: handled as a failure below */
+    }
+    if (this.life.signal.aborted || res?.ok) return;
+    // a post for a stream that has already ended changes nothing: the next one carries the interest in its query
+    if (this.state.interest.stream !== stream) return;
+    if (res?.status === 404) this.reconnectNow = true;
+    this.connection?.abort();
+  }
+
+  /** reads a thread whole (docs/protocol.md, thread reads), revalidating with the etag of the read it holds when it holds
+      one: a 304 makes what it holds the read, stamped with the answer's seq for the no-gap rule */
   private async hydrate(key: string, hydration: number): Promise<void> {
     const job = `hydrate ${key} ${hydration}`;
     const place = splitKey(key);
@@ -680,16 +911,26 @@ export class Sync {
     const backoff = new Backoff(1000, 30_000);
     try {
       const read = await readTranscript({
-        path: `/api/hosts/${encodeURIComponent(place.host)}/sessions/${encodeURIComponent(place.session)}/messages`,
-        get: (path) => this.get(path),
+        path: `/api/agents/${encodeURIComponent(place.agent)}/threads/${encodeURIComponent(place.thread)}/messages`,
+        etag: this.state.threads[key]?.etag,
+        get: (path, headers) => this.get(path, headers),
         // the thread must still be the one this read was made for: one evicted and held again has another number
         wanted: () => !this.life.signal.aborted && this.state.threads[key]?.hydration === hydration,
         wait: (ms) => sleep(ms, this.life.signal),
         nextDelay: () => backoff.nextDelay(),
         failed: (trouble) => this.dispatch({ type: "read-failed", key, hydration, trouble }),
+        epoch: () => this.streamEpoch,
+        otherEpoch: () => this.run({ type: "reconnect" }),
       });
       if (read === null || read === "signed-out") return;
-      this.dispatch({ type: "hydrated", key, hydration, upstreamEpoch: read.at.epoch, at: read.at.seq, messages: read.messages, bytes: read.bytes });
+      const held = this.state.threads[key];
+      if (!held) return;
+      const stamps = { type: "hydrated", key, hydration, upstreamEpoch: read.at.epoch, at: read.at.seq, seq: read.seq.seq, seqEpoch: read.seq.epoch, ...(read.etag ? { etag: read.etag } : {}) } as const;
+      if (read.messages === null) {
+        this.dispatch({ ...stamps, messages: held.messages, bytes: held.bytes });
+        return;
+      }
+      this.dispatch({ ...stamps, messages: read.messages, bytes: read.bytes });
       this.sender.read(key, read.messages);
     } finally {
       this.fetching.delete(job);
@@ -723,7 +964,7 @@ export class Sync {
       this.fetching.delete(job);
     };
     const backoff = new Backoff(1000, 30_000);
-    const path = `/api/hosts/${encodeURIComponent(place.host)}/sessions/${encodeURIComponent(place.session)}/messages/${encodeURIComponent(messageID)}`;
+    const path = `/api/agents/${encodeURIComponent(place.agent)}/threads/${encodeURIComponent(place.thread)}/messages/${encodeURIComponent(messageID)}`;
     const wanted = () => !this.life.signal.aborted && this.state.threads[key]?.hydration === hydration && this.state.threads[key]?.refetching[messageID] !== undefined;
     try {
       // the streak is the message's, across incarnations of the thread: asking again soon is the daemon answering short
@@ -759,9 +1000,11 @@ export class Sync {
     }
   }
 
-  private async get(path: string): Promise<Response | null> {
+  /** one read. `no-store` keeps the browser's cache out of it, so a revalidation is the worker's own (`If-None-Match` from the
+      head's etag, by hand) and a 304 reaches it as one */
+  private async get(path: string, headers: Record<string, string> = {}): Promise<Response | null> {
     try {
-      return await fetch(path, { credentials: "same-origin", cache: "no-store", signal: this.life.signal });
+      return await fetch(path, { credentials: "same-origin", cache: "no-store", headers, signal: this.life.signal });
     } catch {
       return null;
     }
@@ -840,6 +1083,7 @@ export class Sync {
     this.connection?.abort();
     clearTimeout(this.frameTimer);
     clearTimeout(this.coolTimer);
+    clearTimeout(this.hiddenTimer);
     this.saver.stop();
     if (this.frameHandle !== undefined) scope.cancelAnimationFrame?.(this.frameHandle);
     this.telemetry.stop();
@@ -869,12 +1113,18 @@ let ready: Promise<void> = Promise.resolve();
 
 scope.addEventListener("message", (event) => {
   const message = event.data;
-  // the page's visibility is the gate's, whatever the worker is doing: it takes effect at once, boot or not
-  if (message.type === "visibility") return gate.setHidden(message.hidden);
+  // the page's visibility is the gate's, whatever the worker is doing: it takes effect at once, boot or not; the stream's
+  // interest hears of it too (a page hidden for 30 s asks for the overview only)
+  if (message.type === "visibility") {
+    gate.setHidden(message.hidden);
+    sync?.visibility(message.hidden);
+    return;
+  }
   if (message.type === "start") {
     gate.setHidden(message.hidden);
     if (sync) return;
     const started = new Sync(message.device, message.deviceClass, message.board);
+    started.visibility(message.hidden);
     sync = started;
     ready = started.boot(message.open);
     return;

@@ -46,15 +46,15 @@ export function Host(props: { host: HostStatus }) {
     let wants = 0;
     let working = 0;
     for (const key of state.fleet.order) {
-      const session = state.fleet.sessions[key];
-      if (session?.host !== name()) continue;
-      const status = session.status;
-      const parked = status?.type === "idle" && status.parked ? status.parked : null;
+      const thread = state.fleet.threads[key];
+      if (thread?.agent !== name()) continue;
+      const activity = thread.activity;
+      const parked = activity.state === "parked" ? activity : null;
       const shown = stateOf({
         ask: asked.has(key),
         failure: null,
-        busy: status?.type === "busy" || status?.type === "retry",
-        queued: status?.type === "busy" ? (status.queued ?? 0) : 0,
+        busy: activity.state === "busy" || activity.state === "retry",
+        queued: activity.state === "busy" ? thread.queued : 0,
         parked: parked !== null,
         agents: parked?.agents ?? 0,
         seen: true,

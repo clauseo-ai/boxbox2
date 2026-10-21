@@ -22,7 +22,6 @@ pub mod session;
 pub mod stream;
 pub mod telemetry;
 pub mod threads;
-pub mod transcript;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -74,6 +73,8 @@ pub struct AppState {
     pub sends: crate::source::sends::Sends,
     /// the board's channel, only with `[board]` in `boxbox.toml`.
     pub board: Option<Arc<crate::board::Board>>,
+    /// the event streams holding a gzip context, at most 64.
+    pub gzip_streams: compress::GzipStreams,
     /// fired at shutdown; streams end on it.
     pub shutdown: CancellationToken,
 }
@@ -136,14 +137,11 @@ fn router_waiting(state: Arc<AppState>, photo_wait: Duration) -> Router {
             axum::routing::put(prefs::favorite_models),
         )
         .route("/api/stream", get(stream::stream))
+        .route("/api/stream/{stream}/interest", post(stream::interest))
         .route("/api/fleet", get(fleet::snapshot))
         .route(
-            "/api/hosts/{host}/sessions/{session}/messages",
-            get(transcript::messages),
-        )
-        .route(
             "/api/hosts/{host}/sessions/{session}/messages/{message}",
-            get(transcript::message).delete(session::unsend),
+            axum::routing::delete(session::unsend),
         )
         .merge(lifecycle())
         .route("/api/needs", get(needs::list))
@@ -287,7 +285,6 @@ fn board_routes(state: &AppState) -> Router<Arc<AppState>> {
         return Router::new();
     }
     Router::new()
-        .route("/api/board/stream", get(crate::board::routes::stream))
         .route("/api/board/act", post(crate::board::routes::act))
         .route("/api/board/pin", post(crate::board::routes::pin))
 }
@@ -590,6 +587,7 @@ pub(crate) mod tests {
             summaries: crate::fleet::summary::Summaries::new(),
             sends,
             board,
+            gzip_streams: compress::GzipStreams::default(),
             shutdown,
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -925,15 +923,5 @@ pub(crate) mod tests {
                 "{body}"
             );
         }
-        // an ungated read goes on to the daemon, which is not there
-        let answer = client
-            .get(format!(
-                "http://{addr}/api/hosts/desk/sessions/ses_1/messages"
-            ))
-            .header("cookie", &cookie)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(answer.status(), 502);
     }
 }

@@ -139,15 +139,15 @@
         "tags": [
           "super::fleet"
         ],
-        "summary": "the fleet model now.",
+        "summary": "the fleet model now, with `x-boxbox-seq`: the journal position it\nreflects, so a stream resumed from it carries every later change.",
         "operationId": "snapshot",
         "responses": {
           "200": {
-            "description": "every host, session and ask, and the window order",
+            "description": "every agent, thread and ask, and the window order, with `x-boxbox-seq: <epoch>:<seq>`",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FleetSnapshot"
+                  "$ref": "#/components/schemas/Fleet"
                 }
               }
             }
@@ -2437,217 +2437,7 @@
         }
       }
     },
-    "/api/hosts/{host}/sessions/{session}/messages": {
-      "get": {
-        "tags": [
-          "super::transcript"
-        ],
-        "summary": "the session's messages, as cmx2's `GET /session/{session}/message`\nanswers them, the one still streaming included (cmx2-asks a5).",
-        "operationId": "messages",
-        "parameters": [
-          {
-            "name": "host",
-            "in": "path",
-            "description": "the host's name in boxbox.toml",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "session",
-            "in": "path",
-            "description": "the daemon's session id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "path",
-            "description": "at most this many messages, newest last; all of them when absent.",
-            "required": true,
-            "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "before",
-            "in": "path",
-            "description": "the `x-next-cursor` of the page after this one.",
-            "required": true,
-            "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "format": "int64",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "If-None-Match",
-            "in": "header",
-            "description": "the etag of a read the client holds",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "cmx2's message list, byte for byte, with `x-cmx2-seq` and the same stamp as a weak etag",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
-            }
-          },
-          "304": {
-            "description": "the read whose etag was sent is still the transcript; `x-cmx2-seq` is its stamp"
-          },
-          "401": {
-            "description": "not signed in",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "no such host, or the daemon has no such session",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "the host did not answer",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/hosts/{host}/sessions/{session}/messages/{message}": {
-      "get": {
-        "tags": [
-          "super::transcript"
-        ],
-        "summary": "one message of the session, `{info, parts}`, streaming or finished; a\nclient re-reads a part through this when a delta shows it missed text.",
-        "operationId": "message",
-        "parameters": [
-          {
-            "name": "host",
-            "in": "path",
-            "description": "the host's name in boxbox.toml",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "session",
-            "in": "path",
-            "description": "the daemon's session id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "message",
-            "in": "path",
-            "description": "the daemon's message id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "If-None-Match",
-            "in": "header",
-            "description": "the etag of a read the client holds",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "cmx2's `{info, parts}`, byte for byte, with `x-cmx2-seq` and the same stamp as a weak etag",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          },
-          "304": {
-            "description": "the read whose etag was sent still holds; `x-cmx2-seq` is its stamp"
-          },
-          "401": {
-            "description": "not signed in",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "no such host, session or message",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "the host did not answer",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
       "delete": {
         "tags": [
           "super::session"
@@ -4334,6 +4124,42 @@
             }
           },
           {
+            "name": "thread",
+            "in": "query",
+            "description": "the open thread, `<agent>:<thread>`; absent for the overview only.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "under",
+            "in": "query",
+            "description": "the layers under the stage, comma separated, at most 8.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "holds",
+            "in": "query",
+            "description": "the children held for the stage and its layers, comma separated, at\nmost 16.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "for each interest key the client already holds, its `left`:\n`<key>:<seq>,<key>:<seq>`. ignored when the stream starts with a reset.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "board",
             "in": "query",
             "description": "a desktop window that would show the board's digits and obey its\nfocus and compose (`docs/board.md`, where the board is). ignored\nunless the server has `[board]`.\n`board=1`, as the app sends it; `true` reads the same.",
@@ -4343,12 +4169,41 @@
             }
           },
           {
-            "name": "colours",
+            "name": "view",
             "in": "query",
-            "description": "`colours=1`: the stream also carries repo colours as id-less\n`ColourFrame`s outside the journal: the whole map after `hello`, then\neach change ahead of the entry that first shows its repo. a stream\nthat does not ask gets contract 1 exactly as it was.",
+            "description": "`board`: the board daemon's stream, with `protocol`, `device` and\n`addrs` (board/wire's stream query); it gets board/wire's frames only.",
             "required": false,
             "schema": {
-              "type": "boolean"
+              "type": "string"
+            }
+          },
+          {
+            "name": "protocol",
+            "in": "query",
+            "description": "with `view=board`: the board protocol the daemon speaks; another\nthan the server's answers 409.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "description": "with `view=board`: the daemon's device id.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "addrs",
+            "in": "query",
+            "description": "with `view=board`: every address of the board's mac, comma separated.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -4366,17 +4221,112 @@
         ],
         "responses": {
           "200": {
-            "description": "an sse stream: `hello`, then a replay or a `reset`, then live entries; each frame's data is one of these",
+            "description": "an sse stream: `hello`, then the catch-up ending in `caught` or a `reset`, then live entries; each frame's data is one of these (`view=board`: board/wire's frames instead)",
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "$ref": "#/components/schemas/StreamFrame"
+                  "$ref": "#/components/schemas/AgentStreamFrame"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "more than 8 layers or 16 holds, a malformed key or since, or a view other than board",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
           },
           "401": {
             "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`view=board` on a server without `[board]`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`view=board` with another board protocol than the server's: update the daemon",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream/{stream}/interest": {
+      "post": {
+        "tags": [
+          "super::stream"
+        ],
+        "summary": "what a stream shows from now on (`docs/protocol.md`, section 5): the\nconfirm arrives on the stream itself, its catch-up ahead of it.",
+        "operationId": "interest",
+        "parameters": [
+          {
+            "name": "stream",
+            "in": "path",
+            "description": "the stream's id, as its `hello` named it",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InterestPost"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "taken: its confirm (or none, for an `ask` not above the last applied) comes on the stream"
+          },
+          "400": {
+            "description": "more than 8 layers or 16 holds, or a malformed key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`no-such-stream`: it ended, is another session's or a board stream, or did not read its last confirm in 30 s; reconnect with the interest in the query",
             "content": {
               "application/json": {
                 "schema": {
@@ -4499,13 +4449,16 @@
           {
             "type": "object",
             "required": [
-              "since",
               "state"
             ],
             "properties": {
               "since": {
-                "type": "number",
-                "format": "double"
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double",
+                "description": "absent when the runtime did not say when the turn started."
               },
               "state": {
                 "type": "string",
@@ -5551,6 +5504,17 @@
           "id": {
             "type": "string"
           },
+          "mail": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Mail",
+                "description": "the message came from another agent (a report, a note) or started\nthis one (its brief): the source's mail envelope, as parts carry it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "model": {
             "type": [
               "string",
@@ -5933,43 +5897,6 @@
             "description": "when the daemon archived it, ms since the epoch on its clock."
           }
         }
-      },
-      "Ask": {
-        "type": "object",
-        "description": "a permission or a question waiting on a person.",
-        "required": [
-          "key",
-          "host",
-          "id",
-          "kind",
-          "request"
-        ],
-        "properties": {
-          "host": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "key": {
-            "type": "string",
-            "description": "the session's key, `<host>:<sessionID>`."
-          },
-          "kind": {
-            "$ref": "#/components/schemas/AskKind"
-          },
-          "request": {
-            "type": "object",
-            "description": "cmx2's `PermissionRequest` or `QuestionRequest`, as the daemon wrote it."
-          }
-        }
-      },
-      "AskKind": {
-        "type": "string",
-        "enum": [
-          "permission",
-          "question"
-        ]
       },
       "AskSettled": {
         "type": "object",
@@ -6387,321 +6314,6 @@
           }
         }
       },
-      "Change": {
-        "oneOf": [
-          {
-            "type": "object",
-            "description": "a host's connection or health changed.",
-            "required": [
-              "host",
-              "type"
-            ],
-            "properties": {
-              "host": {
-                "$ref": "#/components/schemas/HostStatus"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "host"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "a host left `boxbox.toml`; everything the fleet held for it goes.",
-            "required": [
-              "host",
-              "type"
-            ],
-            "properties": {
-              "host": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "host.removed"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "the host was read afresh (a cold connect, or the daemon's\n`stream.reset`): these replace every session and ask the fleet held\nfor it. a client re-reads any open transcript on this host.",
-            "required": [
-              "host",
-              "sessions",
-              "asks",
-              "type"
-            ],
-            "properties": {
-              "asks": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/Ask"
-                }
-              },
-              "host": {
-                "type": "string"
-              },
-              "sessions": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/SessionEntry"
-                }
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "host.reset"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "a session appeared or changed: the whole entry, replacing the last.",
-            "required": [
-              "session",
-              "type"
-            ],
-            "properties": {
-              "session": {
-                "$ref": "#/components/schemas/SessionEntry"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "session"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "key",
-              "type"
-            ],
-            "properties": {
-              "key": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "session.removed"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "a permission or question now waits on a person.",
-            "required": [
-              "ask",
-              "type"
-            ],
-            "properties": {
-              "ask": {
-                "$ref": "#/components/schemas/Ask"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "ask"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "an ask was answered, rejected, or dropped with its turn.",
-            "required": [
-              "host",
-              "id",
-              "type"
-            ],
-            "properties": {
-              "host": {
-                "type": "string"
-              },
-              "id": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "ask.settled"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "the window order changed: every key, first first.",
-            "required": [
-              "keys",
-              "type"
-            ],
-            "properties": {
-              "keys": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "order"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "a message was created or changed (cmx2 `message.updated`).",
-            "required": [
-              "key",
-              "info",
-              "type"
-            ],
-            "properties": {
-              "info": {
-                "type": "object",
-                "description": "cmx2's `MessageInfo`, as the daemon wrote it."
-              },
-              "key": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "message"
-                ]
-              },
-              "upstream": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int64",
-                "description": "the daemon's seq for this event; apply it only past the seq of\nthe transcript read it lands on. null when the daemon did not\nlog it, which makes it newer than any read.",
-                "minimum": 0
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "a part was created or replaced whole (cmx2 `message.part.updated`).",
-            "required": [
-              "key",
-              "part",
-              "type"
-            ],
-            "properties": {
-              "key": {
-                "type": "string"
-              },
-              "part": {
-                "type": "object",
-                "description": "cmx2's `Part`, as the daemon wrote it."
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "part"
-                ]
-              },
-              "upstream": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int64",
-                "description": "null on the daemon's resume re-send of a part still streaming,\nwhich carries its full text so far and no seq.",
-                "minimum": 0
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "streamed text for a part (cmx2 `message.part.delta`, never logged\nby the daemon, so it has no seq).",
-            "required": [
-              "key",
-              "messageID",
-              "partID",
-              "field",
-              "delta",
-              "offset",
-              "type"
-            ],
-            "properties": {
-              "delta": {
-                "type": "string"
-              },
-              "field": {
-                "type": "string"
-              },
-              "key": {
-                "type": "string"
-              },
-              "messageID": {
-                "type": "string"
-              },
-              "offset": {
-                "type": "integer",
-                "format": "int64",
-                "description": "utf-16 units of the part's text before this delta: a client\nappends only when it equals what it holds, skips what it\nalready has, and re-reads the part on a gap.",
-                "minimum": 0
-              },
-              "partID": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "delta"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "required": [
-              "key",
-              "messageID",
-              "type"
-            ],
-            "properties": {
-              "key": {
-                "type": "string"
-              },
-              "messageID": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "message.removed"
-                ]
-              },
-              "upstream": {
-                "type": [
-                  "integer",
-                  "null"
-                ],
-                "format": "int64",
-                "minimum": 0
-              }
-            }
-          }
-        ],
-        "description": "a change to the fleet model, discriminated on `type`."
-      },
       "Changes": {
         "type": "object",
         "required": [
@@ -6993,82 +6605,6 @@
           }
         }
       },
-      "Control": {
-        "oneOf": [
-          {
-            "type": "object",
-            "description": "the first frame of every connection; it carries no id.",
-            "required": [
-              "epoch",
-              "head",
-              "build",
-              "protocol",
-              "type"
-            ],
-            "properties": {
-              "build": {
-                "type": "string",
-                "description": "the server's build; a newer one lights \"update ready\"."
-              },
-              "epoch": {
-                "type": "string",
-                "description": "the journal this server holds; a restart mints a new one."
-              },
-              "head": {
-                "type": "integer",
-                "format": "int64",
-                "description": "the journal's newest seq.",
-                "minimum": 0
-              },
-              "protocol": {
-                "type": "integer",
-                "format": "int32",
-                "minimum": 0
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "hello"
-                ]
-              }
-            }
-          },
-          {
-            "type": "object",
-            "description": "the client's cursor cannot be replayed: this snapshot replaces\neverything it holds, and live entries follow from `seq`.",
-            "required": [
-              "seq",
-              "epoch",
-              "reason",
-              "fleet",
-              "type"
-            ],
-            "properties": {
-              "epoch": {
-                "type": "string"
-              },
-              "fleet": {
-                "$ref": "#/components/schemas/FleetSnapshot"
-              },
-              "reason": {
-                "$ref": "#/components/schemas/ResetReason"
-              },
-              "seq": {
-                "type": "integer",
-                "format": "int64",
-                "minimum": 0
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "reset"
-                ]
-              }
-            }
-          }
-        ],
-        "description": "the stream's frames that are not journal entries."
-      },
       "DevicePrefs": {
         "type": "object",
         "description": "one device's appearance.",
@@ -7146,7 +6682,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `page-too-large`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,\nand the board's `no-board`, `no-board-window`, `board-busy`,\n`no-such-machine`, `board-protocol`."
+            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `page-too-large`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,\nand the board's `no-board`, `no-board-window`, `board-busy`,\n`no-such-machine`, `board-protocol`; protocol 3's `no-such-stream`."
           },
           "message": {
             "type": "string",
@@ -7287,43 +6823,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Thread"
-            }
-          }
-        }
-      },
-      "FleetSnapshot": {
-        "type": "object",
-        "description": "the whole fleet model, as `reset` and `GET /api/fleet` carry it.",
-        "required": [
-          "hosts",
-          "sessions",
-          "asks",
-          "order"
-        ],
-        "properties": {
-          "asks": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Ask"
-            }
-          },
-          "hosts": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/HostStatus"
-            }
-          },
-          "order": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "the window order: session keys, first first."
-          },
-          "sessions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SessionEntry"
             }
           }
         }
@@ -8060,28 +7559,6 @@
           }
         }
       },
-      "JournalEntry": {
-        "allOf": [
-          {
-            "$ref": "#/components/schemas/Change"
-          },
-          {
-            "type": "object",
-            "required": [
-              "seq"
-            ],
-            "properties": {
-              "seq": {
-                "type": "integer",
-                "format": "int64",
-                "description": "contiguous within an epoch; the entry's sse id is `<epoch>:<seq>`.",
-                "minimum": 0
-              }
-            }
-          }
-        ],
-        "description": "one journal entry: a change to the fleet model, at its place in the\njournal."
-      },
       "Label": {
         "type": "object",
         "description": "shown joined with \" · \": \"cmx · vm-a\", \"assistant · openclaw · vm-b\".",
@@ -8329,12 +7806,13 @@
       },
       "MessageError": {
         "type": "object",
-        "required": [
-          "message"
-        ],
         "properties": {
           "message": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the runtime's words, absent when it gave none."
           },
           "name": {
             "type": [
@@ -9654,16 +9132,6 @@
           }
         }
       },
-      "ResetReason": {
-        "type": "string",
-        "description": "why a stream began with `reset`.",
-        "enum": [
-          "none",
-          "epoch",
-          "expired",
-          "invalid"
-        ]
-      },
       "Restarting": {
         "type": "object",
         "required": [
@@ -9894,88 +9362,6 @@
           }
         }
       },
-      "SessionEntry": {
-        "type": "object",
-        "description": "one session in the fleet, identity `host:session` (repos never merge\nacross hosts).",
-        "required": [
-          "key",
-          "host",
-          "id",
-          "info",
-          "agents",
-          "processes",
-          "tail",
-          "needs"
-        ],
-        "properties": {
-          "agents": {
-            "type": "integer",
-            "format": "int32",
-            "description": "child sessions with a turn running now.",
-            "minimum": 0
-          },
-          "cleared": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double",
-            "description": "set while the person has this thread cleared off home: the session's\n`time.updated` when they cleared it. absent otherwise, and the moment\nthe thread does something new (`clears.rs`)."
-          },
-          "host": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "info": {
-            "type": "object",
-            "description": "cmx2's `SessionInfo`, as the daemon wrote it."
-          },
-          "key": {
-            "type": "string",
-            "description": "`<host>:<sessionID>`."
-          },
-          "needs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Need"
-            },
-            "description": "what waits on a person here, most pressing first (`needs.rs`)."
-          },
-          "processes": {
-            "type": "integer",
-            "format": "int32",
-            "description": "background jobs a parked session waits on.",
-            "minimum": 0
-          },
-          "read": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/ReadMark",
-                "description": "how far the person has seen, on the daemon's clock; null before\nany device has looked (`read.rs`)."
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "status": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "cmx2's `SessionStatus`; null when idle and not parked."
-          },
-          "tail": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TailItem"
-            },
-            "description": "the window's tail: the last parts, oldest first, at most 12."
-          }
-        }
-      },
       "SettledBy": {
         "type": "object",
         "description": "who settled an ask first, as the daemon says (cmx2 a6).",
@@ -10101,17 +9487,6 @@
         },
         "additionalProperties": false
       },
-      "StreamFrame": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Control"
-          },
-          {
-            "$ref": "#/components/schemas/JournalEntry"
-          }
-        ],
-        "description": "one frame's data on `GET /api/stream`: a control frame or a journal\nentry, discriminated on `type` across both."
-      },
       "StreamResetReason": {
         "type": "string",
         "description": "why a stream began with `reset`.",
@@ -10172,66 +9547,6 @@
           }
         }
       },
-      "TailItem": {
-        "type": "object",
-        "description": "one part as a window shows it, reduced to what the window needs. parts\na window does not show (step markers, snapshots, the context the daemon\nadds to a prompt, a prompt still queued) never enter a tail. streamed\ntext grows the part as it arrives (`message.part.delta`).",
-        "required": [
-          "partID",
-          "messageID",
-          "kind",
-          "role",
-          "text"
-        ],
-        "properties": {
-          "from": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "the agent that sent the part, when it is another agent's report or\nnote (cmx2's mail envelope): the window says who, not \"you\"."
-          },
-          "kind": {
-            "$ref": "#/components/schemas/TailKind"
-          },
-          "messageID": {
-            "type": "string"
-          },
-          "partID": {
-            "type": "string"
-          },
-          "role": {
-            "$ref": "#/components/schemas/TailRole",
-            "description": "who wrote the part's message: your prompt sits on the right."
-          },
-          "state": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "the tool's state (`pending`, `running`, `completed`, `error`)."
-          },
-          "text": {
-            "type": "string",
-            "description": "at most 280 characters: the end of the agent's text, the start of\nyour prompt, or the tool's title."
-          },
-          "tool": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "the tool's name, on tool parts."
-          }
-        }
-      },
-      "TailKind": {
-        "type": "string",
-        "enum": [
-          "text",
-          "reasoning",
-          "tool",
-          "file"
-        ]
-      },
       "TailPatch": {
         "type": "object",
         "description": "a tail's change: drop `drop` items from the front, then put each item at\nits index (replacing; the index equal to the length appends). the result\nis at most 12 items and equals the server's tail exactly.",
@@ -10258,7 +9573,7 @@
                 },
                 {
                   "type": "object",
-                  "description": "one part as a window shows it. contract 2's kinds add `image` and\n`audio`; contract 1's encoder maps both to `file`.",
+                  "description": "one part as a window shows it. contract 2's kinds add `image` and\n`audio`; the fleet's tails still show both as `file`, as windows always drew them.",
                   "required": [
                     "partID",
                     "messageID",
@@ -10306,14 +9621,6 @@
             }
           }
         }
-      },
-      "TailRole": {
-        "type": "string",
-        "description": "cmx2's message roles, as the daemon names them.",
-        "enum": [
-          "user",
-          "assistant"
-        ]
       },
       "TelemetryBatch": {
         "type": "object",
@@ -10998,7 +10305,7 @@
       },
       "ThreadTailItem": {
         "type": "object",
-        "description": "one part as a window shows it. contract 2's kinds add `image` and\n`audio`; contract 1's encoder maps both to `file`.",
+        "description": "one part as a window shows it. contract 2's kinds add `image` and\n`audio`; the fleet's tails still show both as `file`, as windows always drew them.",
         "required": [
           "partID",
           "messageID",

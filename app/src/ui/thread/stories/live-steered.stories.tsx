@@ -13,7 +13,8 @@ import "../../../shell/stories/server";
 import { type ReactElement, createElement, useEffect, useRef } from "react";
 import { mountShell } from "../../../shell/stories/mount";
 import { applyPatches, setOpenThread, state } from "../../../store";
-import type { Message, Part, SessionEntry } from "../../../sync/protocol";
+import type { Message, Part, Thread } from "../../../sync/protocol";
+import { familyOf } from "../../../sync/fixtures/neutral";
 
 export default { title: "stage" };
 
@@ -36,29 +37,30 @@ export const LiveSteered = (): ReactElement => {
     void (async () => {
       while (!gone && !el.dataset["ready"]) await sleep(100);
       const open = state.openThread;
-      const template = open ? state.fleet.sessions[open] : undefined;
+      const template = open ? state.fleet.threads[open] : undefined;
       if (gone || !open || !template) return;
       const host = open.split(":")[0] ?? "";
       const now = Date.now();
       const main = "ses_steered_main";
       const key = `${host}:${main}`;
       const kids = ["ses_steered_a", "ses_steered_b"];
-      const entry = (id: string, parentID: string | undefined, title: string, status: SessionEntry["status"]): SessionEntry => ({
-        ...template, key: `${host}:${id}`, id, status, needs: [], tail: [],
-        info: { ...template.info, id, title, time: { created: now - 400_000, updated: now }, ...(parentID ? { parentID } : {}) },
-      });
-      const msg = (id: string, sessionID: string, role: "user" | "assistant", created: number, extra: Record<string, unknown> = {}, completed?: number): Message["info"] => ({ id, sessionID, role, time: { created, ...(completed === undefined ? {} : { completed }) }, ...extra }) as Message["info"];
-      const tool = (id: string, sessionID: string, messageID: string, name: string, input: Record<string, unknown>, at: number, metadata: Record<string, unknown> = {}): Part => ({ id, sessionID, messageID, type: "tool", callID: id, tool: name, state: { status: "completed", input, output: "", metadata, time: { start: at, end: at + 900 } } }) as Part;
-      const text = (id: string, sessionID: string, messageID: string, body: string, extra: Record<string, unknown> = {}): Part => ({ id, sessionID, messageID, type: "text", text: body, ...extra }) as Part;
-      const thought = (id: string, sessionID: string, messageID: string, body: string, at: number, extra: Record<string, unknown> = {}): Part => ({ id, sessionID, messageID, type: "reasoning", text: body, time: { start: at }, ...extra }) as Part;
+      const entry = (id: string, parent: string | undefined, title: string, activity: Thread["activity"]): Thread => {
+        const { parent: _parent, ...rest } = template;
+        return { ...rest, key: `${host}:${id}`, id, activity, needs: [], tail: [], title, created: now - 400_000, updated: now, ...(parent ? { parent } : {}) };
+      };
+      /* the thread a part or a message is in is the store's key, not a field (`_thread` keeps the builders' calls as they read) */
+      const msg = (id: string, _thread: string, role: "user" | "assistant", created: number, extra: Record<string, unknown> = {}, completed?: number): Message["info"] => ({ id, role, created, ...(completed === undefined ? {} : { completed }), ...extra }) as Message["info"];
+      const tool = (id: string, _thread: string, messageID: string, name: string, input: Record<string, unknown>, at: number, metadata: Record<string, unknown> = {}): Part => ({ id, messageID, type: "tool", callID: id, tool: name, family: familyOf(name), state: { status: "completed", input, output: "", metadata, time: { start: at, end: at + 900 } } });
+      const text = (id: string, _thread: string, messageID: string, body: string, extra: Record<string, unknown> = {}): Part => ({ id, messageID, type: "text", text: body, ...extra }) as Part;
+      const thought = (id: string, _thread: string, messageID: string, body: string, at: number, extra: Record<string, unknown> = {}): Part => ({ id, messageID, type: "reasoning", text: body, time: { start: at }, ...extra }) as Part;
 
       // the earlier turn: a brief, a few steps, two agents started, its own turn over
       const t0 = now - 330_000;
       const earlier: Message[] = [
         { info: msg("m_u1", main, "user", t0), parts: [text("p_u1", main, "m_u1", "plan the new service and use agents for the reading")] },
-        { info: msg("m_a1", main, "assistant", t0 + 2_000, { parentID: "m_u1" }, t0 + 9_000), parts: [thought("p_a1r", main, "m_a1", thinking(30), t0 + 2_000, { time: { start: t0 + 2_000, end: t0 + 6_000 } }), tool("p_a1t", main, "m_a1", "exec_command", { cmd: "ls scripts" }, t0 + 6_500)] },
+        { info: msg("m_a1", main, "assistant", t0 + 2_000, {}, t0 + 9_000), parts: [thought("p_a1r", main, "m_a1", thinking(30), t0 + 2_000, { time: { start: t0 + 2_000, end: t0 + 6_000 } }), tool("p_a1t", main, "m_a1", "exec_command", { cmd: "ls scripts" }, t0 + 6_500)] },
         ...kids.map((kid, i): Message => ({
-          info: msg(`m_a${i + 2}`, main, "assistant", t0 + 10_000 + i * 2_000, { parentID: "m_u1" }, t0 + 11_000 + i * 2_000),
+          info: msg(`m_a${i + 2}`, main, "assistant", t0 + 10_000 + i * 2_000, {}, t0 + 11_000 + i * 2_000),
           parts: [tool(`p_sp${i}`, main, `m_a${i + 2}`, "spawn", { brief: BRIEFS[i] }, t0 + 10_000 + i * 2_000, { agents: [{ id: kid, name: `reader_${i + 1}`, seat: "scout" }], child_session_id: kid })],
         })),
       ];
@@ -67,19 +69,19 @@ export const LiveSteered = (): ReactElement => {
       const running: Message[] = [
         { info: msg("m_s1", main, "user", s0, { steer: true }), parts: [text("p_s1", main, "m_s1", "go on, and keep it short")] },
         { info: msg("m_s2", main, "user", s0 + 9_000, { steer: true }), parts: [text("p_s2", main, "m_s2", "and name the files")] },
-        { info: msg("m_a5", main, "assistant", s0 + 12_000, { parentID: "m_s2" }, s0 + 20_000), parts: [thought("p_a5r", main, "m_a5", thinking(24), s0 + 12_000, { time: { start: s0 + 12_000, end: s0 + 15_000 } }), tool("p_a5t", main, "m_a5", "message", { to: "reader_1", message: "send what you have so far" }, s0 + 16_000)] },
-        { info: msg("m_a6", main, "assistant", s0 + 20_500, { parentID: "m_s2" }, s0 + 26_000), parts: [tool("p_a6t", main, "m_a6", "exec_command", { cmd: "cat notes.md" }, s0 + 21_000)] },
-        { info: msg("m_a7", main, "assistant", now - 20_000, { parentID: "m_s2" }), parts: [thought("p_a7r", main, "m_a7", "", now - 20_000, { streaming: true })] },
+        { info: msg("m_a5", main, "assistant", s0 + 12_000, {}, s0 + 20_000), parts: [thought("p_a5r", main, "m_a5", thinking(24), s0 + 12_000, { time: { start: s0 + 12_000, end: s0 + 15_000 } }), tool("p_a5t", main, "m_a5", "message", { to: "reader_1", message: "send what you have so far" }, s0 + 16_000)] },
+        { info: msg("m_a6", main, "assistant", s0 + 20_500, {}, s0 + 26_000), parts: [tool("p_a6t", main, "m_a6", "exec_command", { cmd: "cat notes.md" }, s0 + 21_000)] },
+        { info: msg("m_a7", main, "assistant", now - 20_000), parts: [thought("p_a7r", main, "m_a7", "", now - 20_000, { streaming: true })] },
       ];
       const child = (kid: string, i: number): Message[] => [
         { info: msg(`${kid}_u`, kid, "user", t0 + 10_000, { mail: { kind: "task", from: "/root", fromID: main } }), parts: [text(`${kid}_up`, kid, `${kid}_u`, BRIEFS[i] ?? "", {})] },
-        ...[1, 2, 3].map((n): Message => ({ info: msg(`${kid}_a${n}`, kid, "assistant", t0 + 12_000 + n * 9_000, { parentID: `${kid}_u` }, t0 + 18_000 + n * 9_000), parts: [tool(`${kid}_t${n}`, kid, `${kid}_a${n}`, "exec_command", { cmd: `step ${n}` }, t0 + 13_000 + n * 9_000)] })),
+        ...[1, 2, 3].map((n): Message => ({ info: msg(`${kid}_a${n}`, kid, "assistant", t0 + 12_000 + n * 9_000, {}, t0 + 18_000 + n * 9_000), parts: [tool(`${kid}_t${n}`, kid, `${kid}_a${n}`, "exec_command", { cmd: `step ${n}` }, t0 + 13_000 + n * 9_000)] })),
       ];
       applyPatches([
         { path: ["fleet", "asks"], value: {} },
-        { path: ["fleet", "sessions", key], value: entry(main, undefined, "plan the new service", { type: "busy", since: t0 } as SessionEntry["status"]) },
-        { path: ["fleet", "sessions", `${host}:${kids[0]}`], value: entry(kids[0] as string, main, "reader_1 (scout)", { type: "busy", since: t0 + 10_000 } as SessionEntry["status"]) },
-        { path: ["fleet", "sessions", `${host}:${kids[1]}`], value: entry(kids[1] as string, main, "reader_2 (scout)", { type: "idle", since: now - 150_000 } as SessionEntry["status"]) },
+        { path: ["fleet", "threads", key], value: entry(main, undefined, "plan the new service", { state: "busy", since: t0 }) },
+        { path: ["fleet", "threads", `${host}:${kids[0]}`], value: entry(kids[0] as string, main, "reader_1 (scout)", { state: "busy", since: t0 + 10_000 }) },
+        { path: ["fleet", "threads", `${host}:${kids[1]}`], value: entry(kids[1] as string, main, "reader_2 (scout)", { state: "idle" }) },
         ...kids.map((kid, i) => ({ path: ["threads", `${host}:${kid}`], value: { key: `${host}:${kid}`, status: "live", messages: child(kid, i) } })),
         { path: ["threads", key], value: { key, status: "live", messages: [...earlier, ...running] } },
       ]);
@@ -115,8 +117,8 @@ export const LiveSteered = (): ReactElement => {
       // the step ends: the thought is whole, the queued steer lands as a turn, and the next step begins
       const done = Date.now();
       applyPatches([
-        { path: ["threads", key, "messages", last], value: { info: msg("m_a7", main, "assistant", now - 20_000, { parentID: "m_s2" }, done), parts: [thought("p_a7r", main, "m_a7", thinking(1060), now - 20_000, { time: { start: now - 20_000, end: done } }), tool("p_a7t", main, "m_a7", "exec_command", { cmd: "ls notes" }, done)] } },
-        { path: ["threads", key, "messages"], value: [...(state.threads[key]?.messages ?? []).filter((m) => m.info.id !== "m_q2"), { info: msg("m_s3", main, "user", done, { steer: true }), parts: [text("p_s3", main, "m_s3", "one more thing")] }, { info: msg("m_a8", main, "assistant", done + 800, { parentID: "m_s3" }), parts: [thought("p_a8r", main, "m_a8", "", done + 800, { streaming: true })] }] },
+        { path: ["threads", key, "messages", last], value: { info: msg("m_a7", main, "assistant", now - 20_000, {}, done), parts: [thought("p_a7r", main, "m_a7", thinking(1060), now - 20_000, { time: { start: now - 20_000, end: done } }), tool("p_a7t", main, "m_a7", "exec_command", { cmd: "ls notes" }, done)] } },
+        { path: ["threads", key, "messages"], value: [...(state.threads[key]?.messages ?? []).filter((m) => m.info.id !== "m_q2"), { info: msg("m_s3", main, "user", done, { steer: true }), parts: [text("p_s3", main, "m_s3", "one more thing")] }, { info: msg("m_a8", main, "assistant", done + 800), parts: [thought("p_a8r", main, "m_a8", "", done + 800, { streaming: true })] }] },
       ]);
       await checkpoint();
       const next = (state.threads[key]?.messages.length ?? 1) - 1;

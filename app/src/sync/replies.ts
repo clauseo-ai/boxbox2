@@ -26,7 +26,7 @@ export type Replied =
 export type AskReply = {
   /** the thread's key, `<host>:<session>` */
   thread: string;
-  /** the tool call the ask was raised on (`request.tool.callID`) */
+  /** the tool call the ask was raised on (`tool.callID`) */
   callID: string;
   askID: string;
   kind: "permission" | "question";
@@ -46,10 +46,9 @@ export const replyKey = (thread: string, callID: string): string => `${thread} $
 
 /** the record of a reply once the daemon has settled the ask: taken here, or answered first elsewhere. a reply whose ask is gone, or
     that was not taken for any other reason, says nothing of who settled it; nor does an ask that names no tool call */
-export function replyOf(ask: Pick<Ask, "id" | "key" | "kind" | "request"> | undefined, reply: Replied, outcome: ReplyOutcome, now: number): AskReply | null {
+export function replyOf(ask: Pick<Ask, "id" | "key" | "kind" | "tool"> | undefined, reply: Replied, outcome: ReplyOutcome, now: number): AskReply | null {
   if (!ask) return null;
-  const tool = ask.request["tool"];
-  const callID = tool !== null && typeof tool === "object" ? (tool as Record<string, unknown>)["callID"] : undefined;
+  const callID = ask.tool?.callID;
   if (typeof callID !== "string" || !callID) return null;
   const base = { thread: ask.key, callID, askID: ask.id, kind: ask.kind, reply };
   if (outcome.ok) return { ...base, who: { here: true }, at: now };

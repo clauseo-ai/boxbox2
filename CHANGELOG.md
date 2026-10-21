@@ -6,6 +6,25 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the device stream is protocol 3** (`docs/protocol.md`, decision 85).
+  a device declares what it shows (home, one thread with the layers under
+  it and the children it holds, the board) and the server confirms in
+  band, so a thread switch leaves no gap; home gets the overview only,
+  and a page hidden 30 s drops to the overview; threads and the order
+  travel as patches of what changed; streamed text goes in 100 ms batches
+  and finished text is never sent twice (a length and hash stand in for
+  it); a reconnect gets one compacted catch-up. on the bench tape a home
+  stream is 1.67 mb a minute raw and 157 kb gzipped, against 17.6 mb and
+  592 kb on contract 1; in a live run a home stream went from 91 kb to
+  14 kb a minute and an open thread from 91 kb to 30 kb. the app reads
+  threads through `/api/agents` with etags, and its cache moves to v6,
+  dropping cached threads once (each re-read on first open). the board
+  daemon reads `/api/stream?view=board` gzipped and must be updated with
+  the server. contract 1, the raw cmx2 passthrough, `/api/board/stream`,
+  `colours=1` and the transcript proxy are gone; installed contract 1
+  apps reload into protocol 3, and the native ios app stops connecting
+  until it is updated.
+
 - **a pressed window's thread is ready by its click.** a mouse or pen
   press on a window starts copying its thread back from the worker (or
   restoring it from indexeddb), so with a normal click a reopened thread

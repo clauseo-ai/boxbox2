@@ -16,7 +16,7 @@ function offline() {
   return { sender, rows, outbox };
 }
 
-const message = (over: Partial<MessageInfo>): Message => ({ info: { id: "msg_1", sessionID: "ses_a", role: "user", time: { created: 0 }, ...over } as MessageInfo, parts: [] });
+const message = (over: Partial<MessageInfo>): Message => ({ info: { id: "msg_1", role: "user", created: 0, ...over }, parts: [] });
 const outgoing = { clientID: "c1", verb: "prompt" as const, target: { kind: "session" as const, host: "desk", session: "ses_a", directory: "/repo" }, text: "ok push", photos: [], model: null, effort: null, at: Date.now() };
 
 /** a sender that says what it posts to the page, and a way to read it */
@@ -204,7 +204,7 @@ describe("the sender reading a transcript whole", () => {
   test("another thread's message with the same client id settles nothing", () => {
     const { sender, rows, outbox } = offline();
     sender.send(outgoing);
-    sender.read("desk:ses_b", [message({ sessionID: "ses_b", clientID: "c1" })]);
+    sender.read("desk:ses_b", [message({ clientID: "c1" })]);
     expect(outbox().map((e) => e.state)).toEqual(["waiting"]);
     expect(rows).toEqual([]);
   });
@@ -563,7 +563,7 @@ describe("a new thread's first send", () => {
       await Bun.sleep(10);
       expect(born()).toEqual([{ type: "born", clientID: "n1", key: "desk:ses_mine" }]);
       // the echo that lands it does not name it a second time
-      sender.read("desk:ses_mine", [message({ sessionID: "ses_mine", clientID: "n1" })]);
+      sender.read("desk:ses_mine", [message({ clientID: "n1" })]);
       expect(born()).toHaveLength(1);
       expect(sender.views()).toEqual([]);
     } finally {
@@ -574,7 +574,7 @@ describe("a new thread's first send", () => {
   test("names its session from the echo when the answer was missed", () => {
     const { sender, born } = withPosts();
     sender.send(start);
-    sender.read("desk:ses_found", [message({ sessionID: "ses_found", clientID: "n1" })]);
+    sender.read("desk:ses_found", [message({ clientID: "n1" })]);
     expect(born()).toEqual([{ type: "born", clientID: "n1", key: "desk:ses_found" }]);
     expect(sender.views()).toEqual([]);
   });
@@ -616,7 +616,7 @@ describe("a new thread's first send", () => {
 
 describe("a queued send another device took back", () => {
   afterEach(() => setSystemTime());
-  const removal = { type: "message.removed", key: "desk:ses_a", sessionID: "ses_a", messageID: "msg_q1", seq: 1, upstream: null } as unknown as Frame;
+  const removal: Frame = { type: "message.removed", key: "desk:ses_a", messageID: "msg_q1", seq: 1, upstream: null };
   const check = (sender: Sender) => (sender as unknown as { check(): void }).check();
 
   test("leaves the outbox when no reissue follows the removal", () => {
@@ -637,7 +637,7 @@ describe("a queued send another device took back", () => {
     sender.restore([{ ...entryOf({ ...outgoing, clientID: "c9" }, false), state: "queued", provisional: "msg_q1" }]);
     sender.stream("live");
     sender.frame(removal);
-    sender.frame({ type: "message", key: "desk:ses_a", info: message({ id: "msg_q1b", clientID: "c9", queued: true }).info, seq: 2, upstream: null } as unknown as Frame);
+    sender.frame({ type: "message", key: "desk:ses_a", message: message({ id: "msg_q1b", clientID: "c9", queued: true }).info, seq: 2, upstream: null });
     setSystemTime(new Date(1_000_000 + REISSUE_MS + 1));
     check(sender);
     expect(sender.views().map((e) => [e.state, e.provisional])).toEqual([["queued", "msg_q1b"]]);

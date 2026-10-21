@@ -1,6 +1,6 @@
 /* the solid side of the stories (ladle hosts are react, .ladle/config.mjs):
    each function renders into an element and returns the disposer. every
-   state comes from the recorded journal (fixtures/journal.ndjson) played
+   state comes from the recorded journal (fixtures/journal-p3.ndjson) played
    through the real reducer; the few facts the fleet model does not carry
    yet (a failure's reason, read state) are supplied as `Extra` and named
    as such in the story (docs/home.md, gaps). */
@@ -9,9 +9,10 @@ import { For } from "solid-js";
 import { render } from "solid-js/web";
 import { applyPatches, bootSync, setOpenThread, setStream, state, syncNeedsReload } from "../../../store";
 import type { StreamStatus } from "../../../sync/messages";
+import { neutralPart } from "../../../sync/fixtures/neutral";
 import { type Extra, windowView } from "../../window/view";
 import { type Arrangement, Window } from "../../window/window";
-import journal from "../fixtures/journal.ndjson?raw";
+import journal from "../fixtures/journal-p3.ndjson?raw";
 import { endOf, keyOf, parseJournal, replay, TITLES } from "../fixtures/replay";
 import { Home } from "../home";
 import { FOCUS_KEY, INSPECTOR_KEY, STRIP_KEY } from "../remembered";
@@ -62,8 +63,8 @@ const ARRANGEMENTS: Arrangement[] = ["deck", "strip", "rail"];
 export function mountState(el: HTMLElement, story: StateStory): () => void {
   const { title, extra } = SOURCES[story];
   const key = keyOf(final.state, title);
-  const entry = final.state.fleet.sessions[key];
-  if (!entry) throw new Error(`no session for ${title}`);
+  const entry = final.state.fleet.threads[key];
+  if (!entry) throw new Error(`no thread for ${title}`);
   const questions = ASKS[story];
   const view = windowView(
     entry,
@@ -117,29 +118,28 @@ const LONG_REPO = "boxbox-shell-scratch-checkout-with-a-long-name";
 /** the recorded fleet with the asking thread's checkout renamed to `LONG_REPO`, so the bar reads "<long> wants you" */
 function withLongRepo(fleet: typeof final.state.fleet): typeof final.state.fleet {
   const key = keyOf(final.state, TITLES.wants);
-  const entry = fleet.sessions[key];
-  if (!entry) throw new Error(`no session for ${TITLES.wants}`);
-  const root = entry.info.projectID.replace(/\/[^/]*\/?$/, "");
-  const info = { ...entry.info, projectID: `${root}/${LONG_REPO}`, directory: `${root}/${LONG_REPO}` };
-  return { ...fleet, sessions: { ...fleet.sessions, [key]: { ...entry, info } } };
+  const entry = fleet.threads[key];
+  if (!entry) throw new Error(`no thread for ${TITLES.wants}`);
+  const root = (entry.place?.root ?? "").replace(/\/[^/]*\/?$/, "");
+  const place = { root: `${root}/${LONG_REPO}`, directory: `${root}/${LONG_REPO}`, name: LONG_REPO };
+  return { ...fleet, threads: { ...fleet.threads, [key]: { ...entry, place } } };
 }
 
 /** the recorded fleet with 22 more done threads and the asking one twice more: the bar's worst realistic line, "3 want you,
     ... 24 done" beside a two digit "clear 24", for the story that proves no pill wraps alone at any width */
 function withCrowd(fleet: typeof final.state.fleet): typeof final.state.fleet {
-  const sessions = { ...fleet.sessions };
+  const threads = { ...fleet.threads };
   const asks = { ...fleet.asks };
   const order = [...fleet.order];
   const copy = (from: string, n: number, repo: string) => {
-    const source = fleet.sessions[from];
-    if (!source) throw new Error(`no session ${from}`);
+    const source = fleet.threads[from];
+    if (!source) throw new Error(`no thread ${from}`);
     const id = `${source.id}_c${n}`;
-    const key = `${source.host}:${id}`;
-    const root = source.info.projectID.replace(/\/[^/]*\/?$/, "");
-    const info = { ...source.info, id, projectID: `${root}/${repo}`, directory: `${root}/${repo}` };
-    sessions[key] = { ...source, id, key, info };
+    const key = `${source.agent}:${id}`;
+    const root = (source.place?.root ?? "").replace(/\/[^/]*\/?$/, "");
+    threads[key] = { ...source, id, key, place: { root: `${root}/${repo}`, directory: `${root}/${repo}`, name: repo } };
     order.push(key);
-    for (const ask of Object.values(fleet.asks).filter((a) => a.key === from)) asks[`${ask.id}_c${n}`] = { ...ask, id: `${ask.id}_c${n}`, key };
+    for (const ask of Object.values(fleet.asks).filter((a) => a.key === from)) asks[`${ask.id}_c${n}`] = { ...ask, id: `${ask.id}_c${n}`, key, thread: key };
     return key;
   };
   const done = keyOf(final.state, TITLES.done);
@@ -147,7 +147,7 @@ function withCrowd(fleet: typeof final.state.fleet): typeof final.state.fleet {
   const wants = keyOf(final.state, TITLES.wants);
   copy(wants, 100, "api");
   copy(wants, 101, "web");
-  return { ...fleet, sessions, asks, order };
+  return { ...fleet, threads, asks, order };
 }
 
 /** the first window leaves the fleet while it is the thread on the stage (archived at the daemon). `order()` trails the
@@ -183,7 +183,7 @@ function watchFirstLeave(): void {
     // a stream that has just come back has not replayed yet: home does not call the thread gone until it has caught up
     setStream({ state: "live", since: Date.now(), lastEventAt: Date.now() });
     applyPatches([
-      { path: ["fleet", "sessions", first], value: undefined },
+      { path: ["fleet", "threads", first], value: undefined },
       { path: ["fleet", "order"], value: state.fleet.order.filter((key) => key !== first) },
     ]);
     let under = false;
@@ -200,7 +200,7 @@ function watchFirstLeave(): void {
         layers: document.querySelectorAll(".stage .layer").length,
         writes,
         longest: Math.max(0, ...longest),
-        held: state.openThread !== null && state.fleet.sessions[state.openThread] !== undefined,
+        held: state.openThread !== null && state.fleet.threads[state.openThread] !== undefined,
         under,
         deck,
       };
@@ -216,12 +216,11 @@ function withStrayAgent(thread: Awaited<ReturnType<typeof notesTranscript>>): Aw
   const last = [...thread.messages].reverse().find((m) => m.info.role === "assistant");
   if (!last) return thread;
   const at = AT - 30_000;
-  const sessionID = last.info.sessionID;
-  const info = { ...last.info, id: "m_stray", time: { created: at, completed: at + 900 } } as typeof last.info;
-  const part = {
-    id: "p_stray", sessionID, messageID: "m_stray", type: "tool", callID: "p_stray", tool: "spawn",
+  const info = { ...last.info, id: "m_stray", created: at, completed: at + 900 };
+  const part = neutralPart({
+    id: "p_stray", messageID: "m_stray", type: "tool", callID: "p_stray", tool: "spawn",
     state: { status: "completed", input: { brief: "read the notes and say which greeting they use" }, output: "", metadata: { agents: [{ id: STRAY.id, name: STRAY.name, seat: "scout" }], child_session_id: STRAY.id }, time: { start: at, end: at + 900 } },
-  } as unknown as (typeof last.parts)[number];
+  });
   return { ...thread, messages: [...thread.messages, { info, parts: [part] }] };
 }
 
@@ -254,7 +253,7 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     const others = story === "heavy" ? await heavyTranscripts(asks.order.filter((key) => key !== wants)) : {};
     const threads = { ...others, [wants]: pending ? asking(transcript, pending) : transcript };
     if (gone) return;
-    const fleet = story === "long" ? withLongRepo(asks) : story === "crowd" ? withCrowd(asks) : story === "empty" ? { ...asks, sessions: {}, asks: {}, order: [] } : asks;
+    const fleet = story === "long" ? withLongRepo(asks) : story === "crowd" ? withCrowd(asks) : story === "empty" ? { ...asks, threads: {}, asks: {}, order: [] } : asks;
     bootSync({ fleet, threads, drafts: {}, outbox: [], stream });
     if (story === "reload") syncNeedsReload();
     // a relaunch whose url names a thread the fleet does not hold: home must let it go, not sit inert under no layer
@@ -323,9 +322,9 @@ export function mountReplay(el: HTMLElement): () => void {
     - sweep: one sweep of light crosses the first window. */
 export function mountMoments(el: HTMLElement): () => void {
   const parked = keyOf(final.state, TITLES.done);
-  const { [parked]: held, ...rest } = final.state.fleet.sessions;
+  const { [parked]: held, ...rest } = final.state.fleet.threads;
   bootSync({
-    fleet: { ...final.state.fleet, sessions: rest, order: final.state.fleet.order.filter((k) => k !== parked) },
+    fleet: { ...final.state.fleet, threads: rest, order: final.state.fleet.order.filter((k) => k !== parked) },
     threads: {},
     drafts: {},
     outbox: [],
@@ -343,7 +342,7 @@ export function mountMoments(el: HTMLElement): () => void {
     birth: () => {
       if (!held) return;
       applyPatches([
-        { path: ["fleet", "sessions", parked], value: held },
+        { path: ["fleet", "threads", parked], value: held },
         { path: ["fleet", "order"], value: final.state.fleet.order },
       ]);
     },
@@ -364,8 +363,8 @@ export function mountMoments(el: HTMLElement): () => void {
 export function mountGlass(el: HTMLElement): () => void {
   const views = (["working", "wants", "done"] as const).map((story) => {
     const key = keyOf(final.state, SOURCES[story].title);
-    const entry = final.state.fleet.sessions[key];
-    if (!entry) throw new Error(`no session for ${story}`);
+    const entry = final.state.fleet.threads[key];
+    if (!entry) throw new Error(`no thread for ${story}`);
     return windowView(entry, Object.values(final.state.fleet.asks).filter((a) => a.key === key), {}, SOURCES[story].extra);
   });
   const asking = views[1];

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionInfo } from "../../sync/protocol";
+import type { Thread } from "../../sync/protocol";
+import { thread } from "../../sync/fixtures/neutral";
 import { type AgentRow, type Kin, cachedShare, contextOf, factsOf, figure, filesChanged, kept, modelsOf, percentWords, ranOf, spend, spendOf, spentOf, summaryOf, switches, tokensIn } from "./details-model";
 import type { Turn } from "./model";
 
@@ -7,8 +8,15 @@ import type { Turn } from "./model";
 const turn = (id: string, at: number, extra: Partial<Turn> = {}): Turn =>
   ({ id, by: "you", prompt: id, at, end: at + 1, items: [], status: "done", cost: 0, files: new Map(), compacted: false, unknownParts: 0, ...extra }) as Turn;
 
-const info = (extra: Partial<SessionInfo> = {}): SessionInfo =>
-  ({ id: "s", cost: 0, tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } }, ...extra }) as SessionInfo;
+/** cmx2's session tokens as the server's translate renames them (`cache.read`, `cache.write` are `cacheRead`, `cacheWrite`) */
+type CmxTokens = { input: number; output: number; cache: { read: number; write: number } };
+const neutralTokens = (t: CmxTokens) => ({ input: t.input, output: t.output, cacheRead: t.cache.read, cacheWrite: t.cache.write });
+
+/** cmx2's session info, with what the details read, as the neutral thread the server makes of it */
+const info = (extra: { cost?: number; tokens?: CmxTokens; context?: { used: number; limit: number; compactAt?: number } } = {}): Thread => {
+  const raw = { cost: 0, tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } }, ...extra };
+  return thread("desk:s", { cost: raw.cost, tokens: neutralTokens(raw.tokens), ...(raw.context ? { context: raw.context } : {}) });
+};
 
 describe("figure", () => {
   test("keeps a count to a few characters", () => {
@@ -29,9 +37,9 @@ describe("spend", () => {
 
 describe("tokens", () => {
   const tokens = { input: 100, output: 50, cache: { read: 900, write: 20 } };
-  test("count everything that moved", () => expect(tokensIn(tokens)).toBe(1070));
-  test("share the cache's part of what went in as a whole percent", () => expect(cachedShare(tokens)).toBe(90));
-  test("have no share before anything went in", () => expect(cachedShare({ input: 0, output: 5, cache: { read: 0, write: 0 } })).toBeNull());
+  test("count everything that moved", () => expect(tokensIn(neutralTokens(tokens))).toBe(1070));
+  test("share the cache's part of what went in as a whole percent", () => expect(cachedShare(neutralTokens(tokens))).toBe(90));
+  test("have no share before anything went in", () => expect(cachedShare(neutralTokens({ input: 0, output: 5, cache: { read: 0, write: 0 } }))).toBeNull());
 });
 
 describe("percentWords", () => {

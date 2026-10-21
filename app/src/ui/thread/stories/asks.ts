@@ -4,7 +4,7 @@
    questions in one ask is the other shape the daemon takes (cmx2's question tool: one list of answers per question).
    the words are written to be as long as the longest real ones, in neutral names (nothing identifies a real person or project). */
 
-import type { Ask, Message, SessionEntry } from "../../../sync/protocol";
+import type { Ask, Message, Thread } from "../../../sync/protocol";
 import type { Fleet, ThreadView } from "../../../sync/reducer";
 
 export type Question = { header: string; question: string; options: Array<{ label: string; description: string }>; custom: boolean; multiple?: boolean };
@@ -59,7 +59,7 @@ export const TWO_QUESTIONS: Question[] = [
 
 /** the fleet's ask with its questions replaced: the ask the window previews and the stage answers */
 export function askWith(ask: Ask, questions: readonly Question[]): Ask {
-  return { ...ask, request: { ...ask.request, questions } };
+  return { ...ask, questions: questions.map((q) => ({ header: q.header, question: q.question, options: q.options, custom: q.custom, multiple: q.multiple ?? false })) };
 }
 
 /** the fleet with every pending ask asking `questions` instead of what was recorded; no questions, the fleet as it was */
@@ -73,16 +73,17 @@ export function fleetAsking(fleet: Fleet, questions?: readonly Question[]): Flee
     turn that was stopped. with `running`, the step is the turn that is running now and the stop is not copied onto it, so the
     stage's live turn is this one, and its newest row, the ask, opens by itself when its ask is raised */
 export function asking(thread: ThreadView, ask: Ask, running = false): ThreadView {
-  const tool = ask.request["tool"] as { messageID?: string; callID?: string } | undefined;
+  const tool = ask.tool;
   const last = thread.messages.at(-1);
   if (!last || !tool?.callID) return thread;
-  const messageID = tool.messageID ?? "msg_ask";
-  const start = (last.info.time.completed ?? last.info.time.created) + 60_000;
-  const { error: _stopped, finish: _finish, ...now } = last.info as Record<string, unknown>;
-  const message = {
-    info: { ...(running ? now : last.info), id: messageID, time: { created: start } },
-    parts: [{ type: "tool", id: `prt_${messageID}`, sessionID: last.info.sessionID, messageID, tool: "question", callID: tool.callID, state: { status: "running", input: { questions: ask.request["questions"] }, time: { start } } }],
-  } as unknown as Message;
+  const messageID = tool.messageID || "msg_ask";
+  const start = (last.info.completed ?? last.info.created) + 60_000;
+  const { error: _stopped, finish: _finish, completed: _completed, ...now } = last.info;
+  const { completed: _done, ...open } = last.info;
+  const message: Message = {
+    info: { ...(running ? now : open), id: messageID, created: start },
+    parts: [{ type: "tool", id: `prt_${messageID}`, messageID, tool: "question", family: "ask", callID: tool.callID, state: { status: "running", input: { questions: ask.questions ?? [] }, time: { start } } }],
+  };
   return { ...thread, messages: [...thread.messages, message] };
 }
 
@@ -94,20 +95,12 @@ export const AGENT_TITLE = "reads the notes";
 /** the fleet with an agent under `parentKey`: a session of its own that names the thread as its parent, which is how the stage finds
     the threads' agents and draws the doors to them (live.ts, childKeys). it has no window of its own, as no agent has */
 export function withAgentSession(fleet: Fleet, parentKey: string): { fleet: Fleet; key: string } {
-  const parent = fleet.sessions[parentKey];
+  const parent = fleet.threads[parentKey];
   if (!parent) throw new Error(`no session ${parentKey} to start an agent under`);
-  const key = `${parent.host}:${AGENT_ID}`;
-  const at = parent.info.time.updated;
-  const entry: SessionEntry = {
-    ...parent,
-    id: AGENT_ID,
-    key,
-    info: { ...parent.info, id: AGENT_ID, slug: "reads-notes", parentID: parent.id, title: AGENT_TITLE, time: { created: at - 60_000, updated: at }, status: { type: "idle" } },
-    status: { type: "idle", since: at },
-    tail: [],
-    needs: [],
-  };
-  return { fleet: { ...fleet, sessions: { ...fleet.sessions, [key]: entry } }, key };
+  const key = `${parent.agent}:${AGENT_ID}`;
+  const at = parent.updated;
+  const entry: Thread = { ...parent, id: AGENT_ID, key, parent: parent.id, title: AGENT_TITLE, created: at - 60_000, updated: at, activity: { state: "idle" }, tail: [], needs: [] };
+  return { fleet: { ...fleet, threads: { ...fleet.threads, [key]: entry } }, key };
 }
 
 /** the thread with the step that started that agent: a spawn_agent tool part naming its session, which the stage draws as the
@@ -115,16 +108,16 @@ export function withAgentSession(fleet: Fleet, parentKey: string): { fleet: Flee
 export function withAgentStep(thread: ThreadView): ThreadView {
   const last = thread.messages.at(-1);
   if (!last) return thread;
-  const start = (last.info.time.completed ?? last.info.time.created) + 30_000;
-  const message = {
-    info: { ...last.info, id: "msg_spawn", time: { created: start, completed: start + 400 } },
+  const start = (last.info.completed ?? last.info.created) + 30_000;
+  const message: Message = {
+    info: { ...last.info, id: "msg_spawn", created: start, completed: start + 400 },
     parts: [
       {
         type: "tool",
         id: "prt_spawn",
-        sessionID: last.info.sessionID,
         messageID: "msg_spawn",
         tool: "spawn_agent",
+        family: "spawn",
         callID: "call_spawn",
         state: {
           status: "completed",
@@ -135,6 +128,6 @@ export function withAgentStep(thread: ThreadView): ThreadView {
         },
       },
     ],
-  } as unknown as Message;
+  };
   return { ...thread, messages: [...thread.messages, message] };
 }

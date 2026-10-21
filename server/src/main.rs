@@ -219,6 +219,7 @@ async fn run(config: Config) -> Result<(), StartupError> {
         summaries: crate::fleet::summary::Summaries::new(),
         sends: source::sends::Sends::new(fleet_upstream),
         board: config.board.clone().map(board::Board::new),
+        gzip_streams: http::compress::GzipStreams::default(),
         shutdown: shutdown.clone(),
     });
 

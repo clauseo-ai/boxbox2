@@ -1412,10 +1412,10 @@ exactly what it was. the mark's shape is the agent's `mark` (`square`,
 an agent whose windows take their repo's), so the client draws what the
 server says and never infers either from `kind` or `source`. an agent
 of kind `other` takes the round mark only when its `mark` says so, as
-any agent. every verb on a contract 2 agent (send, steer, queue, unsend,
+any agent. every verb on an agent (send, steer, queue, unsend,
 stop, react, archive, clear, read, history) goes through the
 agent-scoped routes `docs/agents.md` names; the `/api/hosts/...` routes
-this law names elsewhere are cmx's under contract 1.
+this law names elsewhere are cmx's, kept beside them (`protocol.md`, q2).
 
 - **"paired"** on a card's mono line is how the connection was made
   (`connection.origin: paired`, as against one written in `boxbox.toml`),
@@ -1509,10 +1509,10 @@ its name).
 | an agent card's verbs | "reload <name>", "restart <name>", "forget <name>", "copy the approval command", "check again" |
 | the ghost | "add an agent" |
 
-### the agent surfaces on the web, as built (m9, before contract 2 is wired)
+### the agent surfaces on the web, as built (m9, before the neutral wire is wired)
 
 the surfaces above exist on the web as standalone components with a story
-for every state, waiting for contract 2's store and sync worker:
+for every state, waiting for the app's protocol 3 store and sync worker:
 `app/src/ui/assistant/` (`voice/` the player, the recorder, the note rows
 and the peaks worker; `media/` the cards and the viewer; `rows/` quotes,
 reactions, the reply strip and the small rows; `home/` the deck's window,

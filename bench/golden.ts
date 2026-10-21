@@ -35,8 +35,8 @@
    live.json.gz (what the live server sent), with the machine's name
    replaced by a placeholder of the same length (cmx2 writes it into a
    turn's context; this is a public repo). then
-   `BOXBOX_GOLDENS=write cargo test goldens` writes golden/ from the replay,
-   and `cargo test fleet::replay` holds both. */
+   `BOXBOX_GOLDENS=write cargo test protocol3` writes server/goldens/protocol3/
+   from the replay, and `cargo test fleet::replay` holds both. */
 
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

@@ -230,6 +230,8 @@ async fn confirm_one(state: &AppState, key: String) {
         };
         match source.session_info(id).await {
             Ok(info) if archived_at(&info).is_none() => {
+                #[cfg(feature = "record")]
+                crate::fleet::record::adopt_info(host, &info);
                 if let Ok(thread) = translate::thread_from_json(info) {
                     let _ = state.fleet.adopt(host.to_owned(), thread).await;
                 }
@@ -348,6 +350,8 @@ pub async fn adopt(
     if archived_at(&info).is_some() {
         return Err(ApiError::NoSuchSession(key));
     }
+    #[cfg(feature = "record")]
+    crate::fleet::record::adopt_info(&host, &info);
     let thread = translate::thread_from_json(info).map_err(|error| ApiError::HostFailed {
         host: key.clone(),
         detail: format!("its answer was not a session: {error}"),

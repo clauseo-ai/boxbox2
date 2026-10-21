@@ -34,21 +34,22 @@ pub struct Step {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Input {
-    /// `Upstream::Host`
+    /// a host's status, as the cmx2 source read it (`SourceEvent::Connection`).
     Host(Box<HostStatus>),
     /// `Upstream::HostRemoved`
     HostRemoved(String),
-    /// `Upstream::HostRead`, with each read's raw answer.
+    /// a host read (`SourceEvent::Snapshot`), with each read's raw answer.
     HostRead(Box<HostRead>),
-    /// `Upstream::TailRead`: the raw answer and the `x-cmx2-seq` it came with.
+    /// a tail read (`SourceEvent::TailRead`): the raw answer and the
+    /// `x-cmx2-seq` it came with.
     TailRead {
         key: String,
         cursor: String,
         body: Box<RawValue>,
     },
-    /// `Upstream::TailUnread`
+    /// `SourceEvent::TailUnread`
     TailUnread { key: String, reason: String },
-    /// `Upstream::Event`: one frame as cmx2 framed it.
+    /// one event frame as cmx2 framed it, which the source translated.
     Event {
         host: String,
         seq: Option<u64>,

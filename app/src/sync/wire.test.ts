@@ -1,85 +1,104 @@
-/* the wire between the worker and the ui keeps the ui's store equal to the worker's state (fixtures/wire-replay.ts): the
-   recorded journal, the cases it lacks and a long streamed answer, posted, copied, queued and applied as the app does,
-   compared after every apply. the digests were taken from the build before patches were made smaller (session ticks
-   diffed to their leaves, streamed text sent as appends), main at f8f04d1 with this harness and that build's own queue
-   (a coalesce per post): the ui's store at every apply point, and the worker's final state, are what they were */
+/* the wire on protocol 3, replayed (fixtures/wire-replay.ts; docs/protocol.md, section 16): the recorded journal tape and
+   the cases it lacks, published by a simulated server (fixtures/server.ts) and read through the reducer, the page gate,
+   the landing and the store as the app does, on seeded schedules of switches, hidden spells, lost connections, injected
+   protocol errors, a lost delta and late or early reads. each run holds that the ui's store equals the worker at every
+   apply, that every thread in interest whose read or catch-up has landed equals the server's read at the client's
+   journal position (nothing doubled, nothing missing), that the only faults are the injected ones and the rules'
+   (a lost delta's hash miss, a late read refused), and that the run ends with the server's fleet and threads. */
 
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Hasher, journal, replayWire, scenario } from "./fixtures/wire-replay";
+import { gunzipSync } from "node:zlib";
+import { type Hasher, journal, type Options, replayWire, scenario } from "./fixtures/wire-replay";
 
-const recorded = journal(readFileSync(join(import.meta.dir, "../ui/home/fixtures/journal.ndjson"), "utf8"));
-const steps = scenario(recorded, 24_000);
+const tape = gunzipSync(readFileSync(join(import.meta.dir, "../../../server/goldens/protocol3/journal.sse.gz"))).toString("utf8");
+const steps = scenario(journal(tape), 24_000);
 const sha = (): Hasher => {
   const hash = createHash("sha256");
   return { update: (text) => void hash.update(text), digest: () => hash.digest("hex") };
 };
-/** a delta in the middle of the long answer is lost once, so the worker reconnects and the server replays from it */
-const gap = steps.findIndex((s, i) => i > recorded.length + 60 && s.frame.type === "delta");
-/** the page is hidden from the journal's end, through the cases after it, into the long answer */
-const hidden: [number, number] = [recorded.length - 20, recorded.length + 200];
 
-const RUNS = [
-  { name: "visible, batches 1", seed: 1, options: { gap } },
-  { name: "visible, batches 2", seed: 2, options: { gap } },
-  { name: "hidden for a while, batches 3", seed: 3, options: { gap, hidden } },
-] as const;
+const RUNS: { name: string; seed: number; options: Options }[] = [
+  { name: "seed 1", seed: 1, options: {} },
+  { name: "seed 2, a read still out when its thread leaves and comes back", seed: 2, options: { slow: 2000 } },
+  { name: "seed 3, a ring of 150 seqs (stale keys read again)", seed: 3, options: { ring: 150 } },
+  { name: "seed 4, raw catch-ups", seed: 4, options: { compaction: "raw" } },
+  { name: "seed 5, a late read, raw catch-ups", seed: 5, options: { slow: 2000, compaction: "raw" } },
+  { name: "seed 7, a short ring and a source never ahead", seed: 7, options: { ring: 150, ahead: false } },
+  { name: "seed 6, reads from a source never ahead", seed: 6, options: { ahead: false } },
+];
 
-const BEFORE: Record<string, { ui: string; worker: string }> = {
-  "visible, batches 1": { ui: "0605409b319e40b80becb4ef9f5ef4d444154065e54badfc3c4f8484e39f996c", worker: "a27a90825b67d308f8336378e44529fd9d1656fedab15f2b93c737585018fe99" },
-  "visible, batches 2": { ui: "ae7c7de5639c36984bc7f2decb3bbfa87d6ff119c01317051029fe8ba88b8274", worker: "9fa8874e56eb5dd0cc2cdf2c978abebc0f65e00de43ab5dfea76e5179ebc9dc9" },
-  "hidden for a while, batches 3": { ui: "f22d71a4153d1e0825fc815f30de4d983b1e155b469a0031c652ec8ee4cad63a", worker: "33bf035775cf9d16bdec503a161dad4f47f4490fb2b6cb8341b7a2b3ad61638c" },
-};
-
-describe("the wire, replayed", () => {
+describe("the wire on protocol 3, replayed", () => {
   for (const { name, seed, options } of RUNS) {
-    test(`the ui equals the worker at every apply, and holds what it held before (${name})`, () => {
+    test(`exactly once, and the server's state at the end (${name})`, () => {
       const run = replayWire(steps, sha, seed, options);
       expect(run.mismatch).toBeNull();
-      expect(run.applies).toBeGreaterThan(200);
-      // the run went through what it is for
-      expect(run.seen.gaps).toBe(1);
-      expect(run.seen.answered).toBeGreaterThan(0);
-      expect(run.seen.removed).toBe(2);
-      expect(run.seen.hydrations).toBeGreaterThan(5);
-      expect(run.uiDigest).toBe(BEFORE[name]?.ui ?? "");
-      expect(run.workerDigest).toBe(BEFORE[name]?.worker ?? "");
+      expect(run.exact).toBeNull();
       expect(run.endsEqual).toBe(true);
-    });
+      expect(run.behind).toBeNull();
+      // the faults are the injected ones and the rules' own, every injected one recovered by a reset
+      expect(run.faults["patch-error"]).toBe(run.seen.injected);
+      expect(run.seen.recovered).toBe(run.seen.injected);
+      expect(run.faults["catchup-error"]).toBe(0);
+      expect(run.faults["hash-miss"]).toBe(run.seen.lost);
+      expect(run.faults["read-late"]).toBe(options.slow === undefined ? 0 : 1);
+      // the end
+      expect(run.fleet.client).toEqual(run.fleet.server);
+      expect(Object.keys(run.threads).length).toBeGreaterThan(0);
+      for (const { client, server } of Object.values(run.threads)) expect(client).toEqual(server);
+      // what the run went through
+      expect(run.seen.switches).toBe(10);
+      expect(run.seen.injected).toBeGreaterThanOrEqual(1);
+      expect(run.seen.lost).toBe(1);
+      expect(run.seen.drops).toBeGreaterThanOrEqual(4);
+      expect(run.seen.caughts).toBeGreaterThanOrEqual(3);
+      expect(run.seen.hidden).toBe(2);
+      expect(run.seen.sinceKeys).toBeGreaterThan(0);
+      expect(run.seen.readKeys).toBeGreaterThan(0);
+      expect(run.seen.checks).toBeGreaterThan(2000);
+      expect(run.seen.skipped).toBeGreaterThan(500);
+      if (options.ring !== undefined) expect(run.seen.stale).toBeGreaterThan(0);
+      else expect(run.seen.catchups).toBeGreaterThan(0);
+      expect(run.applies).toBeGreaterThan(300);
+    }, 30_000);
   }
+
+  test("a seed is one schedule: two runs see the same apply points and end in the same state", () => {
+    const a = replayWire(steps, sha, 1);
+    const b = replayWire(steps, sha, 1);
+    expect(a.uiDigest).toBe(b.uiDigest);
+    expect(a.workerDigest).toBe(b.workerDigest);
+    expect(a.seen).toEqual(b.seen);
+  }, 30_000);
 });
 
 /* a hidden page does no page work: the worker holds what it would post (gate.ts) and the ui lands it in one go when the page
-   is shown (landing.ts). the connection drops and comes back while the page is hidden, so the stream goes live and its
-   replay follows, held; the ui's caught-up second (ui/caught-up.ts) is timed on the run's clock, and each time it runs out
-   the store must hold everything the worker had made by then (less the frames a visible page waits anyway). the queue that
-   was reverted for racing it fails the same check */
+   is shown (landing.ts). the connection drops and comes back during the hidden spell past 30 s, so the stream goes live
+   and its catch-up follows, held; the ui's caught-up second (ui/caught-up.ts) is timed on the run's clock, and each time
+   it runs out the store must hold everything the worker had made by then. the queue that was reverted for racing it fails
+   the same check */
 describe("a hidden page and the caught-up second", () => {
-  const catchUp = (mode: "gate" | "separate" | "naive") => ({ mode, hidden, reconnect: hidden[0] + 30 });
-
-  test("held by the worker and landed in one go: never behind when the stream has caught up, and the replay ends equal", () => {
-    const run = replayWire(steps, sha, 3, { gap, catchUp: catchUp("gate") });
+  test("held by the worker and landed in one go: never behind when the stream has caught up", () => {
+    const run = replayWire(steps, sha, 3, { mode: "gate" });
     expect(run.caughtUps).toBeGreaterThanOrEqual(2);
     expect(run.behind).toBeNull();
     expect(run.mismatch).toBeNull();
     expect(run.endsEqual).toBe(true);
-    // the worker did what it does with the page visible: the same final state as every other run of this seed
-    expect(run.workerDigest).toBe(BEFORE["hidden for a while, batches 3"]?.worker ?? "");
-    expect(run.seen.gaps).toBe(1);
-  });
+  }, 30_000);
 
-  test("the hidden queue that was reverted is caught: the ui says caught up with the replay still waiting", () => {
-    const run = replayWire(steps, sha, 3, { gap, catchUp: catchUp("naive") });
+  test("the hidden queue that was reverted is caught: the ui says caught up with the catch-up still waiting", () => {
+    const run = replayWire(steps, sha, 3, { mode: "naive" });
     expect(run.behind).not.toBeNull();
     expect(run.endsEqual).toBe(true);
-  });
+  }, 30_000);
 
   test("held and posted one message at a time holds too: the status comes after the patches, which land before it", () => {
-    const run = replayWire(steps, sha, 3, { gap, catchUp: catchUp("separate") });
+    const run = replayWire(steps, sha, 3, { mode: "separate" });
     expect(run.caughtUps).toBeGreaterThanOrEqual(2);
     expect(run.behind).toBeNull();
+    expect(run.mismatch).toBeNull();
     expect(run.endsEqual).toBe(true);
-  });
+  }, 30_000);
 });

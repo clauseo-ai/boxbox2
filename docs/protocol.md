@@ -266,8 +266,14 @@ stream ends.
 - **order.** two posts can reach the actor out of order (two requests on
   one http/2 connection). the actor applies a post only when its `ask` is
   above the last one it applied for that stream, and answers an older one
-  `202` with no confirm. the client acts only on the confirm of its newest
-  `ask`.
+  `202` with no confirm. the client processes every confirm it gets, in
+  stream order, not only the one of its newest `ask`: for each it sets
+  `left` for the keys that confirm took out and applies that confirm's
+  catch-up, `stale` and `reset`. a key that left at one confirm and
+  is back at the next, entering without `since` (the second post went
+  before the first confirm came), is read under the no-gap rule with that
+  confirm's `H`: the later confirm says nothing of the entries journaled
+  between the two, so only the read covers them.
 
 ### `left`, exactly
 
@@ -311,10 +317,14 @@ the fleet actor takes the post in its own order, at journal head `H`:
    into its `pending` deque (the path replay pages and `reset` take today)
    and drains it before the next live frame. a post that arrives while a
    block is still unread is answered when that block is drained, and
-   waits at most 30 s: a stream that has not read its block in 30 s is
-   stalled, so the server closes it and answers the post `404
-   no-such-stream`, and the client reconnects with the interest in its
-   query. no http handler waits longer.
+   waits at most until the block is 30 s old, counted from when the
+   actor handed it to the stream (a post that comes late gets no fresh
+   30 s): a stream that has not read its block in 30 s is stalled, so
+   the server closes it and answers the post `404 no-such-stream`, and
+   the client reconnects with the interest in its query. a post waits
+   for no block longer than that; one that meets a newer block after the
+   one it waited for waits on the newer one's 30 s. a block drained as
+   the wait runs out closes nothing.
 
 the client applies `catchup` entries by the transcript rules alone
 (upstream gate, offset rule, part replace). their seqs may be above or
@@ -487,7 +497,9 @@ interest catch-up keep the merged deltas a textless part needs
 (section 9); a reset carries no transcript; a read carries whole text.
 
 the tracking costs 16 bytes per streaming part, dropped at the part's
-end, at most 4,096 parts (the oldest go first, and their next update is
+end (the first part update with `time.end`, journaled by the rule above
+before it goes; the step-end re-send after it is caught by the part's
+remembered digest, the unchanged rule), at most 4,096 parts (the oldest go first, and their next update is
 sent whole). the last journaled `Message` per message, for the
 unchanged rule, is kept for messages of the newest turn of each thread
 (the same set as `rv`'s, section 11) and dropped with it.
@@ -509,28 +521,41 @@ overview bytes.
    ignores `since` for every key: the client reads its stage, layers and
    holds (after a reset, below), and a seq from another epoch never seeds
    a ring catch-up. the reset
-   is one frame carrying `fleet: {agents, threads, asks, order}`, as
-   today's (`fleet/mod.rs:1323-1351`); it stays under about 256 KB raw for
-   300 threads. a reset carries no transcript.
+   is one frame carrying `fleet: {agents, threads, asks, order}`, built
+   from the journaled state (the encoder's patch bases and the journaled
+   order, not the model's snapshot), so the patches after it apply to
+   what the client holds; `GET /api/fleet` answers the same. it stays
+   under about 256 KB raw for 300 threads. a reset carries no transcript.
 2. **otherwise a compact catch-up**, every frame in seq order:
    - **overview, from the cursor.** for each agent, thread and open ask
      changed after the cursor, its current state as one whole frame
      (`agent`, `thread`, `ask`), with the id of the newest entry for that
      key. for each thread, agent or ask removed or settled after the
      cursor, its `thread.removed`, `agent.removed` or `ask.settled` from the
-     tombstones. an ask raised and settled since the cursor is not sent.
+     tombstones. an ask raised and settled since the cursor is not sent;
+     one raised and settled more than once keeps one tombstone with its
+     first raise, so a cursor inside any of its raises is told it settled.
      `order` once, whole, if it changed. for each thread whose persisted
      reset seq is above the cursor, `thread.reset {key}` with that seq as
      its id (so a reset is never lost to a catch-up).
    - **transcript, per interest key, from its `since`.** the query's
      `since` (section 5) says where each key's catch-up starts; a key in
      interest without `since` gets nothing here and is read by the client
-     (no-gap rule, `H = hello.head`). a key whose persisted reset seq is
-     above its `since` gets `thread.reset {key}` and nothing else. a key
-     whose entries after `since` the ring still holds gets them, compacted,
-     each keeping its own id (they ride in `catchup` frames, like an
-     interest catch-up, because their seqs may sit below the cursor):
-     - per message, only its last `message`;
+     (no-gap rule, `H = hello.head`). a `since` for a key outside
+     interest is ignored; a `since` past the head, or for a key the
+     journal does not know, gets `thread.stale`. a key whose persisted
+     reset seq is above its `since` gets nothing else: `thread.reset {key}`
+     when that seq is above the cursor (the overview above sends it), an
+     id-less `thread.stale {key}` when it is at or below the cursor (a
+     `thread.reset` with that id would be dropped by the cursor rule). a
+     key whose entries after `since` the ring still holds gets them,
+     compacted, in seq order, each keeping its own id and `upstream`
+     (the client's upstream gate drops an entry at or below the last it
+     applied, so an entry moved out of order could be lost). they ride in
+     `catchup` frames, like an interest catch-up, because their seqs may
+     sit below the cursor:
+     - per message, its last `message`, and also its first after
+       `since` when the last comes after one of its parts;
      - per part: its newest `part` that carries text, then the deltas
        after it merged into one (the first offset, the joined text), then
        its last `part` if that one has `textOf`; a part with no whole-text
@@ -539,8 +564,10 @@ overview bytes.
        or gets it whole here, always holds the text a `textOf` needs;
      - `message.removed` drops every earlier entry of its message;
      - `reactions`, the last per message.
-     a key whose entries the ring no longer holds, or past the 1 MiB
-     catch-up cap, gets `thread.stale {key}`.
+     a key whose entries the ring no longer holds, past the 1 MiB
+     catch-up cap, or with one compacted entry over a `catchup` frame's
+     256 KiB, gets `thread.stale {key}`. deltas merge only while they
+     chain (each offset where the last ended).
    - `caught {seq: head}`, then live.
 
 threads outside interest get nothing: the client already knows, from
@@ -738,7 +765,8 @@ every answer carries:
 
 - `v`, per thread: the seq of the newest transcript entry for it. a
   thread first seen gets the head. `thread.reset` and a crash start move
-  it.
+  it; `thread.reset` moves `rv` too (older pages cannot be trusted
+  either).
 - `rv`, per thread: the seq of the newest transcript entry that touched
   a message outside the thread's newest turn (a removal, an edit, a late
   part on an old message). the newest turn, for this rule, starts at the
@@ -746,11 +774,16 @@ every answer carries:
   prompt waiting behind a streaming answer joins the newest turn instead
   of starting one, so the answer's deltas do not move `rv` and older page
   urls stay put. the actor tracks the ids of the messages in each
-  thread's newest turn (at most 1,000; past that every entry counts as a
-  rewrite), and drops the set when the next turn starts.
+  thread's newest turn (at most 1,000 a thread and 16,384 over every
+  thread; past either, every entry of the thread whose set would grow
+  counts as a rewrite), and drops the set when the next turn starts. a thread first
+  seen mid-turn holds no set yet, so its turn's entries count as
+  rewrites until its next prompt.
 - the etag is `"<encoder>.<epoch>.<v or rv>.<q>"`, where `q` is a short
   hash of the normalised query (`turns`, `before`, `at`; `rv` stays out,
-  it changes the headers, not the bytes). a request whose `if-none-match`
+  it changes the headers, not the bytes); until the app pages, a read with
+  no query answers the whole thread and its `q` is `whole`, since no query
+  normalises to 8 turns, another body. a request whose `if-none-match`
   matches the etag on the current `v` answers `304` without asking the
   source. a match on the `rv` form alone does not: the same string can be
   the `v` etag of a page that held the newest turn, so it is read again
@@ -1191,7 +1224,7 @@ changing tail text and deltas.
 | pending deltas | 100 ms per part; 1 MiB in all | past it, all flushed |
 | settled-text tracking | 16 B per streaming part, 4,096 parts | oldest dropped, its next update whole |
 | last journaled state per key (patch bases) | one `Thread` per kept thread, 1,000 | evicted with the session |
-| newest-turn message ids | 1,000 per thread | past it, every entry counts toward `rv` |
+| newest-turn message ids | 1,000 per thread, 16,384 over every thread | past either, every entry of the thread whose set would grow counts toward `rv` until its next turn |
 | tombstones | 10,000 rows or 7 days | oldest dropped, `gone_floor` rises |
 | summaries | 64 or 8 MiB, one computation per thread per 10 s | least recently used |
 | `left` (client) | one value in each thread's `#head` | goes with the record |

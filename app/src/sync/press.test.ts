@@ -1,36 +1,28 @@
 /* a press on a thread's window takes the thread ahead of its click (client.ts, pressThread): the real ui side (client.ts and
-   the store, frames run by hand) and the real worker (its cache on fake-indexeddb, a fetch that serves the stream and the
-   transcripts), wired as the browser wires them. a thread the store let go is back in it before the click that follows a
+   the store, frames run by hand) and the real worker (its cache on fake-indexeddb, the protocol 3 fake server serving the
+   stream, the interest posts and the transcripts), wired as the browser wires them. a thread the store let go is back in it before the click that follows a
    press, so the stage the click mounts holds it and paints it in the click's frame; a press no open follows lets it go and
-   leaves the worker as it was; one press holds at a time; a cooled thread comes back from its pages on the press. */
+   leaves the worker as it was, and posts no interest; one press holds at a time; a cooled thread comes back from its pages
+   on the press. */
 
 import "fake-indexeddb/auto";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { unwrap } from "solid-js/store";
+import { type FakeServer, fakeServer } from "./fixtures/server";
+import { neutralMessage, snapshot, thread } from "./fixtures/neutral";
 import type { FromWorker, ToWorker } from "./messages";
-import type { FleetSnapshot, Message, SessionEntry } from "./protocol";
+import type { Message } from "./protocol";
 import type { SyncState } from "./reducer";
 
-const read = (name: string) => (JSON.parse(readFileSync(join(import.meta.dir, `../ui/thread/fixtures/${name}.json`), "utf8")) as { messages: Message[] }).messages;
+// cmx2's recorded messages, made neutral as the server's translate makes them
+const read = (name: string): Message[] =>
+  (JSON.parse(readFileSync(join(import.meta.dir, `../ui/thread/fixtures/${name}.json`), "utf8")) as { messages: Parameters<typeof neutralMessage>[0][] }).messages.map(neutralMessage);
 const TRANSCRIPT = read("notes-asks");
 const KEYS = ["bench:ses_a", "bench:ses_b", "bench:ses_c", "bench:ses_d", "bench:ses_e", "bench:ses_f"] as const;
 const [A, B, C] = KEYS;
-
-const session = (key: string): SessionEntry => ({
-  key,
-  host: "bench",
-  id: key.slice(6),
-  info: { id: key.slice(6), slug: "s", projectID: "/w", directory: "/w", title: key, version: "0", time: { created: 1, updated: 2 }, source: "cmx2", cost: 0, tokens: { input: 0, output: 0, cache: { read: 0, write: 0 } } },
-  status: null,
-  agents: 0,
-  processes: 0,
-  tail: [],
-  needs: [],
-  read: null,
-});
-const snapshot: FleetSnapshot = { hosts: [], sessions: KEYS.map(session), asks: [], order: [...KEYS] };
+const SNAPSHOT = snapshot(KEYS.map((key) => thread(key, { title: key })));
 
 type Listener = (event: { data: FromWorker }) => void;
 type SyncLike = {
@@ -44,11 +36,9 @@ type SyncLike = {
 let listener: Listener | null = null;
 let sync: SyncLike | null = null;
 let clock = 1_000_000;
-let reads: string[] = [];
-let push: (frame: unknown, id?: string) => void = () => {};
+let server: FakeServer | null = null;
 const frames = new Map<number, () => void>();
 let next = 1;
-const encoder = new TextEncoder();
 const saved: Record<string, unknown> = {};
 const stubs: Record<string, unknown> = {
   window: { addEventListener: () => undefined, removeEventListener: () => undefined },
@@ -80,22 +70,6 @@ const stubs: Record<string, unknown> = {
     return next++;
   },
   cancelAnimationFrame: (id: number) => frames.delete(id),
-  fetch: async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    if (url.startsWith("/api/stream")) {
-      let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
-      const body = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) });
-      init?.signal?.addEventListener("abort", () => controller?.error(new DOMException("aborted", "AbortError")), { once: true });
-      push = (frame, id) => controller?.enqueue(encoder.encode(`${id ? `id: ${id}\n` : ""}data: ${JSON.stringify(frame)}\n\n`));
-      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
-    }
-    const transcript = /^\/api\/hosts\/bench\/sessions\/([^/]+)\/messages$/.exec(url);
-    if (transcript) {
-      reads.push(`bench:${transcript[1] ?? ""}`);
-      return new Response(JSON.stringify(TRANSCRIPT), { status: 200, headers: { "x-cmx2-seq": "u1:50", "content-type": "application/json" } });
-    }
-    return new Response(null, { status: 204 });
-  },
 };
 
 let client: typeof import("./client");
@@ -138,6 +112,10 @@ beforeAll(async () => {
     const request = indexedDB.deleteDatabase("boxbox");
     request.onsuccess = request.onerror = request.onblocked = () => resolve();
   });
+  // the fake server takes fetch: the stream, the interest posts (each confirmed on the stream) and the reads
+  const fake = fakeServer();
+  fake.transcript = () => structuredClone(TRANSCRIPT);
+  server = fake;
   client = await import("./client");
   store = await import("../store");
   const worker = await import("./worker");
@@ -145,10 +123,11 @@ beforeAll(async () => {
   client.startSync();
   sync = new worker.Sync("device", "mac", false, undefined, () => clock) as unknown as SyncLike;
   await sync.boot(null);
-  await until("the stream", () => push !== undefined);
-  push({ type: "hello", epoch: "j1", head: 1, build: "test", protocol: 1 });
-  push({ type: "reset", epoch: "j1", seq: 1, reason: "none", fleet: snapshot }, "j1:1");
-  await until("the fleet", () => Object.keys(store.state.fleet.sessions).length === KEYS.length);
+  await until("the stream", () => fake.dials.length > 0);
+  fake.head = 1;
+  fake.hello();
+  fake.push({ type: "reset", epoch: "j1", seq: 1, reason: "none", fleet: SNAPSHOT }, "j1:1");
+  await until("the fleet", () => Object.keys(store.state.fleet.threads).length === KEYS.length);
 });
 
 afterAll(async () => {
@@ -156,6 +135,8 @@ afterAll(async () => {
   sync = null;
   client.stopSync();
   await Bun.sleep(5);
+  server?.restore();
+  server = null;
   for (const [name, value] of Object.entries(saved)) (globalThis as Record<string, unknown>)[name] = value;
 });
 
@@ -189,6 +170,7 @@ describe("a press takes the thread ahead of its click", () => {
   test("a press no open follows lets the thread go after its time, and the worker keeps it where it was among the closed", async () => {
     const closedAt = inner().closedAt.get(A);
     expect(closedAt).toBeDefined();
+    const posts = (server as FakeServer).posts.length;
     clock += 60_000;
     client.pressThread(A);
     await framesUntil("the press brings A back", () => held(A) !== undefined);
@@ -197,6 +179,8 @@ describe("a press takes the thread ahead of its click", () => {
     await until("the press lets A go", () => held(A) === undefined && !inner().shown.has(A));
     // not a close: the person never saw it, so it does not take a place among the last closed from one they did
     expect(inner().closedAt.get(A)).toBe(closedAt as number);
+    // nor a layer: the interest is what the person sees, so a press posts none and causes no catch-up
+    expect((server as FakeServer).posts.length).toBe(posts);
   });
 
   test("one press holds at a time: a second press lets the first go", async () => {
@@ -224,12 +208,12 @@ describe("a press takes the thread ahead of its click", () => {
     clock += COOL_AFTER_MS + 10_000;
     await (sync as SyncLike).sweep();
     await until("A cooled", () => inner().state.threads[A] === undefined && inner().state.cold[A] !== undefined);
-    const readsBefore = reads.length;
+    const readsBefore = (server as FakeServer).reads.length;
     client.pressThread(A);
     await until("A restored by the press", () => held(A)?.status === "live");
     expect(held(A)?.messages).toHaveLength(TRANSCRIPT.length);
     client.openThread(A);
     expect(held(A)?.messages).toHaveLength(TRANSCRIPT.length);
-    expect(reads.length).toBe(readsBefore);
+    expect((server as FakeServer).reads.length).toBe(readsBefore);
   });
 });

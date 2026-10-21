@@ -1801,3 +1801,15 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
 - **a press is not an open.** a pointerdown may start loading what a click would open, but
   holds it at most 1.5 s and one at a time; touch presses are left out, since a finger on a
   window often starts a swipe.
+- **on the protocol 3 stream a skipped seq is a filtered entry, never a gap.** the cursor
+  rule follows the newest seq seen; a real gap shows as a reset or a protocol error, which
+  drops the cursor.
+- **a catch-up's entries are gated by the read alone.** the server compacts a message to its
+  last info ahead of its parts, so a thread-wide upstream gate refused the parts as
+  duplicates; live entries keep the thread-wide gate.
+- **seqs are never compared across epochs.** a restarted server starts its head again, and a
+  thread's entry seq kept from the old epoch made a read look late and re-read in a loop.
+- **the whole read's etag must not share the paged query's hash.** with no query the hash
+  normalised to 8 turns and tagged the whole thread like `?turns=8`.
+- **the board trace proxy inflates gzip** to record frames; replays reach the daemon's own
+  inflater only because the proxy passes the gzip through untouched.

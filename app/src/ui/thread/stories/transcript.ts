@@ -5,15 +5,18 @@
 
 import type { Message } from "../../../sync/protocol";
 import type { ThreadView } from "../../../sync/reducer";
+import { neutralMessage } from "../../../sync/fixtures/neutral";
+
+type Recorded = { info: Record<string, unknown>; parts: Record<string, unknown>[] };
 import cmxUrl from "../fixtures/cmx-deploy.json?url";
 import northstarUrl from "../fixtures/northstar-heavy.json?url";
 import notesUrl from "../fixtures/notes-asks.json?url";
 
 /** the notes session's transcript under `key`, live; fetched, never imported, so the type checker never reads the json */
 export async function notesTranscript(key: string): Promise<ThreadView> {
-  const file = (await (await fetch(notesUrl)).json()) as { snapshots: Array<{ messages: unknown[] }> };
-  // the fixture is the daemon's message list, recorded through the same contract the worker reads
-  const messages = (file.snapshots.at(-1)?.messages ?? []) as Message[];
+  const file = (await (await fetch(notesUrl)).json()) as { snapshots: Array<{ messages: Recorded[] }> };
+  // the fixture is the daemon's message list in cmx2's shapes, made neutral as the server's translate makes it
+  const messages = (file.snapshots.at(-1)?.messages ?? []).map(neutralMessage);
   return { key, status: "live", messages };
 }
 
@@ -23,7 +26,7 @@ export async function notesTranscript(key: string): Promise<ThreadView> {
 export async function heavyTranscripts(keys: readonly string[], times = 8): Promise<Record<string, ThreadView>> {
   const files = await Promise.all(
     [northstarUrl, cmxUrl].map(async (url) => {
-      const messages = ((await (await fetch(url)).json()) as { messages: unknown[] }).messages as Message[];
+      const messages = ((await (await fetch(url)).json()) as { messages: Recorded[] }).messages.map(neutralMessage);
       return Array.from({ length: times }, (_, k) => messages.map((m) => retold(m, k))).flat();
     }),
   );
@@ -39,6 +42,5 @@ export async function heavyTranscripts(keys: readonly string[], times = 8): Prom
 function retold(m: Message, k: number): Message {
   if (k === 0) return m;
   const id = `${m.info.id}_${k}`;
-  const parent = (m.info as { parentID?: string }).parentID;
-  return { ...m, info: { ...m.info, id, ...(parent ? { parentID: `${parent}_${k}` } : {}) }, parts: m.parts.map((p) => ({ ...p, id: `${p.id}_${k}`, messageID: id })) } as Message;
+  return { ...m, info: { ...m.info, id }, parts: m.parts.map((p) => ({ ...p, id: `${p.id}_${k}`, messageID: id })) } as Message;
 }

@@ -2,16 +2,28 @@
 //! list of live client streams (architecture: tasks, and who owns what).
 //!
 //! watchers send it decoded daemon events and fresh host reads; it applies
-//! them to the model, appends each resulting change to the journal once,
-//! and hands the same bytes to every live stream. client streams ask it for
-//! pages of the journal after their cursor; the page that reaches the head
-//! registers the stream as live in the same step, so between replay and
-//! live there is no gap and no duplicate (the way cmx2 switches a resumed
-//! stream to live).
+//! them to the model, runs each resulting change through protocol 3's
+//! encoder (`encode.rs`: thread and order patches, 100 ms delta batches,
+//! finished text once), appends each entry it gives to the journal once,
+//! and hands the same bytes to every stream whose interest takes it.
+//!
+//! the stream map (`docs/protocol.md`, section 5) is its too: per stream its
+//! id, its interest (the open thread, the layers under it, the children it
+//! holds), the signed-in session that opened it and the last interest post
+//! it applied. the overview reaches every stream; a transcript entry only
+//! the streams whose interest holds its thread. a stream opens in one step:
+//! `hello`, then a `reset` or the compact catch-up from its cursor (section
+//! 9, built from `keys.rs` and the ring), then live, so between catch-up and
+//! live there is no gap and no duplicate. an interest post swaps the filter
+//! at the head and hands the stream one confirm block (`catchup` frames for
+//! the threads that enter with a `since`, then the `interest` frame) behind
+//! whatever is queued for it.
 //!
 //! a live stream's queue is bounded by bytes, not by count: a slow phone
 //! can hold at most `OUTBOUND_CAP` here, then its stream is closed and it
-//! resumes from its cursor (architecture: memory caps).
+//! resumes from its cursor (architecture: memory caps). a confirm block is
+//! outside that cap, at most `catchup::BLOCK_BYTES` of catch-up and one in
+//! flight per stream.
 //!
 //! needs and read state are the model's too (`needs.rs`, `read.rs`); the
 //! actor carries their consequences out: notices to push, rows to
@@ -20,7 +32,8 @@
 //!
 //! the actor's one clock flushes window tails that streamed text moved
 //! while their session's last entry was too recent to send another
-//! (`model::TAIL_EVERY_MS`); it sleeps only while one is held.
+//! (`model::TAIL_EVERY_MS`), and text deltas whose 100 ms batch is due
+//! (`encode::DELTA_EVERY_MS`); it sleeps only while one is held.
 //!
 //! the model asks for a window's tail to be read once per session
 //! (`Effect::ReadTail`); the actor queues the request for the tail reader
@@ -28,10 +41,11 @@
 
 pub mod adopted;
 pub mod board;
-pub mod change;
+pub mod catchup;
 pub mod clears;
 pub mod colours;
 pub mod encode;
+pub mod keys;
 pub mod model;
 pub mod needs;
 pub mod read;
@@ -43,12 +57,13 @@ pub mod summary;
 #[cfg(any(test, feature = "record"))]
 pub mod tape;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
+use serde::Serialize;
 use serde_json::json;
 use serde_json::value::RawValue;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -56,15 +71,20 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
-use crate::journal::{Cursor, Gap, Journal, sse_frame};
+use crate::journal::{Cursor, Journal, frame_data, sse_frame};
 use crate::push::presence::Looking;
 use crate::push::{Push, Thread};
 use crate::source::cmx2::translate;
 use crate::source::{SourceEvent, ThreadFacts};
 use crate::store::Store;
-use change::{Change, ColourFrame, Control, JournalEntry, PROTOCOL, ResetReason};
+use crate::wire::{
+    Change, ColourFrame, Control, ENCODER, Interest, InterestPost, JournalEntry, PROTOCOL,
+    RepoColour, ResetReason,
+};
 use clears::Clears;
 use colours::Colours;
+use encode::Encoder;
+use keys::StreamKeys;
 use model::{
     ClearRefused, ColourRefused, Device, Effect, Model, ReadRefused, ReviewTarget, TailRequest,
 };
@@ -80,9 +100,10 @@ const UPSTREAM_CAPACITY: usize = 1024;
 const COMMAND_CAPACITY: usize = 256;
 /// bytes a live stream may have queued before it is closed.
 pub const OUTBOUND_CAP: usize = 512 * 1024;
-/// bytes of journal handed to a replaying stream per request, so a replay
-/// holds one page at a time, never the ring.
-const PAGE_BYTES: usize = 256 * 1024;
+/// layers under the stage a stream's interest holds, at most.
+pub const MAX_UNDER: usize = 8;
+/// children held for the stage and its layers, at most.
+pub const MAX_HOLDS: usize = 16;
 /// writes waiting for the store. a raise, a serve or a mark each; past this
 /// the disk is stalled, and the write is dropped with a warning (the model
 /// holds the truth; the next write of the same row carries it).
@@ -110,9 +131,6 @@ pub enum Upstream {
         /// increases across the whole connection, or none.
         seq: Option<u64>,
         event: crate::source::SourceEvent,
-        /// cmx2 only, while contract 1 lives: the whole event payload, byte
-        /// for byte, for contract 1's journal.
-        raw: Option<Box<RawValue>>,
     },
 }
 
@@ -126,27 +144,91 @@ pub enum From {
     At(Cursor),
 }
 
-/// consecutive frames for a client stream, and the live feed once the
-/// replay has reached the head.
+/// the signed-in session that opened a stream: only it may post the
+/// stream's interest. a digest of its token, never the token.
+pub type Owner = [u8; 32];
+
+/// what a client stream asks for when it opens.
 #[derive(Debug)]
-pub struct Page {
+pub struct Opening {
+    pub from: From,
+    /// what it shows; checked against `MAX_UNDER` and `MAX_HOLDS` by the route.
+    pub interest: Interest,
+    /// per interest key it already holds, its `left` (`docs/protocol.md`, section 5).
+    pub since: BTreeMap<String, u64>,
+    pub owner: Owner,
+    /// the id the stream logs under.
+    pub log: u32,
+}
+
+/// a client stream's first frames (`hello`, the colour map, then a
+/// `reset` or the catch-up ending in `caught`) and its live feed.
+#[derive(Debug)]
+pub struct Opened {
     pub frames: Vec<Bytes>,
-    /// where the next request continues from.
-    pub next: Cursor,
-    pub live: Option<Live>,
-    /// the version of the colour map the stream holds now, for its next
-    /// request; none for a stream that did not ask for colours.
-    pub colours: Option<u64>,
+    pub live: Live,
+    /// the stream's id, as `hello` names it to interest posts.
+    pub stream: u128,
+}
+
+/// what a stream's live channel carries.
+#[derive(Debug)]
+pub enum Feed {
+    /// a journal entry or a colour, counted in the stream's queue.
+    Frame(Bytes),
+    /// an interest confirm: its `catchup` frames and then the `interest`
+    /// frame, outside the queue's cap. the stream fires `drained` once it
+    /// has taken the last of them.
+    Block {
+        frames: Vec<Bytes>,
+        drained: CancellationToken,
+    },
 }
 
 /// a stream's live feed: frames in journal order, the bytes queued in it
-/// (the stream subtracts what it takes), and the token the actor fires
-/// when the queue passed the cap and the stream must close.
+/// (the stream subtracts what it takes), and the token that closes it: the
+/// actor fires it when the queue passed the cap or the stream stalled on a
+/// confirm, and the stream when it ends.
 #[derive(Debug)]
 pub struct Live {
-    pub frames: mpsc::UnboundedReceiver<Bytes>,
+    pub frames: mpsc::UnboundedReceiver<Feed>,
     pub queued: Arc<AtomicUsize>,
     pub closed: CancellationToken,
+}
+
+/// how the actor took an interest post.
+#[derive(Debug)]
+pub enum Confirm {
+    /// swapped; its confirm is on the stream's channel.
+    Applied,
+    /// not above the last one applied: nothing to do, and no confirm.
+    Older,
+    /// no such stream (it ended, or is another session's).
+    NoSuchStream,
+    /// the last confirm is still unread: ask again once `drained` fires (or
+    /// `closed`, the stream gone), until 30 s after the block was `handed`
+    /// to the stream; past that, say `stalled` with its `ask`.
+    Busy {
+        drained: CancellationToken,
+        closed: CancellationToken,
+        handed: tokio::time::Instant,
+        ask: u64,
+    },
+}
+
+/// the journal's view of one thread when a read starts (`docs/protocol.md`,
+/// section 11).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Versions {
+    /// the journal head when asked: the read's `x-boxbox-seq`.
+    pub at: Cursor,
+    /// the seq of the thread's newest transcript entry; none for a thread
+    /// the journal does not know.
+    pub v: Option<u64>,
+    /// the seq of the newest entry that touched a message outside its newest turn.
+    pub rv: Option<u64>,
+    /// `wire::ENCODER`.
+    pub encoder: u32,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -155,18 +237,31 @@ pub struct Stopped;
 
 #[derive(Debug)]
 enum Command {
-    Read {
-        from: From,
-        /// the stream's first request, which begins with `hello`.
-        first: bool,
-        stream: u32,
-        /// for a stream that asked for repo colours, the version of the map it
-        /// was last sent (0 before any).
-        colours: Option<u64>,
-        reply: oneshot::Sender<Page>,
+    Open {
+        opening: Opening,
+        reply: oneshot::Sender<Opened>,
+    },
+    Interest {
+        stream: u128,
+        owner: Owner,
+        post: InterestPost,
+        reply: oneshot::Sender<Confirm>,
+    },
+    /// a post waited until the block of `ask` was 30 s old, unread.
+    Stalled {
+        stream: u128,
+        ask: u64,
+    },
+    /// the stream's body ended.
+    Ended {
+        stream: u128,
+    },
+    Versions {
+        key: String,
+        reply: oneshot::Sender<Versions>,
     },
     Snapshot {
-        reply: oneshot::Sender<Bytes>,
+        reply: oneshot::Sender<(Bytes, Cursor)>,
     },
     Needs {
         reply: oneshot::Sender<NeedsNow>,
@@ -211,12 +306,6 @@ enum Command {
     Places {
         host: String,
         reply: oneshot::Sender<HashSet<String>>,
-    },
-    TranscriptUnchanged {
-        host: String,
-        session: String,
-        stamp: Cursor,
-        reply: oneshot::Sender<bool>,
     },
     Unadopt {
         key: String,
@@ -272,7 +361,7 @@ enum BoardCommand {
 /// stream has heard it).
 #[derive(Debug)]
 pub struct Chosen {
-    pub colour: change::RepoColour,
+    pub colour: RepoColour,
     pub written: oneshot::Receiver<bool>,
 }
 
@@ -338,7 +427,7 @@ pub async fn restore(store: &Store) -> Result<Restored, crate::store::StoreError
                 .into_iter()
                 .filter_map(|(key, info)| {
                     let info = RawValue::from_string(info).ok()?;
-                    // every kept row is a cmx2 session's info, as contract 1 journals it
+                    // every kept row is a cmx2 session's info, as the daemon wrote it
                     Some((key, translate::thread_from_json(info).ok()))
                 })
                 .collect();
@@ -393,36 +482,69 @@ impl Fleet {
         Self { upstream, commands }
     }
 
-    /// the next frames for client stream `stream`.
+    /// opens a client stream: its first frames and its live feed.
     ///
     /// # Errors
     /// the actor has stopped (the server is shutting down).
-    pub async fn read(
-        &self,
-        from: From,
-        first: bool,
-        stream: u32,
-        colours: Option<u64>,
-    ) -> Result<Page, Stopped> {
+    pub async fn open(&self, opening: Opening) -> Result<Opened, Stopped> {
         let (reply, answer) = oneshot::channel();
-        self.commands
-            .send(Command::Read {
-                from,
-                first,
-                stream,
-                colours,
-                reply,
-            })
-            .await
-            .map_err(|_| Stopped)?;
+        self.command(Command::Open { opening, reply }).await?;
         answer.await.map_err(|_| Stopped)
     }
 
-    /// the whole fleet model as json.
+    /// an interest post for `stream`, from `owner`.
     ///
     /// # Errors
     /// the actor has stopped.
-    pub async fn snapshot(&self) -> Result<Bytes, Stopped> {
+    pub async fn interest(
+        &self,
+        stream: u128,
+        owner: Owner,
+        post: InterestPost,
+    ) -> Result<Confirm, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::Interest {
+            stream,
+            owner,
+            post,
+            reply,
+        })
+        .await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
+    /// `stream` did not read the confirm block of `ask` within 30 s of
+    /// taking it: it is closed, and the client reconnects with its interest
+    /// in the query. a block drained meanwhile, or a later one, keeps it.
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn stalled(&self, stream: u128, ask: u64) -> Result<(), Stopped> {
+        self.command(Command::Stalled { stream, ask }).await
+    }
+
+    /// a stream's body ended: it leaves the stream map. from a drop, so it
+    /// never waits; one lost to a full queue leaves at the next frame the
+    /// stream would have taken, or the next post naming it.
+    pub fn stream_ended(&self, stream: u128) {
+        let _ = self.commands.try_send(Command::Ended { stream });
+    }
+
+    /// the journal head and `key`'s versions (`docs/protocol.md`, section 11).
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn versions(&self, key: String) -> Result<Versions, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::Versions { key, reply }).await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
+    /// the whole fleet model as json, and the journal position it reflects.
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn snapshot(&self) -> Result<(Bytes, Cursor), Stopped> {
         let (reply, answer) = oneshot::channel();
         self.commands
             .send(Command::Snapshot { reply })
@@ -564,28 +686,6 @@ impl Fleet {
     pub async fn places(&self, host: String) -> Result<HashSet<String>, Stopped> {
         let (reply, answer) = oneshot::channel();
         self.command(Command::Places { host, reply }).await?;
-        answer.await.map_err(|_| Stopped)
-    }
-
-    /// whether a read of the session's transcript stamped `stamp` is still
-    /// what the daemon would answer (`model/marks.rs`).
-    ///
-    /// # Errors
-    /// the actor has stopped.
-    pub async fn transcript_unchanged(
-        &self,
-        host: String,
-        session: String,
-        stamp: Cursor,
-    ) -> Result<bool, Stopped> {
-        let (reply, answer) = oneshot::channel();
-        self.command(Command::TranscriptUnchanged {
-            host,
-            session,
-            stamp,
-            reply,
-        })
-        .await?;
         answer.await.map_err(|_| Stopped)
     }
 
@@ -760,9 +860,10 @@ pub fn spawn(
             wiring.colours,
         ),
         journal: Journal::new(epoch),
+        encoder: Encoder::new(),
+        keys: StreamKeys::new(),
         live: Vec::new(),
         board: None,
-        colours_version: 0,
         build,
         tails: wiring.tails,
         outside: Outside {
@@ -782,25 +883,85 @@ pub fn spawn(
     )
 }
 
+/// one entry of the stream map.
 #[derive(Debug)]
 struct Subscriber {
-    stream: u32,
-    frames: mpsc::UnboundedSender<Bytes>,
+    /// what `hello` named it; interest posts name it so.
+    id: u128,
+    /// the id it logs under.
+    log: u32,
+    owner: Owner,
+    interest: Interest,
+    /// the keys of `interest`, for the filter.
+    keys: HashSet<String>,
+    /// the last interest post applied.
+    asked: u64,
+    frames: mpsc::UnboundedSender<Feed>,
     queued: Arc<AtomicUsize>,
     closed: CancellationToken,
-    /// it asked for repo colours (`?colours=1`).
-    colours: bool,
+    /// its last confirm block.
+    block: Option<Block>,
+}
+
+/// a confirm block handed to a stream.
+#[derive(Debug)]
+struct Block {
+    /// fires when the stream has taken it.
+    drained: CancellationToken,
+    /// when it went on the stream's channel: its 30 s run from here.
+    handed: tokio::time::Instant,
+    /// the post it confirms.
+    ask: u64,
+}
+
+/// an interest's keys, the stage first, each once.
+fn interest_keys(interest: &Interest) -> Vec<String> {
+    let mut keys: Vec<String> = Vec::new();
+    for key in interest
+        .thread
+        .iter()
+        .chain(&interest.under)
+        .chain(&interest.holds)
+    {
+        if !keys.contains(key) {
+            keys.push(key.clone());
+        }
+    }
+    keys
+}
+
+/// what one key's catch-up from its `since` is.
+#[derive(Debug)]
+enum KeyCatch {
+    /// reset after its `since`: the client drops its messages and reads it.
+    Reset,
+    /// the compacted entries (none when nothing moved).
+    Entries(Vec<JournalEntry>),
+    /// the ring no longer holds them, or the journal does not know the key.
+    Stale,
+}
+
+/// the catch-up of several keys within one block's cap.
+#[derive(Debug, Default)]
+struct Caught {
+    frames: Vec<Bytes>,
+    stale: Vec<String>,
+    reset: Vec<String>,
 }
 
 #[derive(Debug)]
 struct Actor {
     model: Model,
     journal: Journal,
+    /// protocol 3's encoder: the patch bases, the pending deltas and the
+    /// finished-text tracking, owned with the journal they feed.
+    encoder: Encoder,
+    /// per key the newest entry, the threads' versions, the tombstones.
+    keys: StreamKeys,
+    /// the stream map.
     live: Vec<Subscriber>,
     /// the board's projection, only while a board stream listens.
     board: Option<board::Projection>,
-    /// moves with every repo colour sent, so a replaying stream knows its map is stale.
-    colours_version: u64,
     build: String,
     tails: mpsc::Sender<TailRequest>,
     outside: Outside,
@@ -893,13 +1054,15 @@ impl Actor {
         let mut watching = true;
         loop {
             let due = self.model.tail_due();
+            let deltas_due = self.encoder.due();
             let board_due = self.board.as_ref().and_then(board::Projection::due);
             tokio::select! {
                 biased;
                 () = shutdown.cancelled() => break,
                 // a client waiting on its page is served before the next event
                 Some(command) = commands.recv() => self.command(command),
-                // ahead of the events, so a stream of them cannot starve a held tail
+                // ahead of the events, so a stream of them cannot starve held text
+                () = tokio::time::sleep(until(deltas_due)), if deltas_due.is_some() => self.flush_deltas(),
                 () = tokio::time::sleep(until(due)), if due.is_some() => self.flush_tails(),
                 // exists only while a board listens and its picture may move
                 () = tokio::time::sleep_until(board_due.unwrap_or_else(tokio::time::Instant::now)), if board_due.is_some() => self.board_tick(),
@@ -915,6 +1078,9 @@ impl Actor {
                 else => break,
             }
         }
+        // a clean stop: the text still waiting for its batch goes before the streams' last frames
+        let pending = self.encoder.flush();
+        self.journal_all(pending);
         info!(
             head = self.journal.head(),
             entries = self.journal.len(),
@@ -953,7 +1119,7 @@ impl Actor {
                 reply,
             } => {
                 let answer = self.model.read(&key, &device, &message, at).map(|changes| {
-                    self.publish_all(&changes);
+                    self.publish_all(changes);
                 });
                 let _ = reply.send(answer);
             }
@@ -963,7 +1129,7 @@ impl Actor {
                 reply,
             } => {
                 let (changes, answers) = self.model.clear(&keys, &device);
-                self.publish_all(&changes);
+                self.publish_all(changes);
                 let _ = reply.send(answers);
             }
             Command::ClearedAmong { rows, reply } => {
@@ -975,7 +1141,7 @@ impl Actor {
                 reply,
             } => {
                 let changes = self.model.adopt_thread(&host, *thread);
-                self.publish_all(&changes);
+                self.publish_all(changes);
                 let _ = reply.send(());
             }
             Command::AdoptedKeys { reply } => {
@@ -983,11 +1149,11 @@ impl Actor {
             }
             Command::ReviewAnswered { key, device } => {
                 let changes = self.model.review_answered(&key, &device);
-                self.publish_all(&changes);
+                self.publish_all(changes);
             }
             Command::ReviewGone { key } => {
                 let changes = self.model.review_gone(&key);
-                self.publish_all(&changes);
+                self.publish_all(changes);
             }
             Command::ReviewTarget { key, reply } => {
                 let _ = reply.send(self.model.review_target(&key));
@@ -995,17 +1161,9 @@ impl Actor {
             Command::Places { host, reply } => {
                 let _ = reply.send(self.model.places(&host));
             }
-            Command::TranscriptUnchanged {
-                host,
-                session,
-                stamp,
-                reply,
-            } => {
-                let _ = reply.send(self.model.transcript_unchanged(&host, &session, &stamp));
-            }
             Command::Unadopt { key } => {
                 let changes = self.model.unadopt(&key);
-                self.publish_all(&changes);
+                self.publish_all(changes);
             }
             Command::ChooseColour {
                 host,
@@ -1015,20 +1173,47 @@ impl Actor {
             } => {
                 let _ = reply.send(self.choose_colour(&host, &root, chosen));
             }
-            Command::Read {
-                from,
-                first,
+            Command::Open { opening, reply } => {
+                // a stream that went away while it waited needs nothing; it
+                // leaves the map at the first frame it would have taken
+                let _ = reply.send(self.open(&opening));
+            }
+            Command::Interest {
                 stream,
-                colours,
+                owner,
+                post,
                 reply,
             } => {
-                // a stream that went away while it waited needs nothing
-                let _ = reply.send(self.read_with(from, first, stream, colours));
+                let _ = reply.send(self.interest(stream, owner, &post));
+            }
+            Command::Stalled { stream, ask } => {
+                // a block drained as the post's wait ran out is no stall, nor
+                // is a younger block after it: the stream is read, and stays open
+                let unread = |s: &Subscriber| {
+                    s.block
+                        .as_ref()
+                        .is_some_and(|b| b.ask == ask && !b.drained.is_cancelled())
+                };
+                if let Some(at) = self.live.iter().position(|s| s.id == stream && unread(s)) {
+                    let s = self.live.remove(at);
+                    warn!(stream = %format_args!("{:08x}", s.log), "the client did not read its interest confirm in 30 s; closing its stream");
+                    s.closed.cancel();
+                }
+            }
+            Command::Ended { stream } => self.live.retain(|s| s.id != stream),
+            Command::Versions { key, reply } => {
+                let thread = self.keys.thread(&key);
+                let _ = reply.send(Versions {
+                    at: self.cursor(self.journal.head()),
+                    v: thread.map(|t| t.v),
+                    rv: thread.map(|t| t.rv),
+                    encoder: ENCODER,
+                });
             }
             Command::Board(command) => self.board_command(command),
-            Command::Snapshot { reply } => match serde_json::to_vec(&self.model.snapshot()) {
+            Command::Snapshot { reply } => match serde_json::to_vec(&self.journaled()) {
                 Ok(json) => {
-                    let _ = reply.send(Bytes::from(json));
+                    let _ = reply.send((Bytes::from(json), self.cursor(self.journal.head())));
                 }
                 Err(e) => error!(error = %e, "the fleet snapshot did not serialize"),
             },
@@ -1051,7 +1236,7 @@ impl Actor {
         // even when nothing moved: it may retry a write that was dropped
         let (ack, written) = oneshot::channel();
         self.outside.ack = Some(ack);
-        self.publish_all(&[]);
+        self.publish_all(Vec::new());
         self.outside.ack = None;
         Ok(Chosen { colour, written })
     }
@@ -1068,7 +1253,6 @@ impl Actor {
                 agent,
                 seq,
                 event,
-                raw,
             } => match event {
                 SourceEvent::Connection(status) => {
                     if let Some(projection) = &mut self.board {
@@ -1099,18 +1283,12 @@ impl Actor {
                     return;
                 }
                 event => {
-                    let kind = event.kind();
-                    match self.model.source(&agent, seq, event, raw.as_deref()) {
-                        Ok(changes) => changes,
-                        Err(e) => {
-                            warn!(connection = %connection, host = %agent, kind, error = %e, "an event's payload lacks what it was translated from; skipped");
-                            return;
-                        }
-                    }
+                    let _ = connection;
+                    self.model.source(&agent, seq, event)
                 }
             },
         };
-        self.publish_all(&changes);
+        self.publish_all(changes);
     }
 
     fn looking(&mut self, devices: Vec<Looking>) {
@@ -1119,7 +1297,7 @@ impl Actor {
         record::looking(now, &devices);
         self.model.at(now);
         let moved = self.model.looking(devices);
-        self.publish_all(&moved);
+        self.publish_all(moved);
     }
 
     fn flush_tails(&mut self) {
@@ -1128,23 +1306,33 @@ impl Actor {
         record::flush_tails(now);
         self.model.at(now);
         let changes = self.model.flush_tails();
-        self.publish_all(&changes);
+        self.publish_all(changes);
     }
 
-    /// journals the changes, each new repo's colour ahead of them, then
-    /// carries the model's effects out.
-    fn publish_all(&mut self, changes: &[Change]) {
-        for colour in self.model.assign_colours(changes) {
+    /// the text deltas whose 100 ms batch is due go into the journal.
+    fn flush_deltas(&mut self) {
+        let due = self.encoder.flush_due(crate::now_ms());
+        self.journal_all(due);
+    }
+
+    /// journals the model's changes through the encoder, each new repo's
+    /// colour ahead of them, then carries the model's effects out.
+    fn publish_all(&mut self, changes: Vec<Change>) {
+        for colour in self.model.assign_colours(&changes) {
             self.colour(colour);
-        }
-        for change in changes {
-            self.publish(change);
         }
         if let Some(projection) = &mut self.board {
             let now = tokio::time::Instant::now();
-            for change in changes {
+            for change in &changes {
                 projection.saw(change, now);
             }
+        }
+        let now = crate::now_ms();
+        for change in changes {
+            let entries = self.encode(now, change);
+            self.journal_all(entries);
+        }
+        if self.board.is_some() {
             self.board_tick();
         }
         for effect in self.model.drain() {
@@ -1191,7 +1379,7 @@ impl Actor {
                     Ok(None) => Ok(()),
                     Ok(Some((message, at))) => {
                         self.model.read(&key, &device, &message, at).map(|changes| {
-                            self.publish_all(&changes);
+                            self.publish_all(changes);
                         })
                     }
                 };
@@ -1255,34 +1443,78 @@ impl Actor {
         }
     }
 
-    fn publish(&mut self, change: &Change) {
-        let frame =
-            self.journal.append(
-                |seq| match serde_json::to_vec(&JournalEntry { seq, change }) {
-                    Ok(json) => Some(json),
-                    Err(e) => {
-                        error!(error = %e, "a change did not serialize; it is not journaled");
-                        None
-                    }
-                },
-            );
-        let Some(frame) = frame else { return };
-        self.deliver(&frame, false);
+    /// one model change as the journal entries the encoder gives for it: a
+    /// thread as a patch against its last state (or nothing), the order as
+    /// ops, a delta into its batch, a part without the text its deltas
+    /// built; every one that is not a delta takes the pending deltas first.
+    fn encode(&mut self, now: i64, change: Change) -> Vec<Change> {
+        let encoder = &mut self.encoder;
+        match change {
+            Change::Thread { thread } => encoder.thread(thread),
+            Change::ThreadRemoved { key } => encoder.thread_removed(&key),
+            Change::ThreadReset { key } => encoder.thread_reset(&key),
+            Change::Order { keys } => encoder.order(keys),
+            Change::Message {
+                key,
+                upstream,
+                message,
+            } => encoder.message(&key, upstream, message),
+            Change::MessageRemoved {
+                key,
+                upstream,
+                message_id,
+            } => encoder.message_removed(&key, upstream, message_id),
+            Change::Part {
+                key,
+                upstream,
+                part,
+            } => encoder.part(&key, upstream, part),
+            Change::Delta {
+                key,
+                message_id,
+                part_id,
+                field,
+                delta,
+                offset,
+            } => encoder.delta(now, &key, &message_id, &part_id, &field, &delta, offset),
+            other => encoder.other(other),
+        }
     }
 
-    /// a repo colour for the streams that asked for them: id-less, outside
-    /// the journal, queued ahead of whatever the step journals next. the
-    /// map's version moves, so a stream still replaying is sent the map
-    /// again before its next page.
-    fn colour(&mut self, colour: change::RepoColour) {
-        self.colours_version += 1;
+    fn journal_all(&mut self, entries: Vec<Change>) {
+        for change in entries {
+            self.publish(&change);
+        }
+    }
+
+    /// appends one entry to the journal, encoded once, and hands its bytes
+    /// to every live stream.
+    fn publish(&mut self, change: &Change) {
+        let thread = change.transcript_key();
+        let frame = self.journal.append_for(thread, |seq| {
+            match serde_json::to_vec(&EntryRef { seq, change }) {
+                Ok(json) => Some(json),
+                Err(e) => {
+                    error!(error = %e, "a change did not serialize; it is not journaled");
+                    None
+                }
+            }
+        });
+        let Some(frame) = frame else { return };
+        self.keys.saw(self.journal.head(), change, crate::now_ms());
+        self.deliver(&frame, thread);
+    }
+
+    /// a repo colour for every stream: id-less, outside the journal, queued
+    /// ahead of whatever the step journals next.
+    fn colour(&mut self, colour: RepoColour) {
         match serde_json::to_vec(&ColourFrame::Colour { colour }) {
-            Ok(json) => self.deliver(&sse_frame(None, &json), true),
+            Ok(json) => self.deliver(&sse_frame(None, &json), None),
             Err(e) => error!(error = %e, "a repo colour did not serialize; it is not sent"),
         }
     }
 
-    /// the whole colour map, as a stream that asked for colours gets it first.
+    /// the whole colour map, as every stream gets it first.
     fn colour_map(&self) -> Option<Bytes> {
         let frame = ColourFrame::Colours {
             colours: self.model.colour_list(),
@@ -1296,125 +1528,328 @@ impl Actor {
         }
     }
 
-    /// hands a frame to every live stream (only those that asked for colours,
-    /// when `colours_only`), closing any that fell past the cap.
-    fn deliver(&mut self, frame: &Bytes, colours_only: bool) {
+    /// hands a frame to every stream that takes it (an overview frame or a
+    /// colour: all; a transcript entry: those whose interest holds its
+    /// thread), closing any that fell past the cap.
+    fn deliver(&mut self, frame: &Bytes, thread: Option<&str>) {
         self.live.retain(|s| {
-            if colours_only && !s.colours {
+            if thread.is_some_and(|key| !s.keys.contains(key)) {
                 return true;
             }
             let queued = s.queued.load(Ordering::Acquire);
             if queued + frame.len() > OUTBOUND_CAP {
-                warn!(stream = %format_args!("{:08x}", s.stream), queued_bytes = queued, frame_bytes = frame.len(), cap_bytes = OUTBOUND_CAP, "the client fell 512 KB behind; closing its stream");
+                warn!(stream = %format_args!("{:08x}", s.log), queued_bytes = queued, frame_bytes = frame.len(), cap_bytes = OUTBOUND_CAP, "the client fell 512 KB behind; closing its stream");
                 s.closed.cancel();
                 return false;
             }
             s.queued.fetch_add(frame.len(), Ordering::AcqRel);
-            // a failed send means the stream is gone: it leaves the list
-            s.frames.send(frame.clone()).is_ok()
+            // a failed send means the stream is gone: it leaves the map
+            s.frames.send(Feed::Frame(frame.clone())).is_ok()
         });
     }
 
-    #[cfg(test)]
-    fn read(&mut self, from: From, first: bool, stream: u32) -> Page {
-        self.read_with(from, first, stream, None)
+    /// the fleet as the journal has told it: what a reset carries and
+    /// `GET /api/fleet` answers. each thread and the order are their last
+    /// journaled state (the encoder's bases), so the patches after it apply
+    /// to exactly what the client holds, whatever the model holds back for
+    /// the pace.
+    fn journaled(&self) -> crate::wire::Fleet {
+        let mut fleet = self.model.snapshot();
+        for thread in &mut fleet.threads {
+            if let Some(base) = self.encoder.base(&thread.key) {
+                thread.clone_from(base);
+            }
+        }
+        if let Some(order) = self.encoder.order_base() {
+            fleet.order = order.to_vec();
+        }
+        fleet
     }
 
-    /// a stream's next page. one that asked for colours gets the whole map
-    /// after `hello`, and again ahead of a later page when it moved since:
-    /// every repo a page's entries show then has its colour already.
-    fn read_with(&mut self, from: From, first: bool, stream: u32, colours: Option<u64>) -> Page {
+    /// a client stream opens: `hello` and the colour map, then a `reset`
+    /// when its cursor cannot be caught up, else the compact catch-up from
+    /// it, ending in `caught`; then it is live with the interest it declared.
+    fn open(&mut self, opening: &Opening) -> Opened {
+        let id = rand::random::<u128>();
         let mut frames = Vec::new();
-        if first {
-            frames.extend(self.hello());
-        }
-        let colours = colours.map(|held| {
-            if held != self.colours_version || first {
-                frames.extend(self.colour_map());
-            }
-            self.colours_version
-        });
-        let after = match from {
-            From::Start => return self.reset(frames, ResetReason::None, stream, colours),
-            From::Malformed => return self.reset(frames, ResetReason::Invalid, stream, colours),
-            From::At(cursor) if cursor.epoch != self.journal.epoch() => {
-                return self.reset(frames, ResetReason::Epoch, stream, colours);
-            }
-            From::At(cursor) => cursor.seq,
+        frames.extend(self.hello(id, &opening.interest));
+        frames.extend(self.colour_map());
+        let head = self.journal.head();
+        let reason = match &opening.from {
+            From::Start => Some(ResetReason::None),
+            From::Malformed => Some(ResetReason::Invalid),
+            From::At(cursor) if cursor.epoch != self.journal.epoch() => Some(ResetReason::Epoch),
+            From::At(cursor) if cursor.seq > head => Some(ResetReason::Invalid),
+            From::At(cursor) if cursor.seq < self.keys.gone_floor() => Some(ResetReason::Expired),
+            From::At(_) => None,
         };
-        match self.journal.page(after, PAGE_BYTES) {
-            Err(Gap::Ahead) => self.reset(frames, ResetReason::Invalid, stream, colours),
-            Err(Gap::Evicted) => self.reset(frames, ResetReason::Expired, stream, colours),
-            Ok(page) => {
-                frames.extend(page.frames);
-                let live = (page.last == self.journal.head())
-                    .then(|| self.subscribe(stream, colours.is_some()));
-                Page {
-                    frames,
-                    next: self.cursor(page.last),
-                    live,
-                    colours,
-                }
+        match (reason, &opening.from) {
+            (Some(reason), _) => frames.extend(self.reset(reason, opening.log)),
+            (None, From::At(cursor)) => {
+                let caught = self.catch_up(cursor.seq, &opening.interest, &opening.since);
+                info!(stream = %format_args!("{:08x}", opening.log), from = cursor.seq, head, frames = caught.len(), bytes = caught.iter().map(Bytes::len).sum::<usize>(), "stream catches up from its cursor");
+                frames.extend(caught);
             }
+            (None, _) => {}
+        }
+        let live = self.subscribe(id, opening);
+        Opened {
+            frames,
+            live,
+            stream: id,
         }
     }
 
-    fn reset(
-        &mut self,
-        mut frames: Vec<Bytes>,
-        reason: ResetReason,
-        stream: u32,
-        colours: Option<u64>,
-    ) -> Page {
+    fn reset(&self, reason: ResetReason, log: u32) -> Option<Bytes> {
         let head = self.journal.head();
         let control = Control::Reset {
             seq: head,
             epoch: self.journal.epoch().to_owned(),
             reason,
-            fleet: self.model.snapshot(),
+            fleet: self.journaled(),
         };
-        match serde_json::to_vec(&control) {
-            Ok(json) => {
-                let frame = sse_frame(Some(&self.cursor(head).to_string()), &json);
-                info!(stream = %format_args!("{stream:08x}"), reason = reason.as_str(), head, bytes = frame.len(), "stream starts from a snapshot");
-                frames.push(frame);
-            }
-            Err(e) => error!(error = %e, "the reset snapshot did not serialize"),
-        }
-        Page {
-            frames,
-            next: self.cursor(head),
-            live: Some(self.subscribe(stream, colours.is_some())),
-            colours,
-        }
+        let frame = self.control_frame(Some(head), &control)?;
+        info!(stream = %format_args!("{log:08x}"), reason = reason.as_str(), head, bytes = frame.len(), "stream starts from a snapshot");
+        Some(frame)
     }
 
-    fn hello(&self) -> Option<Bytes> {
-        let hello = Control::Hello {
-            epoch: self.journal.epoch().to_owned(),
-            head: self.journal.head(),
-            build: self.build.clone(),
-            protocol: PROTOCOL,
-        };
-        match serde_json::to_vec(&hello) {
-            Ok(json) => Some(sse_frame(None, &json)),
+    /// an entry frame with its own id.
+    fn entry_frame(&self, seq: u64, change: &Change) -> Option<Bytes> {
+        match serde_json::to_vec(&EntryRef { seq, change }) {
+            Ok(json) => Some(sse_frame(Some(&self.cursor(seq).to_string()), &json)),
             Err(e) => {
-                error!(error = %e, "hello did not serialize");
+                error!(error = %e, "a catch-up entry did not serialize; it is not sent");
                 None
             }
         }
     }
 
-    fn subscribe(&mut self, stream: u32, colours: bool) -> Live {
+    fn control_frame(&self, id: Option<u64>, control: &Control) -> Option<Bytes> {
+        match serde_json::to_vec(control) {
+            Ok(json) => Some(sse_frame(
+                id.map(|seq| self.cursor(seq).to_string()).as_deref(),
+                &json,
+            )),
+            Err(e) => {
+                error!(error = %e, "a control frame did not serialize; it is not sent");
+                None
+            }
+        }
+    }
+
+    /// the compact catch-up from `cursor` (`docs/protocol.md`, section 9):
+    /// the overview that moved after it, each frame with the id of its
+    /// newest entry and in seq order; then per interest key with a `since`
+    /// its compacted transcript in `catchup` frames, or `thread.stale`; then
+    /// `caught` at the head.
+    fn catch_up(
+        &self,
+        cursor: u64,
+        interest: &Interest,
+        since: &BTreeMap<String, u64>,
+    ) -> Vec<Bytes> {
+        let moved = self.keys.since(cursor);
+        let mut entries = moved.entries;
+        for (seq, key) in moved.threads {
+            if let Some(thread) = self.encoder.base(&key) {
+                entries.push((
+                    seq,
+                    Change::Thread {
+                        thread: thread.clone(),
+                    },
+                ));
+            }
+        }
+        if let (Some(seq), Some(order)) = (moved.order, self.encoder.order_base()) {
+            entries.push((
+                seq,
+                Change::Order {
+                    keys: order.to_vec(),
+                },
+            ));
+        }
+        entries.sort_by_key(|(seq, _)| *seq);
+        let mut frames: Vec<Bytes> = entries
+            .iter()
+            .filter_map(|(seq, change)| self.entry_frame(*seq, change))
+            .collect();
+        let caught = self.catch_keys(
+            interest_keys(interest)
+                .into_iter()
+                .filter_map(|key| since.get(&key).map(|&seq| (key, seq))),
+        );
+        frames.extend(caught.frames);
+        // a key reset after its `since` and after the cursor has its
+        // `thread.reset` above; one reset at or below the cursor reached the
+        // stream live, and is stale here, so the client reads it before it
+        // trusts it
+        let reset_before = caught
+            .reset
+            .into_iter()
+            .filter(|key| self.keys.thread(key).is_none_or(|t| t.reset_seq <= cursor));
+        for key in caught.stale.into_iter().chain(reset_before) {
+            frames.extend(self.control_frame(None, &Control::ThreadStale { key }));
+        }
+        let head = self.journal.head();
+        frames.extend(self.control_frame(Some(head), &Control::Caught { seq: head }));
+        frames
+    }
+
+    /// one key's catch-up from its `since`.
+    fn key_catch(&self, key: &str, since: u64) -> KeyCatch {
+        let Some(thread) = self.keys.thread(key) else {
+            return KeyCatch::Stale;
+        };
+        if thread.reset_seq > since {
+            return KeyCatch::Reset;
+        }
+        let Ok(held) = self.journal.transcript(key, since) else {
+            return KeyCatch::Stale;
+        };
+        let mut entries = Vec::with_capacity(held.len());
+        for (_, frame) in held {
+            match serde_json::from_slice::<JournalEntry>(&frame_data(&frame)) {
+                Ok(entry) => entries.push(entry),
+                Err(e) => {
+                    error!(error = %e, thread = key, "a journaled entry did not decode; the thread is caught up by a read");
+                    return KeyCatch::Stale;
+                }
+            }
+        }
+        KeyCatch::Entries(catchup::compact(entries))
+    }
+
+    /// keys with their `since`, caught up in order within one block's cap:
+    /// a key whose catch-up would pass it, or one entry alone a frame's, is
+    /// stale and read by the client.
+    fn catch_keys(&self, keys: impl Iterator<Item = (String, u64)>) -> Caught {
+        let mut caught = Caught::default();
+        let mut total = 0;
+        for (key, since) in keys {
+            match self.key_catch(&key, since) {
+                KeyCatch::Reset => caught.reset.push(key),
+                KeyCatch::Stale => caught.stale.push(key),
+                KeyCatch::Entries(entries) if entries.is_empty() => {}
+                KeyCatch::Entries(entries) => match catchup::frames(&entries) {
+                    Some(frames) => {
+                        let bytes: usize = frames.iter().map(Bytes::len).sum();
+                        if total + bytes > catchup::BLOCK_BYTES {
+                            caught.stale.push(key);
+                        } else {
+                            total += bytes;
+                            caught.frames.extend(frames);
+                        }
+                    }
+                    None => caught.stale.push(key),
+                },
+            }
+        }
+        caught
+    }
+
+    /// an interest post (`docs/protocol.md`, section 5): at the head H the
+    /// stream's filter swaps, and its confirm block (the catch-up of every key
+    /// that enters with a `since`, then the `interest` frame with id H) goes
+    /// on its channel behind what is queued.
+    fn interest(&mut self, stream: u128, owner: Owner, post: &InterestPost) -> Confirm {
+        let Some(at) = self.live.iter().position(|s| s.id == stream) else {
+            return Confirm::NoSuchStream;
+        };
+        let s = &self.live[at];
+        if s.frames.is_closed() || s.closed.is_cancelled() {
+            self.live.remove(at);
+            return Confirm::NoSuchStream;
+        }
+        if s.owner != owner {
+            return Confirm::NoSuchStream;
+        }
+        if post.ask <= s.asked {
+            return Confirm::Older;
+        }
+        if let Some(block) = s.block.as_ref().filter(|b| !b.drained.is_cancelled()) {
+            return Confirm::Busy {
+                drained: block.drained.clone(),
+                closed: s.closed.clone(),
+                handed: block.handed,
+                ask: block.ask,
+            };
+        }
+        let interest = Interest {
+            thread: post.thread.clone(),
+            under: post.under.clone(),
+            holds: post.holds.clone(),
+        };
+        let keys = interest_keys(&interest);
+        let entering: Vec<(String, u64)> = keys
+            .iter()
+            .filter(|key| !s.keys.contains(*key))
+            .filter_map(|key| post.since.get(key).map(|&seq| (key.clone(), seq)))
+            .collect();
+        let entered = entering.len();
+        let caught = self.catch_keys(entering.into_iter());
+        let head = self.journal.head();
+        let mut frames = caught.frames;
+        let (stale, reset) = (caught.stale.len(), caught.reset.len());
+        let catchup_bytes: usize = frames.iter().map(Bytes::len).sum();
+        frames.extend(self.control_frame(
+            Some(head),
+            &Control::Interest {
+                ask: post.ask,
+                thread: interest.thread.clone(),
+                under: interest.under.clone(),
+                holds: interest.holds.clone(),
+                seq: head,
+                stale: caught.stale,
+                reset: caught.reset,
+            },
+        ));
+        let drained = CancellationToken::new();
+        let s = &mut self.live[at];
+        tracing::debug!(stream = %format_args!("{:08x}", s.log), ask = post.ask, head, entering = entered, catchup_bytes, stale, reset, "interest swapped");
+        s.keys = keys.into_iter().collect();
+        s.interest = interest;
+        s.asked = post.ask;
+        s.block = Some(Block {
+            drained: drained.clone(),
+            handed: tokio::time::Instant::now(),
+            ask: post.ask,
+        });
+        if s.frames.send(Feed::Block { frames, drained }).is_err() {
+            self.live.remove(at);
+            return Confirm::NoSuchStream;
+        }
+        Confirm::Applied
+    }
+
+    /// the first frame of a stream, with the stream's own id (128 random
+    /// bits, what its interest posts name) and the interest it opened with.
+    fn hello(&self, id: u128, interest: &Interest) -> Option<Bytes> {
+        let hello = Control::Hello {
+            protocol: PROTOCOL,
+            epoch: self.journal.epoch().to_owned(),
+            head: self.journal.head(),
+            build: self.build.clone(),
+            stream: format!("{id:032x}"),
+            interest: interest.clone(),
+        };
+        self.control_frame(None, &hello)
+    }
+
+    fn subscribe(&mut self, id: u128, opening: &Opening) -> Live {
         let (tx, frames) = mpsc::unbounded_channel();
         let queued = Arc::new(AtomicUsize::new(0));
         let closed = CancellationToken::new();
         self.live.push(Subscriber {
-            stream,
+            id,
+            log: opening.log,
+            owner: opening.owner,
+            keys: interest_keys(&opening.interest).into_iter().collect(),
+            interest: opening.interest.clone(),
+            asked: 0,
             frames: tx,
             queued: Arc::clone(&queued),
             closed: closed.clone(),
-            colours,
+            block: None,
         });
         Live {
             frames,
@@ -1531,6 +1966,15 @@ impl Outside {
     }
 }
 
+/// one journal entry as the wire spells it (`wire::JournalEntry`), its
+/// change borrowed: encoded once, never cloned for it.
+#[derive(Serialize)]
+struct EntryRef<'a> {
+    seq: u64,
+    #[serde(flatten)]
+    change: &'a Change,
+}
+
 /// how long until `due`, ms since the epoch; nothing when it has passed.
 fn until(due: Option<i64>) -> Duration {
     let wait = due.map_or(0, |due| due - crate::now_ms());
@@ -1550,9 +1994,10 @@ mod tests {
         Actor {
             model: Model::new(),
             journal: Journal::new("ep".into()),
+            encoder: Encoder::new(),
+            keys: StreamKeys::new(),
             live: Vec::new(),
             board: None,
-            colours_version: 0,
             build: "test".into(),
             tails: mpsc::channel(1).0,
             outside: Outside {
@@ -1587,7 +2032,6 @@ mod tests {
             agent: name,
             seq: None,
             event: SourceEvent::Connection(translate::connection(status)),
-            raw: None,
         }
     }
 
@@ -1595,84 +2039,201 @@ mod tests {
         std::str::from_utf8(frame).unwrap()
     }
 
+    fn cursor(seq: u64) -> From {
+        From::At(Cursor {
+            epoch: "ep".into(),
+            seq,
+        })
+    }
+
+    fn open_with(
+        actor: &mut Actor,
+        from: From,
+        interest: Interest,
+        since: &[(&str, u64)],
+    ) -> Opened {
+        actor.open(&Opening {
+            from,
+            interest,
+            since: since.iter().map(|(k, s)| ((*k).to_owned(), *s)).collect(),
+            owner: [1; 32],
+            log: 1,
+        })
+    }
+
+    fn open(actor: &mut Actor, from: From) -> Opened {
+        open_with(actor, from, Interest::default(), &[])
+    }
+
+    fn showing(thread: &str) -> Interest {
+        Interest {
+            thread: Some(thread.into()),
+            under: Vec::new(),
+            holds: Vec::new(),
+        }
+    }
+
+    fn post(ask: u64, thread: Option<&str>, since: &[(&str, u64)]) -> InterestPost {
+        InterestPost {
+            ask,
+            thread: thread.map(Into::into),
+            under: Vec::new(),
+            holds: Vec::new(),
+            since: since.iter().map(|(k, s)| ((*k).to_owned(), *s)).collect(),
+        }
+    }
+
     #[test]
     fn a_first_connection_gets_hello_then_a_snapshot_and_goes_live() {
         let mut actor = actor();
         actor.upstream(host(1));
-        let page = actor.read(From::Start, true, 1);
-        assert_eq!(page.frames.len(), 2);
+        let opened = open(&mut actor, From::Start);
+        assert_eq!(kinds(&opened.frames), ["hello", "colours", "reset"]);
         assert!(
-            text(&page.frames[0])
-                .starts_with("data: {\"type\":\"hello\",\"epoch\":\"ep\",\"head\":1")
+            text(&opened.frames[0]).starts_with(
+                "data: {\"type\":\"hello\",\"protocol\":3,\"epoch\":\"ep\",\"head\":1"
+            )
         );
-        assert!(text(&page.frames[1]).starts_with(
+        assert!(text(&opened.frames[2]).starts_with(
             "id: ep:1\ndata: {\"type\":\"reset\",\"seq\":1,\"epoch\":\"ep\",\"reason\":\"none\""
         ));
-        let mut live = page.live.unwrap();
+        let mut live = opened.live;
         actor.upstream(host(2));
-        let next = live.frames.try_recv().unwrap();
-        assert!(text(&next).starts_with("id: ep:2\ndata: {\"seq\":2,\"type\":\"host\""));
-        assert_eq!(live.queued.load(Ordering::Acquire), next.len());
+        let next = drained(&mut live);
+        assert!(text(&next[0]).starts_with("id: ep:2\ndata: {\"seq\":2,\"type\":\"agent\""));
+        assert_eq!(live.queued.load(Ordering::Acquire), 0, "taken");
     }
 
     #[test]
-    fn a_resume_replays_after_the_cursor_and_then_goes_live_with_no_gap() {
+    fn every_stream_gets_its_own_id_and_the_interest_it_opened_with() {
+        let mut actor = actor();
+        let hello = |frames: &[Bytes]| -> serde_json::Value {
+            let data = text(&frames[0]).strip_prefix("data: ").unwrap();
+            serde_json::from_str(data.trim_end()).unwrap()
+        };
+        let one = open(&mut actor, From::Start);
+        let two = open_with(&mut actor, From::Start, showing("desk:ses_1"), &[]);
+        let (one, two_id) = (hello(&one.frames), two.stream);
+        let two = hello(&two.frames);
+        let id = one["stream"].as_str().unwrap();
+        assert_eq!(id.len(), 32);
+        assert!(
+            id.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
+        assert_ne!(one["stream"], two["stream"]);
+        assert_eq!(two["stream"], format!("{two_id:032x}"));
+        assert_eq!(
+            one["interest"],
+            serde_json::json!({"thread": null, "under": [], "holds": []})
+        );
+        assert_eq!(two["interest"]["thread"], "desk:ses_1");
+    }
+
+    /// a streamed delta for `thread`, as the cmx2 source sends one.
+    fn delta_in(thread: &str, text: &str, offset: u64) -> Upstream {
+        Upstream::Source {
+            connection: Arc::from("desk"),
+            agent: Arc::from("desk"),
+            seq: None,
+            event: SourceEvent::Delta {
+                thread: thread.into(),
+                message: "msg_1".into(),
+                part: "prt_1".into(),
+                field: "text".into(),
+                delta: text.into(),
+                offset,
+            },
+        }
+    }
+
+    fn delta(text: &str, offset: u64) -> Upstream {
+        delta_in("ses_1", text, offset)
+    }
+
+    #[test]
+    fn deltas_wait_for_their_batch_and_any_other_entry_takes_them_out_first() {
+        let mut actor = actor();
+        crate::test_clock::set(Some(1_000));
+        actor.upstream(delta("hel", 0));
+        actor.upstream(delta("lo", 3));
+        assert_eq!(actor.journal.head(), 0, "held for its 100 ms");
+        assert_eq!(actor.encoder.due(), Some(1_000 + encode::DELTA_EVERY_MS));
+        crate::test_clock::set(Some(1_100));
+        actor.flush_deltas();
+        let frames = actor.journal.page(0, usize::MAX).unwrap().frames;
+        assert_eq!(kinds(&frames), ["delta"]);
+        assert!(text(&frames[0]).contains(r#""delta":"hello","offset":0"#));
+        // a delta pending when the host's status moves goes ahead of it
+        actor.upstream(delta(" there", 5));
+        actor.upstream(host(1));
+        let frames = actor.journal.page(1, usize::MAX).unwrap().frames;
+        assert_eq!(kinds(&frames), ["delta", "agent"]);
+        crate::test_clock::set(None);
+    }
+
+    #[tokio::test]
+    async fn a_clean_stop_journals_the_text_still_waiting_for_its_batch() {
+        let mut actor = actor();
+        let mut live = open_with(&mut actor, From::Start, showing("desk:ses_1"), &[]).live;
+        actor.upstream(delta("bye", 0));
+        let (_upstream, events) = mpsc::channel(1);
+        let (_commands, commands) = mpsc::channel(1);
+        let (_looking, looking) = watch::channel(Vec::new());
+        let shutdown = CancellationToken::new();
+        shutdown.cancel();
+        actor.run(events, commands, looking, shutdown).await;
+        let frames = drained(&mut live);
+        assert_eq!(kinds(&frames), ["delta"]);
+    }
+
+    #[test]
+    fn an_agent_that_did_not_change_is_not_journaled_again() {
+        let mut actor = actor();
+        actor.upstream(host(1));
+        actor.upstream(host(1));
+        assert_eq!(actor.journal.head(), 1);
+    }
+
+    #[test]
+    fn a_resume_sends_each_key_that_moved_after_the_cursor_once_whole_then_caught() {
         let mut actor = actor();
         for n in 1..=3 {
             actor.upstream(host(n));
         }
-        let page = actor.read(
-            From::At(Cursor {
-                epoch: "ep".into(),
-                seq: 1,
-            }),
-            true,
-            1,
-        );
-        let ids: Vec<&str> = page
+        let opened = open(&mut actor, cursor(1));
+        let ids: Vec<&str> = opened
             .frames
             .iter()
-            .skip(1)
+            .skip(2)
             .map(|f| text(f).lines().next().unwrap())
             .collect();
-        assert_eq!(ids, ["id: ep:2", "id: ep:3"]);
-        assert!(
-            page.live.is_some(),
-            "the page that reaches the head goes live"
+        assert_eq!(
+            ids,
+            ["id: ep:3", "id: ep:3"],
+            "the agent at its newest, then caught"
         );
+        assert_eq!(kinds(&opened.frames)[2..], ["agent", "caught"]);
+        // at the head: hello, the map, caught
+        let at_head = open(&mut actor, cursor(3));
+        assert_eq!(kinds(&at_head.frames), ["hello", "colours", "caught"]);
     }
 
     #[test]
-    fn a_long_replay_comes_in_pages_and_only_the_last_goes_live() {
-        let mut actor = actor();
-        for n in 0..3000 {
-            actor.upstream(host(n));
-        }
-        let mut next = From::At(Cursor {
-            epoch: "ep".into(),
-            seq: 0,
-        });
-        let mut first = true;
-        let mut received = 0;
-        let mut pages = 0;
-        loop {
-            let page = actor.read(next, first, 1);
-            received += page.frames.len() - usize::from(first);
-            first = false;
-            pages += 1;
-            if page.live.is_some() {
-                break;
-            }
-            next = From::At(page.next);
-        }
-        assert_eq!(received, 3000);
-        assert!(pages > 1);
-    }
-
-    #[test]
-    fn a_cursor_from_another_epoch_or_past_the_head_starts_from_a_snapshot() {
+    fn a_cursor_from_another_epoch_past_the_head_or_below_the_tombstone_floor_starts_from_a_snapshot()
+     {
         let mut actor = actor();
         actor.upstream(host(1));
+        for n in 0..(keys::GONE_ROWS as u64 + 2) {
+            actor.keys.saw(
+                n + 2,
+                &Change::ThreadRemoved {
+                    key: format!("desk:{n}"),
+                },
+                0,
+            );
+        }
+        assert!(actor.keys.gone_floor() > 1);
         for (from, reason) in [
             (
                 From::At(Cursor {
@@ -1681,18 +2242,13 @@ mod tests {
                 }),
                 "epoch",
             ),
-            (
-                From::At(Cursor {
-                    epoch: "ep".into(),
-                    seq: 9,
-                }),
-                "invalid",
-            ),
+            (cursor(9), "invalid"),
             (From::Malformed, "invalid"),
+            (cursor(1), "expired"),
         ] {
-            let page = actor.read(from, false, 1);
+            let opened = open(&mut actor, from);
             assert!(
-                text(&page.frames[0]).contains(&format!("\"reason\":\"{reason}\"")),
+                text(opened.frames.last().unwrap()).contains(&format!("\"reason\":\"{reason}\"")),
                 "{reason}"
             );
         }
@@ -1701,7 +2257,7 @@ mod tests {
     #[test]
     fn a_stream_that_falls_past_the_cap_is_closed_and_dropped() {
         let mut actor = actor();
-        let live = actor.read(From::Start, false, 7).live.unwrap();
+        let live = open(&mut actor, From::Start).live;
         // nobody takes from the queue: it fills until the cap closes it
         for n in 0..10_000 {
             actor.upstream(host(n));
@@ -1715,11 +2271,212 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_that_went_away_leaves_the_list_on_the_next_frame() {
+    fn a_stream_that_went_away_leaves_the_map_on_the_next_frame_or_when_it_says_so() {
         let mut actor = actor();
-        drop(actor.read(From::Start, false, 1).live);
+        drop(open(&mut actor, From::Start).live);
         actor.upstream(host(1));
         assert!(actor.live.is_empty());
+        let opened = open(&mut actor, From::Start);
+        actor.command(Command::Ended {
+            stream: opened.stream,
+        });
+        assert!(actor.live.is_empty());
+    }
+
+    #[test]
+    fn a_transcript_entry_reaches_only_the_streams_showing_its_thread_and_the_overview_every_one() {
+        let mut actor = actor();
+        let mut home = open(&mut actor, From::Start).live;
+        let mut one = open_with(&mut actor, From::Start, showing("desk:ses_1"), &[]).live;
+        let mut two = open_with(&mut actor, From::Start, showing("desk:ses_2"), &[]).live;
+        actor.upstream(delta_in("ses_1", "hi", 0));
+        actor.upstream(host(1));
+        assert_eq!(kinds(&drained(&mut home)), ["agent"]);
+        assert_eq!(kinds(&drained(&mut one)), ["delta", "agent"]);
+        assert_eq!(kinds(&drained(&mut two)), ["agent"]);
+    }
+
+    #[test]
+    fn an_interest_post_swaps_the_filter_at_the_head_and_confirms_behind_what_is_queued() {
+        let mut actor = actor();
+        actor.upstream(session_in("ses_1", "/w"));
+        let opened = open(&mut actor, From::Start);
+        let (id, mut live) = (opened.stream, opened.live);
+        crate::test_clock::set(Some(1_000));
+        actor.upstream(delta("hello", 0));
+        actor.upstream(host(1));
+        let since = actor.journal.head() - 2;
+        actor.upstream(delta(" world", 5));
+        actor.upstream(host(2));
+        crate::test_clock::set(None);
+        let head = actor.journal.head();
+        // home did not get the deltas; it posts the thread with its `left`
+        assert!(matches!(
+            actor.interest(
+                id,
+                [1; 32],
+                &post(1, Some("desk:ses_1"), &[("desk:ses_1", since)])
+            ),
+            Confirm::Applied
+        ));
+        let frames = drained(&mut live);
+        assert_eq!(kinds(&frames), ["agent", "agent", "catchup", "interest"]);
+        let catchup = text(&frames[2]);
+        assert!(!catchup.starts_with("id:"), "id-less");
+        assert!(
+            catchup.contains(r#""delta":"hello world","offset":0"#),
+            "merged: {catchup}"
+        );
+        assert!(text(&frames[3]).starts_with(&format!("id: ep:{head}\n")));
+        assert!(text(&frames[3]).contains(r#""ask":1,"thread":"desk:ses_1""#));
+        // from here its words reach it
+        actor.upstream(delta("!", 11));
+        actor.flush_deltas_now();
+        assert_eq!(kinds(&drained(&mut live)), ["delta"]);
+        // an older ask is taken and not confirmed; another session's is no stream
+        assert!(matches!(
+            actor.interest(id, [1; 32], &post(1, None, &[])),
+            Confirm::Older
+        ));
+        assert!(matches!(
+            actor.interest(id, [2; 32], &post(9, None, &[])),
+            Confirm::NoSuchStream
+        ));
+        assert!(drained(&mut live).is_empty());
+    }
+
+    #[test]
+    fn a_post_waits_while_the_last_confirm_is_unread_and_a_stall_closes_the_stream() {
+        let mut actor = actor();
+        let opened = open(&mut actor, From::Start);
+        let (id, mut live) = (opened.stream, opened.live);
+        assert!(matches!(
+            actor.interest(id, [1; 32], &post(1, Some("desk:ses_1"), &[])),
+            Confirm::Applied
+        ));
+        let Confirm::Busy {
+            drained: unread, ..
+        } = actor.interest(id, [1; 32], &post(2, None, &[]))
+        else {
+            panic!("the first confirm is unread")
+        };
+        // the stream takes its block: the next post goes through
+        let Ok(Feed::Block { drained: block, .. }) = live.frames.try_recv() else {
+            panic!("a block")
+        };
+        block.cancel();
+        assert!(unread.is_cancelled());
+        assert!(matches!(
+            actor.interest(id, [1; 32], &post(2, None, &[])),
+            Confirm::Applied
+        ));
+        // a post that waited out its 30 s closes the stream, and it is gone
+        actor.command(Command::Stalled { stream: id, ask: 2 });
+        assert!(live.closed.is_cancelled());
+        assert!(matches!(
+            actor.interest(id, [1; 32], &post(3, None, &[])),
+            Confirm::NoSuchStream
+        ));
+    }
+
+    #[test]
+    fn a_stall_that_meets_a_drained_block_leaves_the_stream_open() {
+        let mut actor = actor();
+        let opened = open(&mut actor, From::Start);
+        let (id, mut live) = (opened.stream, opened.live);
+        assert!(matches!(
+            actor.interest(id, [1; 32], &post(1, Some("desk:ses_1"), &[])),
+            Confirm::Applied
+        ));
+        // the stream drains its block just as a waiting post's 30 s run out
+        assert!(!drained(&mut live).is_empty());
+        actor.command(Command::Stalled { stream: id, ask: 1 });
+        assert!(!live.closed.is_cancelled(), "a read stream was closed");
+        assert!(matches!(
+            actor.interest(id, [1; 32], &post(2, None, &[])),
+            Confirm::Applied
+        ));
+    }
+
+    #[test]
+    fn a_resume_catches_up_the_threads_it_shows_from_their_since_and_marks_a_reset_one_stale() {
+        let mut actor = actor();
+        actor.upstream(session_in("ses_1", "/w"));
+        let at = actor.journal.head();
+        crate::test_clock::set(Some(1_000));
+        actor.upstream(delta("hello", 0));
+        crate::test_clock::set(None);
+        actor.flush_deltas_now();
+        let opened = open_with(
+            &mut actor,
+            cursor(at),
+            showing("desk:ses_1"),
+            &[("desk:ses_1", at)],
+        );
+        assert_eq!(kinds(&opened.frames)[2..], ["catchup", "caught"]);
+        // reset at or below the cursor: the stream heard it live; stale here
+        actor.publish(&Change::ThreadReset {
+            key: "desk:ses_1".into(),
+        });
+        let head = actor.journal.head();
+        let opened = open_with(
+            &mut actor,
+            cursor(head),
+            showing("desk:ses_1"),
+            &[("desk:ses_1", at)],
+        );
+        assert_eq!(kinds(&opened.frames)[2..], ["thread.stale", "caught"]);
+        // above the cursor: the overview carries the reset, and nothing more
+        let opened = open_with(
+            &mut actor,
+            cursor(head - 1),
+            showing("desk:ses_1"),
+            &[("desk:ses_1", at)],
+        );
+        assert_eq!(kinds(&opened.frames)[2..], ["thread.reset", "caught"]);
+    }
+
+    #[test]
+    fn versions_follow_the_thread_s_transcript() {
+        let mut actor = actor();
+        actor.upstream(session_in("ses_1", "/w"));
+        let seen = actor.keys.thread("desk:ses_1").unwrap().seq;
+        let (reply, mut answer) = oneshot::channel();
+        actor.command(Command::Versions {
+            key: "desk:ses_1".into(),
+            reply,
+        });
+        let versions = answer.try_recv().unwrap();
+        assert_eq!((versions.v, versions.rv), (Some(seen), Some(seen)));
+        assert_eq!(versions.encoder, ENCODER);
+        assert_eq!(
+            versions.at.to_string(),
+            format!("ep:{}", actor.journal.head())
+        );
+        crate::test_clock::set(Some(1_000));
+        actor.upstream(delta("hi", 0));
+        crate::test_clock::set(None);
+        actor.flush_deltas_now();
+        let (reply, mut answer) = oneshot::channel();
+        actor.command(Command::Versions {
+            key: "desk:ses_1".into(),
+            reply,
+        });
+        assert_eq!(answer.try_recv().unwrap().v, Some(actor.journal.head()));
+        let (reply, mut answer) = oneshot::channel();
+        actor.command(Command::Versions {
+            key: "desk:nope".into(),
+            reply,
+        });
+        assert_eq!(answer.try_recv().unwrap().v, None);
+    }
+
+    impl Actor {
+        /// every pending delta journaled now.
+        fn flush_deltas_now(&mut self) {
+            let pending = self.encoder.flush();
+            self.journal_all(pending);
+        }
     }
 
     /// an actor on a fresh install, which gives repos colours, and where its
@@ -1757,7 +2514,6 @@ mod tests {
             agent: Arc::from("desk"),
             seq: None,
             event,
-            raw: Some(decoded.payload),
         }
     }
 
@@ -1775,14 +2531,32 @@ mod tests {
             .collect()
     }
 
+    /// what a stream takes off its feed now, a confirm block as its frames
+    /// (and said taken).
     fn drained(live: &mut Live) -> Vec<Bytes> {
-        std::iter::from_fn(|| live.frames.try_recv().ok()).collect()
+        let mut frames = Vec::new();
+        while let Ok(feed) = live.frames.try_recv() {
+            match feed {
+                Feed::Frame(frame) => {
+                    live.queued.fetch_sub(frame.len(), Ordering::AcqRel);
+                    frames.push(frame);
+                }
+                Feed::Block {
+                    frames: block,
+                    drained,
+                } => {
+                    frames.extend(block);
+                    drained.cancel();
+                }
+            }
+        }
+        frames
     }
 
-    /// a stream that asked for colours, from the start.
-    fn coloured_stream(actor: &mut Actor, stream: u32) -> (Vec<Bytes>, Live, Option<u64>) {
-        let page = actor.read_with(From::Start, true, stream, Some(0));
-        (page.frames, page.live.unwrap(), page.colours)
+    /// a stream from the start.
+    fn coloured_stream(actor: &mut Actor) -> (Vec<Bytes>, Live) {
+        let opened = open(actor, From::Start);
+        (opened.frames, opened.live)
     }
 
     fn choose(actor: &mut Actor, colour: Option<&str>) -> Chosen {
@@ -1797,31 +2571,34 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_that_does_not_ask_for_colours_gets_contract_1_byte_for_byte() {
+    fn colours_are_outside_the_journal_the_entries_are_the_same_given_or_not() {
         let (mut colouring, _written) = colouring();
         let mut plain = actor();
-        let mut ours = colouring.read(From::Start, true, 1).live.unwrap();
-        let mut theirs = plain.read(From::Start, true, 1).live.unwrap();
+        let mut ours = open(&mut colouring, From::Start).live;
+        let mut theirs = open(&mut plain, From::Start).live;
         for actor in [&mut colouring, &mut plain] {
             actor.upstream(session_in("ses_1", "/work/api"));
             actor.upstream(session_in("ses_2", "/work/web"));
         }
         let _ = choose(&mut colouring, Some("sunset"));
+        let entries = |frames: Vec<Bytes>| -> Vec<Bytes> {
+            frames
+                .into_iter()
+                .filter(|f| text(f).starts_with("id:"))
+                .collect()
+        };
         let (ours, theirs) = (drained(&mut ours), drained(&mut theirs));
+        assert!(ours.iter().any(|f| !text(f).starts_with("id:")), "colours");
+        let (ours, theirs) = (entries(ours), entries(theirs));
         assert!(!ours.is_empty());
-        assert_eq!(ours, theirs, "the same frames, colours given or not");
-        assert_eq!(
-            colouring.read(From::Start, true, 2).frames,
-            plain.read(From::Start, true, 2).frames,
-            "and the same hello and reset"
-        );
+        assert_eq!(ours, theirs, "the same entries, colours given or not");
     }
 
     #[test]
-    fn a_stream_that_asks_gets_the_map_first_then_each_colour_ahead_of_its_repo_s_first_session() {
+    fn a_stream_gets_the_map_first_then_each_colour_ahead_of_its_repo_s_first_session() {
         let (mut actor, mut written) = colouring();
         actor.upstream(session_in("ses_0", "/work/old"));
-        let (frames, mut live, _) = coloured_stream(&mut actor, 1);
+        let (frames, mut live) = coloured_stream(&mut actor);
         assert_eq!(kinds(&frames), ["hello", "colours", "reset"]);
         assert!(text(&frames[1]).starts_with(
             "data: {\"type\":\"colours\",\"colours\":[{\"host\":\"desk\",\"root\":\"/work/old\""
@@ -1853,36 +2630,27 @@ mod tests {
     }
 
     #[test]
-    fn a_resumed_stream_gets_the_map_again_when_it_moved_while_it_was_away() {
+    fn a_resumed_stream_gets_the_whole_map_with_the_repos_that_came_while_it_was_away() {
         let (mut actor, _written) = colouring();
         actor.upstream(session_in("ses_0", "/work/old"));
-        let (_, live, held) = coloured_stream(&mut actor, 1);
-        let cursor = actor.cursor(actor.journal.head());
+        let (_, live) = coloured_stream(&mut actor);
+        let at = actor.journal.head();
         drop(live);
         // while it was away a new repo came, and its first session with it
         actor.upstream(session_in("ses_1", "/work/api"));
-        let page = actor.read_with(From::At(cursor.clone()), true, 2, held);
-        let kinds = kinds(&page.frames);
+        let opened = open(&mut actor, cursor(at));
+        let kinds = kinds(&opened.frames);
         assert_eq!(&kinds[..2], ["hello", "colours"], "{kinds:?}");
-        assert!(text(&page.frames[1]).contains(r#""root":"/work/api""#));
-        assert!(kinds[2..].contains(&"session".to_owned()));
-        // a later page with nothing new under it does not send the map again
-        let again = actor.read_with(From::At(page.next), false, 2, page.colours);
-        assert!(!kinds_of(&again.frames).contains(&"colours".to_owned()));
+        assert!(text(&opened.frames[1]).contains(r#""root":"/work/api""#));
+        assert!(kinds[2..].contains(&"thread".to_owned()));
     }
-
-    fn kinds_of(frames: &[Bytes]) -> Vec<String> {
-        kinds(frames)
-    }
-
     #[test]
-    fn a_choice_reaches_every_stream_that_asked_and_answers_once_written() {
+    fn a_choice_reaches_every_stream_and_answers_once_written() {
         let (mut actor, mut written_rows) = colouring();
         actor.upstream(session_in("ses_1", "/work/api"));
         while written_rows.try_recv().is_ok() {}
-        let (_, mut phone, _) = coloured_stream(&mut actor, 1);
-        let (_, mut mac, _) = coloured_stream(&mut actor, 2);
-        let mut old = actor.read(From::Start, true, 3).live.unwrap();
+        let (_, mut phone) = coloured_stream(&mut actor);
+        let (_, mut mac) = coloured_stream(&mut actor);
         let Chosen {
             colour,
             mut written,
@@ -1893,10 +2661,6 @@ mod tests {
             assert_eq!(kinds(&frames), ["colour"]);
             assert!(text(&frames[0]).contains(r#""chosen":"sunset""#));
         }
-        assert!(
-            drained(&mut old).is_empty(),
-            "a stream that did not ask hears nothing"
-        );
         let Ok(Persist::Colour(_, Some(ack))) = written_rows.try_recv() else {
             panic!("the choice's row carries its acknowledgement to the writer");
         };
@@ -1921,7 +2685,7 @@ mod tests {
         while let Ok(Persist::Colour(write, _)) = rows.try_recv() {
             save(write);
         }
-        let (_, mut live, _) = coloured_stream(&mut actor, 1);
+        let (_, mut live) = coloured_stream(&mut actor);
         // the choice's write is dropped: no ack, so the answer is 503
         let Chosen { mut written, .. } = choose(&mut actor, Some("sunset"));
         drop(rows.try_recv().unwrap());

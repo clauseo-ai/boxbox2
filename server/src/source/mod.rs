@@ -74,6 +74,9 @@ pub enum SourceEvent {
     Activity {
         thread: String,
         activity: Activity,
+        /// prompts admitted while a turn runs and not yet sent to the
+        /// model: the thread's `queued` while the status holds.
+        queued: u32,
     },
     /// a turn ended: busy becomes idle, parked stays parked; raises done.
     TurnEnded {
@@ -188,8 +191,8 @@ impl SourceEvent {
 pub struct ConnectionStatus {
     pub status: AgentStatus,
     pub connection: AgentConnection,
-    /// cmx2 only, while contract 1 lives: the host as contract 1's `host`
-    /// change carries it, byte for byte as today.
+    /// cmx2 only: the host, which the fleet builds its one agent from (as
+    /// `GET /api/agents` does).
     pub host: Option<Box<HostStatus>>,
 }
 
@@ -237,8 +240,9 @@ pub struct ThreadFacts {
     pub browse_only: bool,
     /// archived on the agent: it leaves the fleet.
     pub archived: bool,
-    /// cmx2 only, while contract 1 lives: the session's info as the daemon
-    /// wrote it, for contract 1's `session` change.
+    /// cmx2 only: the session's info as the daemon wrote it, which an
+    /// adopted thread's row in `boxbox.db` keeps (`fleet/adopted.rs`), so
+    /// rows written before protocol 3 still load. the fleet holds no copy.
     pub raw: Option<Box<RawValue>>,
 }
 
@@ -272,16 +276,14 @@ pub struct Floors {
 pub struct ThreadActivity {
     pub thread: String,
     pub activity: Activity,
-    /// cmx2 only, while contract 1 lives: the status as the daemon wrote it.
-    pub raw: Option<Box<RawValue>>,
+    /// as `SourceEvent::Activity`'s.
+    pub queued: u32,
 }
 
 /// an ask in a snapshot.
 #[derive(Debug)]
 pub struct RaisedAsk {
     pub ask: Ask,
-    /// cmx2 only, while contract 1 lives: the request as the daemon wrote it.
-    pub raw: Option<Box<RawValue>>,
 }
 
 /// what boxbox knows of a send it could not confirm.
@@ -386,20 +388,17 @@ impl SourceSender {
         agent: &Arc<str>,
         seq: Option<u64>,
         event: SourceEvent,
-        raw: Option<Box<RawValue>>,
     ) -> crate::fleet::Upstream {
         crate::fleet::Upstream::Source {
             connection: Arc::clone(&self.connection),
             agent: Arc::clone(agent),
             seq,
             event,
-            raw,
         }
     }
 
     /// sends one event for `agent`. `seq` increases across the whole
-    /// connection, or is none; `raw` is cmx2's whole event payload, for
-    /// contract 1.
+    /// connection, or is none.
     ///
     /// # Errors
     /// the fleet actor has stopped.
@@ -408,10 +407,9 @@ impl SourceSender {
         agent: &Arc<str>,
         seq: Option<u64>,
         event: SourceEvent,
-        raw: Option<Box<RawValue>>,
     ) -> Result<(), FleetGone> {
         self.fleet
-            .send(self.envelope(agent, seq, event, raw))
+            .send(self.envelope(agent, seq, event))
             .await
             .map_err(|_| FleetGone)
     }
@@ -802,11 +800,6 @@ pub trait AgentSource: std::marker::Send + Sync + 'static {
     fn terminal(&self) -> Option<&dyn TerminalSource> {
         None
     }
-    /// cmx2 only, while contract 1 lives: today's passthroughs, whose
-    /// answers are the daemon's bytes (`Cmx2Raw`).
-    fn cmx2_raw(&self) -> Option<&Cmx2Raw> {
-        None
-    }
 }
 
 impl std::fmt::Debug for dyn AgentSource {
@@ -823,8 +816,3 @@ pub trait TerminalSource: std::marker::Send + Sync {
     /// the connection terminals run on.
     fn host(&self) -> &crate::config::HostConfig;
 }
-
-/// contract 1's passthroughs: the cmx2 source itself, whose inherent
-/// methods are the `/api/hosts` handlers' daemon calls moved whole. it
-/// goes with contract 1.
-pub type Cmx2Raw = cmx2::Cmx2Source;

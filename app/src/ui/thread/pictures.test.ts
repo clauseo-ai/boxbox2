@@ -7,6 +7,7 @@ import { type PartMemo, type Step, picturesOf, turnsOf } from "./model";
 import { MAX_PICTURES, type RowCtx, capPictures, foldModel, modelOf, pictureNames, rowsOf, stepModel } from "./rows";
 import { withoutPictureBytes } from "./turns";
 import type { WireMessage, WirePart } from "./wire";
+import { neutral } from "./fixtures/wire";
 
 const T0 = 1_790_000_000_000;
 const PNG = (n: number | string = 0) => `data:image/png;base64,iVBORw0KGgo${n}`;
@@ -15,8 +16,8 @@ const attach = (filename: string, url: string = PNG(filename), mime = "image/png
 const tool = (id: string, name: string, input: Record<string, unknown>, state: Record<string, unknown> = {}): WirePart =>
   ({ id, type: "tool", callID: `c_${id}`, tool: name, state: { status: "completed", input, output: "", metadata: {}, time: { start: T0 + 200, end: T0 + 300 }, ...state } }) as unknown as WirePart;
 const messages = (parts: WirePart[]): WireMessage[] => [
-  { info: { id: "u", role: "user", time: { created: T0 } } as WireMessage["info"], parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] },
-  { info: { id: "a", role: "assistant", time: { created: T0 + 100, completed: T0 + 5000 } } as WireMessage["info"], parts },
+  neutral({ info: { id: "u", role: "user", time: { created: T0 } }, parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] }),
+  neutral({ info: { id: "a", role: "assistant", time: { created: T0 + 100, completed: T0 + 5000 } }, parts }),
 ];
 const stepsOf = (parts: WirePart[], memo?: PartMemo): Step[] => turnsOf(messages(parts), "/p", new Set(), memo).flatMap((t) => t.items.filter((x): x is Step => x.k === "step"));
 const ctx = (): RowCtx => ({ turns: [], children: new Map(), thinking: "rows", now: T0 + 3000 });

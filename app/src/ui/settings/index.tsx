@@ -10,7 +10,6 @@ import { deviceId } from "../../push/device";
 import { modelName } from "../model-name";
 import { NotificationsRow } from "../../push/notifications-row";
 import { leave } from "../../shell/navigation";
-import { repoRootOf } from "../composer/place";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { type RepoPrefs, state } from "../../store";
 import { devicePrefs, loadModels, loadPrefs, loadPushDevices, saveAppearance, savePushKinds, saveRepo } from "./actions";
@@ -161,12 +160,12 @@ type Repo = { host: string; directory: string; root: string; seen: number };
     that already has defaults */
 function repos(): Repo[] {
   const byKey = new Map<string, Repo>();
-  for (const session of Object.values(state.fleet.sessions)) {
-    const directory = session.info.directory;
-    const key = `${session.host}:${directory}`;
-    const seen = session.info.time.updated;
+  for (const thread of Object.values(state.fleet.threads)) {
+    const directory = thread.place?.directory ?? "";
+    const key = `${thread.agent}:${directory}`;
+    const seen = thread.updated;
     const known = byKey.get(key);
-    if (!known || known.seen < seen) byKey.set(key, { host: session.host, directory, root: repoRootOf(session.info), seen });
+    if (!known || known.seen < seen) byKey.set(key, { host: thread.agent, directory, root: thread.place?.root ?? "", seen });
   }
   for (const pref of state.prefs?.repos ?? []) {
     const key = `${pref.host}:${pref.directory}`;

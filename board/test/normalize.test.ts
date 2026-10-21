@@ -69,6 +69,8 @@ describe("decodeV2", () => {
     expect(act({ verb: "unbind", wire: 11 })).toEqual({ verb: "unbind", wire: 11 });
     expect(act({ verb: "gone" })).toEqual({ verb: "gone" });
     expect(decodeV2("POST", "/api/login", null, { password: "p" })).toEqual({ verb: "login" });
+    expect(decodeV2("GET", "/api/stream?view=board&protocol=3&device=board-x&addrs=", null, null)).toEqual({ verb: "stream" });
+    /* runs recorded before protocol 3 opened the board stream here */
     expect(decodeV2("GET", "/api/board/stream?protocol=1&device=board-x&addrs=", null, null)).toEqual({ verb: "stream" });
   });
 

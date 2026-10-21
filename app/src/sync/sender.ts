@@ -300,10 +300,10 @@ export class Sender {
   /** a frame from the stream: the echo that settles a send, or the removal that ends an unsent one */
   frame(frame: Frame): void {
     if (this.entries.size === 0) return;
-    if (frame.type === "message" && frame.info.clientID) {
+    if (frame.type === "message" && frame.message.clientID) {
       for (const entry of this.entries.values()) {
-        if (entry.clientID !== frame.info.clientID) continue;
-        this.settle(entry, echoed(entry, frame.key, frame.info, Date.now()));
+        if (entry.clientID !== frame.message.clientID) continue;
+        this.settle(entry, echoed(entry, frame.key, frame.message, Date.now()));
       }
     } else if (frame.type === "message.removed") {
       for (const entry of this.entries.values()) {

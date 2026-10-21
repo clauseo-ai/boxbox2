@@ -380,7 +380,6 @@ impl Sends {
                     client_id: owed.client_id,
                     state: SendOutcome::Pending(owed.state),
                 },
-                raw: None,
             };
             // a stopped fleet is a server going down; the send's state goes with it
             let _ = self.fleet.send(event).await;

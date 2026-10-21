@@ -15,23 +15,33 @@
    hydrates it), a scripted reply streams into it through the daemon, the
    disruption happens mid-stream, and once the daemon says the session is
    idle the worker's transcript (window.boxbox.transcript) is compared
-   byte for byte with the daemon's GET /session/:id/message. the worker's
+   with the server's translated read of the thread,
+   GET /api/agents/{agent}/threads/{thread}/messages, every page from the
+   newest back (docs/protocol.md section 11): the worker holds protocol 3
+   messages, never cmx2's shapes. equal means the same json with keys
+   sorted; whether the bytes match too is printed beside it. the worker's
    reducer counters are printed; duplicates must be 0.
 
    refuses to start if any of its ports answer: it never attaches to a
-   daemon or server it did not start. */
+   daemon or server it did not start, except with CMX2_ATTACH=1, which
+   uses the daemon named in the bench dir's daemon.json, started by the
+   caller (never a fleet daemon), and leaves it running; the daemon case
+   needs a daemon of its own and is refused then. BENCH_DIR moves the
+   bench dir (daemon.json, password, gate-password, boxbox.toml) from
+   .cmx2/bench; RELAY_PORT moves the relay from two above the server. */
 
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
-const BENCH = join(ROOT, ".cmx2", "bench");
+const BENCH = process.env.BENCH_DIR ?? join(ROOT, ".cmx2", "bench");
+const ATTACH = process.env.CMX2_ATTACH === "1";
 const OUT = join(ROOT, ".cmx2", "exactly-once");
 const BINARY = join(ROOT, "target/release/boxbox");
 /** the server's port and the relay's, two above it (3003 beside the default 3001) */
 const PORT = Number(process.env.BOXBOX_PORT ?? 3001);
-const RELAY = PORT + 2;
+const RELAY = Number(process.env.RELAY_PORT ?? PORT + 2);
 const APP = `http://127.0.0.1:${RELAY}`;
 const ALL = ["drops", "server", "daemon", "hidden", "reload"] as const;
 /** diagnostic cases, run only when named */
@@ -95,7 +105,7 @@ async function stop(name: string, signal: NodeJS.Signals = "SIGTERM") {
 }
 
 async function startDaemon() {
-  start("daemon", "bun", ["scripts/cmx2.ts"], true);
+  if (!ATTACH) start("daemon", "bun", ["scripts/cmx2.ts"], true);
   await until("the daemon answers /global/health", async () => {
     try {
       return (await daemonCall("GET", "/global/health")).ok;
@@ -132,6 +142,56 @@ async function busy(session: string): Promise<boolean> {
   return status[session]?.type === "busy" || status[session]?.type === "retry";
 }
 
+/* —— the server's translated read —— */
+
+let cookie = "";
+
+async function signIn(): Promise<number> {
+  const gate = readFileSync(join(BENCH, "gate-password"), "utf8").trim();
+  const res = await fetch(`http://127.0.0.1:${PORT}/api/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password: gate }),
+  });
+  cookie = (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+  return res.status;
+}
+
+type Page = { messages: unknown[]; older: string | null };
+
+/** every page of the thread, newest first as the server pages it, joined oldest first */
+async function serverRead(key: string): Promise<unknown[]> {
+  const colon = key.indexOf(":");
+  const route = `http://127.0.0.1:${PORT}/api/agents/${encodeURIComponent(key.slice(0, colon))}/threads/${encodeURIComponent(key.slice(colon + 1))}/messages`;
+  if (!cookie) await signIn();
+  let messages: unknown[] = [];
+  let before: string | null = null;
+  for (let pages = 0; pages < 1000; pages++) {
+    const url = `${route}?turns=64${before ? `&before=${encodeURIComponent(before)}` : ""}`;
+    let res = await fetch(url, { headers: { cookie, "accept-encoding": "gzip" } });
+    if (res.status === 401) {
+      // a restarted server may not know the session: sign in again, once
+      await signIn();
+      res = await fetch(url, { headers: { cookie, "accept-encoding": "gzip" } });
+    }
+    if (!res.ok) throw new Error(`GET ${url} answered ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const page = (await res.json()) as Page;
+    messages = [...page.messages, ...messages];
+    if (!page.older) return messages;
+    before = page.older;
+  }
+  throw new Error(`${route}: more than 1000 pages`);
+}
+
+/** json with every object's keys sorted, so two writers' key orders compare equal */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v !== null && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
 /* —— the browser —— */
 
 function browser(...argv: string[]): string {
@@ -152,7 +212,8 @@ interface Counters {
   applied: number;
   duplicates: number;
   covered: number;
-  gaps: number;
+  /** contract 1 counted gaps; the protocol 3 worker has none to count */
+  gaps?: number;
   resets: number;
   refetches: number;
   cursor: number;
@@ -181,22 +242,25 @@ async function compare(name: Case, session: string, key: string): Promise<Outcom
   await until(`${name}: the daemon settles the session`, async () => !(await busy(session)), 20 * 60_000, 1000);
   // the last deltas and the final part updates reach the worker within a frame or two; give it a moment
   await Bun.sleep(3000);
-  const daemon = await (await daemonCall("GET", `/session/${session}/message`)).text();
+  const server = await serverRead(key);
   const worker = evaluate<string>(`window.boxbox.transcript(${JSON.stringify(key)})`);
   const counters = evaluate<Counters>("window.boxbox.counters()");
   mkdirSync(OUT, { recursive: true });
-  writeFileSync(join(OUT, `${name}.daemon.json`), daemon);
-  writeFileSync(join(OUT, `${name}.worker.json`), worker);
-  const equal = daemon === worker;
-  log(`${name}: daemon ${daemon.length} bytes, worker ${worker.length} bytes, byte for byte ${equal ? "equal" : "DIFFERENT"}`);
-  const diff = spawnSync("diff", [join(OUT, `${name}.daemon.json`), join(OUT, `${name}.worker.json`)], { encoding: "utf8" });
-  log(`${name}: diff daemon worker -> ${diff.stdout.length === 0 ? "(empty)" : diff.stdout.slice(0, 600)}`);
+  const serverJson = canonical(server);
+  const workerJson = canonical(JSON.parse(worker) as unknown);
+  writeFileSync(join(OUT, `${name}.server.json`), serverJson);
+  writeFileSync(join(OUT, `${name}.worker.json`), workerJson);
+  const equal = serverJson === workerJson;
+  const written = JSON.stringify(server) === worker;
+  log(
+    `${name}: server read ${serverJson.length} bytes (${server.length} messages), worker ${workerJson.length} bytes, keys sorted ${equal ? "equal" : "DIFFERENT"}, as written ${written ? "equal" : "different"}`,
+  );
   if (!equal) {
-    const pretty = spawnSync("bash", ["-c", `diff <(jq . '${OUT}/${name}.daemon.json') <(jq . '${OUT}/${name}.worker.json') | head -40`], { encoding: "utf8" });
-    log(`${name}: first differences, pretty-printed:\n${pretty.stdout}`);
+    const pretty = spawnSync("bash", ["-c", `diff <(jq . '${OUT}/${name}.server.json') <(jq . '${OUT}/${name}.worker.json') | head -40`], { encoding: "utf8" });
+    log(`${name}: first differences (server <, worker >), pretty-printed:\n${pretty.stdout}`);
   }
   log(`${name}: reducer counters ${JSON.stringify(counters)}`);
-  return { name, bytes: daemon.length, equal, counters };
+  return { name, bytes: serverJson.length, equal, counters };
 }
 
 async function newThread(name: Case): Promise<{ session: string; key: string }> {
@@ -332,17 +396,19 @@ async function run(name: Case): Promise<Outcome> {
 /* —— the run —— */
 
 async function main(): Promise<number> {
-  for (const port of [PORT, RELAY, 4840, 4841]) {
+  for (const port of ATTACH ? [PORT, RELAY] : [PORT, RELAY, 4840, 4841]) {
     if (listening(port)) throw new Error(`port ${port} is taken; this suite starts its own daemon, server and relay`);
   }
+  if (ATTACH && selected.includes("daemon")) throw new Error("the daemon case restarts the daemon, so it needs one of its own: run it without CMX2_ATTACH");
   if (!existsSync(BINARY)) throw new Error("no release binary; run `just build` first");
   log(`boxbox ${BINARY} built ${statSync(BINARY).mtime.toISOString()}`);
   await startDaemon();
-  log("cmx2 dev daemon up from the pin");
+  log(ATTACH ? "cmx2 dev daemon attached (started by the caller)" : "cmx2 dev daemon up from the pin");
   await startServer();
   start("relay", "bun", ["bench/cut.ts", "--listen", String(RELAY), "--to", String(PORT)]);
   await until(`the relay listens on ${RELAY}`, () => listening(RELAY));
   const gate = readFileSync(join(BENCH, "gate-password"), "utf8").trim();
+  log(`signed in to the server's reads: ${await signIn()}`);
   browser("open", `${APP}/`);
   const signedIn = evaluate<number>(
     `fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: ${JSON.stringify(gate)} }) }).then((r) => r.status)`,
@@ -356,7 +422,7 @@ async function main(): Promise<number> {
   for (const o of outcomes) {
     const c = o.counters;
     console.log(
-      `${o.name.padEnd(8)} ${String(o.bytes).padStart(7)}  ${(o.equal ? "empty" : "DIFF").padEnd(6)} ${String(c.duplicates).padStart(10)}  ${String(c.gaps).padStart(4)}  ${String(c.resets).padStart(6)}  ${String(c.resumes).padStart(7)}  ${String(c.replayed).padStart(8)}  ${String(c.covered).padStart(7)}  ${String(c.refetches).padStart(9)}  ${String(c.maxDownMs).padStart(9)}`,
+      `${o.name.padEnd(8)} ${String(o.bytes).padStart(7)}  ${(o.equal ? "empty" : "DIFF").padEnd(6)} ${String(c.duplicates).padStart(10)}  ${String(c.gaps ?? "-").padStart(4)}  ${String(c.resets).padStart(6)}  ${String(c.resumes).padStart(7)}  ${String(c.replayed).padStart(8)}  ${String(c.covered).padStart(7)}  ${String(c.refetches).padStart(9)}  ${String(c.maxDownMs).padStart(9)}`,
     );
   }
   return outcomes.every((o) => o.equal && o.counters.duplicates === 0) ? 0 : 1;

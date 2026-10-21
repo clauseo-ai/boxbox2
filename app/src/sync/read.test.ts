@@ -3,8 +3,9 @@ import { parseMessages, type ReadPlan, type ReadTrouble, readTranscript } from "
 
 /* the transcript read's rules, with the answers of the wire put in by hand: wire fixtures, never a daemon */
 
-const SEQ = { "x-cmx2-seq": "u1:10" };
-const MESSAGES = JSON.stringify([{ info: { id: "msg_1", sessionID: "ses_1", role: "user", time: { created: 1 } }, parts: [] }]);
+const SEQ = { "x-boxbox-seq": "j1:40", "x-boxbox-upstream": "u1:10" };
+const ONE = [{ info: { id: "msg_1", thread: "ses_1", role: "user", created: 1 }, parts: [] }];
+const MESSAGES = JSON.stringify({ messages: ONE, older: null, total: 1, turns: 1 });
 
 /** a response whose body reads are counted */
 function answer(body: string, init: ResponseInit = { headers: SEQ }) {
@@ -20,13 +21,18 @@ function answer(body: string, init: ResponseInit = { headers: SEQ }) {
   return { response, reads };
 }
 
-function plan(answers: (Response | null)[], wanted: () => boolean = () => true): ReadPlan & { waits: number[]; asked: () => number; troubles: ReadTrouble[] } {
+function plan(answers: (Response | null)[], wanted: () => boolean = () => true): ReadPlan & { waits: number[]; asked: () => number; troubles: ReadTrouble[]; sent: Record<string, string>[] } {
   let asked = 0;
   const waits: number[] = [];
   const troubles: ReadTrouble[] = [];
+  const sent: Record<string, string>[] = [];
   return {
-    path: "/api/hosts/bench/sessions/ses_1/messages",
-    get: () => Promise.resolve(answers[asked++] ?? null),
+    path: "/api/agents/bench/threads/ses_1/messages",
+    get: (_path, headers) => {
+      sent.push(headers);
+      return Promise.resolve(answers[asked++] ?? null);
+    },
+    sent,
     wanted,
     wait: (ms) => {
       waits.push(ms);
@@ -43,8 +49,8 @@ function plan(answers: (Response | null)[], wanted: () => boolean = () => true):
 describe("reading a transcript", () => {
   test("a read gives the messages, the seq they reflect and the size of the body", async () => {
     const read = await readTranscript(plan([answer(MESSAGES).response]));
-    expect(read).toMatchObject({ at: { epoch: "u1", seq: 10 }, bytes: MESSAGES.length });
-    expect(read !== "signed-out" && read?.messages.map((m) => m.info.id)).toEqual(["msg_1"]);
+    expect(read).toMatchObject({ at: { epoch: "u1", seq: 10 }, seq: { epoch: "j1", seq: 40 }, bytes: MESSAGES.length });
+    expect(read !== "signed-out" && read?.messages?.map((m) => m.info.id)).toEqual(["msg_1"]);
   });
 
   test("a 200 whose body is not a transcript (a proxy's page) is a failed try: it waits, asks again, and takes the next answer", async () => {
@@ -55,10 +61,19 @@ describe("reading a transcript", () => {
     expect(p.asked()).toBe(3);
   });
 
-  test("no answer, an error status and an answer with no seq are failed tries too", async () => {
-    const p = plan([null, answer("x", { status: 502, headers: SEQ }).response, answer(MESSAGES, { headers: {} }).response, answer(MESSAGES).response]);
+  test("no answer, an error status and an answer missing either stamp are failed tries too", async () => {
+    const p = plan([
+      null,
+      answer("x", { status: 502, headers: SEQ }).response,
+      answer(MESSAGES, { headers: {} }).response,
+      answer(MESSAGES, { headers: { "x-boxbox-seq": "j1:40" } }).response,
+      answer(MESSAGES, { headers: { "x-boxbox-upstream": "u1:10" } }).response,
+      // the contract 1 stamp is not read
+      answer(MESSAGES, { headers: { "x-cmx2-seq": "u1:10" } }).response,
+      answer(MESSAGES).response,
+    ]);
     expect(await readTranscript(p)).toMatchObject({ bytes: MESSAGES.length });
-    expect(p.waits).toHaveLength(3);
+    expect(p.waits).toHaveLength(6);
   });
 
   test("an answer that is not a transcript (an error status, or no seq to read it against) is not downloaded either, and one that is is read", async () => {
@@ -136,10 +151,47 @@ describe("reading a transcript", () => {
   });
 });
 
+describe("versions (docs/protocol.md, versions and 304)", () => {
+  test("a read sends If-None-Match only when the thread holds an etag, and keeps the etag the answer gives", async () => {
+    const bare = plan([answer(MESSAGES).response]);
+    expect(await readTranscript(bare)).not.toHaveProperty("etag");
+    expect(bare.sent).toEqual([{}]);
+    const versioned = plan([answer(MESSAGES, { headers: { ...SEQ, etag: '"3.e1.40.q"' } }).response]);
+    versioned.etag = '"3.e1.30.q"';
+    expect(await readTranscript(versioned)).toMatchObject({ etag: '"3.e1.40.q"', bytes: MESSAGES.length });
+    expect(versioned.sent).toEqual([{ "if-none-match": '"3.e1.30.q"' }]);
+  });
+
+  test("a 304 to a read that sent an etag stands as the read: no messages, its stamps, the etag kept", async () => {
+    const p = plan([answer("", { status: 304, headers: SEQ }).response]);
+    p.etag = '"3.e1.30.q"';
+    expect(await readTranscript(p)).toEqual({ messages: null, at: { epoch: "u1", seq: 10 }, seq: { epoch: "j1", seq: 40 }, bytes: 0, etag: '"3.e1.30.q"' });
+  });
+
+  test("a 304 to a read that sent none, or without its stamps, is a failed try", async () => {
+    const p = plan([answer("", { status: 304, headers: SEQ }).response, answer(MESSAGES).response]);
+    expect(await readTranscript(p)).toMatchObject({ bytes: MESSAGES.length });
+    expect(p.troubles).toEqual([{ gone: false, problem: "the server sent something that is not this thread" }]);
+    const stampless = plan([answer("", { status: 304 }).response, answer(MESSAGES).response]);
+    stampless.etag = '"x"';
+    expect(await readTranscript(stampless)).toMatchObject({ bytes: MESSAGES.length });
+    expect(stampless.waits).toHaveLength(1);
+  });
+
+  test("an answer from another journal epoch is not taken: the stream is told, nothing is said on the thread, and the read asks again", async () => {
+    let told = 0;
+    const p = plan([answer(MESSAGES, { headers: { ...SEQ, "x-boxbox-seq": "j0:90" } }).response, answer(MESSAGES).response]);
+    p.epoch = () => "j1";
+    p.otherEpoch = () => told++;
+    expect(await readTranscript(p)).toMatchObject({ seq: { epoch: "j1", seq: 40 } });
+    expect([told, p.troubles.length, p.waits.length, p.asked()]).toEqual([1, 0, 1, 2]);
+  });
+});
+
 describe("a body that may be a transcript", () => {
-  test("only a list of messages is one", () => {
-    expect(parseMessages("[]")).toEqual([]);
+  test("only an object holding a list of messages is one; a bare list (the contract 1 read) is not", () => {
+    expect(parseMessages(JSON.stringify({ messages: [], older: null, total: 0, turns: 0 }))).toEqual([]);
     expect(parseMessages(MESSAGES)).toHaveLength(1);
-    for (const body of ["", "{}", "null", "not json", "<html>"]) expect(parseMessages(body)).toBeNull();
+    for (const body of ["", "{}", "[]", JSON.stringify(ONE), "null", "not json", "<html>", '{"messages":{}}']) expect(parseMessages(body)).toBeNull();
   });
 });

@@ -56,6 +56,10 @@ pub struct Message {
     pub quote: Option<Quote>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reactions: Option<Vec<Reaction>>,
+    /// the message came from another agent (a report, a note) or started
+    /// this one (its brief): the source's mail envelope, as parts carry it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mail: Option<super::part::Mail>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -78,7 +82,9 @@ impl Role {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MessageError {
-    pub message: String,
+    /// the runtime's words, absent when it gave none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
     /// the runtime's error name (`MessageAbortedError` for a stopped turn).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

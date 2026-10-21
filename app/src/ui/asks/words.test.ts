@@ -2,19 +2,23 @@ import { describe, expect, test } from "bun:test";
 import type { Ask } from "../../sync/protocol";
 import { goneLine, headerWords, questionsOf, settledLine, shortWords, waitingWords } from "./words";
 
-const ask = (kind: "permission" | "question", request: Record<string, unknown>): Ask => ({
+const ask = (kind: "permission" | "question", fields: Partial<Pick<Ask, "questions" | "permission">> = {}): Ask => ({
   key: "desk:ses_1",
-  host: "desk",
+  agent: "desk",
+  thread: "desk:ses_1",
   id: "a1",
   kind,
-  request,
+  ...fields,
 });
 
+const permission = (title: string, patterns: string[]) => ({ title, patterns, always: [], options: [] });
 const option = (label: string) => ({ label, description: `what ${label} means` });
 const question = (options: number, extra: Record<string, unknown> = {}) => ({
   header: "greeting",
   question: "which greeting?",
   options: Array.from({ length: options }, (_, i) => option(`option ${i + 1}`)),
+  multiple: false,
+  custom: true,
   ...extra,
 });
 
@@ -22,7 +26,7 @@ describe("reading an ask", () => {
   test("a question keeps its options and whether a typed answer is taken", () => {
     const [q] = questionsOf(
       ask("question", {
-        questions: [{ header: "greeting", question: "which greeting?", options: [{ label: "hello", description: "plain" }, { label: "hi" }] }],
+        questions: [{ header: "greeting", question: "which greeting?", options: [{ label: "hello", description: "plain" }, { label: "hi" }], multiple: false, custom: true }],
       }),
     );
     expect(q?.options).toEqual([
@@ -33,8 +37,8 @@ describe("reading an ask", () => {
     expect(q?.multiple).toBe(false);
   });
 
-  test("a malformed request reads as no questions rather than throwing", () => {
-    expect(questionsOf(ask("question", { questions: "nope" }))).toEqual([]);
+  test("an ask with no questions reads as none rather than throwing", () => {
+    expect(questionsOf(ask("question", { questions: null }))).toEqual([]);
   });
 });
 
@@ -52,19 +56,19 @@ describe("what a window's preview says is waiting", () => {
     expect(waitingWords(ask("question", { questions: [question(3), question(2)] }))).toBe("2 questions");
   });
 
-  test("a question with no options, or no readable request, asks for words", () => {
+  test("a question with no options, or no questions, asks for words", () => {
     expect(waitingWords(ask("question", { questions: [question(0)] }))).toBe("type an answer");
     expect(waitingWords(ask("question", {}))).toBe("type an answer");
   });
 
   test("a permission names its three replies in the card's own words", () => {
-    expect(waitingWords(ask("permission", { permission: "shell", patterns: ["rm -rf build"] }))).toBe("allow once, always allow or deny");
+    expect(waitingWords(ask("permission", { permission: permission("shell", ["rm -rf build"]) }))).toBe("allow once, always allow or deny");
   });
 
   test("the header is the first question's own label, and a permission's is its kind", () => {
     expect(headerWords(ask("question", { questions: [question(2, { header: "  message got cut off " })] }))).toBe("message got cut off");
     expect(headerWords(ask("question", { questions: [question(2, { header: "" })] }))).toBeNull();
-    expect(headerWords(ask("permission", { permission: "shell", patterns: [] }))).toBe("permission");
+    expect(headerWords(ask("permission", { permission: permission("shell", []) }))).toBe("permission");
   });
 });
 

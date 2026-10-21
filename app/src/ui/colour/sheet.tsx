@@ -15,9 +15,8 @@ import { chooseColour } from "../../api/client";
 import { play } from "../../motion/animate";
 import { FADE, SHEET } from "../../motion/springs";
 import { setColourPreview, state } from "../../store";
-import type { SessionEntry } from "../../sync/protocol";
+import type { Thread } from "../../sync/protocol";
 import { Close } from "../close";
-import { repoRootOf } from "../composer/place";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { reducedMotion } from "../thread/motion";
 import { colourMap } from "../window/colours";
@@ -67,7 +66,7 @@ export type ColourSheetProps = {
 /** what a small window shows: the newest thread's title, its chip, and an open ask's question */
 type Mini = { title: string | null; chip: string | null; ask: string | null };
 
-const miniOf = (entry: SessionEntry | undefined): Mini => {
+const miniOf = (entry: Thread | undefined): Mini => {
   if (!entry) return { title: null, chip: null, ask: null };
   const view = windowView(entry, Object.values(state.fleet.asks).filter((a) => a.key === entry.key), colourMap());
   return { title: view.title, chip: view.chip?.text ?? null, ask: view.ask?.text ?? null };
@@ -91,10 +90,10 @@ export function ColourSheet(props: ColourSheetProps) {
   const shown = (): RepoColour => shownBy(pick(), assignment().auto);
 
   /* the sessions on this machine, newest first: the roots of the repos beside this one, and each repo's newest thread */
-  const sessions = createMemo(() => Object.values(state.fleet.sessions).filter((s) => s.host === props.host).sort((a, b) => b.info.time.updated - a.info.time.updated));
-  const neighbours = createMemo(() => neighboursOf(repo(), state.fleet.colours, sessions().map((s) => repoRootOf(s.info))));
-  const newestIn = (root: string) => sessions().find((s) => repoRootOf(s.info) === root);
-  const own = createMemo(() => miniOf((props.thread ? state.fleet.sessions[props.thread] : undefined) ?? newestIn(props.root)));
+  const sessions = createMemo(() => Object.values(state.fleet.threads).filter((s) => s.agent === props.host).sort((a, b) => b.updated - a.updated));
+  const neighbours = createMemo(() => neighboursOf(repo(), state.fleet.colours, sessions().map((s) => s.place?.root ?? "")));
+  const newestIn = (root: string) => sessions().find((s) => (s.place?.root ?? "") === root);
+  const own = createMemo(() => miniOf((props.thread ? state.fleet.threads[props.thread] : undefined) ?? newestIn(props.root)));
   const swatches = createMemo(() => swatchesOf(pick(), assignment().auto, neighbours()));
   const note = createMemo(() => noteOf(props.host, shown(), neighbours()));
   const noteBadge = () => swatches().find((s) => s.shown)?.badge ?? null;

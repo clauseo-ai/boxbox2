@@ -29,7 +29,6 @@ import { deviceClass, deviceId } from "../../push/device";
 import { answerQuestion } from "../asks/answer";
 import { questionsOf } from "../asks/words";
 import { repoColour } from "../window/colours";
-import { repoRootOf } from "./place";
 import { type RepoColour, colourStyle, repoName } from "../window/repo";
 import { bytesOfUrl, MAX_ATTACHMENTS, megabytes, noRoomFor } from "./fit";
 import { cutMiddle, FILE_ACCEPT, fileKind, isPhotoKind, noRoomLeft, notTaken, sizeOf, typeWord } from "./files";
@@ -106,13 +105,12 @@ export function Composer(props: ComposerProps) {
   const draft = () => state.composer.drafts[key()] ?? EMPTY;
   /* the draft's photos are read from the device as the composer opens (a launch reads only the open thread's) */
   createEffect(() => void loadDraftPhotos(key()));
-  const entry = () => (props.target.kind === "session" ? state.fleet.sessions[key()] : undefined);
+  const entry = () => (props.target.kind === "session" ? state.fleet.threads[key()] : undefined);
   /* a session's colour is its repo root's, as its window's is (window/view.ts): its directory may be a worktree, which
      is not the repo the colour belongs to */
   const colour = createMemo(() => {
     if (props.colour) return props.colour;
-    const info = entry()?.info;
-    return repoColour({ host: host(), root: info ? repoRootOf(info) : directory() });
+    return repoColour({ host: host(), root: entry()?.place?.root ?? directory() });
   });
   const asks = createMemo(() => Object.values(state.fleet.asks).filter((ask) => ask.key === key()));
   /** how many questions the ask waiting on this thread holds: words typed here answer each of them */
@@ -124,8 +122,9 @@ export function Composer(props: ComposerProps) {
   const agent = createMemo<Agent>(() => {
     if (state.stream.state === "down" && now() - state.stream.since > OFFLINE_AFTER_MS) return "offline";
     if (asks().some((ask) => ask.kind === "question")) return "wants";
-    const status = entry()?.status;
-    return status && status.type !== "idle" ? "working" : "idle";
+    // a parked thread is idle: only a turn running (busy, or retrying one) is working
+    const activity = entry()?.activity.state;
+    return activity === "busy" || activity === "retry" ? "working" : "idle";
   });
 
   const [focused, setFocused] = createSignal(false);
@@ -205,7 +204,8 @@ export function Composer(props: ComposerProps) {
   const phase = (): "idle" | "busy" | null => {
     const held = entry();
     if (!held) return null;
-    return held.status && held.status.type !== "idle" ? "busy" : "idle";
+    const activity = held.activity.state;
+    return activity === "busy" || activity === "retry" ? "busy" : "idle";
   };
   const tailNow = createMemo(() => tailPrint(entry()?.tail ?? []));
   const [begun, setBegun] = createSignal<string | null>(null);
@@ -431,10 +431,7 @@ export function Composer(props: ComposerProps) {
   onCleanup(() => document.removeEventListener("visibilitychange", onForeground));
   /* cmx2 makes a message's model and effort the thread's from that turn on, so the chip shows the
      thread's as the daemon reports them, and the draft holds only a pick that has not gone yet */
-  const threadModel = () => {
-    const model = entry()?.info.model;
-    return model ? `${model.providerID}/${model.id}` : null;
-  };
+  const threadModel = () => entry()?.model ?? null;
   const chosenModel = () => draft().model ?? threadModel() ?? models()?.default ?? null;
   const modelChoice = () => models()?.models.find((m) => m.id === chosenModel()) ?? null;
   // the chip's mark: from the host's list when it is here, else from the thread's own model id
@@ -443,7 +440,7 @@ export function Composer(props: ComposerProps) {
     return choice ? providerKey(choice) : (chosenModel()?.split("/")[0] ?? "");
   };
   // with no pick and none on the thread, the daemon chooses the model's own default; the chip does not guess it
-  const chosenEffort = () => draft().effort ?? entry()?.info.effort ?? null;
+  const chosenEffort = () => draft().effort ?? entry()?.effort ?? null;
   const effortChip = createMemo(() => effortChoices({ accepted: modelChoice()?.efforts ?? [], current: chosenEffort(), list: list() }));
   const efforts = () => effortChip().known;
   // while the list is not here the chip says the thread's model in words (never the raw id) and wears the quiet mark
@@ -458,7 +455,7 @@ export function Composer(props: ComposerProps) {
     if (fromFilter) editor?.focus({ preventScroll: true });
   };
   // the dial folds itself back into the chip once its thumb has landed
-  const pickEffort = (effort: string) => write({ effort: effort === (entry()?.info.effort ?? null) ? null : effort });
+  const pickEffort = (effort: string) => write({ effort: effort === (entry()?.effort ?? null) ? null : effort });
   /* a star on a model row: on screen at once, kept by the server, put back with the reason when it is not */
   const star = async (id: string) => {
     // the stars' module is in once the menu has opened (ui/later.ts); one that did not come leaves the star as it was
@@ -545,7 +542,7 @@ export function Composer(props: ComposerProps) {
   /* —— compacting: the daemon summarises the thread so far, and answers once the summary is in —— */
   const compaction = () => state.composer.compacting[key()];
   const compacting = () => compaction()?.state === "running";
-  const fill = createMemo(() => contextFill(entry()?.info.context));
+  const fill = createMemo(() => contextFill(entry()?.context));
   /* why a compaction cannot start now, or null. the daemon refuses a thread with a turn running, so the composer says so before asking */
   const compactBlock = (): string | null => (agent() === "idle" ? null : agent() === "offline" ? "the connection is down. compact when it is back" : "a turn is running. wait for it to end, then compact");
   const startCompact = () => {

@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import type { Entry, Message, Part } from "./protocol";
+import type { Entry, Message, Part, Reset } from "./protocol";
 import { type Action, BYTE_CAP, type Cold, type Effect, HELD_CAP, INITIAL_STATE, PART_ENVELOPE, reduce, type Result, type SyncState, THREAD_CAP, UNFIT_CAP } from "./reducer";
 
 /* what the cache keeps and what it lets go: the thread cap, the held reserve, the byte cap, and that a thread held for
@@ -8,6 +8,8 @@ import { type Action, BYTE_CAP, type Cold, type Effect, HELD_CAP, INITIAL_STATE,
 const EPOCH = "j1";
 const key = (n: number) => `bench:ses_${n}`;
 const keys = (state: SyncState) => Object.keys(state.threads).sort();
+/** a journal entry, or a reset, as the stream's frame action: its id is its cursor (a reset's is its own epoch and seq) */
+const framed = (f: Entry | Reset, epoch = EPOCH): Action => ({ type: "frame", frame: f, id: { epoch: f.type === "reset" ? f.epoch : epoch, seq: f.seq } });
 /** the sizes here were written against a byte cap of 150 of these: a 150th of the cap, so every case keeps its proportions
     to the cap it is about */
 const MB = BYTE_CAP / 150;
@@ -30,9 +32,9 @@ const reads = (results: Result[]) => effects(results).filter((e) => e.type === "
 /** the answer to the thread's latest read, as the worker would send it */
 const hydrate =
   (n: number, bytes?: number, at = 5, messages: Message[] = []): Step =>
-  (state) => ({ type: "hydrated", key: key(n), hydration: state.threads[key(n)]?.hydration ?? 0, upstreamEpoch: "u1", at, messages, ...(bytes === undefined ? {} : { bytes }) });
+  (state) => ({ type: "hydrated", key: key(n), hydration: state.threads[key(n)]?.hydration ?? 0, upstreamEpoch: "u1", at, seq: 0, messages, ...(bytes === undefined ? {} : { bytes }) });
 const hold = (n: number, at: number): Action => ({ type: "hold", key: key(n), at });
-const textPart = (messageID: string, text = "hello"): Part => ({ id: "prt_1", sessionID: "ses_1", messageID, type: "text", text });
+const textPart = (messageID: string, text = "hello"): Part => ({ id: "prt_1", messageID, type: "text", text });
 const open = (n: number, at: number): Action => ({ type: "open", key: key(n), at });
 /** the holds of `count` threads from `from`, `step` ms apart */
 const holds = (count: number, from: number, at: number, step: number): Action[] => Array.from({ length: count }, (_, i) => hold(from + i, at + i * step));
@@ -257,7 +259,7 @@ describe("a child that does not fit", () => {
     const base = run({ ...INITIAL_STATE, cursor: { epoch: EPOCH, seq: 0 } }, [open(1, 1), hydrate(1, 100 * MB), hold(8, 2), hydrate(8, 5 * MB), hold(9, 3), hydrate(9, 40 * MB, 5, [mine])]).state;
     expect(keys(base)).toEqual([key(1), key(8), key(9)]);
     const delta: Entry = { type: "delta", seq: 1, key: key(9), messageID: "msg_1", partID: part.id, field: "text", delta: "x".repeat(25 * MB), offset: 0 };
-    const { state, results } = run(base, [{ type: "frame", epoch: EPOCH, frame: delta }]);
+    const { state, results } = run(base, [framed(delta)]);
     expect(keys(state)).toEqual([key(1), key(8)]);
     expect(state.threads[key(8)]?.leased).toBe(true);
     expect(evictions(results).map((e) => e.type === "evicted" && [e.key, e.cap])).toEqual([[key(9), "unfit"]]);
@@ -299,25 +301,27 @@ describe("a read of a thread that was evicted", () => {
     state = run(state, holds(HELD_CAP, 600, 2, 1)).state;
     expect(state.threads[key(X)]).toBeUndefined();
     // the journal carries a message the daemon logged at upstream 20 while the thread is not held: it applies to nothing
-    const frame: Entry = { type: "message", seq: 1, key: key(X), upstream: 20, info: message("msg_new").info };
-    state = run(state, [{ type: "frame", epoch: EPOCH, frame }]).state;
+    const frame: Entry = { type: "message", seq: 1, key: key(X), upstream: 20, message: message("msg_new").info };
+    state = run(state, [framed(frame)]).state;
     // the lane wants it again, and has a place for it: a new read with a new number
     const again = run(state, [{ type: "release", key: key(600) }, hold(X, 100)]);
     state = again.state;
     const newRead = reads(again.results)[0];
     expect(oldRead?.type === "hydrate" && newRead?.type === "hydrate" && newRead.hydration !== oldRead.hydration).toBe(true);
     // the first read answers late, taken at upstream 10, before the message: it is dropped
-    const late = run(state, [{ type: "hydrated", key: key(X), hydration: oldRead?.type === "hydrate" ? oldRead.hydration : 0, upstreamEpoch: "u1", at: 10, messages: [], bytes: 100 }]);
+    const late = run(state, [{ type: "hydrated", key: key(X), hydration: oldRead?.type === "hydrate" ? oldRead.hydration : 0, upstreamEpoch: "u1", at: 10, seq: 0, messages: [], bytes: 100 }]);
     expect(late.state.threads[key(X)]?.status).toBe("hydrating");
     // the second answers, taken after the message: that is the thread
-    const answered = run(late.state, [{ type: "hydrated", key: key(X), hydration: newRead?.type === "hydrate" ? newRead.hydration : 0, upstreamEpoch: "u1", at: 25, messages: [message("msg_new")], bytes: 100 }]);
+    const answered = run(late.state, [{ type: "hydrated", key: key(X), hydration: newRead?.type === "hydrate" ? newRead.hydration : 0, upstreamEpoch: "u1", at: 25, seq: 0, messages: [message("msg_new")], bytes: 100 }]);
     expect(answered.state.threads[key(X)]?.messages.map((m) => m.info.id)).toEqual(["msg_new"]);
   });
 
-  test("a read started again for a thread that was read again (a reset, a host reset) has a number no other read had", () => {
-    let state = run({ ...INITIAL_STATE, cursor: { epoch: EPOCH, seq: 0 } }, [open(1, 1), hydrate(1, 100), open(2, 2), hydrate(2, 100)]).state;
+  test("a read started again for a thread that a reset reads again has a number no other read had", () => {
+    // both threads are in interest: a reset reads the threads in interest again, and leaves the others
+    const connect: Action = { type: "frame", frame: { type: "hello", protocol: 3, epoch: EPOCH, head: 0, build: "b", stream: "s1", interest: { thread: key(1), under: [], holds: [key(2)] } }, id: null };
+    let state = run({ ...INITIAL_STATE, cursor: { epoch: EPOCH, seq: 0 } }, [connect, open(1, 1), hydrate(1, 100), open(2, 2), hydrate(2, 100)]).state;
     const seen = new Set<number>();
-    for (const result of [reduce(state, { type: "frame", epoch: "j2", frame: { type: "reset", seq: 1, epoch: "j2", reason: "epoch", fleet: { hosts: [], sessions: [], asks: [], order: [] } } })]) {
+    for (const result of [reduce(state, framed({ type: "reset", seq: 1, epoch: "j2", reason: "none", fleet: { agents: [], threads: [], asks: [], order: [] } }, "j2"))]) {
       state = result.state;
       for (const e of reads([result])) if (e.type === "hydrate") seen.add(e.hydration);
     }
@@ -331,7 +335,7 @@ describe("a read of a thread that was evicted", () => {
     state = run(state, [hold(X, 1), hydrate(X, 100, 5, [message("msg_1")])]).state;
     const first = state.threads[key(X)]?.hydration ?? -1;
     // an entry for a message the thread lacks: it asks for that message, as the read it is
-    const asked = run(state, [{ type: "frame", epoch: EPOCH, frame: { type: "part", seq: 1, key: key(X), upstream: 30, part: textPart("msg_2") } }]);
+    const asked = run(state, [framed({ type: "part", seq: 1, key: key(X), upstream: 30, part: textPart("msg_2") })]);
     expect(effects(asked.results)).toEqual([{ type: "refetch", key: key(X), messageID: "msg_2", hydration: first }]);
     // the lane lets it go and sixteen others take its place while that is in flight
     state = run(asked.state, [{ type: "release", key: key(X) }, ...holds(HELD_CAP, 600, 2, 1)]).state;
@@ -340,7 +344,7 @@ describe("a read of a thread that was evicted", () => {
     state = run(state, [{ type: "release", key: key(600) }, hold(X, 100), hydrate(X, 100, 40, [message("msg_1")])]).state;
     const second = state.threads[key(X)]?.hydration ?? -1;
     expect(second).not.toBe(first);
-    const askedAgain = run(state, [{ type: "frame", epoch: EPOCH, frame: { type: "part", seq: 2, key: key(X), upstream: 50, part: textPart("msg_2", "hello again") } }]);
+    const askedAgain = run(state, [framed({ type: "part", seq: 2, key: key(X), upstream: 50, part: textPart("msg_2", "hello again") })]);
     expect(effects(askedAgain.results)).toEqual([{ type: "refetch", key: key(X), messageID: "msg_2", hydration: second }]);
     // the first one's answer, a snapshot older than that entry, comes: it is not the answer to this thread's refetch
     const old = reduce(askedAgain.state, { type: "refetched", key: key(X), hydration: first, messageID: "msg_2", message: { ...message("msg_2"), parts: [textPart("msg_2", "hello")] } });
@@ -411,16 +415,16 @@ describe("the byte cap", () => {
   });
 
   test("growth by the stream past the cap evicts at once, held threads first, and never the thread on stage", () => {
-    const part = (text: string): Part => ({ id: "prt_1", sessionID: "ses_1", messageID: "msg_1", type: "text", text });
+    const part = (text: string): Part => ({ id: "prt_1", messageID: "msg_1", type: "text", text });
     const read = run({ ...INITIAL_STATE, cursor: { epoch: EPOCH, seq: 0 } }, [
       open(1, 1),
-      hydrate(1, BYTE_CAP - 3 * MB, 5, [{ info: { id: "msg_1", sessionID: "ses_1", role: "assistant", time: { created: 1 } }, parts: [part("")] }]),
+      hydrate(1, BYTE_CAP - 3 * MB, 5, [{ info: { id: "msg_1", role: "assistant", created: 1 }, parts: [part("")] }]),
       hold(9, 2),
       hydrate(9, MB),
     ]).state;
     expect(keys(read)).toEqual([key(1), key(9)]);
     const delta: Entry = { type: "delta", seq: 1, key: key(1), messageID: "msg_1", partID: "prt_1", field: "text", delta: "x".repeat(2 * MB + 1), offset: 0 };
-    const { state, results } = run(read, [{ type: "frame", epoch: EPOCH, frame: delta }]);
+    const { state, results } = run(read, [framed(delta)]);
     expect(keys(state)).toEqual([key(1)]);
     expect(evictions(results)).toContainEqual({ type: "evicted", key: key(9), bytes: MB, opened: false, cap: "bytes" });
   });
@@ -428,7 +432,6 @@ describe("the byte cap", () => {
   test("a part replaced or grown is counted from its words and its weight: nothing is stringified, however big its output", () => {
     const tool = (output: string): Part => ({
       id: "prt_tool",
-      sessionID: "ses_1",
       messageID: "msg_1",
       type: "tool",
       callID: "call_1",
@@ -444,9 +447,9 @@ describe("the byte cap", () => {
         { type: "part", seq: 1, key: key(1), upstream: 6, part: tool(big + "z".repeat(1000)) },
         { type: "delta", seq: 2, key: key(1), messageID: "msg_1", partID: "prt_1", field: "text", delta: "hello", offset: 0 },
         { type: "part", seq: 3, key: key(1), upstream: 7, part: textPart("msg_1", "hello, and the whole of it") },
-        { type: "message", seq: 4, key: key(1), upstream: 8, info: { ...message("msg_1").info, role: "user" } },
+        { type: "message", seq: 4, key: key(1), upstream: 8, message: { ...message("msg_1").info, role: "user" } },
       ];
-      const { state } = run(read, frames.map((frame) => ({ type: "frame", epoch: EPOCH, frame }) satisfies Action));
+      const { state } = run(read, frames.map((f) => framed(f)));
       expect(stringify).not.toHaveBeenCalled();
       // the tool part grew by the 1000 characters it gained, the text part from no words to 26 (its envelope was already counted),
       // and the info's role is "user" for "assistant"
@@ -458,9 +461,9 @@ describe("the byte cap", () => {
   });
 
   test("bytes follow what the thread takes in: a read's size, then each part and delta, with no part stringified to be counted", () => {
-    const part = (text: string): Part => ({ id: "prt_1", sessionID: "ses_1", messageID: "msg_1", type: "text", text });
-    const message: Message = { info: { id: "msg_1", sessionID: "ses_1", role: "assistant", time: { created: 1 } }, parts: [] };
-    const read = run(INITIAL_STATE, [open(1, 1), { type: "hydrated", key: key(1), hydration: 1, upstreamEpoch: "u1", at: 5, messages: [message] }]).state;
+    const part = (text: string): Part => ({ id: "prt_1", messageID: "msg_1", type: "text", text });
+    const message: Message = { info: { id: "msg_1", role: "assistant", created: 1 }, parts: [] };
+    const read = run(INITIAL_STATE, [open(1, 1), { type: "hydrated", key: key(1), hydration: 1, upstreamEpoch: "u1", at: 5, seq: 0, messages: [message] }]).state;
     expect(read.threads[key(1)]?.bytes).toBe(JSON.stringify([message]).length);
     const before = read.threads[key(1)]?.bytes ?? 0;
     const journal: Entry[] = [
@@ -468,11 +471,11 @@ describe("the byte cap", () => {
       { type: "delta", seq: 2, key: key(1), messageID: "msg_1", partID: "prt_1", field: "text", delta: "hello", offset: 0 },
       { type: "delta", seq: 3, key: key(1), messageID: "msg_1", partID: "prt_1", field: "text", delta: " world", offset: 5 },
     ];
-    const after = run({ ...read, cursor: { epoch: EPOCH, seq: 0 } }, journal.map((frame) => ({ type: "frame", frame, epoch: EPOCH }) satisfies Action)).state;
+    const after = run({ ...read, cursor: { epoch: EPOCH, seq: 0 } }, journal.map((f) => framed(f))).state;
     expect(after.threads[key(1)]?.bytes).toBe(before + PART_ENVELOPE + "hello world".length);
     // the part comes whole, replacing the one the deltas made: its size replaces theirs
     const whole: Entry = { type: "part", seq: 4, key: key(1), upstream: 7, part: part("hello world, and more") };
-    const replaced = run(after, [{ type: "frame", epoch: EPOCH, frame: whole }]).state;
+    const replaced = run(after, [framed(whole)]).state;
     expect(replaced.threads[key(1)]?.bytes).toBe(before + PART_ENVELOPE + "hello world, and more".length);
   });
 });
@@ -498,9 +501,9 @@ const head = (n: number, over: Partial<Cold> = {}): Cold => ({
   ...over,
 });
 
-const message = (id: string): Message => ({ info: { id, sessionID: "ses_1", role: "assistant", time: { created: 1 } }, parts: [] });
+const message = (id: string): Message => ({ info: { id, role: "assistant", created: 1 }, parts: [] });
 const coldState = (...heads: Cold[]): SyncState => ({ ...INITIAL_STATE, cursor: { epoch: EPOCH, seq: 100 }, cold: Object.fromEntries(heads.map((h) => [h.key, h])) });
-const entryFor = (n: number, seq = 101): Action => ({ type: "frame", epoch: EPOCH, frame: { type: "message", seq, key: key(n), upstream: 20, info: message("msg_9").info } satisfies Entry });
+const entryFor = (n: number, seq = 101): Action => framed({ type: "message", seq, key: key(n), upstream: 20, message: message("msg_9").info } satisfies Entry);
 
 describe("a cold thread", () => {
   test("restoring one the journal never touched is a live thread again, as saved, with nothing asked of the daemon", () => {
@@ -529,13 +532,13 @@ describe("a cold thread", () => {
     expect(state.cold[key(2)]?.stale).toBe(true);
   });
 
-  test("a reset marks every cold thread, and a host's reset marks that host's", () => {
+  test("a reset marks every cold thread, and a thread reset marks only that thread's cold copy", () => {
     const base = coldState(head(1), { ...head(2), key: "other:ses_2" });
-    const reset = run(base, [{ type: "frame", epoch: "j2", frame: { type: "reset", seq: 5, epoch: "j2", reason: "epoch", fleet: { hosts: [], sessions: [], asks: [], order: [] } } }]);
+    const reset = run(base, [framed({ type: "reset", seq: 5, epoch: "j2", reason: "none", fleet: { agents: [], threads: [], asks: [], order: [] } }, "j2")]);
     expect(Object.values(reset.state.cold).map((h) => h.stale)).toEqual([true, true]);
-    const hostReset = run(base, [{ type: "frame", epoch: EPOCH, frame: { type: "host.reset", seq: 101, host: "other", sessions: [], asks: [] } }]);
-    expect(hostReset.state.cold[key(1)]?.stale).toBe(false);
-    expect(hostReset.state.cold["other:ses_2"]?.stale).toBe(true);
+    const threadReset = run(base, [framed({ type: "thread.reset", seq: 101, key: "other:ses_2" })]);
+    expect(threadReset.state.cold[key(1)]?.stale).toBe(false);
+    expect(threadReset.state.cold["other:ses_2"]?.stale).toBe(true);
   });
 
   test("a thread saved mid-read starts again when it is restored, and one saved mid-refetch asks for its message", () => {

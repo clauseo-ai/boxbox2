@@ -58,11 +58,14 @@ export type ToWorker =
   /** `open` is the thread the url names, whose pages boot reads for the first frame */
   /** `board`: a desktop-class device, whose stream asks for board frames (docs/board.md) */
   | { type: "start"; device: string; deviceClass: DeviceClass; open: string | null; board: boolean; hidden: boolean }
-  /** the page was hidden or shown: hidden, the worker holds what it would post (gate.ts) and posts it, in order, when shown */
+  /** the page was hidden or shown: hidden, the worker holds what it would post (gate.ts) and posts it, in order, when shown;
+      hidden for 30 s, its stream asks for the overview only, and asks for what the page shows again when it is shown */
   | { type: "visibility"; hidden: boolean }
-  /** the person opens a thread: it is cached up to the caps, evicted last, and its recency is the person's */
+  /** the person opens a thread: it goes on stage (the stream's interest names it), is cached up to the caps, evicted last,
+      and its recency is the person's. the threads it opened that the ui still shows are the layers under it */
   | { type: "open"; key: string }
-  /** keep a thread current for another one on stage (a child under its parent). it leases one of 16 places of its own,
+  /** keep a thread current for another one on stage (a child under its parent): it joins the stream's interest as a hold
+      until released. it leases one of 16 places of its own,
       beside the person's 40, for as long as it is held and not released: with all 16 leased the hold is refused and
       reads nothing. it never refreshes the recency of a thread the person opened, and goes first when the bytes pass the cap */
   | { type: "hold"; key: string }

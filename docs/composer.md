@@ -413,7 +413,7 @@ new-thread route makes one before the session when asked.
   sheet follow the window in view on the deck (its colour, repo root and
   host) and, with nothing in view, the newest thread's repo.
 - **where a thread can start.** the place line's pickers show the machine
-  row when `hostNames` has more than one, then the recent repos (your repos
+  row when `agentNames` has more than one, then the recent repos (your repos
   by their newest thread, then the machine's other projects), then a
   finder: a field that filters the repos by name or
   path, or, when the text starts with `/` or `~`, lists the folders inside
@@ -850,7 +850,7 @@ runtime, so a cmx thread's composer is exactly what it was.
 on the web the mic key, the recorder and the thinking chip are built as
 standalone pieces (`app/src/ui/assistant/voice/voice-composer.tsx`,
 `thinking.tsx`; ladle group `assistant-composer`) that the composer takes
-when contract 2 is wired.
+when the app's protocol 3 store is wired.
 
 ### the chips
 

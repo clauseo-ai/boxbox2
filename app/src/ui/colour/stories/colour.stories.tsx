@@ -9,7 +9,6 @@ import { type ReactElement, createElement, useEffect, useRef } from "react";
 import { answerColours } from "../../../shell/stories/server";
 import { mountShell, type ShellStory } from "../../../shell/stories/mount";
 import { applyPatches, state } from "../../../store";
-import { repoRootOf } from "../../composer/place";
 import { onShell } from "../../thread/stories/on-shell";
 import type { Fleet } from "../../../sync/reducer";
 import { mountStageAlone } from "../../thread/stories/stage-alone";
@@ -24,10 +23,10 @@ const DOCS = "/private/tmp/boxbox-m5-windows/repos/docs";
 /** the server's map with the thread's repo given `chosen` (null: automatic, cobalt), the machine's other recorded repo
     green, relay slate by hand and docs plum */
 function coloursFor(fleet: Fleet, key: string, chosen: string | null): ColourMap {
-  const session = fleet.sessions[key];
-  const host = session?.host ?? "bench";
-  const root = session ? repoRootOf(session.info) : "";
-  const other = Object.values(fleet.sessions).map((s) => repoRootOf(s.info)).find((r) => r !== root);
+  const session = fleet.threads[key];
+  const host = session?.agent ?? "bench";
+  const root = session?.place?.root ?? "";
+  const other = Object.values(fleet.threads).map((s) => s.place?.root ?? "").find((r) => r !== root);
   return {
     [repoKey({ host, root })]: { auto: "cobalt", chosen },
     ...(other ? { [repoKey({ host, root: other })]: { auto: "green", chosen: null } } : {}),
@@ -145,7 +144,7 @@ function onScreen(story: ShellStory, then: () => void): () => ReactElement {
 }
 
 const settingsColours = () => {
-  const key = Object.keys(state.fleet.sessions)[0];
+  const key = Object.keys(state.fleet.threads)[0];
   if (key) colour(key, "sunset");
 };
 

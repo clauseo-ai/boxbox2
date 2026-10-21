@@ -340,6 +340,8 @@ impl Cmx2Source {
             ApiError::Gone => VerbError::Missing { what: "thread" },
             other => verb_error(other),
         })?;
+        #[cfg(feature = "record")]
+        crate::fleet::record::adopt_info(&thread.agent, &info);
         let facts = crate::source::cmx2::translate::thread_from_json(info).map_err(|error| {
             VerbError::Unreachable {
                 reason: format!("its answer was not a session ({error})"),

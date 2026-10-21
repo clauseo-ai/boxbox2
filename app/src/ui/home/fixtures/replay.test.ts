@@ -1,5 +1,4 @@
-/* the recorded journal holds every window state the daemon can produce
-   today, and the reducer takes all of it exactly once */
+/* the recorded journal holds every window state the daemon can produce today, and the reducer takes all of it exactly once */
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -8,28 +7,27 @@ import { windowView } from "../../window/view";
 import { windowKeys } from "../membership";
 import { endOf, keyOf, parseJournal, replay, TITLES } from "./replay";
 
-const recorded = parseJournal(readFileSync(join(import.meta.dir, "journal.ndjson"), "utf8"));
+const recorded = parseJournal(readFileSync(join(import.meta.dir, "journal-p3.ndjson"), "utf8"));
 const { state } = replay(recorded);
 const now = endOf(recorded);
 const asksOf = (key: string) => Object.values(state.fleet.asks).filter((a) => a.key === key);
 const view = (title: string) => {
   const key = keyOf(state, title);
-  const entry = state.fleet.sessions[key];
-  if (!entry) throw new Error(`no session ${key}`);
-  return windowView(entry, asksOf(key), {});
+  const thread = state.fleet.threads[key];
+  if (!thread) throw new Error(`no thread ${key}`);
+  return windowView(thread, asksOf(key), {});
 };
 
 describe("the recorded journal", () => {
-  test("applies exactly once: no duplicates, no gaps", () => {
+  test("applies exactly once: no duplicates, every frame that is an entry applied", () => {
     expect(state.counters.duplicates).toBe(0);
-    expect(state.counters.gaps).toBe(0);
     expect(state.counters.applied).toBe(recorded.filter((r) => r.frame.type !== "hello" && r.frame.type !== "reset").length);
   });
 
   test("holds five threads across two repos, all with windows, in the server's order", () => {
     const keys = windowKeys(state.fleet, now);
     expect(keys.length).toBe(5);
-    expect(new Set(keys.map((k) => view(state.fleet.sessions[k]?.info.title ?? "").repo))).toEqual(new Set(["ledger", "site"]));
+    expect(new Set(keys.map((k) => view(state.fleet.threads[k]?.title ?? "").repo))).toEqual(new Set(["ledger", "site"]));
     expect(keys[0]).toBe(keyOf(state, TITLES.wants));
   });
 

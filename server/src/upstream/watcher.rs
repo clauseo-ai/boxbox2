@@ -209,8 +209,10 @@ impl Watcher {
                 epoch: read.epoch.clone(),
                 seq: read.resume_seq(),
             });
+            #[cfg(feature = "record")]
+            crate::fleet::record::host_read(&read);
             let snapshot = translate::snapshot(read);
-            self.emit(None, SourceEvent::Snapshot(Box::new(snapshot)), None)
+            self.emit(None, SourceEvent::Snapshot(Box::new(snapshot)))
                 .await
                 .map_err(|_| SessionError::FleetStopped)?;
         }
@@ -343,8 +345,10 @@ impl Watcher {
             event,
             payload: decoded.payload,
         };
-        if let Some((translated, payload)) = crate::source::cmx2::from_frame(&self.name, decoded) {
-            self.emit(seq, translated, Some(payload))
+        if let Some(translated) = crate::source::cmx2::from_frame(&self.name, &decoded) {
+            #[cfg(feature = "record")]
+            crate::fleet::record::event(&self.name, seq, &decoded);
+            self.emit(seq, translated)
                 .await
                 .map_err(|_| SessionError::FleetStopped)?;
         }
@@ -354,7 +358,7 @@ impl Watcher {
     /// the fleet hears that a frame was skipped, so no transcript read made
     /// before it is answered unchanged (`fleet/model/marks.rs`).
     async fn skipped(&self, seq: Option<u64>) -> Result<Option<u64>, SessionError> {
-        self.emit(seq, SourceEvent::Skipped, None)
+        self.emit(seq, SourceEvent::Skipped)
             .await
             .map_err(|_| SessionError::FleetStopped)?;
         Ok(None)
@@ -365,9 +369,8 @@ impl Watcher {
         &self,
         seq: Option<u64>,
         event: SourceEvent,
-        raw: Option<Box<serde_json::value::RawValue>>,
     ) -> Result<(), crate::source::FleetGone> {
-        self.fleet.send(&self.name, seq, event, raw).await
+        self.fleet.send(&self.name, seq, event).await
     }
 
     async fn health(&self) -> Result<Health, SessionError> {
@@ -452,12 +455,13 @@ impl Watcher {
                 undecodable: self.counters.undecodable.load(Ordering::Relaxed),
                 duplicates: self.counters.duplicates.load(Ordering::Relaxed),
             };
+            #[cfg(feature = "record")]
+            crate::fleet::record::host(&snapshot);
             // a stopped fleet means the server is stopping; the loop ends on the token
             let _ = self
                 .emit(
                     None,
                     SourceEvent::Connection(translate::connection(snapshot)),
-                    None,
                 )
                 .await;
         }

@@ -34,10 +34,10 @@ use bytes::Bytes;
 use tokio::sync::watch;
 use tracing::error;
 
-use super::change::Change;
 use super::model::Model;
 use super::model::board::Row;
 use crate::journal::sse_frame;
+use crate::wire::Change;
 
 /// a picture that changed shape waits at least this long after the last
 /// build.
@@ -207,19 +207,24 @@ impl Projection {
         self.view.is_closed()
     }
 
-    /// a journaled change passed the actor.
+    /// a change of the model passed the actor, on its way to the encoder.
     pub fn saw(&mut self, change: &Change, now: Instant) {
         match change {
-            Change::Host { .. }
-            | Change::HostRemoved { .. }
-            | Change::HostReset { .. }
-            | Change::Session { .. }
-            | Change::SessionRemoved { .. }
+            Change::Agent { .. }
+            | Change::AgentRemoved { .. }
+            | Change::Thread { .. }
+            | Change::ThreadPatch(_)
+            | Change::ThreadRemoved { .. }
             | Change::Ask { .. }
-            | Change::AskSettled { .. }
-            | Change::Order { .. } => self.structure = true,
+            | Change::AskSettled(_)
+            | Change::Order { .. }
+            | Change::OrderPatch { .. } => self.structure = true,
             Change::Delta { key, .. } => self.streamed(key, now),
-            Change::Message { .. } | Change::Part { .. } | Change::MessageRemoved { .. } => {}
+            Change::ThreadReset { .. }
+            | Change::Message { .. }
+            | Change::Part { .. }
+            | Change::MessageRemoved { .. }
+            | Change::Reactions { .. } => {}
         }
     }
 

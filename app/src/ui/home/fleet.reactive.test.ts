@@ -22,23 +22,23 @@ const reactive = (() => {
   } catch { return false; }
 })();
 
-const journal = readFileSync(join(import.meta.dir, "fixtures", "journal.ndjson"), "utf8");
+const journal = readFileSync(join(import.meta.dir, "fixtures", "journal-p3.ndjson"), "utf8");
 
 /* the computations as they stood before (home.tsx, membership.ts, live.ts), kept here word for word as the reference */
 function windowKeysBefore(fleet: Fleet, now: number): string[] {
   const asking = new Set(Object.values(fleet.asks).map((ask) => ask.key));
   const keys: string[] = [];
   for (const key of fleet.order) {
-    const entry = fleet.sessions[key];
-    if (!entry || entry.info.parentID) continue;
+    const entry = fleet.threads[key];
+    if (!entry || entry.parent) continue;
     if (entry.cleared != null) continue;
-    const active = entry.status !== null || asking.has(key);
-    if (active || now - entry.info.time.updated < RECENT_MS) keys.push(key);
+    const active = entry.activity.state !== "idle" || asking.has(key);
+    if (active || now - entry.updated < RECENT_MS) keys.push(key);
   }
   return keys;
 }
-const hostsBefore = (fleet: Fleet): number => new Set(Object.values(fleet.sessions).map((s) => s.host)).size;
-const childrenBefore = (fleet: Fleet, host: string, me: string): string[] => Object.values(fleet.sessions).filter((e) => e.host === host && e.info.parentID === me).map((e) => e.key);
+const hostsBefore = (fleet: Fleet): number => new Set(Object.values(fleet.threads).map((s) => s.agent)).size;
+const childrenBefore = (fleet: Fleet, host: string, me: string): string[] => Object.values(fleet.threads).filter((e) => e.agent === host && e.parent === me).map((e) => e.key);
 
 function run(fine: boolean) {
   const sim = simulate(journal, { sessions: 300, steps: 1500, seed: fine ? 11 : 7, fine });
@@ -52,7 +52,7 @@ function run(fine: boolean) {
     const before = createMemo(() => { counts.keysBefore++; return windowKeysBefore(store.fleet, now()); });
     const keys = createMemo(() => { counts.keys++; return membership.keys(); });
     const names = sessionKeys(fleet);
-    const hostsOf = keyed(names, (key) => store.fleet.sessions[key]?.host);
+    const hostsOf = keyed(names, (key) => store.fleet.threads[key]?.agent);
     const hosts = createMemo(() => new Set(hostsOf().filter((h) => h !== undefined)).size);
     const parents = parentIndex(fleet, names);
     return { sim, store, apply, setNow, now, keys, before, hosts, parents, membership, counts, dispose };
@@ -74,18 +74,18 @@ describe.skipIf(!reactive)("home's fleet readings", () => {
         expect(r.hosts()).toBe(hostsBefore(plain));
         if (step.now !== undefined && keys.length !== last.length) crossings++;
         last = keys;
-        for (const entry of Object.values(plain.sessions).slice(0, 40)) {
-          expect([...(r.parents().get(`${entry.host}\0${entry.id}`) ?? [])]).toEqual(childrenBefore(plain, entry.host, entry.id));
+        for (const entry of Object.values(plain.threads).slice(0, 40)) {
+          expect([...(r.parents().get(`${entry.agent}\0${entry.id}`) ?? [])]).toEqual(childrenBefore(plain, entry.agent, entry.id));
         }
         const all = [...r.parents().values()].reduce((n, list) => n + list.length, 0);
-        expect(all).toBe(Object.values(plain.sessions).filter((e) => e.info.parentID).length);
+        expect(all).toBe(Object.values(plain.threads).filter((e) => e.parent).length);
       }
       // the run does exercise the 12 hour rule: windows left by the clock alone
       expect(crossings).toBeGreaterThan(0);
       // the list is worked out again only when it could have changed, never on every frame and every second as the walk was
       expect(r.counts.keys).toBeLessThan(r.counts.keysBefore / 3);
       r.dispose();
-    });
+    }, 30_000);
   }
 
   test("the clock wakes the window list only when a thread's 12 hours run out, and `wake` names that moment", () => {
@@ -120,7 +120,7 @@ describe.skipIf(!reactive)("home's fleet readings", () => {
       const hosts = keyed(names, (key) => {
         live.set(key, (live.get(key) ?? 0) + 1);
         onCleanup(() => { const n = (live.get(key) ?? 1) - 1; if (n) live.set(key, n); else live.delete(key); });
-        return store.fleet.sessions[key]?.host;
+        return store.fleet.threads[key]?.agent;
       });
       const parents = parentIndex(fleet, names);
       const membership = createWindowKeys(fleet, () => sim.now);
@@ -128,22 +128,22 @@ describe.skipIf(!reactive)("home's fleet readings", () => {
     });
     const check = () => {
       const plain = unwrap(store.fleet);
-      expect([...r.names()]).toEqual(Object.keys(plain.sessions));
-      expect(r.hosts()).toEqual(Object.values(plain.sessions).map((s) => s.host));
+      expect([...r.names()]).toEqual(Object.keys(plain.threads));
+      expect(r.hosts()).toEqual(Object.values(plain.threads).map((s) => s.agent));
       expect(r.membership.keys()).toEqual(windowKeysBefore(plain, sim.now));
-      for (const entry of Object.values(plain.sessions)) expect([...(r.parents().get(`${entry.host}\0${entry.id}`) ?? [])]).toEqual(childrenBefore(plain, entry.host, entry.id));
+      for (const entry of Object.values(plain.threads)) expect([...(r.parents().get(`${entry.agent}\0${entry.id}`) ?? [])]).toEqual(childrenBefore(plain, entry.agent, entry.id));
     };
     check();
     const baseline = live.size;
-    const first = Object.keys(sim.start.sessions)[0] as string;
-    const entry = structuredClone(sim.start.sessions[first]);
+    const first = Object.keys(sim.start.threads)[0] as string;
+    const entry = structuredClone(sim.start.threads[first]);
     // removed, then added again in a later batch: it comes back at the end of the keys, as Object.values has it
-    setStore(produce((d) => { delete d.fleet.sessions[first]; }));
+    setStore(produce((d) => { delete d.fleet.threads[first]; }));
     check();
-    setStore(produce((d) => { d.fleet.sessions[first] = structuredClone(entry) as typeof d.fleet.sessions[string]; }));
+    setStore(produce((d) => { d.fleet.threads[first] = structuredClone(entry) as typeof d.fleet.threads[string]; }));
     check();
     // removed and added again in one batch
-    setStore(produce((d) => { delete d.fleet.sessions[first]; d.fleet.sessions[first] = structuredClone(entry) as typeof d.fleet.sessions[string]; }));
+    setStore(produce((d) => { delete d.fleet.threads[first]; d.fleet.threads[first] = structuredClone(entry) as typeof d.fleet.threads[string]; }));
     check();
     expect(live.size).toBe(baseline);
     // five thousand sessions come, some under a parent, and go again
@@ -152,15 +152,15 @@ describe.skipIf(!reactive)("home's fleet readings", () => {
       setStore(produce((d) => {
         for (let i = 0; i < 500; i++) {
           const id = `ses_churn${round}_${i}`;
-          const key = `${template.host}:${id}`;
-          d.fleet.sessions[key] = { ...structuredClone(template), key, id, info: { ...structuredClone(template.info), id, parentID: i % 3 === 0 ? template.id : undefined } } as typeof d.fleet.sessions[string];
+          const key = `${template.agent}:${id}`;
+          d.fleet.threads[key] = { ...structuredClone(template), key, id, ...(i % 3 === 0 ? { parent: template.id } : {}) } as typeof d.fleet.threads[string];
           d.fleet.order.push(key);
         }
       }));
       check();
       expect(live.size).toBe(baseline + 500);
       setStore(produce((d) => {
-        for (let i = 0; i < 500; i++) delete d.fleet.sessions[`${template.host}:ses_churn${round}_${i}`];
+        for (let i = 0; i < 500; i++) delete d.fleet.threads[`${template.agent}:ses_churn${round}_${i}`];
         d.fleet.order = d.fleet.order.filter((k) => !k.includes("ses_churn"));
       }));
       check();

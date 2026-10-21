@@ -2,9 +2,8 @@
 //! (19: the session, status, transcript, ask and need events), each
 //! turning a decoded cmx2 event into exactly one `SourceEvent`
 //! (`docs/agents.md`, section 4). every other type the contract declares
-//! stays decoded and ignored, as it always was. the whole payload rides
-//! beside the event for contract 1, which journals cmx2's objects byte for
-//! byte.
+//! stays decoded and ignored, as it always was. no payload rides beside
+//! the event: the fleet journals the neutral forms alone.
 //!
 //! the facts the reducer decides with are read here with today's
 //! leniency: what the model read loosely from the daemon's json, this
@@ -186,6 +185,7 @@ fn session(event: &Event, payload: &RawValue) -> Result<Option<SourceEvent>, ser
             SourceEvent::Activity {
                 thread: e.properties.session_id.clone(),
                 activity: activity(&e.properties.status),
+                queued: queued(&e.properties.status),
             }
         }
         Event::SessionIdle(e) => SourceEvent::TurnEnded {
@@ -344,7 +344,8 @@ pub fn agent(host: &str) -> AgentFacts {
     }
 }
 
-/// the host's status as a connection's, carrying the host for contract 1.
+/// the host's status as a connection's, carrying the host the fleet builds
+/// its agent from.
 #[must_use]
 pub fn connection(status: HostStatus) -> ConnectionStatus {
     let agent_status = match status.connection {
@@ -379,17 +380,22 @@ pub fn connection(status: HostStatus) -> ConnectionStatus {
     }
 }
 
+/// a project's repo word, exactly as the app's `repoName` reads a root:
+/// trailing slashes and backslashes trimmed, the last segment split on
+/// either, and the project itself when that leaves nothing.
+#[must_use]
+pub fn repo_name(project: &str) -> &str {
+    let trimmed = project.trim_end_matches(['/', '\\']);
+    match trimmed.rsplit(['/', '\\']).next() {
+        Some(name) if !name.is_empty() => name,
+        _ => project,
+    }
+}
+
 /// a session as a thread. `raw` is its info as the daemon wrote it.
 #[must_use]
 pub fn thread(info: &cmx2::SessionInfo, raw: Box<RawValue>) -> ThreadFacts {
-    let repo = info
-        .project_id
-        .trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or(&info.title)
-        .to_owned();
+    let repo = repo_name(&info.project_id).to_owned();
     let root = if info.project_id.starts_with('/') {
         info.project_id.clone()
     } else {
@@ -469,9 +475,7 @@ fn whole(value: f64) -> u64 {
 #[must_use]
 pub fn activity(status: &cmx2::SessionStatus) -> Activity {
     match status {
-        cmx2::SessionStatus::Busy(b) => Activity::Busy {
-            since: b.since.unwrap_or(0.0),
-        },
+        cmx2::SessionStatus::Busy(b) => Activity::Busy { since: b.since },
         cmx2::SessionStatus::Retry(r) => Activity::Retry {
             attempt: u32::try_from(r.attempt).unwrap_or(0),
             message: r.message.clone(),
@@ -486,6 +490,16 @@ pub fn activity(status: &cmx2::SessionStatus) -> Activity {
             },
             None => Activity::Idle,
         },
+    }
+}
+
+/// prompts waiting behind a running turn: a busy status's `queued` (what
+/// the window's "working, n next" counts), none otherwise.
+#[must_use]
+pub fn queued(status: &cmx2::SessionStatus) -> u32 {
+    match status {
+        cmx2::SessionStatus::Busy(b) => b.queued.and_then(|q| u32::try_from(q).ok()).unwrap_or(0),
+        _ => 0,
     }
 }
 
@@ -520,6 +534,8 @@ struct MessageJson {
     summary: serde_json::Value,
     #[serde(default)]
     notice: serde_json::Value,
+    #[serde(default)]
+    mail: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -562,19 +578,20 @@ pub fn message(info: &RawValue) -> Result<Message, serde_json::Error> {
         summary: m.summary.as_bool().unwrap_or(false),
         notice: m.notice.as_bool().unwrap_or(false),
         finish: m.finish,
-        // an error the app reads by name alone (a stopped turn) still counts
-        error: match (
-            m.error
+        // any error object counts, even one with neither words nor a name:
+        // the app shows its message, else its name, else "failed"
+        error: m.error.is_object().then(|| MessageError {
+            message: m
+                .error
                 .pointer("/data/message")
-                .and_then(serde_json::Value::as_str),
-            m.error.get("name").and_then(serde_json::Value::as_str),
-        ) {
-            (None, None) => None,
-            (message, name) => Some(MessageError {
-                message: message.unwrap_or_default().to_owned(),
-                name: name.map(str::to_owned),
-            }),
-        },
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            name: m
+                .error
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        }),
         model,
         effort: text(&m.variant),
         cost: m.cost.as_f64(),
@@ -582,6 +599,7 @@ pub fn message(info: &RawValue) -> Result<Message, serde_json::Error> {
         origin: None,
         quote: None,
         reactions: None,
+        mail: mail(&m.mail),
     })
 }
 
@@ -694,6 +712,7 @@ fn known(json: PartJson) -> Option<Part> {
         }),
         "tool" => {
             let tool = json.tool?;
+            let state = tool_state(&json.state?, &json.id, &json.message_id)?;
             Part::Tool(ToolPart {
                 id: json.id,
                 message_id: json.message_id,
@@ -701,7 +720,7 @@ fn known(json: PartJson) -> Option<Part> {
                 call_id: json.call_id?,
                 family: family(&tool),
                 tool,
-                state: tool_state(&json.state?)?,
+                state,
             })
         }
         "file" => {
@@ -793,7 +812,64 @@ struct ToolStateJson {
     attachments_dropped: Option<u32>,
 }
 
-fn tool_state(raw: &RawValue) -> Option<ToolState> {
+/// one item of a tool's `attachments`: cmx2 writes `{type: "file", mime,
+/// filename, url}` with no id or message of its own.
+#[derive(Deserialize)]
+struct AttachmentJson {
+    #[serde(rename = "type")]
+    kind: String,
+    mime: String,
+    #[serde(default)]
+    filename: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+}
+
+/// a tool's attachment as a neutral part: an image (`image/*`) or a file,
+/// its id the tool part's with `.a<index>`, in the tool part's message, at
+/// no place of its own. anything else stays the source's json, as unknown.
+fn attachment(raw: &RawValue, tool: &str, message: &str, index: usize) -> Part {
+    let Ok(item) = serde_json::from_str::<AttachmentJson>(raw.get()) else {
+        return part(raw);
+    };
+    if item.kind != "file" {
+        return part(raw);
+    }
+    let id = format!("{tool}.a{index}");
+    if item.mime.starts_with("image/") {
+        Part::Image(ImagePart {
+            id,
+            message_id: message.to_owned(),
+            at: None,
+            mime: item.mime,
+            filename: item.filename,
+            size: None,
+            media: None,
+            url: item.url,
+            width: None,
+            height: None,
+            alt: None,
+            flavour: Flavour::Attached,
+        })
+    } else {
+        match item.filename {
+            Some(filename) => Part::File(FilePart {
+                id,
+                message_id: message.to_owned(),
+                at: None,
+                mime: item.mime,
+                filename,
+                size: None,
+                media: None,
+                url: item.url,
+                flavour: Flavour::Attached,
+            }),
+            None => Part::unknown(raw.to_owned()),
+        }
+    }
+}
+
+fn tool_state(raw: &RawValue, tool: &str, message: &str) -> Option<ToolState> {
     let state: ToolStateJson = serde_json::from_str(raw.get()).ok()?;
     Some(ToolState {
         status: state.status,
@@ -803,9 +879,13 @@ fn tool_state(raw: &RawValue) -> Option<ToolState> {
         error: state.error,
         metadata: state.metadata,
         time: state.time,
-        attachments: state
-            .attachments
-            .map(|parts| parts.iter().map(|p| part(p)).collect()),
+        attachments: state.attachments.map(|items| {
+            items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| attachment(item, tool, message, index))
+                .collect()
+        }),
         attachments_dropped: state.attachments_dropped,
     })
 }
@@ -845,10 +925,11 @@ struct AskIds {
 #[derive(Deserialize)]
 struct AskWords {
     permission: Option<String>,
+    /// each item read on its own: a malformed one is dropped, not the list.
     #[serde(default)]
-    patterns: Vec<String>,
+    patterns: Vec<serde_json::Value>,
     #[serde(default)]
-    questions: Vec<QuestionWords>,
+    questions: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -860,11 +941,12 @@ struct QuestionWords {
 #[derive(Deserialize, Default)]
 struct AskDetail {
     #[serde(default)]
-    always: Vec<String>,
+    always: Vec<serde_json::Value>,
     #[serde(default)]
-    tool: Option<ToolRefJson>,
+    tool: Option<serde_json::Value>,
+    /// by the index of the question it adds to; a malformed one reads as none.
     #[serde(default)]
-    questions: Vec<QuestionDetail>,
+    questions: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -877,14 +959,16 @@ struct ToolRefJson {
 
 #[derive(Deserialize)]
 struct QuestionDetail {
+    /// each field read on its own, so one malformed field costs only itself.
     #[serde(default)]
-    header: String,
+    header: serde_json::Value,
     #[serde(default)]
-    multiple: bool,
+    multiple: serde_json::Value,
+    /// cmx2 leaves it out when a typed answer is allowed.
     #[serde(default)]
-    custom: bool,
+    custom: serde_json::Value,
     #[serde(default)]
-    options: Vec<QuestionOptionJson>,
+    options: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -892,6 +976,15 @@ struct QuestionOptionJson {
     label: String,
     #[serde(default)]
     description: Option<String>,
+}
+
+/// the strings of a list read loosely: anything else in it is dropped.
+fn strings(values: &[serde_json::Value]) -> Vec<String> {
+    values
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .collect()
 }
 
 /// an ask request as the daemon wrote it, as an ask of `host`.
@@ -905,8 +998,8 @@ pub fn ask(host: &str, kind: AskKind, request: &RawValue) -> Result<Ask, serde_j
         Ok(words) => {
             let permission = words.permission.map(|title| Permission {
                 title,
-                patterns: words.patterns,
-                always: detail.always.clone(),
+                patterns: strings(&words.patterns),
+                always: strings(&detail.always),
                 options: vec![
                     PermissionOption {
                         id: PermissionReply::Once,
@@ -933,25 +1026,34 @@ pub fn ask(host: &str, kind: AskKind, request: &RawValue) -> Result<Ask, serde_j
                 .questions
                 .into_iter()
                 .enumerate()
-                .map(|(at, words)| {
-                    let more = detail.questions.get(at);
-                    Question {
+                .filter_map(|(at, words)| {
+                    let words = QuestionWords::deserialize(words).ok()?;
+                    let more = detail
+                        .questions
+                        .get(at)
+                        .and_then(|q| QuestionDetail::deserialize(q).ok());
+                    let more = more.as_ref();
+                    Some(Question {
                         question: words.question,
-                        header: more.map(|q| q.header.clone()).unwrap_or_default(),
-                        multiple: more.is_some_and(|q| q.multiple),
-                        custom: more.is_some_and(|q| q.custom),
+                        header: more
+                            .and_then(|q| q.header.as_str())
+                            .unwrap_or_default()
+                            .to_owned(),
+                        multiple: more.is_some_and(|q| q.multiple.as_bool() == Some(true)),
+                        custom: more.is_none_or(|q| q.custom.as_bool() != Some(false)),
                         options: more
                             .map(|q| {
                                 q.options
                                     .iter()
+                                    .filter_map(|o| QuestionOptionJson::deserialize(o).ok())
                                     .map(|o| QuestionOption {
-                                        label: o.label.clone(),
-                                        description: o.description.clone(),
+                                        label: o.label,
+                                        description: o.description,
                                     })
                                     .collect()
                             })
                             .unwrap_or_default(),
-                    }
+                    })
                 })
                 .collect();
             (permission, (!questions.is_empty()).then_some(questions))
@@ -967,10 +1069,13 @@ pub fn ask(host: &str, kind: AskKind, request: &RawValue) -> Result<Ask, serde_j
         kind,
         created: None,
         expires: None,
-        tool: detail.tool.map(|t| ToolRef {
-            message_id: t.message_id,
-            call_id: t.call_id,
-        }),
+        tool: detail
+            .tool
+            .and_then(|t| ToolRefJson::deserialize(t).ok())
+            .map(|t| ToolRef {
+                message_id: t.message_id,
+                call_id: t.call_id,
+            }),
         permission,
         questions,
     })
@@ -999,7 +1104,7 @@ pub fn snapshot(read: crate::upstream::reconcile::HostRead) -> Snapshot {
                     activities.push(ThreadActivity {
                         thread: id,
                         activity,
-                        raw: Some(status),
+                        queued: queued(&decoded),
                     });
                 }
             }
@@ -1015,10 +1120,7 @@ pub fn snapshot(read: crate::upstream::reconcile::HostRead) -> Snapshot {
     ] {
         for request in requests {
             match ask(&host, kind, &request) {
-                Ok(ask) => asks.push(RaisedAsk {
-                    ask,
-                    raw: Some(request),
-                }),
+                Ok(ask) => asks.push(RaisedAsk { ask }),
                 Err(error) => {
                     tracing::warn!(host, %error, "an ask from the read does not decode; skipped");
                 }

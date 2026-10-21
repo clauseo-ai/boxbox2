@@ -25,7 +25,7 @@ for every kind; where it says daemon or host, it describes a cmx2 connection.
 | needs | the list of asks and faults waiting for you, computed once on the server |
 | window | home's card for a live thread, showing its latest work |
 | seq, cursor | a counter on every event. a client that remembers its last seq can resume without gaps or repeats |
-| journal | boxbox's own ring of recent events, each already encoded for every client (from m9, one ring per contract, each with its own epoch) |
+| journal | boxbox's own ring of recent changes, each already encoded once as the bytes every client stream gets (protocol 3, [protocol.md](protocol.md)) |
 | the pin | the one cmx2 commit boxbox builds against, written in `cmx2.pin` |
 | the board | an optional 17-key usb keyboard with a small daemon that talks to boxbox |
 | agent, connection | from m9: someone you talk to (a cmx2 daemon, an openclaw assistant, a hermes agent), reached through a connection, one `boxbox.toml` entry ([agents.md](agents.md)) |
@@ -51,9 +51,9 @@ installs and maintains it. each task owns its state and talks by message.
 | `src/source/` | the agent source seam: the `AgentSource` trait and `SourceEvent` union every kind of agent plugs into, the cmx2 source, thread ids, agent keys and identity, the send ledger |
 | `src/upstream/` | the supervisor, one source per connection: a watcher per cmx2 host (holds the event stream open, resumes by cursor, backs off, reconciles after a reset), and an openclaw source per `[[openclaw]]` entry |
 | `src/openclaw/` | the openclaw source ([openclaw.md](openclaw.md)): the gateway's protocol types, the device identity and pairing, the method allowlist every request passes, and one websocket per gateway with its request scheduler, event stream and reconnects. it connects and pairs today; its agents and threads come with its sync engine |
-| `src/fleet/` | the fleet actor. folds daemon events into one model: sessions, window tails, asks, needs, read state |
+| `src/fleet/` | the fleet actor. folds every source's events into one model (threads, window tails, asks, needs, read state), runs each change through protocol 3's encoder (patches, 100 ms text batches, finished text once) and hands each stream what its interest shows |
 | `src/journal.rs` | the ring of changes. each entry is encoded once and shared by every client stream |
-| `src/http/` | the gate, the json api, the event stream, and the embedded web app |
+| `src/http/` | the gate, the json api, the event stream and its interest posts, the thread reads, and the embedded web app |
 | `src/auth.rs` | the password gate and its signed session cookie |
 | `src/push/` | decides who gets a notification and delivers it with web push |
 | `src/pty/` | relays a terminal websocket between the browser and a daemon |
@@ -77,7 +77,7 @@ and posts small patches to the ui thread once a frame.
 | `src/ui/home/`, `src/ui/window/` | home and its live windows |
 | `src/ui/thread/` | the thread view: turns, rows, the stage |
 | `src/ui/composer/` | writing a prompt, queueing, steering, starting a thread, model and effort pickers |
-| `src/ui/assistant/` | the agent surfaces contract 2 brings, standalone with their stories until it is wired: voice notes (record, play, peaks), pictures and files with the viewer, quotes, reactions, the reply strip, an assistant's window, card and picker (design.md, the agent surfaces on the web) |
+| `src/ui/assistant/` | the agent surfaces the neutral wire brings, standalone with their stories until the app's protocol 3 store feeds them: voice notes (record, play, peaks), pictures and files with the viewer, quotes, reactions, the reply strip, an assistant's window, card and picker (design.md, the agent surfaces on the web) |
 | `src/ui/inbox/`, `asks/` | questions and permissions |
 | `src/ui/machines/`, `settings/`, `term/`, `review/`, `history/` | machines and pairing, settings, the terminal pane, code review, past threads |
 | `src/motion/` | the animation helpers. everything that moves goes through them |
@@ -115,15 +115,21 @@ you type "run the tests" in a thread on your phone and press send.
 5. **the upstream watcher** for `desk` receives each event, drops any it has
    seen, and hands it to the fleet actor.
 6. **the fleet actor** updates its model: the thread's state, its window tail, its needs.
-   it appends a typed change to the journal, which encodes it once.
-7. **the stream** to your phone sends that frame. the worker applies it to its
+   its encoder turns the change into a journal entry (a patch of what moved,
+   or text batched over 100 ms), encoded once.
+7. **the stream** to your phone sends that frame if your phone shows it: the
+   overview goes to every stream, a thread's words only to the streams that
+   have it open. the worker applies it to its
    cache and tells the ui thread what changed. the faded message becomes solid
    when the event carrying its `clientID` arrives, so a retry can never send it twice.
 8. **the ui** renders the new rows. if the turn ends while the screen is off,
    the push task decides the "done" notice is worth sending and delivers it.
 
 if the network drops between steps 6 and 7, the worker reconnects with its last
-cursor and the journal replays what it missed. if the cursor is too old, the
+cursor and what the screen shows, and the server catches it up: the overview's
+changes, then the open thread's words from where the worker left them, then
+`caught` (`docs/protocol.md`, sections 5 and 9). if the cursor is from another
+server run or too old, the
 server sends a snapshot and the worker replaces its cache in one step.
 
 ## where to go next
@@ -137,8 +143,8 @@ server sends a snapshot and the worker replaces its cache in one step.
 | notifications | [push.md](push.md) |
 | installing on a server, https, upgrades | [deploy.md](deploy.md) |
 | what boxbox asks of cmx2 | [cmx2-asks.md](cmx2-asks.md) |
-| agents beyond cmx2: contract 2 beside an isolated contract 1, the agent source seam, what a source journals, the transcript cache, capabilities, the routes, media, sends that end uncertain, the runs window, identity | [agents.md](agents.md) |
-| the device protocol that replaces contract 1 (spec, not built yet): interest, patches, catch-up, full resume on restart, paged thread reads, the summary, media references, the build packages | [protocol.md](protocol.md) |
+| agents beyond cmx2: the neutral wire, the agent source seam, what a source journals, the transcript cache, capabilities, the routes, media, sends that end uncertain, the runs window, identity | [agents.md](agents.md) |
+| the device protocol (protocol 3) that replaced contract 1, its server built (the app, the board daemon and full resume on restart are not yet, `open.md`): interest, patches, catch-up, full resume on restart, paged thread reads, the summary, media references, the build packages | [protocol.md](protocol.md) |
 | the openclaw connection: pairing, sync, the method allowlist, the test gateway, its mapping | [openclaw.md](openclaw.md) |
 | how changes are verified | [verification.md](verification.md), [board-verification.md](board-verification.md) |
 | known bugs | [open.md](open.md) |

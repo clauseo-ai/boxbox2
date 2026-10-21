@@ -11,6 +11,7 @@
 
 use std::collections::VecDeque;
 use std::fmt;
+use std::sync::Arc;
 
 use bytes::{BufMut, Bytes, BytesMut};
 
@@ -58,6 +59,7 @@ pub enum Gap {
 }
 
 /// some consecutive entries, in order.
+#[cfg(test)]
 #[derive(Debug, Default)]
 pub struct Page {
     pub frames: Vec<Bytes>,
@@ -69,6 +71,9 @@ pub struct Page {
 struct Entry {
     seq: u64,
     frame: Bytes,
+    /// the thread a transcript entry belongs to, so a catch-up finds one
+    /// thread's entries without decoding the rest; none for the overview.
+    thread: Option<Arc<str>>,
 }
 
 #[derive(Debug)]
@@ -126,9 +131,14 @@ impl Journal {
         self.bytes
     }
 
-    /// appends the next entry. `body` gets the entry's seq and returns its
-    /// json (a single object); `None` appends nothing and uses no seq.
-    pub fn append(&mut self, body: impl FnOnce(u64) -> Option<Vec<u8>>) -> Option<Bytes> {
+    /// appends the next entry, of `thread`'s transcript or (none) of the
+    /// overview. `body` gets the entry's seq and returns its json (a single
+    /// object); `None` appends nothing and uses no seq.
+    pub fn append_for(
+        &mut self,
+        thread: Option<&str>,
+        body: impl FnOnce(u64) -> Option<Vec<u8>>,
+    ) -> Option<Bytes> {
         let seq = self.head + 1;
         let json = body(seq)?;
         let frame = sse_frame(Some(&format!("{}:{seq}", self.epoch)), &json);
@@ -137,6 +147,7 @@ impl Journal {
         self.entries.push_back(Entry {
             seq,
             frame: frame.clone(),
+            thread: thread.map(Arc::from),
         });
         while self.entries.len() > self.max_entries || self.bytes > self.max_bytes {
             match self.entries.pop_front() {
@@ -152,6 +163,7 @@ impl Journal {
     ///
     /// # Errors
     /// `after` is past the head, or entries after it were evicted.
+    #[cfg(test)]
     pub fn page(&self, after: u64, max_bytes: usize) -> Result<Page, Gap> {
         if after > self.head {
             return Err(Gap::Ahead);
@@ -175,6 +187,44 @@ impl Journal {
         }
         Ok(page)
     }
+
+    /// every transcript entry of `thread` after `after`, oldest first, with
+    /// its seq.
+    ///
+    /// # Errors
+    /// `after` is past the head, or entries after it were evicted.
+    pub fn transcript(&self, thread: &str, after: u64) -> Result<Vec<(u64, Bytes)>, Gap> {
+        if after > self.head {
+            return Err(Gap::Ahead);
+        }
+        if after + 1 < self.floor() {
+            return Err(Gap::Evicted);
+        }
+        let start = usize::try_from(after + 1 - self.floor()).unwrap_or(usize::MAX);
+        Ok(self
+            .entries
+            .iter()
+            .skip(start)
+            .filter(|e| e.thread.as_deref() == Some(thread))
+            .map(|e| (e.seq, e.frame.clone()))
+            .collect())
+    }
+}
+
+/// the json a frame carries: its `data:` lines joined as the spec
+/// reassembles them.
+#[must_use]
+pub fn frame_data(frame: &[u8]) -> Vec<u8> {
+    let mut json = Vec::with_capacity(frame.len());
+    for line in frame.split(|&b| b == b'\n') {
+        if let Some(data) = line.strip_prefix(b"data: ") {
+            if !json.is_empty() {
+                json.push(b'\n');
+            }
+            json.extend_from_slice(data);
+        }
+    }
+    json
 }
 
 /// one sse frame: an optional `id:` line, then the json on `data:` lines.
@@ -231,7 +281,7 @@ mod tests {
         let mut journal = Journal::new("ep".into());
         assert_eq!((journal.head(), journal.floor()), (0, 1));
         let frame = journal
-            .append(|seq| Some(format!("{{\"seq\":{seq}}}").into_bytes()))
+            .append_for(None, |seq| Some(format!("{{\"seq\":{seq}}}").into_bytes()))
             .unwrap();
         assert_eq!(&frame[..], b"id: ep:1\ndata: {\"seq\":1}\n\n");
         assert_eq!((journal.head(), journal.floor(), journal.len()), (1, 1, 1));
@@ -240,8 +290,8 @@ mod tests {
     #[test]
     fn a_body_that_declines_uses_no_seq() {
         let mut journal = Journal::new("ep".into());
-        assert!(journal.append(|_| None).is_none());
-        journal.append(body(1));
+        assert!(journal.append_for(None, |_| None).is_none());
+        journal.append_for(None, body(1));
         assert_eq!(journal.head(), 1);
     }
 
@@ -255,7 +305,7 @@ mod tests {
     fn the_entry_cap_evicts_the_oldest() {
         let mut journal = Journal::with_caps("ep".into(), usize::MAX, 3);
         for _ in 0..5 {
-            journal.append(body(1));
+            journal.append_for(None, body(1));
         }
         assert_eq!((journal.floor(), journal.head(), journal.len()), (3, 5, 3));
     }
@@ -264,7 +314,7 @@ mod tests {
     fn the_byte_cap_evicts_the_oldest_and_counts_what_it_holds() {
         let mut journal = Journal::with_caps("ep".into(), 1000, usize::MAX);
         for _ in 0..20 {
-            journal.append(body(100));
+            journal.append_for(None, body(100));
         }
         assert!(journal.bytes() <= 1000, "{}", journal.bytes());
         let held: usize = journal
@@ -283,7 +333,7 @@ mod tests {
     fn a_replay_starts_right_after_the_cursor_and_pages_by_bytes() {
         let mut journal = Journal::new("ep".into());
         for _ in 0..10 {
-            journal.append(body(10));
+            journal.append_for(None, body(10));
         }
         let one = journal.page(0, usize::MAX).unwrap();
         assert_eq!((one.frames.len(), one.last), (10, 10));
@@ -302,10 +352,32 @@ mod tests {
     }
 
     #[test]
+    fn a_thread_s_transcript_is_found_by_its_key_and_its_frames_decode() {
+        let mut journal = Journal::with_caps("ep".into(), usize::MAX, 4);
+        for n in 0..6u64 {
+            let thread = (n % 2 == 0).then_some("a:1");
+            journal.append_for(thread, |seq| {
+                Some(format!("{{\"seq\":{seq}}}").into_bytes())
+            });
+        }
+        let held: Vec<u64> = journal
+            .transcript("a:1", 2)
+            .unwrap()
+            .iter()
+            .map(|e| e.0)
+            .collect();
+        assert_eq!(held, [3, 5]);
+        assert_eq!(journal.transcript("a:1", 1).unwrap_err(), Gap::Evicted);
+        let (_, frame) = &journal.transcript("a:1", 4).unwrap()[0];
+        assert_eq!(frame_data(frame), b"{\"seq\":5}");
+        assert_eq!(frame_data(b"data: {\"a\":\ndata: 1}\n\n"), b"{\"a\":\n1}");
+    }
+
+    #[test]
     fn a_cursor_behind_the_floor_or_past_the_head_is_a_gap() {
         let mut journal = Journal::with_caps("ep".into(), usize::MAX, 3);
         for _ in 0..5 {
-            journal.append(body(1));
+            journal.append_for(None, body(1));
         }
         // floor is 3: a cursor at 2 still replays from 3, one at 1 lost seq 2
         assert!(journal.page(2, usize::MAX).is_ok());

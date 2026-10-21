@@ -2,6 +2,7 @@
    what each row shows (docs/thread.md, the row, folding, display rules).
    pure; no dom. the components paint these. */
 
+import type { Ask } from "../../sync/protocol";
 import type { AskReply } from "../../sync/replies";
 import type { Evidence } from "./evidence";
 import { type Item, type Picture, type Question, type Say, type Step, type Think, type Turn, homeAsTilde } from "./model";
@@ -272,7 +273,8 @@ export function agentTitle(title: string): { name: string; seat?: string } {
 export type AskQuestion = { header: string; question: string; options: Array<{ label: string; description: string }>; custom: boolean; multiple: boolean; answer?: string[] };
 
 /** an ask the daemon is waiting on, keyed by the tool call that raised it (the fleet's `asks`) */
-export type PendingAsk = { id: string; kind: "permission" | "question"; request: Record<string, unknown> };
+/** a pending ask as the fleet holds it (sync/protocol.ts, `Ask`): a permission's words, or a question's */
+export type PendingAsk = { id: string; kind: "permission" | "question"; permission: Ask["permission"]; questions: Ask["questions"] };
 
 /** what a running wait waits on, in words, from what is known while it runs: the agents under it at work, a reply it
     asked for (by correlation id, or the agent it just messaged), else a background job's notice or a message. the daemon
@@ -325,11 +327,12 @@ export function reportFor(ctx: RowCtx, s: Step): Turn | undefined {
 function askOn(s: Step, ctx: RowCtx): { permission?: { id: string; permission: string; patterns: string[] }; question?: { id: string; questions: Question[] } } {
   const pending = ctx.asks?.get(s.callID);
   if (pending?.kind === "permission") {
-    const r = pending.request;
-    return { permission: { id: pending.id, permission: typeof r["permission"] === "string" ? r["permission"] : "use", patterns: Array.isArray(r["patterns"]) ? r["patterns"].filter((p): p is string => typeof p === "string") : [] } };
+    /* `title` holds cmx2's `permission` key unchanged (the server's translate) */
+    const r: Record<string, unknown> = pending.permission ?? {};
+    return { permission: { id: pending.id, permission: typeof r["title"] === "string" ? r["title"] : "use", patterns: Array.isArray(r["patterns"]) ? r["patterns"].filter((p): p is string => typeof p === "string") : [] } };
   }
   if (pending?.kind === "question") {
-    const list = Array.isArray(pending.request["questions"]) ? pending.request["questions"] : [];
+    const list: readonly unknown[] = pending.questions ?? [];
     const questions: Question[] = list.flatMap((q) => {
       if (q === null || typeof q !== "object") return [];
       const r = q as Record<string, unknown>;

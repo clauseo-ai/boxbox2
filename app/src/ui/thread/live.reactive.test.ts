@@ -12,6 +12,8 @@ import { type Label, createNames } from "./names";
 import { createThreadCaches, cacheKey } from "./memo-cache";
 import { namesOf, tally } from "./ledger";
 import { turnsOf } from "./model";
+import { neutral } from "./fixtures/wire";
+import { neutralPart } from "../../sync/fixtures/neutral";
 
 const reactive = (() => {
   try {
@@ -22,17 +24,20 @@ const reactive = (() => {
 })();
 
 const T0 = 1_790_000_000_000;
-const user = (n: number, parts = true): Message => ({ info: { id: `msg_u${n}`, role: "user", time: { created: T0 + n * 60_000 } }, parts: parts ? [{ id: `prt_u${n}`, type: "text", text: `ask ${n}` }] : [] }) as unknown as Message;
-const assistant = (n: number, text = `said ${n}`): Message => ({
+const user = (n: number, parts = true): Message => neutral({ info: { id: `msg_u${n}`, role: "user", time: { created: T0 + n * 60_000 } }, parts: parts ? [{ id: `prt_u${n}`, type: "text", text: `ask ${n}` }] : [] });
+const assistant = (n: number, text = `said ${n}`): Message => neutral({
   info: { id: `msg_a${n}`, role: "assistant", time: { created: T0 + n * 60_000 + 1000, completed: T0 + n * 60_000 + 5000 } },
   parts: [
     { id: `prt_t${n}`, type: "tool", callID: `call_${n}`, tool: "read", state: { status: "completed", input: { filePath: `/p/f${n}.ts` }, output: "x", time: { start: T0 + n * 60_000 + 2000, end: T0 + n * 60_000 + 3000 } } },
     { id: `prt_s${n}`, type: "text", text },
   ],
-}) as unknown as Message;
+});
 const thread = (turns: number): Message[] => Array.from({ length: turns }, (_, i) => [user(i), assistant(i)]).flat();
 
 const CACHES = createThreadCaches();
+
+/** a said part's words set in place, as a delta writes them (the store's path through the part union is not one the type checker follows) */
+const setText = (set: unknown, message: number, text: string): void => (set as (...path: unknown[]) => void)("messages", message, "parts", 1, "text", text);
 /** the digest of a built turn is read in idle time, which a test waits for */
 const idle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 120));
 
@@ -53,7 +58,7 @@ describe.skipIf(!reactive)("turns", () => {
     const before = t.turns();
     expect(before).toHaveLength(40);
     const ran = t.reads();
-    t.setStore("messages", 79, "parts", 1, "text", "said 39, and more");
+    setText(t.setStore, 79, "said 39, and more");
     const after = t.turns();
     expect(t.reads() - ran).toBe(1);
     expect(after.slice(0, 39).every((x, i) => x === before[i])).toBe(true);
@@ -66,14 +71,14 @@ describe.skipIf(!reactive)("turns", () => {
     const messages = thread(3);
     const url = `data:image/jpeg;base64,${"A".repeat(4096)}`;
     const u2 = messages[4] as Message;
-    messages[4] = { ...u2, parts: [...u2.parts, { id: "prt_f2", type: "file", mime: "image/jpeg", filename: "board.jpg", url }, { id: "prt_d2", type: "file", mime: "application/pdf", filename: "brief.pdf", url: "" }] } as unknown as Message;
+    messages[4] = { ...u2, parts: [...u2.parts, neutralPart({ id: "prt_f2", type: "file", mime: "image/jpeg", filename: "board.jpg", url }), neutralPart({ id: "prt_d2", type: "file", mime: "application/pdf", filename: "brief.pdf", url: "" })] };
     const t = open(messages, "desk:photos");
     const before = t.turns()[2]?.photos;
     const files = t.turns()[2]?.sentFiles;
     expect(before?.map((p) => p.filename)).toEqual(["board.jpg"]);
     expect(files?.map((f) => f.filename)).toEqual(["brief.pdf"]);
     for (const n of [1, 2, 3]) {
-      t.setStore("messages", 5, "parts", 1, "text", `said 2${", and more".repeat(n)}`);
+      setText(t.setStore, 5, `said 2${", and more".repeat(n)}`);
       const after = t.turns()[2];
       expect(after?.answer?.text.endsWith(", and more")).toBe(true);
       expect(after?.photos).toBe(before);
@@ -257,7 +262,7 @@ describe.skipIf(!reactive)("the turns an ask needs", () => {
     const [need] = createSignal<ReadonlySet<string>>(new Set(["call_90"]));
     const t = open(thread(100), "desk:need4", createThreadCaches(), { first: 10, need });
     const ids = t.ids();
-    t.setStore("messages", 5, "parts", 1, "text", "changed far above");
+    setText(t.setStore, 5, "changed far above");
     expect(t.ids()).toBe(ids);
   });
 });
@@ -297,7 +302,7 @@ describe.skipIf(!reactive)("a long thread shown newest first", () => {
   test("ids change only when a turn comes or goes, and a turn is found by its id", () => {
     const t = open(thread(30), "desk:ids", createThreadCaches(), { first: 10 });
     const ids = t.ids();
-    t.setStore("messages", 59, "parts", 1, "text", "said 29, and more");
+    setText(t.setStore, 59, "said 29, and more");
     expect(t.ids()).toBe(ids);
     expect(t.turnOf("msg_u29")?.answer?.text).toBe("said 29, and more");
     t.grow(5);
@@ -389,14 +394,16 @@ describe.skipIf(!reactive)("names", () => {
 const shape = (t: unknown) => { const x = t as Record<string, unknown>; return JSON.stringify({ items: x["items"], answer: x["answer"], cost: x["cost"], status: x["status"], error: x["error"], model: x["model"], effort: x["effort"], end: x["end"] }); };
 
 describe.skipIf(!reactive)("a turn reads what turnsOf reads", () => {
-  const tool = (state: Record<string, unknown>, name = "shell"): Message => ({
-    info: { id: "msg_a1", role: "assistant", cost: 0.01, modelID: "m-1", variant: "high", time: { created: T0 + 1000, completed: T0 + 5000 } },
+  /* in cmx2's shapes, which send a model's provider beside its id */
+  const recorded = (state: Record<string, unknown>, name = "shell") => ({
+    info: { id: "msg_a1", role: "assistant", cost: 0.01, providerID: "p", modelID: "m-1", variant: "high", time: { created: T0 + 1000, completed: T0 + 5000 } },
     parts: [
       { id: "prt_t1", type: "tool", callID: "call_1", tool: name, state: { status: "completed", input: { command: "ls" }, output: "x", title: "ls", metadata: { exit_code: 0 }, time: { start: T0 + 2000, end: T0 + 3000 }, ...state } },
       { id: "prt_s1", type: "text", text: "said" },
     ],
-  }) as unknown as Message;
-  const withInfo = (info: Record<string, unknown>): Message => ({ ...tool({}), info: { ...(tool({}).info as object), ...info } }) as unknown as Message;
+  });
+  const tool = (state: Record<string, unknown>, name = "shell"): Message => neutral(recorded(state, name));
+  const withInfo = (info: Record<string, unknown>): Message => neutral({ ...recorded({}), info: { ...recorded({}).info, ...info } });
   const first = (): Message => user(1);
 
   /** the turn after `next` replaced the part (or the message), against what turnsOf says of the same messages read from nothing */
@@ -524,7 +531,7 @@ describe.skipIf(!reactive)("names, the running count against the rule", () => {
 
 /* a part of megabytes: told apart by its length and its ends, in a time that does not grow with the megabytes */
 describe.skipIf(!reactive)("a part of 6 MB", () => {
-  const huge = (text: string): Message => ({ info: { id: "msg_a1", role: "assistant", time: { created: T0 + 1000, completed: T0 + 5000 } }, parts: [{ id: "prt_s1", type: "text", text }] }) as unknown as Message;
+  const huge = (text: string): Message => neutral({ info: { id: "msg_a1", role: "assistant", time: { created: T0 + 1000, completed: T0 + 5000 } }, parts: [{ id: "prt_s1", type: "text", text }] });
   test("is built into a turn, and changed, in well under a second", () => {
     const text = "word ".repeat(1_200_000);
     const [store, setStore] = createStore<{ messages: Message[] }>({ messages: [user(1), huge(text)] });

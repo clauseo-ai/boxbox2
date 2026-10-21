@@ -298,7 +298,7 @@
     },
     {
       "kind": "perf.cache",
-      "doc": "what the sync worker did with its indexeddb cache (docs/architecture.md, indexeddb layout), one row per event. boot: the launch read the meta, the fleet and every thread's head and the pages of the thread the url opens, nothing else; ms is that read, threads the cached threads known, messages the ones read. restore: a thread opened or held was read back from its pages before the wire was asked; ms is the read, ok = 0 when a page was missing and the thread starts over from the daemon. evict: a thread left the cache for the thread cap (40) or the byte cap (150 mb), held-only threads first; opened says the person had it open, and a 1 should be rare, and cap says which limit did it.",
+      "doc": "what the sync worker did with its indexeddb cache (docs/architecture.md, indexeddb layout), one row per event. boot: the launch read the meta, the fleet and every thread's head and the pages of the thread the url opens, nothing else; ms is that read, threads the cached threads known, messages the ones read. restore: a thread opened or held was read back from its pages before the wire was asked; ms is the read, ok = 0 when a page was missing and the thread starts over from the daemon. evict: a thread left the cache for the thread cap (40) or the byte cap (50 mb), held-only threads first; opened says the person had it open, and a 1 should be rare, and cap says which limit did it.",
       "props": [
         {
           "name": "what",
@@ -334,7 +334,7 @@
         {
           "name": "cap",
           "type": "TEXT",
-          "doc": "evict only: the limit that evicted it. opened = the person's 40 threads, held = a released place of the 16 for held threads, taken by a new hold, bytes = the 150 mb cap, unfit = a held thread's read (or its growth) that could not fit beside the thread on stage and the other leased threads, so nothing else was evicted for it.",
+          "doc": "evict only: the limit that evicted it. opened = the person's 40 threads, held = a released place of the 16 for held threads, taken by a new hold, bytes = the 50 mb cap, unfit = a held thread's read (or its growth) that could not fit beside the thread on stage and the other leased threads, so nothing else was evicted for it.",
           "values": [
             "opened",
             "held",
@@ -359,6 +359,16 @@
           "required": true
         },
         {
+          "name": "view",
+          "type": "TEXT",
+          "doc": "minute: what the page showed when the row was written (docs/protocol.md, interest): home = no thread on stage, the overview only; thread = a thread on stage, with its words; hidden = hidden for 30 s, the overview only.",
+          "values": [
+            "home",
+            "thread",
+            "hidden"
+          ]
+        },
+        {
           "name": "frames",
           "type": "INTEGER",
           "doc": "minute: sse frames received (journal, colour and board frames)."
@@ -367,6 +377,11 @@
           "name": "received",
           "type": "INTEGER",
           "doc": "minute: bytes read off the stream. overflow: the characters the parser held at the cap."
+        },
+        {
+          "name": "skipped",
+          "type": "INTEGER",
+          "doc": "minute: journal seqs the stream skipped, from the ids it showed: the transcript entries of threads outside the page's interest, which protocol 3 never sends it. a home page skips most of the journal; a skipped seq is never a gap."
         },
         {
           "name": "posts",
@@ -397,6 +412,97 @@
           "name": "stored",
           "type": "INTEGER",
           "doc": "minute: about how many bytes those records held, by the same estimate as posted."
+        }
+      ]
+    },
+    {
+      "kind": "sync.catchup",
+      "doc": "how a stream connection of the sync worker opened (docs/protocol.md, catch-up), one row per connection that reached its catch-up's end. caught = the server caught the device's cursor up (overview changes, then each interest thread's transcript from its left) and said caught; reset = it could not (no cursor, another epoch, expired, invalid) and sent the whole fleet, and the threads on screen are read again. ms (in the envelope) is the dial to the caught or the reset applied.",
+      "props": [
+        {
+          "name": "how",
+          "type": "TEXT",
+          "doc": "how it ended",
+          "values": [
+            "caught",
+            "reset"
+          ],
+          "required": true
+        },
+        {
+          "name": "reason",
+          "type": "TEXT",
+          "doc": "reset only: the reset's reason.",
+          "values": [
+            "none",
+            "epoch",
+            "expired",
+            "invalid"
+          ]
+        },
+        {
+          "name": "frames",
+          "type": "INTEGER",
+          "doc": "frames after the hello up to and including the caught or the reset."
+        },
+        {
+          "name": "bytes",
+          "type": "INTEGER",
+          "doc": "the characters of those frames' data, as they arrived (inflated)."
+        },
+        {
+          "name": "stale",
+          "type": "INTEGER",
+          "doc": "thread.stale frames: interest threads whose missed entries the server no longer held, read before they are trusted."
+        },
+        {
+          "name": "resets",
+          "type": "INTEGER",
+          "doc": "thread.reset frames: threads the server could not vouch for, whose messages were dropped and read again."
+        }
+      ]
+    },
+    {
+      "kind": "sync.interest",
+      "doc": "the server confirmed what the page shows (docs/protocol.md, the confirm), one row per confirm of the newest interest post: a thread opened, closed or held, or the page hidden for 30 s or shown again. ms (in the envelope) is the post to the confirm; the switch shows no gap whatever it is, and a long one is a slow stream.",
+      "props": [
+        {
+          "name": "entering",
+          "type": "INTEGER",
+          "doc": "threads that entered the interest at this confirm."
+        },
+        {
+          "name": "catchup",
+          "type": "INTEGER",
+          "doc": "the characters of the catch-up frames that came ahead of the confirm (entering threads' transcripts from their left)."
+        },
+        {
+          "name": "stale",
+          "type": "INTEGER",
+          "doc": "entering threads the server could not catch up, read instead."
+        },
+        {
+          "name": "reset",
+          "type": "INTEGER",
+          "doc": "entering threads the server had reset since their left, dropped and read again."
+        }
+      ]
+    },
+    {
+      "kind": "sync.fault",
+      "doc": "a protocol 3 rule caught something on the device (docs/protocol.md, tests), one row per event. patch-error: a thread or order patch that did not fit what the device held, so nothing of it applied and the stream reconnected with a reset; catchup-error: a catch-up or confirm frame that did not parse, handled the same way; read-late: a thread read that started before the thread entered the interest, taken again; hash-miss: a settled part whose text the device did not hold exactly (textOf), so its message was read again. a well-behaved server and network cause none of the first two.",
+      "props": [
+        {
+          "name": "what",
+          "type": "TEXT",
+          "doc": "which rule",
+          "values": [
+            "patch-error",
+            "read-late",
+            "hash-miss",
+            "catchup-error"
+          ],
+          "required": true
         }
       ]
     },

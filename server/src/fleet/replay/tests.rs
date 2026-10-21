@@ -1,22 +1,23 @@
-//! contract 1, recorded before the seam (docs/plan.md, m9's gate).
+//! protocol 3, replayed from the recording contract 1 left (docs/protocol.md,
+//! section 16).
 //!
-//! `server/goldens/contract1/` holds what `bun bench/golden.ts record`
-//! took from a live server on today's main watching a cmx2 dev daemon:
+//! `server/goldens/contract1/` holds what `bun bench/golden.ts record` took
+//! from a live server watching a cmx2 dev daemon: `tape.jsonl.gz`, every
+//! input the fleet actor took with its clock, and `live.json.gz`, what that
+//! server sent (its epoch and build, and the `/api/needs` answers this file
+//! still holds the replay to; its contract 1 journal and streams are kept as
+//! the record of what the tape was).
 //!
-//! - `tape.jsonl.gz`: every input the fleet actor took, with its clock.
-//! - `live.json.gz`: what that live server sent: its epoch and build, the
-//!   whole contract 1 journal as a stream from cursor 0 delivered it, and
-//!   every stream, `/api/fleet` and `/api/needs` answer the bench asked for
-//!   while the tape ran.
-//! - `golden/`: what today's server answers at the end of the tape (the
-//!   `hello` and `reset`, resumes inside and beyond the journal, the fleet,
-//!   the needs, every push it asked for), epoch and build normalised.
-//!
-//! the tests replay the tape and hold the result against both. after the
-//! seam they must pass unchanged, with only `Replay::upstream` moved.
-//! `BOXBOX_GOLDENS=write cargo test goldens` rewrites `golden/` from the
-//! replay; that is for a new recording, never for a failing test.
+//! `server/goldens/protocol3/` holds what this server journals and answers
+//! from that tape: the journal from cursor 0, the views a device gets of it
+//! (home, a thread open, a switch between them), `hello` and `reset` for a
+//! first connection at the end, resumes inside and beyond the journal, the
+//! fleet, the needs and every push, epoch, build and stream id normalised.
+//! `BOXBOX_GOLDENS=write cargo test protocol3` rewrites them from the
+//! replay; that is for a new recording or a deliberate encoding change,
+//! never for a failing test.
 
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::io::Read;
 use std::path::PathBuf;
@@ -31,37 +32,37 @@ use crate::fleet::tape::Step;
 use crate::journal::{Cursor, Journal};
 use crate::push::Asked;
 use crate::push::payload::Payload;
+use crate::wire::patch;
+use crate::wire::{
+    Agent, Ask, Change, Control, Fleet, Interest, JournalEntry, PROTOCOL, ResetReason, Thread,
+};
 
-/// the placeholders an epoch and a build normalise to.
+/// the placeholders an epoch, a build and a stream id normalise to.
 const EPOCH: &str = "EPOCH";
 const BUILD: &str = "BUILD";
+const STREAM: &str = "00000000000000000000000000000000";
 
 #[derive(Deserialize)]
 struct Live {
     epoch: String,
     build: String,
-    /// every journal frame, as the stream sent them, concatenated.
-    journal: String,
-    /// each stream the bench opened, in order: the bytes it read before it
-    /// closed (`None` for one it did not keep, the board's client).
-    streams: Vec<Option<String>>,
-    fleet: Vec<String>,
     needs: Vec<LiveNeeds>,
 }
 
 #[derive(Deserialize)]
 struct LiveNeeds {
     body: String,
-    seq: String,
 }
 
-fn dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("goldens/contract1")
+fn input(name: &str) -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("goldens/contract1")
+        .join(name);
+    gunzip_at(&path)
 }
 
-fn gunzip(name: &str) -> String {
-    let path = dir().join(name);
-    let file = std::fs::File::open(&path).unwrap_or_else(|e| {
+fn gunzip_at(path: &std::path::Path) -> String {
+    let file = std::fs::File::open(path).unwrap_or_else(|e| {
         panic!(
             "{}: {e}; record it with `bun bench/golden.ts record`",
             path.display()
@@ -74,8 +75,12 @@ fn gunzip(name: &str) -> String {
     text
 }
 
+fn dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("goldens/protocol3")
+}
+
 fn tape() -> Vec<Step> {
-    gunzip("tape.jsonl.gz")
+    input("tape.jsonl.gz")
         .lines()
         .enumerate()
         .map(|(n, line)| {
@@ -85,32 +90,41 @@ fn tape() -> Vec<Step> {
 }
 
 fn live() -> Live {
-    serde_json::from_str(&gunzip("live.json.gz")).unwrap()
+    serde_json::from_str(&input("live.json.gz")).unwrap()
 }
 
-/// the tape replayed whole into a fresh actor, at today's tail pace.
+/// the clock of the tape's last step, for the queries asked after it.
+fn end(steps: &[Step]) -> i64 {
+    steps.last().map_or(0, |s| s.at)
+}
+
+/// the tape replayed whole into a fresh actor at today's tail pace, and the
+/// actor's clock run a second past its end, so no text waits for its batch.
 fn replayed(live: &Live, steps: Vec<Step>) -> Replay {
+    let at = end(&steps);
     let mut replay = Replay::new(&live.epoch, &live.build);
     for step in steps {
         replay.step(step).unwrap();
     }
+    replay.flush_deltas(at + 1000);
     replay
 }
 
-/// the same at the tail pace the tape was recorded at, to be held against
-/// what the live server sent.
+/// the same at the tail pace the tape was recorded at.
 fn recorded(live: &Live, steps: Vec<Step>) -> Replay {
+    let at = end(&steps);
     let mut replay = Replay::new(&live.epoch, &live.build).at_recorded_pace();
     for step in steps {
         replay.step(step).unwrap();
     }
+    replay.flush_deltas(at + 1000);
     replay
 }
 
-/// a stream's text with its epoch and build as placeholders, so a server
-/// started at another time (or after the seam) compares equal.
+/// a stream's text with its epoch, build and stream id as placeholders, so
+/// a server started at another time compares equal.
 fn normalise(text: &str, epoch: &str, build: &str) -> String {
-    text.replace(&format!("id: {epoch}:"), &format!("id: {EPOCH}:"))
+    let text = text
         .replace(
             &format!("\"epoch\":\"{epoch}\""),
             &format!("\"epoch\":\"{EPOCH}\""),
@@ -119,7 +133,17 @@ fn normalise(text: &str, epoch: &str, build: &str) -> String {
             &format!("\"build\":\"{build}\""),
             &format!("\"build\":\"{BUILD}\""),
         )
-        .replace(&format!("{epoch}:"), &format!("{EPOCH}:"))
+        .replace(&format!("{epoch}:"), &format!("{EPOCH}:"));
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("\"stream\":\"") {
+        let (before, after) = rest.split_at(at + "\"stream\":\"".len());
+        out.push_str(before);
+        out.push_str(STREAM);
+        rest = &after[after.find('"').unwrap_or(0)..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn joined(frames: &[Bytes]) -> String {
@@ -138,16 +162,15 @@ fn digest(text: &str) -> String {
         })
 }
 
-/// holds `actual` against `golden/<name>`, or writes it there when
-/// `BOXBOX_GOLDENS=write`. a name ending `.gz` is kept compressed: the
-/// snapshots of a thousand threads are most of a megabyte each.
+/// holds `actual` against `protocol3/<name>`, or writes it there when
+/// `BOXBOX_GOLDENS=write`. a name ending `.gz` is kept compressed.
 fn golden(name: &str, actual: &str) {
-    let path = dir().join("golden").join(name);
+    let path = dir().join(name);
     let zipped = std::path::Path::new(name)
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"));
     if std::env::var("BOXBOX_GOLDENS").as_deref() == Ok("write") {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(dir()).unwrap();
         if zipped {
             let mut out = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
             std::io::Write::write_all(&mut out, actual.as_bytes()).unwrap();
@@ -158,7 +181,7 @@ fn golden(name: &str, actual: &str) {
         return;
     }
     let expected = if zipped {
-        gunzip(&format!("golden/{name}"))
+        gunzip_at(&path)
     } else {
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
     };
@@ -170,127 +193,394 @@ fn golden(name: &str, actual: &str) {
     );
 }
 
+/// the json object a frame carries.
+fn data(frame: &Bytes) -> serde_json::Value {
+    let text = std::str::from_utf8(frame).unwrap();
+    let json: String = text
+        .lines()
+        .filter_map(|l| l.strip_prefix("data: "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    serde_json::from_str(&json).unwrap()
+}
+
+fn entry(frame: &Bytes) -> JournalEntry {
+    serde_json::from_value(data(frame)).unwrap()
+}
+
+/// what a client holds of the overview, built only from journal entries.
+#[derive(Default, Clone)]
+struct Client {
+    agents: BTreeMap<String, Agent>,
+    threads: BTreeMap<String, Thread>,
+    asks: BTreeMap<(String, String), Ask>,
+    order: Vec<String>,
+}
+
+impl Client {
+    /// applies one entry by the client's rules; an entry that cannot apply
+    /// is a protocol error.
+    fn apply(&mut self, change: Change) -> Result<(), String> {
+        match change {
+            Change::Agent { agent } => {
+                self.agents.insert(agent.key.clone(), agent);
+            }
+            Change::AgentRemoved { agent } => {
+                self.agents.remove(&agent);
+            }
+            Change::Thread { thread } => {
+                self.threads.insert(thread.key.clone(), thread);
+            }
+            Change::ThreadPatch(p) => {
+                let base = self.threads.get(&p.key).ok_or_else(|| {
+                    format!("a patch for {}, which the client does not hold", p.key)
+                })?;
+                let next = patch::apply_thread(base, &p).map_err(|e| e.to_string())?;
+                self.threads.insert(p.key.clone(), next);
+            }
+            Change::ThreadRemoved { key } => {
+                self.threads.remove(&key);
+            }
+            Change::Ask { ask } => {
+                self.asks.insert((ask.agent.clone(), ask.id.clone()), ask);
+            }
+            Change::AskSettled(settled) => {
+                self.asks.remove(&(settled.agent, settled.id));
+            }
+            Change::Order { keys } => self.order = keys,
+            Change::OrderPatch { ops } => {
+                self.order = patch::apply_order(&self.order, &ops).map_err(|e| e.to_string())?;
+            }
+            // transcript entries, and a reset of one, leave the overview as it is
+            Change::ThreadReset { .. }
+            | Change::Message { .. }
+            | Change::Part { .. }
+            | Change::Delta { .. }
+            | Change::MessageRemoved { .. }
+            | Change::Reactions { .. } => {}
+        }
+        Ok(())
+    }
+}
+
+/// the tape through the actor, every journal entry applied in order to an
+/// empty client after each step: the client equals the model's snapshot
+/// at every step (a thread whose streamed text waits for the 500 ms pace in
+/// all but its tail, which the next entry for it carries), and no entry
+/// fails to apply (`docs/protocol.md`, section 3, a frame that cannot apply).
 #[test]
-fn the_recorded_session_replays_to_the_journal_recorded_live_byte_for_byte() {
+fn protocol3_the_journal_applied_in_order_always_equals_the_model() {
     let live = live();
     let steps = tape();
-    let count = steps.len();
-    let replay = recorded(&live, steps);
-    let ours = normalise(&joined(&replay.journal()), &live.epoch, &live.build);
-    let theirs = normalise(&live.journal, &live.epoch, &live.build);
-    println!(
-        "replayed {count} steps: journal {} frames (seq {} to {}), {} bytes, sha256 {}; live sha256 {}",
-        replay.journal().len(),
-        replay.floor(),
-        replay.head(),
-        ours.len(),
-        digest(&ours),
-        digest(&theirs)
-    );
-    if ours != theirs {
-        let first = ours
-            .split("\n\n")
-            .zip(theirs.split("\n\n"))
-            .position(|(a, b)| a != b);
-        let at = first.unwrap_or(0);
-        panic!(
-            "the replayed journal differs from the live one at frame {at}:\nreplayed: {}\nlive:     {}",
-            ours.split("\n\n").nth(at).unwrap_or("(none)"),
-            theirs.split("\n\n").nth(at).unwrap_or("(none)")
+    let at = end(&steps);
+    let mut replay = Replay::new(&live.epoch, &live.build);
+    let mut client = Client::default();
+    let (mut seen, mut applied, mut held_steps, mut checks) = (0u64, 0usize, 0usize, 0usize);
+    let mut quiet = 0usize;
+    let mut check = |replay: &Replay, client: &Client, step: usize| {
+        let fleet = replay.snapshot();
+        let held = replay.held();
+        let agents: BTreeMap<&str, &Agent> =
+            fleet.agents.iter().map(|a| (a.key.as_str(), a)).collect();
+        assert_eq!(
+            agents,
+            client.agents.iter().map(|(k, a)| (k.as_str(), a)).collect(),
+            "agents at step {step}"
         );
-    }
-}
-
-/// the tape replayed whole into an actor that gives repos colours, as a
-/// fresh server does now.
-fn coloured(live: &Live) -> Replay {
-    let mut replay = Replay::colouring(&live.epoch, &live.build).at_recorded_pace();
-    for step in tape() {
-        replay.step(step).unwrap();
-    }
-    replay
-}
-
-#[test]
-fn with_colours_given_contract_1_is_still_what_was_recorded_byte_for_byte() {
-    let live = live();
-    let replay = coloured(&live);
-    let ours = normalise(&joined(&replay.journal()), &live.epoch, &live.build);
-    assert!(
-        ours == normalise(&live.journal, &live.epoch, &live.build),
-        "the journal moved"
-    );
-    let mut fleet = live.fleet.iter();
-    let mut streams: Vec<(u32, String)> = Vec::new();
-    for answer in &replay.answers {
-        match answer {
-            Answer::Snapshot(body) => {
-                assert!(
-                    Some(&body[..]) == fleet.next().map(String::as_bytes),
-                    "/api/fleet moved"
-                );
+        let asks: BTreeMap<(&str, &str), &Ask> = fleet
+            .asks
+            .iter()
+            .map(|a| ((a.agent.as_str(), a.id.as_str()), a))
+            .collect();
+        assert_eq!(
+            asks,
+            client
+                .asks
+                .iter()
+                .map(|((g, i), a)| ((g.as_str(), i.as_str()), a))
+                .collect(),
+            "asks at step {step}"
+        );
+        assert_eq!(fleet.order, client.order, "order at step {step}");
+        let keys: Vec<&str> = fleet.threads.iter().map(|t| t.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            client
+                .threads
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            "thread keys at step {step}"
+        );
+        for thread in &fleet.threads {
+            let held_by_client = &client.threads[&thread.key];
+            let mut expected = thread.clone();
+            let mut client_side = held_by_client.clone();
+            if held.contains(&thread.key) {
+                expected.tail.clone_from(&held_by_client.tail);
+            } else if expected != client_side {
+                // a tail item that renders nothing moves without an entry: the next one carries it
+                expected.tail.retain(renders);
+                client_side.tail.retain(renders);
+                quiet += 1;
             }
-            Answer::Page {
-                stream,
-                first,
-                frames,
-            } => match streams.iter_mut().rev().find(|(id, _)| id == stream) {
-                Some((_, held)) if !first => held.push_str(&joined(frames)),
-                _ => streams.push((*stream, joined(frames))),
-            },
-            Answer::Needs { .. } => {}
-        }
-    }
-    for ((_, ours), theirs) in streams.iter().zip(&live.streams) {
-        if let Some(theirs) = theirs {
             assert!(
-                theirs.starts_with(ours.as_str()),
-                "a stream that did not ask for colours moved"
+                expected == client_side,
+                "{} at step {step}: {}",
+                thread.key,
+                fields_apart(&expected, held_by_client)
             );
-            assert!(!ours.contains(r#""type":"colour"#), "and it saw no colour");
         }
+        held.len()
+    };
+    for (n, step) in steps.into_iter().enumerate() {
+        replay.step(step).unwrap();
+        for frame in replay.journal_after(seen) {
+            let entry = entry(&frame);
+            seen = entry.seq;
+            client
+                .apply(entry.change)
+                .unwrap_or_else(|e| panic!("seq {seen} at step {n}: {e}"));
+            applied += 1;
+        }
+        held_steps += usize::from(check(&replay, &client, n) > 0);
+        checks += 1;
+    }
+    // the clock runs on: what was held goes out, and then every thread is whole
+    replay.flush_deltas(at + 1000);
+    replay
+        .step(Step {
+            at: at + 1000,
+            input: crate::fleet::tape::Input::FlushTails,
+        })
+        .unwrap();
+    for frame in replay.journal_after(seen) {
+        client.apply(entry(&frame).change).unwrap();
+        applied += 1;
+    }
+    assert_eq!(
+        check(&replay, &client, checks),
+        0,
+        "nothing held at the end"
+    );
+    println!(
+        "{checks} steps, {applied} entries applied with no fault; {held_steps} steps had streamed text waiting for the pace; {quiet} thread checks equal only in the tail items that render; {} threads, {} asks, {} agents at the end",
+        client.threads.len(),
+        client.asks.len(),
+        client.agents.len()
+    );
+    assert!(applied > 0);
+}
+
+/// whether a window draws a tail item: thinking never, text once it has words.
+fn renders(item: &crate::wire::TailItem) -> bool {
+    match item.kind {
+        crate::wire::TailKind::Reasoning => false,
+        crate::wire::TailKind::Text => !item.text.trim().is_empty(),
+        _ => true,
     }
 }
 
-/// the repo of each session a page's frames show, as `host:root`.
+/// the fields two threads differ in, each as the model and the client hold it.
+fn fields_apart(model: &Thread, client: &Thread) -> String {
+    let (serde_json::Value::Object(a), serde_json::Value::Object(b)) = (
+        serde_json::to_value(model).unwrap(),
+        serde_json::to_value(client).unwrap(),
+    ) else {
+        unreachable!()
+    };
+    let mut keys: Vec<&String> = a.keys().chain(b.keys()).collect();
+    keys.sort();
+    keys.dedup();
+    keys.into_iter()
+        .filter(|k| a.get(*k) != b.get(*k))
+        .map(|k| format!("{k}: model {:?}, client {:?}", a.get(k), b.get(k)))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// the thread with the most transcript entries.
+fn busiest(entries: &[JournalEntry]) -> String {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for entry in entries {
+        if let Some(key) = entry.change.transcript_key() {
+            *counts.entry(key).or_default() += 1;
+        }
+    }
+    let mut counts: Vec<_> = counts.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    counts[0].0.to_owned()
+}
+
+/// whether a stream with `thread` open gets `entry`.
+fn shows(entry: &JournalEntry, thread: Option<&str>) -> bool {
+    entry
+        .change
+        .transcript_key()
+        .is_none_or(|key| Some(key) == thread)
+}
+
+fn control(id: Option<u64>, control: &Control) -> String {
+    let json = serde_json::to_vec(control).unwrap();
+    let frame = crate::journal::sse_frame(id.map(|s| format!("{EPOCH}:{s}")).as_deref(), &json);
+    String::from_utf8(frame.to_vec()).unwrap()
+}
+
+fn hello(interest: Interest) -> String {
+    control(
+        None,
+        &Control::Hello {
+            protocol: PROTOCOL,
+            epoch: EPOCH.into(),
+            head: 0,
+            build: BUILD.into(),
+            stream: STREAM.into(),
+            interest,
+        },
+    )
+}
+
+/// a first stream at cursor 0: hello, the colour map and an empty reset.
+fn opening(interest: Interest) -> String {
+    let colours = serde_json::to_vec(&crate::wire::ColourFrame::Colours {
+        colours: Vec::new(),
+    })
+    .unwrap();
+    hello(interest)
+        + std::str::from_utf8(&crate::journal::sse_frame(None, &colours)).unwrap()
+        + &control(
+            Some(0),
+            &Control::Reset {
+                seq: 0,
+                epoch: EPOCH.into(),
+                reason: ResetReason::None,
+                fleet: Fleet {
+                    agents: Vec::new(),
+                    threads: Vec::new(),
+                    asks: Vec::new(),
+                    order: Vec::new(),
+                },
+            },
+        )
+}
+
+/// the journal from cursor 0, and the views a device gets of it before
+/// interest filters the stream for it: home (the overview only), the
+/// busiest thread open, and home switching to that thread mid-tape with
+/// `since` a quarter in (its entries in between in a `catchup` frame). the
+/// app replays these until the server sends them itself.
+#[test]
+fn protocol3_goldens_the_journal_and_the_views_a_device_gets() {
+    let live = live();
+    let replay = replayed(&live, tape());
+    let frames = replay.journal();
+    let journal = normalise(&joined(&frames), &live.epoch, &live.build);
+    let entries: Vec<JournalEntry> = frames.iter().map(entry).collect();
+    let text: Vec<String> = frames
+        .iter()
+        .map(|f| normalise(std::str::from_utf8(f).unwrap(), &live.epoch, &live.build))
+        .collect();
+    let thread = busiest(&entries);
+    let head = replay.head();
+
+    let home = opening(Interest::default())
+        + &entries
+            .iter()
+            .zip(&text)
+            .filter(|(e, _)| shows(e, None))
+            .map(|(_, t)| t.as_str())
+            .collect::<String>();
+    let open = Interest {
+        thread: Some(thread.clone()),
+        under: Vec::new(),
+        holds: Vec::new(),
+    };
+    let opened = opening(open)
+        + &entries
+            .iter()
+            .zip(&text)
+            .filter(|(e, _)| shows(e, Some(&thread)))
+            .map(|(_, t)| t.as_str())
+            .collect::<String>();
+    let (since, at) = (head / 4, head / 2);
+    let mut switch = opening(Interest::default())
+        + &entries
+            .iter()
+            .zip(&text)
+            .filter(|(e, _)| e.seq <= at && shows(e, None))
+            .map(|(_, t)| t.as_str())
+            .collect::<String>();
+    let caught: Vec<JournalEntry> = entries
+        .iter()
+        .filter(|e| e.seq > since && e.seq <= at && e.change.transcript_key() == Some(&thread))
+        .cloned()
+        .collect();
+    if !caught.is_empty() {
+        switch += &control(None, &Control::Catchup { entries: caught });
+    }
+    switch += &control(
+        Some(at),
+        &Control::Interest {
+            ask: 1,
+            thread: Some(thread.clone()),
+            under: Vec::new(),
+            holds: Vec::new(),
+            seq: at,
+            stale: Vec::new(),
+            reset: Vec::new(),
+        },
+    );
+    switch += &entries
+        .iter()
+        .zip(&text)
+        .filter(|(e, _)| e.seq > at && shows(e, Some(&thread)))
+        .map(|(_, t)| t.as_str())
+        .collect::<String>();
+    println!(
+        "journal {} entries (seq to {head}), {} bytes; home {} bytes; {thread} open {} bytes",
+        entries.len(),
+        journal.len(),
+        home.len(),
+        opened.len()
+    );
+    golden("journal.sse.gz", &journal);
+    golden("home.sse.gz", &home);
+    golden("thread.sse.gz", &opened);
+    golden("switch.sse.gz", &switch);
+}
+
+/// the repo of each thread a page's frames show whole, as `agent:root`.
 fn repos_shown(frames: &[Bytes]) -> Vec<String> {
     let mut repos = Vec::new();
     for frame in frames {
-        let text = std::str::from_utf8(frame).unwrap();
-        let Some(data) = text.lines().find_map(|l| l.strip_prefix("data: ")) else {
-            continue;
-        };
-        let value: serde_json::Value = serde_json::from_str(data).unwrap();
-        let sessions: Vec<&serde_json::Value> = match value["type"].as_str() {
-            Some("session") => vec![&value["session"]],
-            Some("host.reset") => value["sessions"].as_array().unwrap().iter().collect(),
-            Some("reset") => value["fleet"]["sessions"]
+        let value = data(frame);
+        let threads: Vec<&serde_json::Value> = match value["type"].as_str() {
+            Some("thread") => vec![&value["thread"]],
+            Some("reset") => value["fleet"]["threads"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .collect(),
             _ => continue,
         };
-        for session in sessions {
-            let info = &session["info"];
-            let project = info["projectID"].as_str().unwrap();
-            let root = if project.starts_with('/') {
-                project
-            } else {
-                info["directory"].as_str().unwrap()
-            };
-            repos.push(format!("{}:{root}", session["host"].as_str().unwrap()));
+        for thread in threads {
+            if let Some(root) = thread["place"]["root"].as_str() {
+                repos.push(format!("{}:{root}", thread["agent"].as_str().unwrap()));
+            }
         }
     }
     repos
 }
 
 #[test]
-fn a_stream_that_asks_for_colours_gets_the_map_before_any_session_from_a_reset_or_a_resume() {
+fn protocol3_every_stream_gets_the_colour_map_before_any_thread_from_a_reset_or_a_resume() {
     let live = live();
     let steps = tape();
     let at = end(&steps);
-    let mut replay = coloured(&live);
+    let mut replay = Replay::colouring(&live.epoch, &live.build);
+    for step in steps {
+        replay.step(step).unwrap();
+    }
     for from in [
         From::Start,
         From::At(Cursor {
@@ -298,16 +588,14 @@ fn a_stream_that_asks_for_colours_gets_the_map_before_any_session_from_a_reset_o
             seq: 0,
         }),
     ] {
-        let frames = replay.open_colours(from, at);
+        let frames = replay.open(from, at);
         let second = std::str::from_utf8(&frames[1]).unwrap();
         assert!(
             second.starts_with("data: {\"type\":\"colours\",\"colours\":["),
             "hello, then the map: {}",
             &second[..second.len().min(80)]
         );
-        assert!(!second.starts_with("id:"), "id-less, outside the journal");
-        let map: serde_json::Value =
-            serde_json::from_str(second.trim().strip_prefix("data: ").unwrap()).unwrap();
+        let map = data(&frames[1]);
         let given: Vec<String> = map["colours"]
             .as_array()
             .unwrap()
@@ -329,7 +617,7 @@ fn a_stream_that_asks_for_colours_gets_the_map_before_any_session_from_a_reset_o
 }
 
 #[test]
-fn replaying_the_tape_twice_gives_the_same_journal_bytes() {
+fn protocol3_replaying_the_tape_twice_gives_the_same_journal_bytes() {
     let live = live();
     let first = joined(&replayed(&live, tape()).journal());
     let second = joined(&replayed(&live, tape()).journal());
@@ -346,101 +634,76 @@ fn replaying_the_tape_twice_gives_the_same_journal_bytes() {
     );
 }
 
+/// every page of every stream the bench opened while the tape ran is
+/// protocol 3: a first page leads with `hello` and the colour map, and
+/// every frame decodes as a control frame or a journal entry.
 #[test]
-fn every_stream_the_bench_opened_began_with_what_the_replay_answers() {
+fn protocol3_every_stream_the_bench_opened_speaks_protocol_3() {
     let live = live();
-    let replay = recorded(&live, tape());
-    // a stream's pages, in the order its first page was asked for
-    let mut streams: Vec<(u32, String)> = Vec::new();
+    let replay = replayed(&live, tape());
+    let mut pages = 0;
     for answer in &replay.answers {
-        if let Answer::Page {
-            stream,
-            first,
-            frames,
-        } = answer
-        {
-            let text = joined(frames);
-            match streams.iter_mut().rev().find(|(id, _)| id == stream) {
-                Some((_, held)) if !first => held.push_str(&text),
-                _ => streams.push((*stream, text)),
-            }
+        let Answer::Page { stream, frames } = answer else {
+            continue;
+        };
+        pages += 1;
+        let hello = data(&frames[0]);
+        assert_eq!(hello["type"], "hello", "stream {stream:08x}");
+        assert_eq!(hello["protocol"], 3);
+        assert_eq!(data(&frames[1])["type"], "colours");
+        for frame in frames {
+            let value = data(frame);
+            let entry = value.get("seq").is_some()
+                && !matches!(
+                    value["type"].as_str(),
+                    Some("reset" | "caught" | "interest")
+                );
+            let decoded = if entry {
+                serde_json::from_value::<JournalEntry>(value.clone()).is_ok()
+            } else {
+                serde_json::from_value::<Control>(value.clone()).is_ok()
+                    || serde_json::from_value::<crate::wire::ColourFrame>(value.clone()).is_ok()
+            };
+            assert!(decoded, "stream {stream:08x}: {}", value["type"]);
         }
     }
-    assert_eq!(
-        streams.len(),
-        live.streams.len(),
-        "the tape and the bench disagree on how many streams opened"
-    );
-    let mut checked = 0;
-    for (n, ((_, ours), theirs)) in streams.iter().zip(&live.streams).enumerate() {
-        let Some(theirs) = theirs else { continue };
-        assert!(
-            theirs.starts_with(ours.as_str()),
-            "stream {n}: the live body does not begin with the replayed pages\nreplayed: {}\nlive:     {}",
-            &ours[..ours.len().min(400)],
-            &theirs[..theirs.len().min(400)]
-        );
-        checked += 1;
-    }
-    println!("{checked} live streams match the replay");
-    assert!(checked > 0);
+    println!("{pages} pages of the bench's streams decode as protocol 3");
+    assert!(pages > 0);
 }
 
+/// the needs do not ride the device protocol: every `/api/needs` body the
+/// bench read is still what the replay answers (its `x-boxbox-seq` names a
+/// position in another journal now, so it is not compared).
 #[test]
-fn every_fleet_and_needs_answer_the_bench_read_is_what_the_replay_answers() {
+fn protocol3_every_needs_answer_the_bench_read_is_what_the_replay_answers() {
     let live = live();
     let replay = recorded(&live, tape());
-    let fleet: Vec<&Bytes> = replay
+    let needs: Vec<&Vec<u8>> = replay
         .answers
         .iter()
         .filter_map(|a| match a {
-            Answer::Snapshot(body) => Some(body),
+            Answer::Needs { body, .. } => Some(body),
             _ => None,
         })
         .collect();
-    let needs: Vec<(&Vec<u8>, &String)> = replay
-        .answers
-        .iter()
-        .filter_map(|a| match a {
-            Answer::Needs { body, seq } => Some((body, seq)),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(fleet.len(), live.fleet.len(), "/api/fleet answers");
     assert_eq!(needs.len(), live.needs.len(), "/api/needs answers");
-    for (n, (ours, theirs)) in fleet.iter().zip(&live.fleet).enumerate() {
-        assert!(
-            ours.as_ref() == theirs.as_bytes(),
-            "/api/fleet answer {n} differs"
-        );
-    }
-    for (n, ((body, seq), theirs)) in needs.iter().zip(&live.needs).enumerate() {
+    for (n, (body, theirs)) in needs.iter().zip(&live.needs).enumerate() {
         assert!(
             body.as_slice() == theirs.body.as_bytes(),
             "/api/needs body {n} differs"
         );
-        assert_eq!(*seq, &theirs.seq, "/api/needs x-boxbox-seq {n}");
     }
-    println!(
-        "{} /api/fleet and {} /api/needs answers match the replay",
-        fleet.len(),
-        needs.len()
-    );
-}
-
-/// the clock of the tape's last step, for the queries asked after it.
-fn end(steps: &[Step]) -> i64 {
-    steps.last().map_or(0, |s| s.at)
+    println!("{} /api/needs answers match the replay", needs.len());
 }
 
 #[test]
-fn goldens_hello_and_reset_for_a_first_connection_at_the_end_of_the_session() {
+fn protocol3_goldens_hello_and_reset_for_a_first_connection_at_the_end_of_the_session() {
     let live = live();
     let steps = tape();
     let at = end(&steps);
     let mut replay = replayed(&live, steps);
     let frames = replay.open(From::Start, at);
-    assert_eq!(frames.len(), 2, "hello, then reset");
+    assert_eq!(frames.len(), 3, "hello, the colour map, then reset");
     golden(
         "hello-reset.sse.gz",
         &normalise(&joined(&frames), &live.epoch, &live.build),
@@ -448,7 +711,7 @@ fn goldens_hello_and_reset_for_a_first_connection_at_the_end_of_the_session() {
 }
 
 #[test]
-fn goldens_cursor_resumes_inside_and_beyond_the_journal() {
+fn protocol3_goldens_cursor_resumes_inside_and_beyond_the_journal() {
     let live = live();
     let steps = tape();
     let at = end(&steps);
@@ -460,16 +723,30 @@ fn goldens_cursor_resumes_inside_and_beyond_the_journal() {
             seq,
         })
     };
-    // inside: the last 20 entries replayed after hello, then live
+    // inside: hello, the colour map, each key that moved in the last 20
+    // entries once whole at its newest seq, then caught at the head
     let inside = replay.open(cursor(head.saturating_sub(20)), at);
-    assert_eq!(inside.len(), 21);
+    let kinds: Vec<String> = inside
+        .iter()
+        .map(|f| data(f)["type"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(kinds.last().map(String::as_str), Some("caught"));
+    assert!(inside.len() <= 23, "{kinds:?}");
+    let ids: Vec<u64> = inside[2..]
+        .iter()
+        .map(|f| data(f)["seq"].as_u64().unwrap())
+        .collect();
+    assert!(
+        ids.windows(2).all(|w| w[0] < w[1] || w[1] == head),
+        "{ids:?}"
+    );
     golden(
         "resume-inside.sse",
         &normalise(&joined(&inside), &live.epoch, &live.build),
     );
-    // at the head: hello alone, then live
+    // at the head: hello, the colour map and caught, then live
     let at_head = replay.open(cursor(head), at);
-    assert_eq!(at_head.len(), 1);
+    assert_eq!(at_head.len(), 3);
     golden(
         "resume-at-head.sse",
         &normalise(&joined(&at_head), &live.epoch, &live.build),
@@ -496,8 +773,13 @@ fn goldens_cursor_resumes_inside_and_beyond_the_journal() {
     );
 }
 
+/// a cursor older than the ring still catches up the overview (it is built
+/// from what each key holds, not the ring), and a thread it shows whose
+/// entries since its `since` the ring lost is stale; a cursor below the
+/// tombstone floor is reset as expired.
 #[test]
-fn goldens_a_resume_from_before_what_the_ring_holds_is_reset_as_expired() {
+fn protocol3_goldens_a_resume_from_before_the_ring_catches_up_and_one_below_the_tombstones_is_expired()
+ {
     let live = live();
     let steps = tape();
     let at = end(&steps);
@@ -509,7 +791,31 @@ fn goldens_a_resume_from_before_what_the_ring_holds_is_reset_as_expired() {
     for step in steps {
         replay.step(step).unwrap();
     }
+    replay.flush_deltas(at + 1000);
     assert!(replay.floor() > 1, "the small ring evicted");
+    let thread = busiest(&replay.journal().iter().map(entry).collect::<Vec<_>>());
+    let caught = replay
+        .open_with(
+            From::At(Cursor {
+                epoch: live.epoch.clone(),
+                seq: 1,
+            }),
+            Interest {
+                thread: Some(thread.clone()),
+                under: Vec::new(),
+                holds: Vec::new(),
+            },
+            BTreeMap::from([(thread.clone(), 1)]),
+            at,
+        )
+        .frames;
+    let kinds: Vec<String> = caught
+        .iter()
+        .map(|f| data(f)["type"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(!kinds.contains(&"reset".to_owned()), "{kinds:?}");
+    assert_eq!(&kinds[kinds.len() - 2..], ["thread.stale", "caught"]);
+    replay.raise_gone_floor(2);
     let expired = replay.open(
         From::At(Cursor {
             epoch: live.epoch.clone(),
@@ -525,7 +831,7 @@ fn goldens_a_resume_from_before_what_the_ring_holds_is_reset_as_expired() {
 }
 
 #[test]
-fn goldens_the_fleet_and_the_needs_at_the_end_of_the_session() {
+fn protocol3_goldens_the_fleet_and_the_needs_at_the_end_of_the_session() {
     let live = live();
     let mut steps = tape();
     let at = end(&steps);
@@ -546,6 +852,8 @@ fn goldens_the_fleet_and_the_needs_at_the_end_of_the_session() {
     let Some(Answer::Snapshot(fleet)) = answers.next() else {
         panic!("the one before is the fleet")
     };
+    let decoded: Fleet = serde_json::from_slice(fleet).unwrap();
+    assert!(!decoded.threads.is_empty() && !decoded.agents.is_empty());
     golden("fleet.json.gz", std::str::from_utf8(fleet).unwrap());
     golden("needs.json", std::str::from_utf8(body).unwrap());
     golden(
@@ -555,7 +863,7 @@ fn goldens_the_fleet_and_the_needs_at_the_end_of_the_session() {
 }
 
 #[test]
-fn goldens_push_payloads_and_titles_for_every_notice_of_the_session() {
+fn protocol3_goldens_push_payloads_and_titles_for_every_notice_of_the_session() {
     let recorded = live();
     let replay = replayed(&recorded, tape());
     let mut lines = Vec::new();
@@ -589,7 +897,7 @@ fn goldens_push_payloads_and_titles_for_every_notice_of_the_session() {
 /// a write being every frame one tape step journaled: fewer and larger
 /// writes than a live stream batches, so the ratio here is a floor.
 #[test]
-fn the_recorded_session_costs_a_device_several_times_fewer_bytes_through_gzip() {
+fn protocol3_the_recorded_session_costs_a_device_several_times_fewer_bytes_through_gzip() {
     let live = live();
     let steps = tape();
     let (start, finish) = (steps.first().unwrap().at, steps.last().unwrap().at);
@@ -599,13 +907,11 @@ fn the_recorded_session_costs_a_device_several_times_fewer_bytes_through_gzip() 
     let (mut head, mut plain, mut wire, mut writes) = (replay.head(), 0usize, 0usize, 0usize);
     for step in steps {
         replay.step(step).unwrap();
-        let moved = usize::try_from(replay.head() - head).unwrap();
-        head = replay.head();
-        if moved == 0 {
+        if replay.head() == head {
             continue;
         }
-        let journal = replay.journal();
-        let batch: Vec<u8> = journal[journal.len() - moved..].concat();
+        let batch: Vec<u8> = replay.journal_after(head).concat();
+        head = replay.head();
         let zipped = gzip.batch(&batch).unwrap();
         std::io::Write::write_all(&mut decoder, &zipped).unwrap();
         std::io::Write::flush(&mut decoder).unwrap();
@@ -627,59 +933,91 @@ fn the_recorded_session_costs_a_device_several_times_fewer_bytes_through_gzip() 
     assert!(wire * 4 < plain, "gzip {wire} of {plain}");
 }
 
-/// a journal's frames with their seqs taken out, split into the session
-/// entries (by key, in order) and every other frame (in order).
-fn by_cadence(frames: &[Bytes]) -> (Vec<String>, std::collections::BTreeMap<String, Vec<String>>) {
-    let (mut others, mut sessions) = (
-        Vec::new(),
-        std::collections::BTreeMap::<String, Vec<String>>::new(),
-    );
+/// each part's streamed text, joined in journal order.
+type Streamed = BTreeMap<(String, String), String>;
+
+/// each thread's last state and how many entries it took.
+type Cadence = BTreeMap<String, (Option<Thread>, usize)>;
+
+/// a journal's entries, applied: each thread's final state and how many
+/// entries it took, each part's streamed text whole (any other entry takes
+/// the pending deltas out first, so a thread going out more often cuts the
+/// same text into more batches), and every other entry, seqs out.
+fn by_cadence(frames: &[Bytes]) -> (Vec<String>, Cadence, Streamed) {
+    let mut client = Client::default();
+    let mut others = Vec::new();
+    let mut streamed = Streamed::new();
+    let mut threads = Cadence::new();
     for frame in frames {
-        let text = std::str::from_utf8(frame).unwrap();
-        let data = text.lines().find_map(|l| l.strip_prefix("data: ")).unwrap();
-        let mut value: serde_json::Value = serde_json::from_str(data).unwrap();
-        value.as_object_mut().unwrap().remove("seq");
-        let line = value.to_string();
-        match value["type"].as_str() {
-            Some("session") => sessions
-                .entry(value["session"]["key"].as_str().unwrap().to_owned())
+        let entry = entry(frame);
+        let key = match &entry.change {
+            Change::Thread { thread } => Some(thread.key.clone()),
+            Change::ThreadPatch(p) => Some(p.key.clone()),
+            _ => None,
+        };
+        if let Change::Delta {
+            key,
+            part_id,
+            delta,
+            ..
+        } = &entry.change
+        {
+            streamed
+                .entry((key.clone(), part_id.clone()))
                 .or_default()
-                .push(line),
-            _ => others.push(line),
+                .push_str(delta);
+            continue;
+        }
+        if let Some(key) = key {
+            client.apply(entry.change).unwrap();
+            let slot = threads.entry(key.clone()).or_default();
+            slot.0 = client.threads.get(&key).cloned();
+            slot.1 += 1;
+        } else {
+            others.push(serde_json::to_string(&entry.change).unwrap());
+            client.apply(entry.change).unwrap();
         }
     }
-    (others, sessions)
+    (others, threads, streamed)
 }
 
 /// today's tail pace against the pace the tape was recorded at: the same
-/// frames in the same order but for session entries, which go out less
-/// often, and each session's last entry the same.
+/// entries in the same order but for threads, which go out less often, and
+/// each thread's last state the same.
 #[test]
-fn the_home_overview_pace_changes_only_how_often_a_session_entry_goes_out() {
+fn protocol3_the_home_overview_pace_changes_only_how_often_a_thread_goes_out() {
     let live = live();
     let slow = replayed(&live, tape()).journal();
     let fast = recorded(&live, tape()).journal();
-    let (slow_others, slow_sessions) = by_cadence(&slow);
-    let (fast_others, fast_sessions) = by_cadence(&fast);
-    assert!(
-        slow_others == fast_others,
-        "a frame other than a session entry moved"
-    );
+    let (slow_others, slow_threads, slow_text) = by_cadence(&slow);
+    let (fast_others, fast_threads, fast_text) = by_cadence(&fast);
+    assert!(slow_text == fast_text, "a part streamed other text");
+    if let Some(at) = slow_others
+        .iter()
+        .zip(&fast_others)
+        .position(|(a, b)| a != b)
+    {
+        panic!(
+            "an entry other than a thread's moved at {at}:\n{}\n{}",
+            slow_others[at], fast_others[at]
+        );
+    }
+    assert_eq!(slow_others.len(), fast_others.len());
     assert_eq!(
-        slow_sessions.keys().collect::<Vec<_>>(),
-        fast_sessions.keys().collect::<Vec<_>>()
+        slow_threads.keys().collect::<Vec<_>>(),
+        fast_threads.keys().collect::<Vec<_>>()
     );
-    for (key, entries) in &slow_sessions {
-        let recorded = &fast_sessions[key];
-        assert_eq!(entries.last(), recorded.last(), "{key} ends elsewhere");
-        assert!(entries.len() <= recorded.len(), "{key} went out more often");
+    for (key, (last, count)) in &slow_threads {
+        let (recorded, recorded_count) = &fast_threads[key];
+        assert_eq!(last, recorded, "{key} ends elsewhere");
+        assert!(count <= recorded_count, "{key} went out more often");
     }
     let (slow_count, fast_count) = (
-        slow_sessions.values().map(Vec::len).sum::<usize>(),
-        fast_sessions.values().map(Vec::len).sum::<usize>(),
+        slow_threads.values().map(|t| t.1).sum::<usize>(),
+        fast_threads.values().map(|t| t.1).sum::<usize>(),
     );
     println!(
-        "session entries: {fast_count} at {} ms, {slow_count} at {} ms; {} other frames alike; journal {} to {} bytes",
+        "thread entries: {fast_count} at {} ms, {slow_count} at {} ms; {} other entries alike; journal {} to {} bytes",
         super::RECORDED_TAIL_EVERY_MS,
         crate::fleet::model::TAIL_EVERY_MS,
         slow_others.len(),
@@ -688,3 +1026,5 @@ fn the_home_overview_pace_changes_only_how_often_a_session_entry_goes_out() {
     );
     assert!(slow_count < fast_count);
 }
+
+mod proofs;

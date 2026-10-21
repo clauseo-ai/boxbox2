@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createMemo, createRoot, createSignal } from "solid-js";
 import { unwrap } from "solid-js/store";
-import type { SessionEntry } from "../../sync/protocol";
+import type { Thread } from "../../sync/protocol";
 import type { Fleet, Patch } from "../../sync/reducer";
 import { sessionKeys } from "../fleet-index";
 import { simulate } from "./fixtures/fleet-sim";
@@ -31,7 +31,7 @@ type Store = { applyPatches: (patches: readonly Patch[]) => void; state: { fleet
 const at = (path: string): string => path;
 const store = reactive ? ((await import(at("../../store"))) as Store) : ({} as Store);
 
-const journal = readFileSync(join(import.meta.dir, "fixtures", "journal.ndjson"), "utf8");
+const journal = readFileSync(join(import.meta.dir, "fixtures", "journal-p3.ndjson"), "utf8");
 
 function watch() {
   let marks = 0;
@@ -41,8 +41,8 @@ function watch() {
   });
   return { marks: () => marks, dispose };
 }
-const anyWorking = () => Object.values(unwrap(store.state.fleet).sessions).some((s) => s.status?.type === "busy");
-const writesSessions = (patches: readonly Patch[]) => patches.some((p) => p.path[0] === "fleet" && (p.path[1] === undefined || p.path[1] === "sessions"));
+const anyWorking = () => Object.values(unwrap(store.state.fleet).threads).some((s) => s.activity.state === "busy");
+const writesSessions = (patches: readonly Patch[]) => patches.some((p) => p.path[0] === "fleet" && (p.path[1] === undefined || p.path[1] === "threads"));
 
 describe.skipIf(!reactive)("home's streaming label", () => {
   for (const fine of [false, true]) {
@@ -67,22 +67,22 @@ describe.skipIf(!reactive)("home's streaming label", () => {
   test("a tail item alone, a status of a thread at rest, a session coming and going each mark while one works; an ask does not, and nothing marks once none works", () => {
     const sim = simulate(journal, { sessions: 20, steps: 0 });
     const fleet = structuredClone(sim.start);
-    const keys = Object.keys(fleet.sessions);
+    const keys = Object.keys(fleet.threads);
     const busy = keys[0] as string;
     const rest = keys[1] as string;
-    for (const key of keys) (fleet.sessions[key] as SessionEntry).status = key === busy ? { type: "busy", queued: 0, since: sim.now } : null;
+    for (const key of keys) (fleet.threads[key] as Thread).activity = key === busy ? { state: "busy", since: sim.now } : { state: "idle" };
     store.applyPatches([{ path: ["fleet"], value: fleet } as Patch]);
     const w = watch();
     const marksFor = (patches: Patch[]) => { const was = w.marks(); store.applyPatches(patches); return w.marks() - was; };
-    expect(marksFor([{ path: ["fleet", "sessions", busy, "tail", 0], value: { ...(fleet.sessions[busy] as SessionEntry).tail[0], text: "more" } } as Patch])).toBe(1);
-    expect(marksFor([{ path: ["fleet", "sessions", rest, "status"], value: { type: "idle", since: sim.now } } as Patch])).toBe(1);
-    const born = { ...structuredClone(fleet.sessions[rest] as SessionEntry), key: "bench:ses_born", id: "ses_born" };
-    expect(marksFor([{ path: ["fleet", "sessions", born.key], value: born } as Patch])).toBe(1);
-    expect(marksFor([{ path: ["fleet", "sessions", born.key], value: undefined } as Patch])).toBe(1);
-    expect(marksFor([{ path: ["fleet", "asks", "bench:que_x"], value: { key: rest, host: "bench", id: "que_x", kind: "question", request: {} } } as Patch])).toBe(0);
+    expect(marksFor([{ path: ["fleet", "threads", busy, "tail", 0], value: { ...(fleet.threads[busy] as Thread).tail[0], text: "more" } } as Patch])).toBe(1);
+    expect(marksFor([{ path: ["fleet", "threads", rest, "activity"], value: { state: "idle" } } as Patch])).toBe(1);
+    const born = { ...structuredClone(fleet.threads[rest] as Thread), key: "bench:ses_born", agent: "bench", id: "ses_born" };
+    expect(marksFor([{ path: ["fleet", "threads", born.key], value: born } as Patch])).toBe(1);
+    expect(marksFor([{ path: ["fleet", "threads", born.key], value: undefined } as Patch])).toBe(1);
+    expect(marksFor([{ path: ["fleet", "asks", "bench:que_x"], value: { key: rest, agent: "bench", id: "que_x", thread: rest, kind: "question" } } as Patch])).toBe(0);
     // the thread that worked stops: nothing works, and nothing marks
-    expect(marksFor([{ path: ["fleet", "sessions", busy, "status"], value: null } as Patch])).toBe(0);
-    expect(marksFor([{ path: ["fleet", "sessions", rest, "tail", 0], value: { ...(fleet.sessions[rest] as SessionEntry).tail[0], text: "quiet" } } as Patch])).toBe(0);
+    expect(marksFor([{ path: ["fleet", "threads", busy, "activity"], value: { state: "idle" } } as Patch])).toBe(0);
+    expect(marksFor([{ path: ["fleet", "threads", rest, "tail", 0], value: { ...(fleet.threads[rest] as Thread).tail[0], text: "quiet" } } as Patch])).toBe(0);
     w.dispose();
   });
 });

@@ -6,6 +6,7 @@ import { unwrap } from "solid-js/store";
 import type { Message } from "../../sync/protocol";
 import { type PartMemo, type Turn, shownCount, turnsOf } from "./model";
 import { type Built, type ThreadCaches, cacheKey, weighTurn } from "./memo-cache";
+import { isToolPart, string } from "./wire";
 
 /* a per-object id, so an object the store replaced can be told from the one before it */
 const ids = new WeakMap<object, number>();
@@ -22,11 +23,11 @@ function idOf(o: object): number {
 export function printOf(messages: readonly Message[]): string {
   const out: Array<string | number> = [];
   for (const m of messages) {
-    out.push(idOf(m), m.info.time.completed ?? 0, (m.info as { error?: unknown }).error ? 1 : 0, m.parts.length);
+    out.push(idOf(m), m.info.completed ?? 0, m.info.error ? 1 : 0, m.parts.length);
     for (const p of m.parts) {
       out.push(idOf(p));
-      if (p.type === "text" || p.type === "reasoning") out.push(p.text.length, (p as { streaming?: boolean }).streaming ? 1 : 0);
-      else if (p.type === "tool") out.push(idOf(p.state), p.state.status);
+      if (p.type === "text" || p.type === "reasoning") out.push(string(p.text)?.length ?? 0, p.streaming ? 1 : 0);
+      else if (isToolPart(p)) out.push(idOf(p.state), p.state.status);
     }
   }
   return out.join(",");
@@ -90,7 +91,7 @@ export function digestOf(messages: readonly Message[], dir: string): string {
   for (const m of messages) {
     out.push(hash(JSON.stringify(unwrap(m.info))));
     for (const p of m.parts) {
-      if (p.type === "tool") out.push(`${p.id}|${p.tool}|${p.callID}|${p.state.status}|${stateDigest(p.state)}`);
+      if (isToolPart(p)) out.push(`${p.id}|${p.tool}|${p.callID}|${p.state.status}|${stateDigest(p.state)}`);
       else out.push(partDigest(unwrap(p)));
     }
   }
@@ -229,7 +230,7 @@ export function createTurns(messages: Accessor<readonly Message[]>, root: Access
     let found = -1;
     for (let i = untrack(count) - 1; i >= 0 && left > 0; i--) {
       for (const p of (list[i] as Message).parts) {
-        if (p.type === "tool" && calls.has(p.callID)) { found = i; left--; }
+        if (isToolPart(p) && calls.has(p.callID)) { found = i; left--; }
       }
     }
     if (found < 0) return -1;

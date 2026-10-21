@@ -23,7 +23,7 @@ const reactive = (() => {
   } catch { return false; }
 })();
 
-const journal = readFileSync(join(import.meta.dir, "fixtures", "journal.ndjson"), "utf8");
+const journal = readFileSync(join(import.meta.dir, "fixtures", "journal-p3.ndjson"), "utf8");
 
 describe.skipIf(!reactive)("home's window views", () => {
   for (const fine of [false, true]) {
@@ -40,8 +40,8 @@ describe.skipIf(!reactive)("home's window views", () => {
           return by;
         });
         const make = (key: string, asks: readonly Ask[]) => {
-          const entry = store.fleet.sessions[key];
-          return entry ? windowView(entry, asks, store.fleet.colours, extraOf(entry)) : null;
+          const thread = store.fleet.threads[key];
+          return thread ? windowView(thread, asks, store.fleet.colours, extraOf(thread)) : null;
         };
         const viewOf = createViews(order, asksBy, (key, asks) => { made++; return make(key, asks); });
         // the list as home had it: every window's view made again whenever anything it read changed
@@ -52,13 +52,13 @@ describe.skipIf(!reactive)("home's window views", () => {
       for (const step of sim.steps) {
         setStore(produce((draft) => { for (const p of step.patches) setPath(draft as unknown as Record<string, unknown>, p); }));
         const plain = unwrap(store.fleet);
-        const fresh = plain.order.map((key) => { const entry = plain.sessions[key]; return entry ? windowView(entry, Object.values(plain.asks).filter((a) => a.key === key), plain.colours, extraOf(entry)) : null; });
+        const fresh = plain.order.map((key) => { const thread = plain.threads[key]; return thread ? windowView(thread, Object.values(plain.asks).filter((a) => a.key === key), plain.colours, extraOf(thread)) : null; });
         expect(r.views()).toEqual(fresh);
         expect(r.before()).toEqual(fresh);
       }
       // a frame makes its own window's view; the list made all of them
       expect(made).toBeLessThan(madeBefore / 20);
       r.dispose();
-    });
+    }, 30_000);
   }
 });

@@ -15,7 +15,6 @@ import { state } from "../../store";
 import { deviceIdentity } from "../../sync/client";
 import { said, UNREACHABLE } from "../machines/verb";
 import { doneKeys, doneLabel, doneName, markHandCleared, nameSuffixes, releaseHandCleared } from "./clearing";
-import { repoName } from "./repo";
 import type { WindowView } from "./view";
 
 export { handCleared } from "./clearing";
@@ -40,13 +39,13 @@ export function dismissClearNotice(key: string): void {
 const suffixes = createRoot(() => {
   const windows = createMemo(() =>
     state.fleet.order.flatMap((key) => {
-      const entry = state.fleet.sessions[key];
-      return entry ? [{ key, host: entry.host, repo: repoName(entry.info.projectID), title: entry.info.title.trim() || "untitled" }] : [];
+      const thread = state.fleet.threads[key];
+      return thread ? [{ key, host: thread.agent, repo: thread.place?.name ?? "", title: thread.title.trim() || "untitled" }] : [];
     }),
   );
   return {
     /** the clear button's name shows the machine when there is more than one */
-    clear: createMemo(() => nameSuffixes(windows(), state.fleet.hostNames.length > 1)),
+    clear: createMemo(() => nameSuffixes(windows(), state.fleet.agentNames.length > 1)),
     /** the window's own button's name never shows the machine */
     open: createMemo(() => nameSuffixes(windows(), false)),
   };

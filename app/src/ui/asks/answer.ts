@@ -25,7 +25,7 @@ const UNREACHABLE = "not sent: the boxbox server is not answering. tap to retry"
 export async function answerQuestion(ask: Ask, clientID: string, answers: string[][]): Promise<Outcome> {
   const outcome = await settle(
     api.POST("/api/hosts/{host}/questions/{ask}", {
-      params: { path: { host: ask.host, ask: ask.id } },
+      params: { path: { host: ask.agent, ask: ask.id } },
       body: { device: deviceId(), deviceClass: deviceClass(), clientID, answers },
     }),
   );

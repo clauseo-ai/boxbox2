@@ -44,7 +44,6 @@ import { ClearDone, handCleared } from "../window/clear";
 import { coveredBy, type StageLayer } from "./layers";
 import { openVerdict } from "./stage-open";
 import { createCaughtUp } from "../caught-up";
-import { repoRootOf } from "../composer/place";
 import type { EdgeMove } from "./edge";
 import { Folded, FoldToggle, WINDOWS_ID } from "./fold";
 import { strayView } from "./layers";
@@ -153,7 +152,7 @@ export function Home(props: HomeProps) {
     }
     // a window the person just cleared has played its own exit: the hole closes at once, not after the calm
     const held = new Set(order());
-    const heldNow = (key: string) => state.fleet.sessions[key] !== undefined;
+    const heldNow = (key: string) => state.fleet.threads[key] !== undefined;
     const left = order().filter((key) => !next.includes(key));
     // a window the fleet no longer holds closes its hole at once too: there is nothing left to keep in place
     const handed = left.length > 0 && left.every((key) => handCleared(key) || !heldNow(key)) && next.every((key) => held.has(key));
@@ -210,11 +209,11 @@ export function Home(props: HomeProps) {
   /* each window's view in a memo of its own (views.ts): the slot's reconcile, the summary and the stage read it, and a frame
      of one thread makes that thread's view alone */
   const viewsOf = createViews(order, asksBy, (key, asks) => {
-    const entry = state.fleet.sessions[key];
-    return entry ? windowView(entry, asks, colourMap(), extraOf(entry)) : null;
+    const thread = state.fleet.threads[key];
+    return thread ? windowView(thread, asks, colourMap(), extraOf(thread)) : null;
   });
   const fleetKeys = sessionKeys(() => state.fleet);
-  const sessionHosts = keyed(fleetKeys, (key) => state.fleet.sessions[key]?.host);
+  const sessionHosts = keyed(fleetKeys, (key) => state.fleet.threads[key]?.agent);
   const hosts = createMemo(() => new Set(sessionHosts().filter((host) => host !== undefined)).size);
 
   /* —— in view: presence, and where motion is spent —— */
@@ -255,9 +254,9 @@ export function Home(props: HomeProps) {
     () => {
       const list = order();
       const key = open() ?? (arrangement() === "deck" ? list[Math.min(pagerOn(), list.length - 1)] : list[0]);
-      const entry = key ? state.fleet.sessions[key] : undefined;
-      if (entry) return { host: entry.host, directory: repoRootOf(entry.info) as string | null };
-      const host = state.fleet.hostNames[0];
+      const thread = key ? state.fleet.threads[key] : undefined;
+      if (thread) return { host: thread.agent, directory: thread.place?.root ?? null };
+      const host = state.fleet.agentNames[0];
       return host ? { host, directory: null } : null;
     },
     null,
@@ -314,7 +313,7 @@ export function Home(props: HomeProps) {
   };
 
   /** the fleet holds this thread: it has an entry to draw */
-  const held = (key: string) => state.fleet.sessions[key] !== undefined;
+  const held = (key: string) => state.fleet.threads[key] !== undefined;
   const pushLayer = (key: string) => {
     const id = ++layerSerial;
     setLayers((list) => [...list, { key, id }]);
@@ -691,7 +690,7 @@ export function Home(props: HomeProps) {
 
   /** an agent's thread opens as its own stage over its parent's (design.md, the transcript): the new layer slides in
       from the right and the parent's recedes under it, still mounted, so back finds it exactly where it was */
-  const parentOf = (key: string) => { const entry = state.fleet.sessions[key]; const parent = entry?.info.parentID; return parent ? `${entry.host}:${parent}` : null; };
+  const parentOf = (key: string) => { const thread = state.fleet.threads[key]; const parent = thread?.parent; return parent ? `${thread.agent}:${parent}` : null; };
   const stackedPlaces = new Map<string, ThreadPlace>();
   /* agents opened from their parent whose session the fleet does not hold (a spawn-only agent: the fleet holds each host's
      newest threads, and an agent can be older than them or never listed): their layer is drawn from the parent's view,
@@ -778,7 +777,7 @@ export function Home(props: HomeProps) {
     if (!key || key === untrack(open)) return;
     // open() without a layer that renders leaves the windows and the dock inert on the deck and every tap dead: a
     // thread opens only once the fleet holds it, and one it never brings (archived, another install's url) is let go
-    const verdict = openVerdict(state.fleet.sessions[key] !== undefined, caughtUp());
+    const verdict = openVerdict(state.fleet.threads[key] !== undefined, caughtUp());
     if (verdict === "wait") return;
     if (verdict === "drop") {
       // no stage will come for it, so none will take the ask a push named there: it is let go, not left for a thread opened later
@@ -800,7 +799,7 @@ export function Home(props: HomeProps) {
      stage lets go and the windows come back, rather than staying inert under nothing */
   createEffect(() => {
     const key = open();
-    if (!key || !caughtUp() || state.fleet.sessions[key] !== undefined || strays().has(key)) return;
+    if (!key || !caughtUp() || state.fleet.threads[key] !== undefined || strays().has(key)) return;
     untrack(() => {
       // an agent's thread that left (archived under you) goes back to its parent, which is still on the stage under it,
       // not home: the parent is what you were reading
@@ -1100,7 +1099,7 @@ export function Home(props: HomeProps) {
         if (!compose) return;
         boardCompose(null);
         // a sheet already up is someone's words: it is left as it is
-        const host = composeHost(state.fleet.hostNames, compose.machine);
+        const host = composeHost(state.fleet.agentNames, compose.machine);
         if (host === null || untrack(sheet)) return;
         setAskSheet(null);
         const here = untrack(startPlace);
@@ -1154,7 +1153,7 @@ export function Home(props: HomeProps) {
     const count = order().length;
     if (count > 0 || caughtUp()) launchPainted(state.stream.state !== "live", count);
   });
-  /* long tasks are filed as streaming for 2 s after any write to the sessions while one of them works (streaming.ts) */
+  /* long tasks are filed as streaming for 2 s after any write to the threads while one of them works (streaming.ts) */
   watchStreaming(() => state.fleet, sessionsBeat, fleetKeys, () => doing("streaming", 2000));
 
   let barEl: HTMLElement | undefined;

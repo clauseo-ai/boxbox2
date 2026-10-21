@@ -22,7 +22,7 @@ export type LayerProps = {
   /** an agent's thread opens as a layer over this one, named by the row that opened it when it gives a name */
   onOpenAgent: (key: string, name?: string) => void;
   /** the thread this layer sits over (an agent's parent): its back returns there even when the fleet does not hold the
-      agent's session, whose `parentID` would say it */
+      agent's thread, whose `parent` would say it */
   parent?: string;
   /** another layer sits over this one (an agent's thread): it keeps its place but takes no input and is out of the tree */
   covered?: boolean;
