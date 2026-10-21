@@ -27,6 +27,15 @@
   line-gap-override: 0%;
 }
 
+/* lexend is the reading face: the agent's prose, your messages and the composer (docs/design.md, type). its reserved font name is
+   "RevReading Lexend", so the latin subset keeps the name lexend (scripts/fonts.sh) */
+@font-face {
+  font-family: "Lexend";
+  src: url("./fonts/lexend.woff2") format("woff2");
+  font-weight: 300 800;
+  font-display: swap;
+}
+
 @font-face {
   font-family: "Martian Mono";
   src: url("./fonts/martian-mono.woff2") format("woff2");
@@ -398,6 +407,7 @@
   --tone: #b7abff;
   --sans: "Boxbox Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --read: "Lexend", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --body: 16.5px;
   --chip: 12.5px;
   --meta: 13.5px;

@@ -71,7 +71,7 @@
 .thread .vn-fold { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; font-size: 13.5px; color: var(--text-3); }
 .thread .vn-fold svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--snap-t, 0ms linear); }
 .thread .vn-fold[aria-expanded="true"] svg { transform: rotate(90deg); }
-.thread .vn-text { max-width: min(100%, 560px); padding: 12px 16px; border-radius: 16px; background: var(--well); box-shadow: var(--well-edge); font-size: 15.5px; line-height: 1.5; color: var(--prose); }
+.thread .vn-text { font-family: var(--read); max-width: min(100%, 560px); padding: 12px 16px; border-radius: 16px; background: var(--well); box-shadow: var(--well-edge); font-size: 15.5px; line-height: 1.5; color: var(--prose); }
 .thread .vn-text > p { margin: 0; white-space: pre-wrap; }
 
 .thread .vn-failed { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; margin: 0; font-size: 13.5px; }

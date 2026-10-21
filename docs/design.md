@@ -965,9 +965,17 @@ that the screen never lies about how current it is.
 ### type
 
 - **mona sans** (variable, width 75 to 125, weight 300 to 800) for the
-  interface and the agent's prose. titles run wide (width 108 to 122) and
-  tight; prose runs at normal width. one family carries the personality
-  through width, not through a second display face.
+  interface: titles, labels, chips, menus and counts. titles run wide
+  (width 108 to 122) and tight.
+- **lexend** (variable, weight 300 to 800) for what you read and write:
+  the agent's prose and markdown, your messages, voice note text, and the
+  composer as you type (`--read`). chosen 2026-10-21 over keeping mona at
+  normal width for prose, where its even rhythm read as interface rather
+  than writing: lexend's open, widely spaced letters stay calm through a
+  long reply on a phone at night, and its texture sits as a clear second
+  layer under mona's wide titles. it fits fewer characters on a line than
+  mona, which the measure accepts. the times and the "show all" in your
+  bubble stay mona, as interface.
 - **martian mono** (variable, width 75 to 112) for tool lines, code,
   diffs and counters, set narrow (width 90) so a tool line fits a window.
 - numbers are tabular everywhere they change.
@@ -975,7 +983,8 @@ that the screen never lies about how current it is.
   ships a subset (latin, arrows, keys, blocks) with optical size pinned
   and weight 300 to 800, so it is renamed **boxbox sans** as the ofl asks
   of a modified version (`scripts/fonts.sh`, 140 kb). martian mono ships
-  subset under its own name (50 kb). both load with `font-display: swap`
+  subset under its own name (50 kb), and so does lexend (29 kb; its
+  reserved font name is "RevReading Lexend"). all three load with `font-display: swap`
   and are cached forever under their hashed names.
 - scale: 12.5 chip, 13.5 meta, 15.5 to 17 body (per device, above), 22
   window title, 28 to 34 stage title. no all-caps labels, no letterspaced

@@ -89,6 +89,7 @@ linux builds only the first four. release builds compile `-p boxbox` alone.
 |---|---|---|
 | Boxbox Sans | Mona Sans 2.0.27 (github), subset to latin, optical size pinned, renamed because "Mona" is a reserved font name (`scripts/fonts.sh`) | SIL OFL 1.1, `OFL-mona-sans.txt` |
 | Martian Mono | Martian Mono 1.1.0 (evil martians), subset to latin | SIL OFL 1.1, `OFL-martian-mono.txt` |
+| Lexend | Lexend 1.007 (google fonts), subset to latin, weight 300 to 800; keeps its name, as the reserved font name is "RevReading Lexend" (`scripts/fonts.sh`) | SIL OFL 1.1, `OFL-lexend.txt` |
 
 ## provider marks (`app/src/ui/composer/marks-data.ts`)
 

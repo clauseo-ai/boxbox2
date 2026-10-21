@@ -6,6 +6,12 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **threads read in lexend.** the agent's replies, your messages, voice
+  note text and the composer are set in lexend, an open, widely spaced sans
+  made for long reading; titles, labels and chips stay in boxbox sans and
+  tool lines in martian mono. the font is a 29 kb latin subset, loaded
+  with `font-display: swap` (`docs/design.md`, type).
+
 - **a closed thread's screen keeps nothing alive.** when a stage is disposed
   its scroll, wheel and pointer listeners come off and its detached dom is
   taken apart, so an element something else still holds (safari reader

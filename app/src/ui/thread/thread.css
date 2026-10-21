@@ -203,7 +203,7 @@ button.row-h { cursor: pointer; }
 .row-c.over { -webkit-mask-image: linear-gradient(#000 20px, rgb(0 0 0 / 0.18) 40px); mask-image: linear-gradient(#000 20px, rgb(0 0 0 / 0.18) 40px); }
 /* language rows are sans; the machine's rows are mono. what was said spans the whole row, flush with the title above it */
 .row.say .row-h { padding-top: 10px; padding-bottom: 10px; }
-.row.say .row-c { font-family: var(--sans); font-stretch: 100%; font-size: var(--thread-said); line-height: 1.48; color: var(--prose); grid-column: 1 / -1; }
+.row.say .row-c { font-family: var(--read); font-stretch: 100%; font-size: var(--thread-said); line-height: 1.48; color: var(--prose); grid-column: 1 / -1; }
 .row.sans .row-c { font-family: var(--sans); font-stretch: 100%; }
 .row.thought .row-c { font-size: 13.5px; line-height: 20px; color: var(--prose-faint); }
 .row.thought .row-c .lead { font-weight: 560; }
@@ -329,6 +329,9 @@ button.fl { border-radius: 8px; }
 /* what the turn came to: the prose runs the whole measure, flush with the title block above it. what a said row says is the same
    markdown in the same rules (.say-md), at the row's own size, so a list in mid-turn prose reads as a list and the reply that settles
    into the answer keeps its structure and changes only its size */
+/* what you read and what you wrote is set in the reading face; titles, labels and chips stay in boxbox sans (docs/design.md, type) */
+:is(.you, .answer, .say-md, .rep-b, .sumcard) { font-family: var(--read); }
+.you :is(time, .all) { font-family: var(--sans); }
 .answer { font-size: var(--thread-answer); line-height: 1.55; color: var(--prose); overflow-wrap: anywhere; }
 :is(.answer, .say-md) > * { margin: 0; }
 :is(.answer, .say-md) > * + * { margin-top: 0.7em; }

@@ -135,7 +135,7 @@
 .cz-k { flex: none; font-family: var(--mono); font-stretch: 90%; font-size: 11px; font-weight: 500; color: var(--accent); }
 /* what send will do is the queue's legibility: beside a long model name at 390 it takes a second line rather than lose words */
 .cz-t { flex: 1; min-width: 0; font-family: var(--mono); font-stretch: 90%; font-size: 11.5px; line-height: 1.3; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.74)); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
-.cz-t[data-prose] { font-family: var(--sans); font-stretch: 100%; font-size: 13px; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.66)); }
+.cz-t[data-prose] { font-family: var(--read); font-stretch: 100%; font-size: 13px; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.66)); }
 /* the agent's own words are anchored to their end, two lines tall: what is said now is what shows, and what is cut is cut
    a whole line at a time from the top, so the line always begins at a word. what send will do keeps the ellipsis at its end */
 .cz-t[data-prose][data-live] { display: flex; flex-direction: column-reverse; max-height: 2.6em; -webkit-line-clamp: unset; }
@@ -189,6 +189,7 @@
   border: 0;
   padding: 11px var(--cz-send-room) 11px var(--cz-plus-room);
   font: inherit;
+  font-family: var(--read);
   /* 16 px or larger on touch, or ios zooms (decision 19) */
   font-size: 17px;
   line-height: 1.42;
