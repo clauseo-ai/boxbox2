@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { type RawEvent, Telemetry } from "./telemetry";
 
 /* a server that holds the first batch until told to answer, so a second flush can be tried while one is in flight:
@@ -117,4 +119,38 @@ describe("a queue the server keeps refusing", () => {
     telemetry.stop();
     http.stop();
   });
+});
+
+/* the emitter loads lazily on the page (ui/home/perf.ts): a static import of it anywhere in the first load's graph makes
+   vite fold it into the entry chunk (INEFFECTIVE_DYNAMIC_IMPORT), about a kilobyte of the 120 kb budget */
+test("telemetry.ts stays out of the first load's static import graph", () => {
+  const transpiler = new Bun.Transpiler({ loader: "tsx" });
+  const source = (path: string): string | null => {
+    try {
+      return readFileSync(path, "utf8");
+    } catch {
+      return null;
+    }
+  };
+  const seen = new Set<string>();
+  const walk = (file: string, text: string) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    // scan leaves out type-only imports, as the build does
+    for (const i of transpiler.scan(text).imports) {
+      if (i.kind !== "import-statement" || !i.path.startsWith(".")) continue;
+      const base = join(dirname(file), i.path);
+      for (const path of [`${base}.ts`, `${base}.tsx`, base]) {
+        const next = /\.tsx?$/.test(path) ? source(path) : null;
+        if (next !== null) {
+          walk(path, next);
+          break;
+        }
+      }
+    }
+  };
+  const main = join(import.meta.dir, "../main.tsx");
+  walk(main, readFileSync(main, "utf8"));
+  expect(seen.has(join(import.meta.dir, "client.ts"))).toBe(true);
+  expect(seen.has(join(import.meta.dir, "telemetry.ts"))).toBe(false);
 });

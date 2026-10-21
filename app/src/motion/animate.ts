@@ -145,13 +145,17 @@ const onlyOpacity = (frames: Frame[]): Keyframe[] => frames.map((f) => (f.opacit
 /** records each element's box, runs one mutation, and plays every element from where it was to where it is.
     the only layout reads are the two passes over `elements` */
 export function flip(elements: Iterable<Element>, mutate: () => void, curve: Spring = SNAP, live = true): void {
+  const list = [...elements];
+  const fades = settling(list);
   if (!live || reduced()) {
     mutate();
+    resume(fades);
     return;
   }
   const before = new Map<Element, DOMRect>();
-  for (const el of elements) before.set(el, el.getBoundingClientRect());
+  for (const el of list) before.set(el, el.getBoundingClientRect());
   mutate();
+  resume(fades);
   for (const [el, was] of before) {
     if (!el.isConnected) continue;
     const now = el.getBoundingClientRect();
@@ -159,6 +163,45 @@ export function flip(elements: Iterable<Element>, mutate: () => void, curve: Spr
     const dy = was.top - now.top;
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
     move(el, [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: curve.duration, easing: curve.easing });
+  }
+}
+
+/** a streamed word, or a count that changes in front of you, settles in by the css animation (styles.css, .settle-in). the
+    class leaves once the fade has ended, so a span the page moves or shows again later does not fade in a second time
+    (a css animation starts over whenever its element is put back in the page or shown) */
+export function settleIn(el: Element): void {
+  el.classList.add(SETTLE_IN);
+  const ended = (event: Event) => {
+    if (event.target !== el || (event as AnimationEvent).animationName !== SETTLE_IN) return;
+    el.classList.remove(SETTLE_IN);
+    el.removeEventListener("animationend", ended);
+  };
+  el.addEventListener("animationend", ended);
+}
+
+const SETTLE_IN = "settle-in";
+type Fade = { el: Element; start: CSSNumberish | null; time: CSSNumberish | null };
+/* a reorder moves windows in the page (the keyed <For> at home.tsx, inside flip's mutate), and a word still settling in one
+   would start its fade over from opacity 0. its fade's place is read before the move and handed to the animation the move
+   starts, so it carries on as one that was never moved. the read brings the style up to date, which flip's own read of the
+   boxes does anyway */
+function settling(elements: Element[]): Fade[] {
+  if (typeof CSSAnimation === "undefined") return [];
+  const out: Fade[] = [];
+  for (const el of elements)
+    for (const a of el.getAnimations({ subtree: true }))
+      if (a instanceof CSSAnimation && a.animationName === SETTLE_IN && a.effect instanceof KeyframeEffect && a.effect.target)
+        out.push({ el: a.effect.target, start: a.startTime, time: a.currentTime });
+  return out;
+}
+function resume(fades: Fade[]): void {
+  for (const { el, start, time } of fades) {
+    if (!el.isConnected) continue;
+    for (const a of el.getAnimations()) {
+      if (!(a instanceof CSSAnimation) || a.animationName !== SETTLE_IN) continue;
+      if (start !== null) a.startTime = start;
+      else a.currentTime = time;
+    }
   }
 }
 
@@ -173,7 +216,9 @@ function move(el: Element, frames: Keyframe[], timing: { duration: number; easin
   if (was && effect instanceof KeyframeEffect) {
     effect.setKeyframes(frames);
     effect.updateTiming(timing);
-    was.currentTime = 0;
+    // cancel then play: `currentTime = 0` starts it on the frame of the call in webkit, a frame before a fresh
+    // Element.animate would (up to 8.8 px off); cancelled, it waits for the next frame as a new one does
+    was.cancel();
     was.play();
     return;
   }

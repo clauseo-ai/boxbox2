@@ -11,10 +11,9 @@
 
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
 import { mintId } from "./mint-id";
+import { QUEUE_CAP } from "./queue-cap";
 
-/** the server takes at most 500 per batch; a queue past this drops its oldest. the page holds no more of its own
-    rows than this either (client.ts, `unsent`) */
-export const QUEUE_CAP = 500;
+export { QUEUE_CAP };
 const FLUSH_MS = 10_000;
 const FLUSH_AT = 50;
 

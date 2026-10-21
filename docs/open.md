@@ -289,14 +289,23 @@
   the reducer, `/api/hosts/.../messages` reads): `tsc -p app` fails until
   it moves to protocol 3 (package a1). · `bunx tsc --noEmit -p app` is
   clean.
-- [sync] the wire replay flags a page hidden inside the caught-up second
-  after a connect: on seed 6 with a source never ahead, once interest
-  posts went one a turn, the second runs out on the very tick the page is
-  shown, before the gate's held patches land, so the store is behind when
-  the ui says caught up. unproven whether a browser can order the timer
-  ahead of the landing; the replay's run moved to seed 8
-  (`sync/wire.test.ts`). · `replayWire(steps, sha, 6, { ahead: false })`
-  ends with `behind` null, or the landing is shown to always run first.
+- [sync] a page hidden inside the caught-up second after a connect says
+  caught up while patches are still held. `ui/caught-up.ts` times the
+  second with a plain setTimeout, which runs in a hidden page too, and the
+  gate (`sync/gate.ts`) holds patches until the page is shown, so the
+  flag goes true with nothing landed, either while the page is still
+  hidden or on the tick it is shown, ahead of the held patches. a browser
+  does this too: hidden, the timer has nothing to order against, since
+  nothing lands until the show; it is invisible until then, but the flag
+  is already true when the page comes back. pre-existing: the wire replay
+  on 2786331 (before interest posts went one a turn) is `behind` on seeds
+  31, 47, 52 and 59 for this cause; one post a turn changed how many
+  random draws a run makes, which moved the schedules, and on 5b82bb1
+  seed 6 fails with `{ ahead: false }` and with `{ slow: 2000 }`. the
+  replay's run moved to seed 8 (`sync/wire.test.ts`). ·
+  `replayWire(steps, sha, seed, opts)` ends with `behind` null on
+  seeds 6, 31, 47, 52 and 59 with `{ ahead: false }`, `{ slow: 2000 }`
+  and the defaults.
 
 ### left open by the leak investigation (2026-10-21)
 
@@ -325,12 +334,6 @@
   `/api/`, so its size is unexplained. · the process is identified (an app
   build without a service worker on the macbook) and its memory explained
   or cut.
-- **telemetry is now in the first load.** 798184f imports
-  `sync/telemetry.ts` statically from `sync/client.ts`, so the perf
-  emitter's lazy import no longer splits it (vite warns
-  INEFFECTIVE_DYNAMIC_IMPORT); the first load went from 116.4 to 117.6 kb.
-  · the import moves back behind the lazy chunk, or the cost is accepted
-  in `architecture.md`.
 
 ### housekeeping
 
@@ -342,6 +345,15 @@
   not a second download, in the first-load budget.
 
 ## closed
+
+- [budget] telemetry was in the first load: 798184f imported
+  `sync/telemetry.ts` statically from `sync/client.ts` for its row cap,
+  so the perf emitter's lazy import no longer split it (vite warned
+  INEFFECTIVE_DYNAMIC_IMPORT; 116.4 to 117.6 kb). the cap moved to
+  `sync/queue-cap.ts`, which both import, so it is still one number; the
+  warning is gone and the first load is 116.7 kb. telemetry.test.ts walks
+  the first load's static imports and fails if telemetry.ts is among them.
+  closed by the leak-motion lane (2026-10-21).
 
 - [sync] a streaming tail beat journaled the whole 2.8 kb session entry:
   closed by protocol 3, which journals a `thread.patch` with a tail op

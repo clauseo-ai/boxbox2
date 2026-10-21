@@ -16,7 +16,7 @@ import { type Draft, type DraftMessage, type Photo, photosNotFitted, takeBackDra
 import { Landing } from "./landing";
 import type { AskReply } from "./replies";
 import { mintId } from "./mint-id";
-import { QUEUE_CAP } from "./telemetry";
+import { QUEUE_CAP } from "./queue-cap";
 
 const THREAD_PARAM = "thread";
 

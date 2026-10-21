@@ -844,7 +844,16 @@ in `scars.md`.
   or per row uses a css animation (`.settle-in`, `.live-text .w`); an
   element animated again and again reuses its one animation (`flip`'s
   `move`, motion/animate.ts); `Element.animate` is otherwise for
-  transitions a person starts.
+  transitions a person starts. a css animation is not a web animation in
+  one more way: it starts over from its first keyframe whenever its
+  element is put back in the page (the keyed `<For>` moving a window at a
+  reorder) or an ancestor stops being `display: none`, where a web
+  animation carries on. so `settleIn` drops the class once the fade has
+  ended, and `flip` hands a fade still running its start time back after
+  the move (motion/animate.ts). to reuse a finished web animation, use
+  `cancel()` then `play()`: `currentTime = 0` starts it on the frame of
+  the call in webkit, a frame before a fresh `Element.animate` would, up
+  to 8.8 px off on a reorder.
 
 - **`performance.now()` starts at the page, so 0 is not "never".** the calm
   law's "1 s after the last touch" was written with the last touch at 0,

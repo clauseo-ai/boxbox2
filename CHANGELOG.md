@@ -6,6 +6,13 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **a fading word carries on when its window moves.** the css fades from the
+  last release restarted from nothing when a reorder moved a window, when
+  a hidden window showed again and after the fade had ended; a running
+  fade now keeps its start time across a move and a finished one drops its
+  class. a reorder starts on its own frame again in webkit, and telemetry
+  leaves the first load (116.8 kb).
+
 - **less memory held and churned while agents stream (webkit).** streamed
   words and changing counts fade in by a css animation instead of
   Element.animate (webkit kept every finished web animation and its
