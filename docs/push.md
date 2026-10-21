@@ -132,8 +132,10 @@ worker refuses a payload whose links are not.
 - while a thread is looked at, the app closes that thread's banners.
 - **precache.** the build hands the worker every file it wrote
   (`app/vite.config.ts`: `BOXBOX_PRECACHE`, `index.html` as `/` first, then the
-  hashed assets and the public files, never `sw.js` itself or a
-  precompressed copy) and a hash of their bytes as
+  hashed assets and the public files, never `sw.js` itself, a precompressed
+  copy, the board's chunk or the icons under `icons/`: the browser fetches
+  those for the manifest and the home screen icon when boxbox is installed,
+  so a launch does not carry their 167 kb) and a hash of their bytes as
   its build id (`BOXBOX_BUILD`, so a new build is a new `sw.js`). install
   caches them all in `boxbox-ui-<build>`, and a file that fails to arrive
   fails the install rather than leave a half-filled cache. a navigation is
@@ -148,6 +150,22 @@ worker refuses a payload whose links are not.
   applies the next time boxbox opens." meanwhile. the one exception is a
   protocol break: the page asks the waiting build to take over
   (`boxbox.take-over`, `app/src/shell/worker.ts`) before its reload.
+
+## the subscription on each launch
+
+the app keeps a copy of what the server last held for this device
+(`app/src/push/saved.ts`, one localStorage entry under `boxbox.push.saved`:
+the device, the server's key, the subscription's endpoint and keys, the
+device list as the server listed it, the kinds, and when it was checked).
+with permission granted, a launch reads the browser's subscription (no
+network) and asks the server (`GET /api/push`) only when that subscription
+is not the one the copy names or the check is a day old or more. it posts
+(`POST /api/push/subscribe`) only when the server's copy differs from the
+saved one: a new subscription, a new key, or a device list that changed.
+a turn on, a new set of kinds, and a settings save always post. a check the
+server does not answer keeps the old copy, so the next launch asks again.
+permission not granted forgets the copy, so granting it again posts at once.
+a launch that holds its copy costs no request at all.
 
 ## ios, installed to the home screen
 

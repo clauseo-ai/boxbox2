@@ -4,6 +4,7 @@
 
 import { api, type PushKind } from "../../api/client";
 import { deviceClass, deviceId } from "../../push/device";
+import { rememberPushKinds } from "../../push/notifications";
 import {
   type DevicePrefs,
   type RepoPrefs,
@@ -110,6 +111,7 @@ export function savePushKinds(kinds: PushKind[]): Promise<Outcome<PushKind[]>> {
       const { data, error, response } = await api.POST("/api/push/subscribe", { body });
       if (!data) return { ok: false, error: said(error, response.status) };
       await loadPushDevices();
+      rememberPushKinds({ endpoint: subscription.endpoint, p256dh: keys.p256dh, auth: keys.auth }, kinds);
       return { ok: true, value: kinds };
     } catch {
       return { ok: false, error: UNREACHABLE };

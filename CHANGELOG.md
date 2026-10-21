@@ -6,6 +6,15 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **a launch asks the network for less.** the page registers its service
+  worker once (push used to register it again, three calls a launch, now
+  one); the four app icons leave the offline precache (167 kb less to
+  install and keep); push checks its subscription against a saved copy
+  and asks the server at most once a day when nothing changed (two
+  requests every launch before, none now); and the idle warm-up no longer
+  loads the machines, history, settings and terminal screens nobody asked
+  for (24 kb brotli), which load from the precache when first opened.
+
 - **a thread opening from home makes only what is on screen until it lands.**
   the frame after the click filled the older of the newest turns, the stage
   window filled turns near the screen and the stage grew 32 older turns a

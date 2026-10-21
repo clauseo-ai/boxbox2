@@ -10,8 +10,9 @@
    with type "module" there).
 
    the worker precaches the build it ships with: once the app is written,
-   every file in dist becomes a path in `BOXBOX_PRECACHE` (index.html as
-   "/", the shell a navigation is answered with), and `BOXBOX_BUILD` is a
+   every file in dist but the ones NOT_PRECACHED names becomes a path in
+   `BOXBOX_PRECACHE` (index.html as "/", the shell a navigation is answered
+   with), and `BOXBOX_BUILD` is a
    hash of those files' bytes. a new build is a new worker script, which is
    how the browser finds a deploy. */
 
@@ -51,8 +52,10 @@ function serviceWorkerInDev(): Plugin {
 const DIST = "dist";
 /** the worker's own file is not its precache; the server's precompressed copies are written after this runs. nor is the
     board's chunk (app/src/board/board.tsx, named for its file): a device that never meets a board never fetches a byte of
-    it, and the one that does fetches it on the first board frame (docs/board.md) */
-const NOT_PRECACHED = /^sw\.js$|\.(br|gz)$|^assets\/board-[\w-]+\.(js|css)$/;
+    it, and the one that does fetches it on the first board frame (docs/board.md). nor are the icons (public/icons): the
+    browser fetches them for the manifest and the home screen when boxbox is installed, never for the page, so a launch
+    does not carry 167 kb of them */
+const NOT_PRECACHED = /^sw\.js$|\.(br|gz)$|^assets\/board-[\w-]+\.(js|css)$|^icons\//;
 
 function filesIn(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

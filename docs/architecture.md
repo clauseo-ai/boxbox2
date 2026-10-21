@@ -330,11 +330,11 @@ why solid:
   own, compressed (it carries the providers' marks as an inline sprite);
   `scripts/compress.ts` gates both. the first load is what a cold launch
   paints (the gate, home, a thread on its stage, the composer), as one
-  chunk; the rest are chunks loaded when asked for and warmed when the
-  page is idle after the launch: by route (machines, history, settings,
-  the terminal and its screen), by need (the review card, the markdown
-  and highlight engines, what follows a copy, a photo's clamping), and
-  the surfaces that open at a press (`app/src/ui/later.ts`: the
+  chunk; the rest are chunks loaded when asked for: by route (machines,
+  history, settings, the terminal and its screen), and by need (the review
+  card, the highlight engine, what follows a copy, a photo's clamping),
+  and warmed when the page is idle after the launch: the surfaces that
+  open at a press (`app/src/ui/later.ts`: the
   new-thread sheet, home's answer sheet, the model menu, the effort dial,
   the plus menu's rows, the queue's list, a report's sheet, the file
   reader), which open through `whenLoaded` so none opens onto nothing,
@@ -466,8 +466,10 @@ that incarnation only.
 script and served unhashed at `/sw.js`, scope `/`) handles push,
 notificationclick, notification tags and the badge, and
 precaches the hashed ui, all of it but the board's chunk, which only a
-window beside a board ever fetches (`board.md`, the app). the shell registers it at boot on every visit
-(`app/src/shell/worker.ts`), not only when notifications turn on. the build
+window beside a board ever fetches (`board.md`, the app), and the icons, which
+the browser fetches itself at install (`push.md`, the service worker). the shell registers it at boot on every visit
+(`app/src/shell/worker.ts`), not only when notifications turn on. one
+registration per page: push asks for the same promise, never registers again. the build
 writes its file list and a hash of their bytes into the worker
 (`app/vite.config.ts`), so every build is a new worker script; the worker
 caches that list as it installs, answers a navigation with its own build's

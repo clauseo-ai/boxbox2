@@ -10,9 +10,17 @@ const WORKER = "/sw.js";
 /** what the page says to a waiting worker; sw.ts listens for the same literal */
 const TAKE_OVER = "boxbox.take-over";
 
-/** registers /sw.js for the whole app. a browser without service workers, or one that refuses (a private window),
-    runs the app from the network as before: the answer is null and nothing else changes */
-export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+/** the page's one registration, asked for by the shell at boot and by notifications (push/notifications.ts): the first
+    call registers /sw.js for the whole app, every later call gets the same answer. a browser without service workers,
+    or one that refuses (a private window), runs the app from the network as before: the answer is null and nothing
+    else changes */
+let registration: Promise<ServiceWorkerRegistration | null> | undefined;
+export function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  registration ??= register();
+  return registration;
+}
+
+async function register(): Promise<ServiceWorkerRegistration | null> {
   if (!("serviceWorker" in navigator)) return null;
   try {
     // dev serves the worker as an es module through vite; the build bundles it into one classic script. the

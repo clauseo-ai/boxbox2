@@ -1761,3 +1761,7 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   `whenLanded` (`motion/animate.ts`). turns made with their real heights above the
   view move the scroller's sub-pixel phase, so the turn in view can sit a px off until
   the rest are made.
+- **a second `register('/sw.js')` is not free.** push registered the worker again on every
+  launch beside the shell's call; the page now holds one registration promise
+  (`shell/worker.ts`) and push awaits it. openapi-fetch captures `fetch` when its client is
+  made, so tests stub `api.GET` and `api.POST`, not `globalThis.fetch`.

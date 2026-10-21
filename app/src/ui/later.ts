@@ -1,7 +1,7 @@
 /* the surfaces that open only after a person acts, split from the first load (architecture.md, the script budget): the
    new-thread sheet, home's answer sheet, the composer's model menu, effort dial, plus menu and queue list, an agent's
    report in its sheet and a file in the reader. each is a chunk of its own. the shell warms them all once the launch
-   has painted and the page is idle (with the machines, history, settings and the terminal), and a trigger warms its own
+   has painted and the page is idle (the machines, history, settings and the terminal load when first asked for), and a trigger warms its own
    at the first touch (pointerdown). a surface never opens onto nothing: its trigger opens it through `whenLoaded`,
    which opens at once when the chunk is in (solid's `lazy` then renders it in the same pass, as when it was in the
    first load) and, for a press that beat the warming, opens it the moment the chunk lands (a read from the worker's
