@@ -309,18 +309,17 @@
 
 ### left open by the leak investigation (2026-10-21)
 
-- **webkit page memory still to confirm flat.** on the owner's macbook the
-  page's WebKit Malloc grew about 7 to 10 mb a minute while text streamed
-  (forced gc freed almost nothing; chromium grew about 1 mb a minute in the
-  same run). the fixes deployed as 5b82bb1 target the found causes: finished
-  `Element.animate()` word fades and reorder animations webkit kept alive
-  with their elements (about 20 a second on home), released agent children
-  held whole, and per-batch digest and trim churn. the slope of the fixed
-  build in the real app is not measured yet, nor the slopes of f8f04d1 and
-  76d2094 (each needs a clean build). notes and the harness: branch
-  `leak-notes` (`docs/leak-notes.md`, `bench/leak/`). · footprint of the
-  page process over 30 minutes of streaming on the macbook shows WebKit
-  Malloc dirty flat after the first minutes.
+- **webkit page memory: flat since f103f58, keep watching.** on the owner's
+  macbook the page grew about 7 to 10 mb a minute while text streamed; the
+  causes found were finished web animations webkit kept alive, released
+  agent children held whole, per-batch churn, and above all closed stages
+  kept alive through their dom (safari reader caches elements) after every
+  close and reopen, return from an agent or resize. with f103f58 the page
+  sat at about 300 mb footprint (WebKit Malloc about 156-160 mb dirty) from
+  13 to 23 minutes of normal use, against 461 to 722 mb and climbing on
+  5b82bb1. notes and the harness: branch `leak-notes`. · a longer session
+  (hours) stays flat, and the slopes of f8f04d1 and 76d2094 are measured if
+  the history matters.
 - **the leak fixes went out before their review.** ae9859a (interest posts
   once a turn) moved two wire-replay seeds; 5f545f0 and 092ecc1 (css fades,
   reorder reuse) need a check that the motion is identical. · an
