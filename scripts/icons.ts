@@ -3,17 +3,17 @@
    machine, so running this again over an unchanged svg writes the same
    bytes; the pngs are committed and the build never runs it.
 
-   the drawing is a window, full bleed: one shape (#shape) clips the
-   window's colour and draws its lit edge, and the work on it (the title,
-   the tail, the cursor) is one group (#work).
+   the drawing is the fleet, the ios app's icon: one shape (#shape) clips
+   the ground and draws its lit edge, and the three fanned windows on it are
+   one group (#work).
 
    - icon-192.png, icon-512.png: the drawing as it is, rounded, for the
      manifest's "any" purpose (chromium shows them as they are).
    - maskable-512.png: the shape squared, so the platform's own mask (a
-     circle, a squircle) cuts only window, and the work drawn at 84% about
-     the centre so all of it sits inside the safe zone, the circle of 40%
-     radius: its farthest outline point lands 199.7 px from the centre of
-     512, the zone's edge 204.8 (237.7 at full size).
+     circle, a squircle) cuts only ground. the fan already sits inside the
+     safe zone, the circle of 40% radius, at full size: its farthest point
+     (a rounded corner of a turned window) lands 187.6 px from the centre of
+     512, the zone's edge 204.8; only the soft cast shadow reaches past it.
    - apple-touch-icon.png (180): the shape squared, the work at full size,
      since ios rounds the corners itself, only that far, and paints
      transparent ones black.
@@ -31,9 +31,8 @@ const SOURCE = join(PUBLIC, "icon.svg");
 /** the window's rounded shape in the drawing; the full-bleed variants square it */
 const ROUNDED_SHAPE = '<rect id="shape" width="512" height="512" rx="112"/>';
 const SQUARE_SHAPE = '<rect id="shape" width="512" height="512"/>';
-/** the work on the window; the maskable variant draws it smaller about the centre */
+/** the windows on the ground; the maskable variant keeps them at full size (see above) */
 const WORK = '<g id="work">';
-const SAFE_WORK = '<g id="work" transform="translate(256 256) scale(.84) translate(-256 -256)">';
 
 const svg = readFileSync(SOURCE, "utf8");
 for (const marker of [ROUNDED_SHAPE, WORK]) {
@@ -43,7 +42,7 @@ for (const marker of [ROUNDED_SHAPE, WORK]) {
   }
 }
 const fullBleed = svg.replace(ROUNDED_SHAPE, SQUARE_SHAPE);
-const maskable = fullBleed.replace(WORK, SAFE_WORK);
+const maskable = fullBleed;
 
 const ICONS: Array<{ file: string; size: number; source: string }> = [
   { file: "icons/icon-192.png", size: 192, source: svg },

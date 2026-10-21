@@ -6,6 +6,11 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the home-screen icon is the ios app's.** the fleet (three fanned
+  windows in violet, gold and teal on the deep violet ground) replaces the
+  single window with its tail, in the svg favicon, the manifest icons and
+  the apple touch icon (`app/public/icon.svg`, `scripts/icons.ts`).
+
 - **threads read in lexend.** the agent's replies, your messages, voice
   note text and the composer are set in lexend, an open, widely spaced sans
   made for long reading; titles, labels and chips stay in boxbox sans and

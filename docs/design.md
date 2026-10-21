@@ -885,16 +885,17 @@ ways between them (the route table is `architecture.md`):
 - **the gate** paints the app from the device's cache before the server
   answers, and says nothing while it asks; without a cache and without the
   server it says so in one line with "try again".
-- **installed to the home screen.** the icon is a window, not a picture
-  of one. the drawing in `app/public/icon.svg` is the violet pair full
-  bleed in the window's own material (the highlight from the top left, the
-  lit top edge), holding what a window holds: the repo's name in boxbox
-  sans, a live tail in martian mono and the cursor, lit in the light tone.
-  no placeholder bars, and the words are outlined to paths so every
-  renderer draws them without the fonts. the maskable and the apple touch
-  icons square the shape, since each platform cuts its own and ios paints
-  transparent corners black; the maskable draws the work at 84% so it sits
-  inside the safe zone (`scripts/icons.ts` says by how much). the
+- **installed to the home screen.** the icon is the ios app's (since
+  2026-10-21): the fleet, three windows in the repo palette's light tones
+  (violet, gold, teal in front) fanned about one point near their foot, on
+  the deep violet ground, so boxbox has one face on the home screen however
+  it is installed. the drawing in `app/public/icon.svg` is the ios icon
+  document's geometry at 512, its liquid glass flattened to fills, a lit
+  top edge, a dark rim and a soft cast, in the tones the ios render shows.
+  the maskable and the apple touch icons square the shape, since each
+  platform cuts its own and ios paints transparent corners black; the fan
+  already sits inside the maskable safe zone at full size
+  (`scripts/icons.ts` says by how much). the
   manifest's theme and background are the dark ground, and the status bar
   keeps the system's default style, since the app never draws under it
   (decision 19).
