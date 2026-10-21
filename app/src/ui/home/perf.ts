@@ -11,12 +11,15 @@
    - perf.frames: a transition's frames and the gaps in them.
 
    the ui thread measures, so it emits: a `Telemetry` of its own, batched
-   the same way the worker's is and flushed when the page hides.
+   the same way the worker's is and flushed when the page hides. the emitter
+   is not in the first load (the script budget): the first sample loads it,
+   a read from the worker's precache, and the samples taken meanwhile go to
+   it in order with the time they were taken.
    `window.boxbox.perf()` hands the verification drive what was measured. */
 
 import { deviceClassOf, type DeviceClass } from "../../../../telemetry/schema";
 import { deviceId } from "../../push/device";
-import { Telemetry } from "../../sync/telemetry";
+import type { Telemetry } from "../../sync/telemetry";
 
 export type Surface = "home" | "thread";
 export type Activity = "streaming" | "scrolling" | "transition" | "idle";
@@ -39,8 +42,10 @@ if (typeof document !== "undefined") {
   });
 }
 
-function emitter(): Telemetry {
-  if (!telemetry) {
+let loading: Promise<Telemetry> | null = null;
+
+function emitter(): Promise<Telemetry> {
+  loading ??= import("../../sync/telemetry").then(({ Telemetry }) => {
     const deviceClass: DeviceClass = navigator.webdriver ? "automation" : deviceClassOf(navigator.userAgent, navigator.maxTouchPoints);
     const created = new Telemetry(deviceId(), deviceClass);
     telemetry = created;
@@ -52,8 +57,11 @@ function emitter(): Telemetry {
       if (document.visibilityState === "hidden") leaving();
     });
     window.addEventListener("pagehide", leaving);
-  }
-  return telemetry;
+    // a page that hid while the emitter loaded sends the samples it took meanwhile, once they are in its queue
+    if (document.visibilityState === "hidden") setTimeout(leaving, 0);
+    return created;
+  });
+  return loading;
 }
 
 function record<K extends "perf.launch" | "perf.paint" | "perf.input" | "perf.shift" | "perf.longtask" | "perf.frames">(
@@ -65,7 +73,9 @@ function record<K extends "perf.launch" | "perf.paint" | "perf.input" | "perf.sh
   const rounded = Math.round(ms);
   samples.push({ kind, ms: rounded, props });
   if (samples.length > SAMPLE_CAP) samples.splice(0, samples.length - SAMPLE_CAP);
-  emitter().emit(kind, props as never, { surface, ms: rounded });
+  if (telemetry) return telemetry.emit(kind, props as never, { surface, ms: rounded });
+  const at = Date.now();
+  void emitter().then((loaded) => loaded.emit(kind, props as never, { surface, ms: rounded, at }), () => undefined);
 }
 
 /** says what the ui is doing, so a long task is filed under it */
@@ -177,7 +187,7 @@ export function measured(): { samples: Sample[]; shift: number } {
 
 /** sends what is queued now (the drive reads the rows back from the server) */
 export async function flushPerf(): Promise<void> {
-  await telemetry?.flush();
+  await (loading ?? Promise.resolve(telemetry)).then((loaded) => loaded?.flush(), () => undefined);
 }
 
 export type PerfHandle = { perf: typeof measured; flush: typeof flushPerf };

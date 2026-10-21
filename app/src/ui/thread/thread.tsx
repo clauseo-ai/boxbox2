@@ -25,9 +25,8 @@ import { FileBed, ShowAll, Slip } from "./code";
 import { type Group, type StripMark, currentOf, foldedOf, groupClock, groupLabel, groupLine, groupsOf, lineShown, nearestMark } from "./groups";
 import { StripLane } from "./strip";
 import { reportOf } from "./report";
-import { ReportSheet, warmOn, whenLoaded } from "../later";
+import { PictureViewer, ReportSheet, warmOn, whenLoaded } from "../later";
 import { ReportGlyph } from "./report-glyph";
-import { Close } from "../close";
 import "./thread.css";
 
 /* ---------- answering in place ---------- */
@@ -362,7 +361,7 @@ function Pictures(props: { groups: readonly PictureGroup[]; more?: number | unde
               <For each={g().pics}>{(pic, i) => {
                 const name = () => names()[(starts()[gi] ?? 0) + i()] ?? "image";
                 return (
-                  <button class="pv-t" aria-haspopup="dialog" aria-label={name()} onClick={() => setViewing({ pic, name: name() })}>
+                  <button class="pv-t" aria-haspopup="dialog" aria-label={name()} onPointerDown={warmOn("PictureViewer")} onClick={() => whenLoaded("PictureViewer", () => setViewing({ pic, name: name() }))}>
                     <img src={pic.url} alt="" loading="lazy" decoding="async" draggable={false} />
                   </button>
                 );
@@ -374,29 +373,6 @@ function Pictures(props: { groups: readonly PictureGroup[]; more?: number | unde
       <Show when={props.more}>{(more) => <div class="pv-more">and {plural(more(), "more image")}</div>}</Show>
       <Show when={viewing()}>{(v) => <PictureViewer pic={v().pic} name={v().name} onClose={() => setViewing(null)} />}</Show>
     </>
-  );
-}
-
-function PictureViewer(props: { pic: Picture; name: string; onClose: () => void }) {
-  let dialog!: HTMLDialogElement;
-  const [actual, setActual] = createSignal(false);
-  onMount(() => dialog.showModal());
-  return (
-    /* the dialog's own box is the backdrop's edge: a press whose target is the dialog itself landed outside the card. escape closes
-       it (the dialog's own cancel) and goes no further: the stage's escape goes back to home */
-    <dialog ref={dialog} class="pv" aria-label={`${props.name}, full size`} on:keydown={(e) => e.key === "Escape" && e.stopPropagation()} on:close={() => props.onClose()} onClick={(e) => e.target === dialog && dialog.close()}>
-      <div class="pv-card">
-        <header class="pv-hd">
-          <span class="pv-name">{props.pic.filename || props.pic.mime}</span>
-          <Close label={`close ${props.name}`} onClick={() => dialog.close()} />
-        </header>
-        <div class="pv-view">
-          <button class="pv-zoom" aria-pressed={actual() ? "true" : "false"} aria-label={`${props.name} at its own size`} onClick={() => setActual(!actual())}>
-            <img class="pv-img" src={props.pic.url} alt="" decoding="async" draggable={false} />
-          </button>
-        </div>
-      </div>
-    </dialog>
   );
 }
 

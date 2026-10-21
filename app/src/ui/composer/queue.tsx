@@ -8,12 +8,12 @@
 
    the strip keeps one height whatever waits (52 px, and the edges' room above it), so a second message moves nothing. */
 
-import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js";
 import { play } from "../../motion/animate";
 import { ROLL_IN, SNAP } from "../../motion/springs";
-import { QueueList, warmOn, whenLoaded } from "../later";
+import { QueueList, QueueVerbs, warmOn, whenLoaded } from "../later";
 import { Icon } from "./icons";
-import { type Agent, type Card, type CardVerbs, cardVerbs, cardWhen, cardWords, leadOf, stripName, swipeUnsends, UNSEND_AT } from "./words";
+import { type Agent, type Card, cardVerbs, cardWhen, cardWords, leadOf, stripName, swipeUnsends, UNSEND_AT } from "./words";
 
 /** a message on its way, as the strip and its list show it */
 /** `photos` counts the photos and files on the message together, `files` the files among them */
@@ -49,15 +49,6 @@ function useWide(): () => boolean {
   onCleanup(() => query.removeEventListener("change", change));
   return wide;
 }
-
-const verbsWords: Array<[keyof Omit<CardVerbs, "apart">, string]> = [
-  ["retry", "retry"],
-  ["edit", "edit"],
-  ["steerNow", "steer now"],
-  ["runNow", "run now"],
-  ["editWaiting", "edit"],
-  ["unsend", "unsend"],
-];
 
 /** what each verb is called for a screen reader, with the message it acts on */
 export function verbName(verb: QueueVerb, item: QueueItem): string {
@@ -168,8 +159,13 @@ export function QueueStrip(props: QueueProps) {
   };
   const [offset, setOffset] = createSignal(0);
   const warmList = warmOn("QueueList");
+  const warmVerbs = warmOn("QueueVerbs");
+  /* the verbs menu's chunk (ui/later.ts) is in unless the press beat the warming; then it opens when it lands, if the
+     strip is still there */
+  const openVerbs = () => whenLoaded("QueueVerbs", () => lead() && setOpen("verbs"));
   const onPointerDown = (event: PointerEvent) => {
     warmList();
+    warmVerbs();
     if (event.button !== 0 || (event.target as Element).closest(".cz-strip-keys")) return;
     press = { id: event.pointerId, x: event.clientX, y: event.clientY, t: event.timeStamp, dx: 0, v: 0, swiping: false, held: false };
     clearTimeout(pressTimer);
@@ -177,7 +173,7 @@ export function QueueStrip(props: QueueProps) {
       pressTimer = setTimeout(() => {
         if (!press || press.swiping) return;
         press.held = true;
-        setOpen("verbs");
+        openVerbs();
       }, LONG_PRESS_MS);
     }
   };
@@ -226,7 +222,7 @@ export function QueueStrip(props: QueueProps) {
     event.preventDefault();
     clearTimeout(pressTimer);
     if (press) press.held = true;
-    setOpen("verbs");
+    openVerbs();
   };
 
   /* the verbs menu: arrows walk its rows; it opens with focus on its first row when a keyboard asked for it */
@@ -315,18 +311,7 @@ export function QueueStrip(props: QueueProps) {
             </div>
 
             <Show when={open() === "verbs"}>
-              <div class="cz-menu cz-verbs" ref={verbsEl} role="menu" aria-label={`what to do with: ${item().text}`} onKeyDown={onVerbsKey}>
-                <For each={verbsWords.filter(([verb]) => verbs()[verb])}>
-                  {([verb, word]) => (
-                    <button type="button" class="cz-option cz-verb" role="menuitem" data-danger={verb === "unsend" ? "" : undefined} aria-label={verbName(verb, item())} onClick={() => act(verb, item().id)}>
-                      <b>{word}</b>
-                    </button>
-                  )}
-                </For>
-                <Show when={verbsWords.every(([verb]) => !verbs()[verb])}>
-                  <p class="cz-note">{words().why}</p>
-                </Show>
-              </div>
+              <QueueVerbs item={item()} verbs={verbs()} why={words().why} onVerb={act} onKeyDown={onVerbsKey} ref={(el) => (verbsEl = el)} />
             </Show>
 
             <Show when={open() === "list"}>

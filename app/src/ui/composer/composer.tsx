@@ -37,14 +37,14 @@ import { isOriginal, kindOf } from "./heic";
 import type { Clamped } from "./photo";
 import type { Read } from "./read-file";
 import { compactThread } from "./compact";
-import { ContextRing } from "./context";
 import { EffortMeter } from "./dial";
 import { scaleOf } from "./effort";
-import { favorites, refreshFavorites, toggleFavorite } from "./favorites";
+import { starring } from "../later";
+import { favorites } from "./starred";
 import { Icon } from "./icons";
 import { MarkGlyph } from "./mark";
 import { providerKey } from "./marks";
-import { EffortDial, ModelMenu, ToolsMenu, warm, whenLoaded } from "../later";
+import { EffortDial, ModelMenu, Suggestions, ToolsMenu, warm, whenLoaded } from "../later";
 import { type CommandChoice, commands, ensureModels, files } from "./reads";
 import { modelName } from "../model-name";
 import { createClock } from "../clock";
@@ -52,6 +52,7 @@ import { type Dropped, fileDrop, isPhoto, sortDrop, withMention, withWords } fro
 import { inlineRuns } from "./inline";
 import { QueueStrip, type QueueVerb } from "./queue";
 import { type Agent, type Card, compactionWords, contextFill, DRAFTS_FULL, DROP_LINE, effortChoices, fateLine, type ListState, liveLine, menuOf, menuQuery, type Mount, placeholder, sendWord, tailPrint, typedAnswers, withFile } from "./words";
+import type { SlashChoice } from "./suggestions";
 import "./composer.css";
 
 /** a draft past this many lines offers the full stage */
@@ -96,7 +97,6 @@ export type ComposerProps = {
 const EMPTY: Draft = { text: "", photos: [], model: null, effort: null, at: 0 };
 
 /** a row of the slash menu: the daemon's commands, and the few boxbox runs itself */
-type SlashChoice = CommandChoice & { local?: boolean };
 
 export function Composer(props: ComposerProps) {
   const key = () => targetKey(props.target);
@@ -337,6 +337,13 @@ export function Composer(props: ComposerProps) {
   };
 
   /* —— menus —— */
+  /* the suggestions (a `/`, `@` or `!` draft) are a chunk of their own (ui/later.ts): the menu opens once it is in, which
+     it is unless the typing beat the warming, and then it opens the moment it lands */
+  const suggesting = () => { const m = menu(); return m === "/" || m === "@" || m === "!"; };
+  const [suggestionsIn, setSuggestionsIn] = createSignal(false);
+  createComputed(() => {
+    if (suggesting() && !untrack(suggestionsIn)) whenLoaded("Suggestions", () => setSuggestionsIn(true));
+  });
   const [commandList, setCommandList] = createSignal<CommandChoice[] | null>(null);
   const [fileList, setFileList] = createSignal<string[] | null>(null);
   const [menuProblem, setMenuProblem] = createSignal<string | null>(null);
@@ -364,7 +371,7 @@ export function Composer(props: ComposerProps) {
       if (open === "model") {
         void ensureModels(host());
         // the stars another device made are there when the menu opens
-        void refreshFavorites();
+        void starring().then((m) => m.refreshFavorites(), () => undefined);
       }
     }),
   );
@@ -454,7 +461,10 @@ export function Composer(props: ComposerProps) {
   const pickEffort = (effort: string) => write({ effort: effort === (entry()?.info.effort ?? null) ? null : effort });
   /* a star on a model row: on screen at once, kept by the server, put back with the reason when it is not */
   const star = async (id: string) => {
-    const kept = await toggleFavorite(id);
+    // the stars' module is in once the menu has opened (ui/later.ts); one that did not come leaves the star as it was
+    const stars = await starring().catch(() => null);
+    if (!stars) return;
+    const kept = await stars.toggleFavorite(id);
     if (!kept.ok) setProblem(kept.error);
   };
   // a pick that cannot ride the next send (the agent is working: cmx2 a18) waits for the next idle one, and says so
@@ -923,39 +933,23 @@ export function Composer(props: ComposerProps) {
         <QueueStrip items={cards()} agent={agent()} draftEmpty={!has()} unsending={unsending()} onVerb={onQueueVerb} register={registerCard} live={() => performance.now() - mountedAt > 600 && state.stream.state === "live"} />
       </Show>
 
-      <Show when={menu()}>
+      <Show when={menu() && (!suggesting() || suggestionsIn())}>
         <div class="cz-menu" role={menu() === "model" ? "group" : menu() === "tools" ? "menu" : "listbox"} onKeyDown={onToolsKey} aria-label={menu() === "model" ? `model${ofThread()}` : menu() === "tools" ? "add to the message" : `suggestions${ofThread()}`}>
-          <Show when={menu() === "/"}>
-            <p class="cz-menu-head">commands in {repo()}</p>
-            <For each={commandOptions()} fallback={<p class="cz-note">{menuProblem() ?? (commandList() === null ? "reading the commands." : `no command starts with "${menuQuery(draft().text, "/")}". it will go as a message.`)}</p>}>
-              {(choice, index) => (
-                <button type="button" class="cz-option" role="option" aria-selected={index() === menuIndex() ? "true" : "false"} data-on={index() === menuIndex() ? "" : undefined} onPointerDown={(e) => e.preventDefault()} onClick={() => pick(index())}>
-                  <b>/{choice.name}</b>
-                  <span>{choice.description ?? ""}</span>
-                  <em class="cz-ctx">
-                    <Show when={choice.local ? fill() : null}>{(f) => <><ContextRing fill={f()} />{f().percent}%</>}</Show>
-                    {choice.hints.join(" ")}
-                  </em>
-                </button>
-              )}
-            </For>
-            <Show when={commandOptions().length > 0 && (commandList() === null || menuProblem())}>
-              <p class="cz-note">{menuProblem() ?? "reading the commands."}</p>
-            </Show>
-          </Show>
-          <Show when={menu() === "@"}>
-            <p class="cz-menu-head">files in {repo()}</p>
-            <For each={fileList() ?? []} fallback={<p class="cz-note">{menuProblem() ?? (fileList() === null ? "looking." : "no file matches.")}</p>}>
-              {(path, index) => (
-                <button type="button" class="cz-option file" role="option" aria-selected={index() === menuIndex() ? "true" : "false"} data-on={index() === menuIndex() ? "" : undefined} onPointerDown={(e) => e.preventDefault()} onClick={() => pick(index())}>
-                  <b>{path.split("/").at(-1)}</b>
-                  <span>{path.split("/").slice(0, -1).join("/") || "."}</span>
-                </button>
-              )}
-            </For>
-          </Show>
-          <Show when={menu() === "!"}>
-            <p class="cz-note">runs <b>{draft().text.slice(1).trim() || "a command"}</b> on {host()}, in {repo()}, as its own row in the thread. it starts no turn; the agent reads the output on its next one.</p>
+          <Show when={suggesting()}>
+            <Suggestions
+              menu={menu() as "/" | "@" | "!"}
+              repo={repo()}
+              host={host()}
+              commands={commandOptions()}
+              commandsRead={commandList() !== null}
+              files={fileList()}
+              problem={menuProblem()}
+              query={menuQuery(draft().text, "/")}
+              command={draft().text.slice(1).trim()}
+              index={menuIndex()}
+              fill={fill()}
+              onPick={pick}
+            />
           </Show>
           <Show when={menu() === "model"}>
             <ModelMenu

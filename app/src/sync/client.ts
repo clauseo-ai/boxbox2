@@ -15,7 +15,7 @@ import type { BoardFrame } from "./protocol";
 import { type Draft, type DraftMessage, type Photo, photosNotFitted, takeBackDraft } from "./outbox";
 import { Landing } from "./landing";
 import type { AskReply } from "./replies";
-import { mintId } from "./telemetry";
+import { mintId } from "./mint-id";
 
 const THREAD_PARAM = "thread";
 

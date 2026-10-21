@@ -6,6 +6,13 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the first load is 115.9 kb of its 120 kb budget** (it was 120.0). what
+  runs only after the server answers (notifications, prefs, presence, the
+  perf emitter) and five surfaces that open at a press (the spend dialog,
+  a picture full size, the composer's suggestions, the queue's verbs and
+  the model menu's stars) load as their own chunks from the precache,
+  warmed when the page is idle and at pointerdown.
+
 - **the streams to devices are gzipped and batched.** the device stream and
   the board stream gather every ready frame into one write and, when the
   client sends `accept-encoding: gzip` (every browser does), compress it

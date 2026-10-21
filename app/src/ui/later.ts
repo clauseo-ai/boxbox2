@@ -1,6 +1,7 @@
 /* the surfaces that open only after a person acts, split from the first load (architecture.md, the script budget): the
-   new-thread sheet, home's answer sheet, the composer's model menu, effort dial, plus menu and queue list, an agent's
-   report in its sheet and a file in the reader. each is a chunk of its own. the shell warms them all once the launch
+   new-thread sheet, home's answer sheet, the composer's model menu, effort dial, plus menu, suggestions (a `/`, `@` or
+   `!` draft), queue list and queue verbs, an agent's report in its sheet, a file in the reader, the details' spend
+   dialog and a tool's picture full size. each is a chunk of its own. the shell warms them all once the launch
    has painted and the page is idle (the machines, history, settings and the terminal load when first asked for), and a trigger warms its own
    at the first touch (pointerdown). a surface never opens onto nothing: its trigger opens it through `whenLoaded`,
    which opens at once when the chunk is in (solid's `lazy` then renders it in the same pass, as when it was in the
@@ -15,12 +16,16 @@ export const AskSheet = lazy(() => import("./asks/sheet").then((m) => ({ default
 export const ModelMenu = lazy(() => import("./composer/model-menu").then((m) => ({ default: m.ModelMenu })));
 export const EffortDial = lazy(() => import("./composer/effort-dial").then((m) => ({ default: m.EffortDial })));
 export const ToolsMenu = lazy(() => import("./composer/tools-menu").then((m) => ({ default: m.ToolsMenu })));
+export const Suggestions = lazy(() => import("./composer/suggestions").then((m) => ({ default: m.Suggestions })));
 export const QueueList = lazy(() => import("./composer/queue-list").then((m) => ({ default: m.QueueList })));
+export const QueueVerbs = lazy(() => import("./composer/queue-verbs").then((m) => ({ default: m.QueueVerbs })));
 export const ReportSheet = lazy(() => import("./thread/report-sheet").then((m) => ({ default: m.ReportSheet })));
 export const FileReader = lazy(() => import("./thread/reader").then((m) => ({ default: m.FileReader })));
+export const SpendDialog = lazy(() => import("./thread/spend-dialog").then((m) => ({ default: m.SpendDialog })));
+export const PictureViewer = lazy(() => import("./thread/picture-viewer").then((m) => ({ default: m.PictureViewer })));
 
 type Surface = Component<never> & { preload: () => Promise<unknown> };
-const surfaces = { NewThreadSheet, AskSheet, ModelMenu, EffortDial, ToolsMenu, QueueList, ReportSheet, FileReader } satisfies Record<string, Surface>;
+const surfaces = { NewThreadSheet, AskSheet, ModelMenu, EffortDial, ToolsMenu, Suggestions, QueueList, QueueVerbs, ReportSheet, FileReader, SpendDialog, PictureViewer } satisfies Record<string, Surface>;
 export type SurfaceName = keyof typeof surfaces;
 
 const loaded = new Set<SurfaceName>();
@@ -60,5 +65,18 @@ export const warmEdgeOn = (): void => void warmEdge().catch(() => undefined);
 /** the edge's motion, once its chunk is in */
 export const edgeIfLoaded = (): Edge | undefined => edge;
 
-/** loads every surface here, and the edge's motion, for the shell's idle moment after the launch */
-export const warmLater = (): Promise<unknown> => Promise.all([...Object.keys(surfaces).map((name) => warm(name as SurfaceName)), warmEdge()]);
+/* the stars on the model menu's rows (composer/favorites.ts) save and refresh only once the menu is open, so they are
+   split the same way: the composer asks for them as the menu opens (a refresh) and at a star, and they are warmed with
+   the surfaces. a star is a press inside the open menu, so its module is in by then and the star lands in the same frame */
+let stars: Promise<typeof import("./composer/favorites")> | undefined;
+
+/** the stars' saving and refreshing, loaded once */
+export const starring = (): Promise<typeof import("./composer/favorites")> =>
+  (stars ??= import("./composer/favorites").catch((error: unknown) => {
+    // a chunk that did not come (a page from before a deploy) is asked for again next time
+    stars = undefined;
+    throw error;
+  }));
+
+/** loads every surface here, the edge's motion and the stars, for the shell's idle moment after the launch */
+export const warmLater = (): Promise<unknown> => Promise.all([...Object.keys(surfaces).map((name) => warm(name as SurfaceName)), warmEdge(), starring()]);

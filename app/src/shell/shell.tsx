@@ -18,19 +18,16 @@
      notifications, presence, this device's prefs, the service worker and
      `surface.view`. */
 
-import { type Accessor, createEffect, createMemo, lazy, Match, on, onCleanup, onMount, Show, Switch } from "solid-js";
+import { type Accessor, createEffect, createMemo, getOwner, lazy, Match, on, onCleanup, onMount, runWithOwner, Show, Switch } from "solid-js";
 import { play } from "../motion/animate";
 import { takeTransitioned } from "../motion/screen";
 import { FADE } from "../motion/springs";
 import { followWorkerLinks, takeLaunchLink } from "../push/links";
-import { startNotifications } from "../push/notifications";
-import { reportPresence } from "../push/presence";
 import { composeHost, focusable } from "../board/requests";
 import { boardCompose, boardFocus, refreshHosts, state } from "../store";
 import { emit, forgetSync, startSync } from "../sync/client";
 import { Home } from "../ui/home/home";
 import { warmLater } from "../ui/later";
-import { loadPrefs } from "../ui/settings/actions";
 import { SignIn } from "../ui/sign-in";
 import { createLayout } from "./form";
 import { edgeSwipe } from "./gesture";
@@ -65,18 +62,23 @@ export function Shell() {
   createEffect(on(() => state.gate, (gate) => (gate === "signed-out" ? void forgetSync() : startSync())));
   followWorkerLinks();
   // notifications and this device's appearance need the session: they start each time the gate opens (the boot
-  // copy of the appearance painted the first frame)
+  // copy of the appearance painted the first frame). both ask the server and nothing paints before it answers, so
+  // their code is not in the first load: a chunk each, read from the worker's precache
   createEffect(
     on(
       () => state.gate === "signed-in",
       (signedIn) => {
         if (!signedIn) return;
-        void startNotifications();
-        void loadPrefs();
+        void import("../push/notifications").then((m) => m.startNotifications(), () => undefined);
+        void import("../ui/settings/actions").then((m) => m.loadPrefs(), () => undefined);
       },
     ),
   );
-  reportPresence();
+  // presence is a report to the server, so it loads the same way, and runs under the shell as if called here
+  const owner = getOwner();
+  let gone = false;
+  onCleanup(() => (gone = true));
+  void import("../push/presence").then((m) => !gone && runWithOwner(owner, m.reportPresence), () => undefined);
   // a launch that could not reach the server asks again once the stream (which carries the session) is back
   createEffect(on(() => state.stream.state, (stream) => stream === "live" && state.gate === "checking" && void refreshHosts()));
   const onOnline = () => state.gate === "checking" && void refreshHosts();

@@ -10,6 +10,7 @@
    of an id it wrote recently. */
 
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
+import { mintId } from "./mint-id";
 
 /** the server takes at most 500 per batch; a queue past this drops its oldest */
 const QUEUE_CAP = 500;
@@ -25,12 +26,6 @@ export type RowStore = {
   forget(ids: readonly string[]): Promise<void>;
 };
 
-/** v1's id shape: the stamp in base 36, a dash, eight random base-36 digits */
-export function mintId(at: number): string {
-  const random = crypto.getRandomValues(new Uint32Array(2));
-  const tail = ((random[0] ?? 0) * 0x100000000 + (random[1] ?? 0)).toString(36).padStart(8, "0").slice(-8);
-  return `${at.toString(36)}-${tail}`;
-}
 
 export class Telemetry {
   private queue: RawEvent[] = [];

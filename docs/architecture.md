@@ -362,14 +362,18 @@ why solid:
   paints (the gate, home, a thread on its stage, the composer), as one
   chunk; the rest are chunks loaded when asked for: by route (machines,
   history, settings, the terminal and its screen), and by need (the review
-  card, the highlight engine, what follows a copy, a photo's clamping),
-  and warmed when the page is idle after the launch: the surfaces that
-  open at a press (`app/src/ui/later.ts`: the
+  card, the highlight engine, what follows a copy, a photo's clamping), by
+  what runs only after the server answers (notifications, this device's
+  prefs, presence, the perf emitter: each a chunk read from the worker's
+  precache as it starts), and warmed when the page is idle after the
+  launch: the surfaces that open at a press (`app/src/ui/later.ts`: the
   new-thread sheet, home's answer sheet, the model menu, the effort dial,
-  the plus menu's rows, the queue's list, a report's sheet, the file
-  reader), which open through `whenLoaded` so none opens onto nothing,
-  and the stage card's edge in motion (`home/edge.ts`), which runs only at
-  a fold and starts in the fold's own task once warmed.
+  the plus menu's rows, the composer's suggestions, the queue's list and
+  its verbs, a report's sheet, the file reader, the spend dialog, a
+  picture full size), which open through `whenLoaded` so none opens onto
+  nothing, the model menu's stars, and the stage card's edge in motion
+  (`home/edge.ts`), which runs only at a fold and starts in the fold's own
+  task once warmed.
 
 what it beat: react (virtual dom diffing on every delta, and v1's scar
 history), svelte 5 (a close second with similar fine-grained runes; solid

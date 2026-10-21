@@ -8,11 +8,9 @@ import { api } from "../../api/client";
 import { type ModelPrefs, type Prefs, setModelPrefs, setPrefs, state } from "../../store";
 import { type Outcome, said, UNREACHABLE } from "../machines/said";
 import { flipFavorite, MAX_FAVORITES } from "./models";
+import { favorites } from "./starred";
 
-/** the starred ids, in the order the person put them. a server older than favorites answers prefs with no `models` */
-export function favorites(): readonly string[] {
-  return state.prefs?.models?.favorites ?? [];
-}
+export { favorites };
 
 /** what the server answered to a list: the list it kept, or why it did not */
 export type Saved = { ok: true; value: ModelPrefs } | { ok: false; error: string };
