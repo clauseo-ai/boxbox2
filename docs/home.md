@@ -635,6 +635,18 @@ guesses.
   animation of transform and opacity whose `currentTime` rises frame by
   frame while its computed opacity and transform change (0 and
   `scale(.9)` to 1 and none, about 34 frames).
+- **the pour, frame by frame.** home with heavy threads (every window
+  holding 24 turns of a long imported session) is the story the pour is
+  timed on. `bun .ladle/pour-frames.ts` (from `app/`) pours each window at
+  1512, from a fresh page and again after another, holds every animation
+  and steps it 16 ms at a time through its clock, and records the keyframes
+  and timing of what the pour started, the poured layer's clip-path,
+  transform and opacity, and the turns its view shows; then it lets the
+  pour land and records the landed view, and last it pours freely and says
+  the frames each pour dropped (`perf.frames`). `--out` keeps a run and
+  `--against` fails a later one on any difference in the motion, the view's
+  turns or the landed view, saying where boxes sit a px apart (the sub-pixel
+  phase at the end of the scroller, `thread.md`, the window).
 - **writes that change nothing.** the `writes` stories
   (`ui/home/stories/writes.stories.tsx`) run the whole app at home and at a
   thread with its composer while a seeded fleet of 300 streams under it

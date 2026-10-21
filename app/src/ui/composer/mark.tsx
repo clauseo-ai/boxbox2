@@ -33,7 +33,9 @@ export function ProviderMark(props: { provider: string; size?: number }): JSX.El
 
 /** the bare glyph, no tile; null when the provider has no mark */
 export function MarkGlyph(props: { provider: string; class?: string }): JSX.Element {
-  /* a memo, so the glyph is made again when the mark changes: the composer's provider is worked out again on every keystroke */
+  /* a memo, so the glyph is made again only when the mark changes: the composer's model chip hands its provider through the draft, which
+     is a new object at every keystroke, and the glyph was made again beside the words being typed each time: a new svg for the style and
+     layout the composer reads in the same keystroke (its wrap ruler) */
   const hit = createMemo(() => markNameOf(props.provider));
   return <>{(() => {
     const name = hit();

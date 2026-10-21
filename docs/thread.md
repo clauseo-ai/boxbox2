@@ -1854,6 +1854,27 @@ design, and what each part of it says:
   (two reports with a prompt, or a queued message that gets its own id when
   it runs) was an empty box in the view of a reader at the end for that frame
   (check 9, chromium 390, once under load: two turns, 222 px, one frame).
+- **nothing the reader cannot see is made while the layer moves.** a thread
+  opens inside home's transition (the pour, the grow, the capsule, an agent
+  sliding over its parent), and every frame of it is a frame the sheet
+  spring needs. while an animation `play` started is moving a box the
+  scroller sits in (`carried`, motion/animate.ts), the frame after the
+  opening makes only those of the newest three that reach into the last
+  screen (the view at the end is followed after that frame's layout, so the
+  last screen is what it paints; a view held anywhere else makes them all),
+  the loop makes the turns on screen and none that are only near, and the
+  older turns of a long thread (`grow`, below) are not brought in; the rest
+  is made when the transition lands (`whenLanded`), with the view kept as
+  any fill keeps it. making them inside it was what the pour dropped: on
+  home's heavy story (`home--home-heavy-threads`, every window holding 24
+  turns of a long imported session, 1512 wide) 3.1 frames a pour in chromium
+  and 2.7 in webkit, now 1.1 and 0.7. the transition is drawn the same
+  (`app/.ladle/pour-frames.ts` steps every animation of a pour through its
+  clock and compares the layer and its view with a run from before): what
+  moves is that a turn made above the view on landing can change the view's
+  sub-pixel phase at the end of the scroller, so the words in view may sit a
+  px (a device px) from where the old frames had them until it lands, as any
+  fill above a view at the end does at rest.
 - **filled when near.** an intersection observer watches every box with a
   margin of 2.5 screens above and below the scroller; a loop fills what it
   reports, the turns on screen first and then the nearest, at most two a
@@ -1966,7 +1987,8 @@ design, and what each part of it says:
   older ones a frame, newest first, until it has them all (the same frame is
   51 ms, 45 of them script, with no long task, and the whole thread is there a
   quarter of a second later; the first frame fills from the end the screen, not
-  a screen and a half, and four turns at most: the near turns come a frame later). of the always-filled newest three, the newest
+  a screen and a half, and four turns at most: the near turns come a frame later; while home's transition carries the layer
+  in, the rest wait for it to land, above). of the always-filled newest three, the newest
   and the running turn and any that asks are filled in that task and the other
   two a frame after: they are above the first screen, and filling all three
   was 55 ms on a thread whose last turns have real rows. the list is keyed by the turn's id, so turns coming in above keep the

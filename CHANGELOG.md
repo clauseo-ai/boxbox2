@@ -6,6 +6,19 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **a thread opening from home makes only what is on screen until it lands.**
+  the frame after the click filled the older of the newest turns, the stage
+  window filled turns near the screen and the stage grew 32 older turns a
+  frame, all inside the pour's own frames; now those wait for the pour to
+  land (`motion/animate.ts` knows which boxes a running animation carries).
+  frames dropped per pour on a heavy home: 2.72 to 0.72 in WebKit, 3.14 to
+  1.13 in Chromium. on some threads the turn in view can sit a px off during
+  the pour and is back in place when it lands. `bun .ladle/pour-frames.ts`
+  steps every pour 16 ms at a time and compares the motion and the landed
+  view with an earlier run.
+- **the composer's model chip keeps its glyph while words are typed.** its
+  svg was made again on every keystroke, beside the words being typed.
+
 - **home and the thread set an attribute only when it changes.** while a
   fleet streamed, window clear names, the clear pill, the facts line, the
   answer's class and the dock's inert were set again to the same value

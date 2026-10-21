@@ -79,10 +79,13 @@ export function play(el: Element, frames: Frame[], curve: Spring | Curve, option
   if (!live) return null;
   if (reduced() && kind !== "fade") return null;
   const start = (): Animation =>
-    reduced()
-      ? // a content swap keeps a short fade; springs land at once; decoration (the sweep, the blur) is off
-        el.animate(onlyOpacity(frames), { duration: REDUCED_FADE.duration, easing: REDUCED_FADE.easing, fill })
-      : el.animate(frames as Keyframe[], { duration: curve.duration, easing: curve.easing, delay, fill, ...(pseudoElement ? { pseudoElement } : {}) });
+    playing(
+      el,
+      reduced()
+        ? // a content swap keeps a short fade; springs land at once; decoration (the sweep, the blur) is off
+          el.animate(onlyOpacity(frames), { duration: REDUCED_FADE.duration, easing: REDUCED_FADE.easing, fill })
+        : el.animate(frames as Keyframe[], { duration: curve.duration, easing: curve.easing, delay, fill, ...(pseudoElement ? { pseudoElement } : {}) }),
+    );
   /* an element solid has just made (a `ref`) is not in the page yet: it belongs to the inert document of the template it
      was cloned from, and an animation started on it never runs. chromium takes that document's timeline, which never
      ticks; webkit leaves it pending even when handed the page's. both held the first frame for good: a queued card sat at
@@ -95,6 +98,46 @@ export function play(el: Element, frames: Frame[], curve: Spring | Curve, option
     return null;
   }
   return start();
+}
+
+/* the animations `play` started that have not ended, so a page can ask whether something it sits in is moving without asking the
+   browser (`getAnimations` brings the style up to date to answer, in the middle of a frame's callbacks). each one leaves when it
+   finishes or is cancelled; every curve has an end, so the map holds the few that are running and no more */
+const running = new Map<Animation, Element>();
+function playing(el: Element, animation: Animation): Animation {
+  running.set(animation, el);
+  const gone = () => running.delete(animation);
+  animation.finished.then(gone, gone);
+  return animation;
+}
+
+/** the animations moving `el` from outside: running on it or on a box it sits in (a layer pouring onto the stage carries the whole
+    thread in it). what moves inside it (a row rising, a word settling) is not counted */
+function carrying(el: Element): Animation[] {
+  const out: Animation[] = [];
+  for (const [animation, target] of running) if (target.contains(el) && animation.playState !== "finished" && animation.playState !== "idle") out.push(animation);
+  return out;
+}
+
+/** `el` is being carried by a transition (the stage's layer growing, pouring or sliding in): work it can leave until it lands waits */
+export function carried(el: Element): boolean {
+  return carrying(el).length > 0;
+}
+
+/** runs `then` once what carries `el` now has landed (at once when nothing does). answers a stop that cancels it */
+export function whenLanded(el: Element, then: () => void): () => void {
+  const moving = carrying(el);
+  if (!moving.length) {
+    then();
+    return () => undefined;
+  }
+  let live = true;
+  void Promise.allSettled(moving.map((a) => a.finished)).then(() => {
+    if (live) then();
+  });
+  return () => {
+    live = false;
+  };
 }
 
 const onlyOpacity = (frames: Frame[]): Keyframe[] => frames.map((f) => (f.opacity === undefined ? {} : { opacity: f.opacity }));

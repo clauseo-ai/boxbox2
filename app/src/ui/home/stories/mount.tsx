@@ -15,7 +15,7 @@ import journal from "../fixtures/journal.ndjson?raw";
 import { endOf, keyOf, parseJournal, replay, TITLES } from "../fixtures/replay";
 import { Home } from "../home";
 import { FOCUS_KEY, INSPECTOR_KEY, STRIP_KEY } from "../remembered";
-import { notesTranscript } from "../../thread/stories/transcript";
+import { heavyTranscripts, notesTranscript } from "../../thread/stories/transcript";
 import { askWith, asking, fleetAsking, LONG_ASK, type Question, TWO_QUESTIONS } from "../../thread/stories/asks";
 import { sweep } from "../../../motion/animate";
 import { NewThreadDock } from "../../composer/dock";
@@ -99,7 +99,7 @@ export function mountState(el: HTMLElement, story: StateStory): () => void {
   );
 }
 
-export type HomeStory = "live" | "stray" | "answer" | "answer-two" | "ask-long" | "ask-two" | "offline" | "reload" | "long" | "stale" | "crowd" | "gone" | "empty" | "windows-hidden" | "inspector-folded" | "hidden-inspector-folded" | "inspector-turns" | "strip-folded" | "details";
+export type HomeStory = "live" | "stray" | "answer" | "answer-two" | "ask-long" | "ask-two" | "offline" | "reload" | "long" | "stale" | "crowd" | "gone" | "empty" | "windows-hidden" | "inspector-folded" | "hidden-inspector-folded" | "inspector-turns" | "strip-folded" | "details" | "heavy";
 
 /** what each story's device remembers of the rail and the inspector (home.tsx, `memory`): its own, so no story leaks into the next */
 const FOLDS: Partial<Record<HomeStory, Record<string, string>>> = {
@@ -250,7 +250,9 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     // the stray story: the asking thread started an agent whose session the fleet does not hold (a spawn-only agent)
     const transcript = story === "stray" ? withStrayAgent(recorded) : recorded;
     // the thread on the stage holds the question the window previews, running at its end, as the daemon holds it
-    const threads = { [wants]: pending ? asking(transcript, pending) : transcript };
+    // the heavy story: every other window holds a long imported session, for timing the pour into a thread already read
+    const others = story === "heavy" ? await heavyTranscripts(asks.order.filter((key) => key !== wants)) : {};
+    const threads = { ...others, [wants]: pending ? asking(transcript, pending) : transcript };
     if (gone) return;
     const fleet = story === "long" ? withLongRepo(asks) : story === "crowd" ? withCrowd(asks) : story === "empty" ? { ...asks, sessions: {}, asks: {}, order: [] } : asks;
     bootSync({ fleet, threads, drafts: {}, outbox: [], stream });

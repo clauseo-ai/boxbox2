@@ -1755,3 +1755,9 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   re-set `aria-label` on every window 2,150 times a second; such a value reads through
   a memo, which compares before it writes. the `writes--` stories count same-value
   writes and fail on any.
+- **work started by a click lands inside the transition it starts.** filling turns
+  the frame after a thread opened, and on every frame after it, ran inside the pour and
+  dropped about three of its frames; work the eye cannot see yet waits for
+  `whenLanded` (`motion/animate.ts`). turns made with their real heights above the
+  view move the scroller's sub-pixel phase, so the turn in view can sit a px off until
+  the rest are made.

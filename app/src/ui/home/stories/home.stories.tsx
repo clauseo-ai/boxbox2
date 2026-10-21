@@ -44,6 +44,7 @@ export const HomeStaleThreadUrl = home("stale");
 export const HomeCrowdedBar = home("crowd");
 export const HomeFirstLeaves = home("gone");
 export const HomeEmpty = home("empty");
+export const HomeHeavyThreads = home("heavy");
 export const HomeWindowsHidden = home("windows-hidden");
 export const HomeInspectorFolded = home("inspector-folded");
 export const HomeWindowsHiddenInspectorFolded = home("hidden-inspector-folded");

@@ -7,7 +7,7 @@
 import { For, Index, type JSX, Show, createEffect, createMemo, createSignal, createUniqueId, lazy, on, onCleanup, onMount, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import { api } from "../../api/client";
-import { play } from "../../motion/animate";
+import { carried, play, whenLanded } from "../../motion/animate";
 import { FADE, TICK_DRAW } from "../../motion/springs";
 import { FOCUS_FOR_MS, type Focus, openFocus, releaseFocus, state, threadCaches } from "../../store";
 import { BoardPair, BoardReceipt } from "../../board/lazy";
@@ -924,18 +924,23 @@ export function Stage(props: StageProps) {
      ended by a write to the scroll position). a focus on this thread has it all at once: the row it is to go to may be in any. a pending ask brings its own turn (turns.ts, `need`) */
   let growFrame = 0;
   let growTimer: ReturnType<typeof setTimeout> | undefined;
+  /* while home's transition carries the layer in (a pour, a grow, an agent sliding over its parent), the older turns wait for it to land:
+     they come in above the view, so nothing on screen moves for them, and making a block of them in each of the transition's frames was
+     frames it dropped (stage-window.ts does the same for the turns it fills) */
+  let growLanding: (() => void) | undefined;
   const growSoon = (): void => {
-    if (growFrame || growTimer) return;
+    if (growFrame || growTimer || growLanding) return;
     growFrame = requestAnimationFrame(() => {
       growFrame = 0;
       if (!data.more()) return;
+      if (carried(scroller)) { growLanding = whenLanded(scroller, () => { growLanding = undefined; growSoon(); }); return; }
       if (!win.steady()) { growTimer = setTimeout(() => { growTimer = undefined; growSoon(); }, 150); return; }
       win.keep(() => data.grow(GROW_TURNS));
       growSoon();
     });
   };
   createEffect(() => { if (data.more()) growSoon(); });
-  onCleanup(() => { cancelAnimationFrame(growFrame); clearTimeout(growTimer); });
+  onCleanup(() => { cancelAnimationFrame(growFrame); clearTimeout(growTimer); growLanding?.(); });
   createEffect(() => { if (data.more() && state.focus && state.focus.thread === key()) data.all(); });
 
   /* ---------- the menu's compact and copy link ---------- */

@@ -9,6 +9,7 @@
 
 import { type Accessor, batch, createComputed, createEffect, createMemo, onCleanup, untrack } from "solid-js";
 import { createStore, unwrap } from "solid-js/store";
+import { carried, whenLanded } from "../../motion/animate";
 import { layoutTop } from "./ask-landing";
 import { HEIGHT_BYTES, type ThreadCaches, cacheKey } from "./memo-cache";
 import { type Turn, spawnsOf } from "./model";
@@ -296,7 +297,28 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
      paints it, so a reply arriving or an ask raised is never an empty box */
   let soonFrame = 0;
   const soon = new Set<string>();
-  onCleanup(() => cancelAnimationFrame(soonFrame));
+  /* the stage's layer is still pouring, growing or sliding in (home's transition): what the frame after the opening makes is only what is
+     on screen then, the rest when it lands. a turn above the first screen is made with the view kept, so it changes no pixel the reader
+     sees whenever it is made, and making it in the transition's first frame was the frame the pour dropped (docs/thread.md, budgets) */
+  let soonLanding: (() => void) | undefined;
+  const makeSoon = (): void => {
+    soonFrame = 0;
+    const ids = [...soon];
+    soon.clear();
+    const s = scroller();
+    /* only a view at the end is known now: the end is followed after this frame's layout (stage.tsx, resized), so the view the frame paints is
+       the scroller's last screen, and a box that reaches into it is made now. a view held anywhere else (a link, an ask, a move) makes them all */
+    if (!s || !pin.pinned() || travelling || held || !carried(s)) { fill(ids); return; }
+    const box = s.getBoundingClientRect();
+    const viewTop = s.scrollHeight - s.clientHeight;
+    const now = ids.filter((id) => { const el = slots.get(id); return el === undefined || el.getBoundingClientRect().bottom - box.top - s.clientTop + s.scrollTop > viewTop - 1; });
+    for (const id of ids) if (!now.includes(id)) soon.add(id);
+    fill(now);
+    if (!soon.size) return;
+    soonLanding?.();
+    soonLanding = whenLanded(s, () => { soonLanding = undefined; soonFrame ||= requestAnimationFrame(makeSoon); });
+  };
+  onCleanup(() => { cancelAnimationFrame(soonFrame); soonLanding?.(); });
   /* the thread has its turns: what comes after is one or two at a time */
   let populated = false;
   createComputed(() => {
@@ -316,7 +338,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
       const now = opening ? wanted.filter((id) => id === live || id === newest || asking.has(id)) : wanted;
       fill(now);
       for (const id of wanted) if (!now.includes(id) && !filled[id]) soon.add(id);
-      if (soon.size && !soonFrame) soonFrame = requestAnimationFrame(() => { soonFrame = 0; const ids = [...soon]; soon.clear(); fill(ids); });
+      if (soon.size && !soonFrame && !soonLanding) soonFrame = requestAnimationFrame(makeSoon);
     });
   });
   /* the first frame: from the end, what the screen holds and half as much again (the ends of the thread are what a thread opens at) */
@@ -347,6 +369,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
   /** a finger is down or a fling is running (the page is on a touch screen), or the page is moving the view itself */
   const moving = (): boolean => touching || performance.now() - lastScroll < SETTLE_MS;
   let frame = 0, settle: ReturnType<typeof setTimeout> | undefined;
+  let tickLanding: (() => void) | undefined;
   /** the loop's looks at an empty view in a row: nothing is known to be on screen yet, so nothing can be nearest */
   let blind = 0;
   const wake = (): void => { frame ||= requestAnimationFrame(tick); };
@@ -367,7 +390,12 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
       if (!anchor && !pin.pinned()) capture();
       holdAbove = (anchor ? index.get(anchor.slot) : undefined) ?? (see.length ? Math.min(...see) : -1);
     }
-    const picks = nextFills(candidates, see, holdAbove);
+    /* while the stage's layer is carried in by a transition, the loop makes only what is on screen (which it always makes first, whatever
+       its budget), and the turns that are only near wait for it to land: each one made is a frame of the transition's that drops */
+    const s = scroller();
+    const landing = s !== undefined && carried(s);
+    const on = new Set(see);
+    const picks = nextFills(landing ? candidates.filter((c) => on.has(c.index)) : candidates, see, holdAbove);
     if (picks.length) fill(picks.map((i) => order[i] as string));
     const waiting = candidates.some((c) => !c.filled && !picks.includes(c.index));
     for (const id of seeing) {
@@ -375,6 +403,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
       if (box) box.toggleAttribute("data-waiting", holding && filled[id] !== true);
     }
     if (!waiting) { blind = 0; return; }
+    if (landing && s) { tickLanding?.(); tickLanding = whenLanded(s, () => { tickLanding = undefined; wake(); }); return; }
     if (holding) { clearTimeout(settle); settle = setTimeout(wake, travelling ? 120 : SETTLE_MS + 10); return; }
     if (!see.length) {
       // nothing is known to be on screen: looking every frame would be a loop for as long as it lasted. a few looks, a tenth of a second apart; an observer that reports starts it again
@@ -384,7 +413,7 @@ export function createStageWindow(options: StageWindowOptions): StageWindow {
     blind = 0;
     wake();
   }
-  onCleanup(() => { cancelAnimationFrame(frame); clearTimeout(settle); clearTimeout(heldTimer); endTravel(false); });
+  onCleanup(() => { cancelAnimationFrame(frame); clearTimeout(settle); clearTimeout(heldTimer); tickLanding?.(); endTravel(false); });
 
   /* ---------- the observers ---------- */
   let nearWatch: IntersectionObserver | undefined;

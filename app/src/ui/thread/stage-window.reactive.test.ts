@@ -8,6 +8,8 @@ import { createMemo, createRoot, createSignal } from "solid-js";
 import type { Turn } from "./model";
 import type { Pin } from "./pin";
 import { createStageWindow } from "./stage-window";
+import { play } from "../../motion/animate";
+import { SHEET } from "../../motion/springs";
 
 const reactive = (() => {
   try {
@@ -44,17 +46,18 @@ function rig(own: { pinned?: boolean; follow?: () => void } = {}) {
     children: [], dataset: { turn: `t${i}` }, isConnected: true, offsetHeight: TURN,
     classList: { contains: () => false },
     getClientRects: () => [1],
-    getBoundingClientRect: () => ({ top: i * TURN - s.scrollTop, height: TURN }),
+    getBoundingClientRect: () => ({ top: i * TURN - s.scrollTop, bottom: (i + 1) * TURN - s.scrollTop, height: TURN }),
     closest: () => null, removeAttribute() {}, toggleAttribute() {},
   });
+  const boxes: unknown[] = [];
   const made = createRoot((dispose) => {
     const win = createStageWindow({ scroller: () => s as unknown as HTMLElement, thread: () => "desk:far", turns: () => turns, live: () => undefined, asking: () => new Set(), pin, ...(own.follow ? { follow: own.follow } : {}) });
-    for (let i = 0; i < N; i++) win.slot(box(i) as unknown as HTMLElement, () => `t${i}`, () => turns[i] as Turn);
+    for (let i = 0; i < N; i++) { const b = box(i); boxes.push(b); win.slot(b as unknown as HTMLElement, () => `t${i}`, () => turns[i] as Turn); }
     return { win, dispose };
   });
   const filled = (): number => turns.filter((t) => made.win.filled(t.id)).length;
   const isFilled = (i: number): boolean => made.win.filled(`t${i}`);
-  return { ...made, s, scrolls, places, filled, isFilled };
+  return { ...made, s, scrolls, places, filled, isFilled, boxes };
 }
 
 afterEach(() => { jest.useRealTimers(); });
@@ -196,6 +199,86 @@ describe.skipIf(!reactive)("turns that arrive", () => {
     r.setList((all) => [...all, made(40), made(41)]);
     expect(r.win.filled("t41")).toBe(true);
     expect(r.win.filled("t40")).toBe(true);
+    r.dispose();
+  });
+});
+
+/* home's transition carries the stage's layer in (a pour, a grow, an agent sliding over its parent): the frame after a thread opens is one of
+   the transition's, and what it makes there that the reader cannot see is a dropped frame (docs/thread.md, budgets). a layer here is a box the
+   scroller sits in, moved by `play` with an animation the test lands by hand */
+describe.skipIf(!reactive)("a thread opening while its layer is carried in", () => {
+  const frame = () => new Promise((done) => setTimeout(done, 5));
+  const carry = (scroller: unknown) => {
+    let land = () => {};
+    const animation = { playState: "running", finished: new Promise<void>((done) => { land = done; }) };
+    const layer = { isConnected: true, contains: (el: unknown) => el === scroller, animate: () => animation };
+    play(layer as unknown as Element, [{ transform: "translateX(100%)" }, { transform: "none" }], SHEET);
+    return () => { animation.playState = "finished"; land(); };
+  };
+  /* the first screen is one turn tall here, so the older two of the newest three are left to the frame after; the view is at the end */
+  const opening = () => {
+    const was = g["innerHeight"];
+    g["innerHeight"] = 1;
+    const r = rig({ pinned: true });
+    g["innerHeight"] = was;
+    return r;
+  };
+  test("with nothing carrying it, the frame after makes the older of the newest three, on screen or not", async () => {
+    const r = opening();
+    expect([r.isFilled(N - 1), r.isFilled(N - 2), r.isFilled(N - 3)]).toEqual([true, false, false]);
+    await frame();
+    expect([r.isFilled(N - 2), r.isFilled(N - 3)]).toEqual([true, true]);
+    r.dispose();
+  });
+  test("while it is carried in, the frame after makes the one that reaches into the last screen, and the other when it lands", async () => {
+    const r = opening();
+    const land = carry(r.s);
+    expect([r.isFilled(N - 1), r.isFilled(N - 2), r.isFilled(N - 3)]).toEqual([true, false, false]);
+    await frame();
+    // the last screen is the end's 800 px: turn N - 2 reaches 300 px into it, turn N - 3 ends 200 px above it
+    expect([r.isFilled(N - 2), r.isFilled(N - 3)]).toEqual([true, false]);
+    await frame();
+    expect(r.isFilled(N - 3)).toBe(false);
+    land();
+    await frame();
+    await frame();
+    expect(r.isFilled(N - 3)).toBe(true);
+    r.dispose();
+  });
+  test("a view held anywhere but the end makes them all in the frame after, carried or not: where it will be is not known yet", async () => {
+    const was = g["innerHeight"];
+    g["innerHeight"] = 1;
+    const r = rig({ pinned: false });
+    g["innerHeight"] = was;
+    const land = carry(r.s);
+    await frame();
+    expect([r.isFilled(N - 2), r.isFilled(N - 3)]).toEqual([true, true]);
+    land();
+    r.dispose();
+  });
+
+  test("while it is carried in, the loop makes the turns on screen and leaves the ones only near the view until it lands", async () => {
+    /* the observers say what is near and what is on screen, as the browser would after the first frame's layout */
+    const watchers: Array<{ margin: string; report: (entries: unknown[]) => void }> = [];
+    const was = g["IntersectionObserver"];
+    g["IntersectionObserver"] = class { constructor(report: (entries: unknown[]) => void, o: { rootMargin: string }) { watchers.push({ margin: o.rootMargin, report }); } observe() {} unobserve() {} disconnect() {} };
+    const r = opening();
+    g["IntersectionObserver"] = was;
+    await frame();
+    const land = carry(r.s);
+    const near = watchers.find((w) => w.margin !== "0px");
+    const seeing = watchers.find((w) => w.margin === "0px");
+    // the view sits on turn N - 10 (a link, say, though the end is followed here) and turns N - 14 to N - 6 are near it
+    seeing?.report([{ target: r.boxes[N - 10], isIntersecting: true }]);
+    near?.report([N - 14, N - 13, N - 12, N - 11, N - 10, N - 9, N - 8, N - 7, N - 6].map((i) => ({ target: r.boxes[i], isIntersecting: true })));
+    await frame();
+    expect(r.isFilled(N - 10)).toBe(true);
+    expect([N - 14, N - 12, N - 9, N - 6].map((i) => r.isFilled(i))).toEqual([false, false, false, false]);
+    await frame();
+    expect(r.isFilled(N - 9)).toBe(false);
+    land();
+    for (let i = 0; i < 12; i++) await frame();
+    expect([N - 14, N - 12, N - 9, N - 6].map((i) => r.isFilled(i))).toEqual([true, true, true, true]);
     r.dispose();
   });
 });
