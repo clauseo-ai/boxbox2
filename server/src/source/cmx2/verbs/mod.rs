@@ -8,6 +8,8 @@ pub mod compose;
 pub mod history;
 pub mod hosts;
 pub mod pty;
+pub mod read;
+pub mod refs;
 pub mod review;
 pub mod session;
 pub mod threads;

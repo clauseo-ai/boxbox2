@@ -7,13 +7,15 @@
 //! at a time, through the store writer. uploads and copies stream their
 //! bodies to `media/tmp/` on their own tasks, each with one 1 MiB buffer,
 //! and hand the finished file to the task. the route reads files directly
-//! by id; an evicted id answers 410.
+//! by id; an evicted id answers 410. thumbnails (`thumbs.rs`) are scaled off
+//! the runtime and handed to the task to keep, counted against the same cap.
 
 pub mod evict;
 pub mod index;
 pub mod range;
 pub mod receive;
 pub mod sniff;
+pub mod thumbs;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -226,7 +228,9 @@ struct Inner {
         reason = "the agent sources' copies take it (the seam and openclaw lanes)"
     )]
     copies: Arc<Semaphore>,
-    commits: mpsc::Sender<Commit>,
+    commits: mpsc::Sender<Job>,
+    /// thumbnail scalings at once (`thumbs::JOBS`).
+    scalings: Arc<Semaphore>,
     timing: Timing,
     /// fired at shutdown: every take in flight ends, so a stalled body never
     /// holds the server open.
@@ -247,6 +251,19 @@ impl Default for Timing {
             deadline: DEADLINE,
         }
     }
+}
+
+/// what the media task runs, one at a time.
+enum Job {
+    File(Commit),
+    Keep(Keep),
+}
+
+/// a thumbnail just served, for the task to keep if it fits.
+struct Keep {
+    id: String,
+    w: u32,
+    bytes: Bytes,
 }
 
 struct Commit {
@@ -383,7 +400,8 @@ impl Media {
             );
         }
         let total = store.call(|c| index::total(c)).await?;
-        info!(root = %root.display(), total, cap, "media store open");
+        let thumbs = mended.thumbs;
+        info!(root = %root.display(), total, thumbs = thumbs.total(), cap, "media store open");
         let (commits, receiver) = mpsc::channel(COMMITS);
         let task = tokio::spawn(
             Task {
@@ -392,6 +410,7 @@ impl Media {
                 telemetry: telemetry.clone(),
                 total,
                 cap,
+                thumbs: Arc::new(std::sync::Mutex::new(thumbs)),
             }
             .run(receiver),
         );
@@ -404,6 +423,7 @@ impl Media {
                     uploads: Arc::new(Semaphore::new(UPLOADS)),
                     copies: Arc::new(Semaphore::new(COPIES)),
                     commits,
+                    scalings: Arc::new(Semaphore::new(thumbs::JOBS)),
                     timing,
                     shutdown,
                 }),
@@ -425,6 +445,7 @@ impl Media {
                 uploads: Arc::new(Semaphore::new(UPLOADS)),
                 copies: Arc::new(Semaphore::new(COPIES)),
                 commits: mpsc::channel(1).0,
+                scalings: Arc::new(Semaphore::new(thumbs::JOBS)),
                 timing: Timing::default(),
                 shutdown: CancellationToken::new(),
             }),
@@ -492,6 +513,33 @@ impl Media {
         let result = match Arc::clone(&self.inner.copies).try_acquire_owned() {
             Ok(_permit) => self.take(body, declared, Origin::Agent, None).await,
             Err(_) => Err(MediaError::Busy),
+        };
+        self.record(Origin::Agent, family, bytes, started, &result);
+        result
+    }
+
+    /// `copy`, waiting its turn for one of the `COPIES` instead of answering
+    /// `Busy`. the caller bounds how many wait (the cmx2 source's media
+    /// references: 2 in flight and 64 queued per connection, so at most
+    /// that many per source wait here).
+    ///
+    /// # Errors
+    /// as `copy`, except `Busy`; `Stopped` when the store has stopped.
+    pub async fn copy_waiting<S, E>(
+        &self,
+        body: S,
+        declared: Declared,
+    ) -> Result<Stored, MediaError>
+    where
+        S: Stream<Item = Result<Bytes, E>> + Unpin + Send,
+        E: std::fmt::Display,
+    {
+        let started = Instant::now();
+        let family = family(&declared.mime);
+        let bytes = declared.length;
+        let result = match Arc::clone(&self.inner.copies).acquire_owned().await {
+            Ok(_permit) => self.take(body, declared, Origin::Agent, None).await,
+            Err(_) => Err(MediaError::Stopped),
         };
         self.record(Origin::Agent, family, bytes, started, &result);
         result
@@ -567,13 +615,13 @@ impl Media {
         let (answer, answered) = oneshot::channel();
         self.inner
             .commits
-            .send(Commit {
+            .send(Job::File(Commit {
                 received,
                 object,
                 origin,
                 pinned_until,
                 answer,
-            })
+            }))
             .await
             .map_err(|_| MediaError::Stopped)?;
         match answered.await.map_err(|_| MediaError::Stopped)?? {
@@ -610,6 +658,62 @@ impl Media {
             "ms": u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             "props": { "origin": origin.as_str(), "outcome": outcome, "family": family, "bytes": bytes },
         }));
+    }
+
+    /// `GET /api/media/{id}?w=`: the thumbnail of a stored file at ladder
+    /// width `w`, kept or made now; `None` when the original answers (a
+    /// format without thumbnails, at or under the width, or not one to
+    /// scale). a thumbnail made now goes to the task to keep, and is served
+    /// whether or not it fits.
+    ///
+    /// # Errors
+    /// the kept thumbnail cannot be read, or the media store has stopped.
+    pub async fn thumbnail(
+        &self,
+        object: &MediaObject,
+        w: u32,
+    ) -> Result<Option<Bytes>, MediaError> {
+        let Some(format) = thumbs::Format::of(&object.mime) else {
+            return Ok(None);
+        };
+        let (Some(kept), Some(original)) = (
+            thumbs::address(&self.inner.root, &object.id, w),
+            self.path_of(&object.id),
+        ) else {
+            return Ok(None);
+        };
+        if let Some(bytes) = read_kept(&kept).await? {
+            return Ok(Some(bytes));
+        }
+        let head = original.clone();
+        let wanted = tokio::task::spawn_blocking(move || thumbs::wanted(&head, format, w))
+            .await
+            .map_err(|_| MediaError::Stopped)?;
+        if !wanted {
+            return Ok(None);
+        }
+        let _permit = Arc::clone(&self.inner.scalings)
+            .acquire_owned()
+            .await
+            .map_err(|_| MediaError::Stopped)?;
+        // made while this one waited its turn
+        if let Some(bytes) = read_kept(&kept).await? {
+            return Ok(Some(bytes));
+        }
+        let scaled = tokio::task::spawn_blocking(move || thumbs::make(&original, format, w))
+            .await
+            .map_err(|_| MediaError::Stopped)?;
+        let thumbs::Scaled::Thumb(bytes) = scaled else {
+            return Ok(None);
+        };
+        let bytes = Bytes::from(bytes);
+        // a full queue only means this one is made again next time
+        let _ = self.inner.commits.try_send(Job::Keep(Keep {
+            id: object.id.clone(),
+            w,
+            bytes: bytes.clone(),
+        }));
+        Ok(Some(bytes))
     }
 
     /// what an id names, moving its `last_used` (once a minute at most).
@@ -801,6 +905,15 @@ pub fn family(mime: &str) -> &'static str {
     }
 }
 
+/// a kept thumbnail's bytes, `None` when there is none.
+async fn read_kept(path: &Path) -> Result<Option<Bytes>, MediaError> {
+    match tokio::fs::read(path).await {
+        Ok(bytes) => Ok(Some(Bytes::from(bytes))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(MediaError::Disk(e)),
+    }
+}
+
 /// what the startup check found.
 struct Mended {
     /// live ids whose file is gone.
@@ -811,6 +924,8 @@ struct Mended {
     young: usize,
     /// entries that could not be read or removed, skipped.
     stuck: usize,
+    /// the thumbnails of live files; the rest are removed.
+    thumbs: thumbs::Ledger,
 }
 
 /// the startup check: empties `tmp/`, answers the live ids whose file is
@@ -840,11 +955,14 @@ fn mend(root: &Path, live: Vec<String>) -> std::io::Result<Mended> {
         removed: 0,
         young: 0,
         stuck: 0,
+        thumbs: thumbs::scan(root, &live),
     };
     let now = std::time::SystemTime::now();
     for shard in std::fs::read_dir(root)?.flatten() {
         let name = shard.file_name();
-        if name.to_str() == Some("tmp") || !shard.file_type().is_ok_and(|t| t.is_dir()) {
+        if matches!(name.to_str(), Some("tmp" | "thumbs"))
+            || !shard.file_type().is_ok_and(|t| t.is_dir())
+        {
             continue;
         }
         let Ok(files) = std::fs::read_dir(shard.path()) else {
@@ -885,22 +1003,31 @@ struct Task {
     root: PathBuf,
     store: Store,
     telemetry: crate::telemetry::Sender,
+    /// the bytes the originals take.
     total: u64,
     cap: u64,
+    /// the thumbnails and their bytes. the task owns it; the mutex only lets
+    /// the store writer's jobs, which the task awaits, read and change it.
+    thumbs: Arc<std::sync::Mutex<thumbs::Ledger>>,
 }
 
 impl Task {
-    async fn run(mut self, mut commits: mpsc::Receiver<Commit>) {
-        while let Some(commit) = commits.recv().await {
-            let answer = self
-                .commit(
-                    commit.received,
-                    commit.object,
-                    commit.origin,
-                    commit.pinned_until,
-                )
-                .await;
-            let _ = commit.answer.send(answer);
+    async fn run(mut self, mut commits: mpsc::Receiver<Job>) {
+        while let Some(job) = commits.recv().await {
+            match job {
+                Job::File(commit) => {
+                    let answer = self
+                        .commit(
+                            commit.received,
+                            commit.object,
+                            commit.origin,
+                            commit.pinned_until,
+                        )
+                        .await;
+                    let _ = commit.answer.send(answer);
+                }
+                Job::Keep(keep) => self.keep(keep).await,
+            }
         }
         info!("media task stopped");
     }
@@ -921,11 +1048,16 @@ impl Task {
         let root = self.root.clone();
         let (total, cap) = (self.total, self.cap);
         let now = crate::now_ms();
+        let ledger = Arc::clone(&self.thumbs);
         let committed = self
             .store
             .call(move |c| {
+                let mut thumbs = ledger
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 index::commit(
                     c,
+                    &mut thumbs,
                     &Arrival {
                         object: &object,
                         origin,
@@ -943,8 +1075,9 @@ impl Task {
             .map_err(MediaError::Disk)?;
         if let Committed::Stored { added, evicted, .. } = &committed {
             received.tmp.disarm();
+            let originals: u64 = evicted.iter().filter(|c| !c.thumbs).map(|c| c.size).sum();
             let freed: u64 = evicted.iter().map(|c| c.size).sum();
-            self.total = self.total.saturating_add(*added).saturating_sub(freed);
+            self.total = self.total.saturating_add(*added).saturating_sub(originals);
             if !evicted.is_empty() {
                 info!(
                     files = evicted.len(),
@@ -968,6 +1101,59 @@ impl Task {
             );
         }
         Ok(committed)
+    }
+
+    /// keeps a thumbnail when it fits under the cap beside everything kept
+    /// and its original is still live. a thumbnail never evicts anything:
+    /// one that does not fit is served and made again next time.
+    async fn keep(&mut self, keep: Keep) {
+        let Keep { id, w, bytes } = keep;
+        let size = bytes.len() as u64;
+        {
+            let thumbs = self
+                .thumbs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if thumbs.has(&id, w) {
+                return;
+            }
+            if self
+                .total
+                .saturating_add(thumbs.total())
+                .saturating_add(size)
+                > self.cap
+            {
+                tracing::debug!(%id, w, size, "a thumbnail past the cap is served, not kept");
+                return;
+            }
+        }
+        let root = self.root.clone();
+        let ledger = Arc::clone(&self.thumbs);
+        let kept = self
+            .store
+            .call(move |c| {
+                if !index::is_live(c, &id)? {
+                    return Ok(Ok(()));
+                }
+                let written = thumbs::write(&root, &id, w, &bytes);
+                if written.is_ok() {
+                    ledger
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .add(&id, w, size);
+                }
+                Ok(written)
+            })
+            .await;
+        match kept {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                warn!(%error, w, "a thumbnail could not be kept; it is made again next time");
+            }
+            Err(error) => {
+                warn!(%error, w, "a thumbnail could not be kept: the store is not answering");
+            }
+        }
     }
 }
 

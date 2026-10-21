@@ -7,6 +7,7 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use super::evict::{self, Candidate};
+use super::thumbs::Ledger;
 use super::{MediaObject, Origin};
 
 /// media under this age never go (`agents.md`, media, eviction).
@@ -94,6 +95,18 @@ pub fn total(connection: &Connection) -> rusqlite::Result<u64> {
     Ok(size_of(sum))
 }
 
+/// whether `id` names a live file, for a thumbnail about to be kept.
+pub fn is_live(connection: &Connection, id: &str) -> rusqlite::Result<bool> {
+    connection
+        .query_row(
+            "SELECT 1 FROM media WHERE id = ?1 AND evicted_at IS NULL",
+            [id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map(|found| found.is_some())
+}
+
 /// every live id, for the startup check against the files.
 pub fn live(connection: &Connection) -> rusqlite::Result<Vec<String>> {
     let mut statement = connection.prepare("SELECT id FROM media WHERE evicted_at IS NULL")?;
@@ -137,7 +150,11 @@ pub fn lookup(connection: &Connection, id: &str, now: i64) -> rusqlite::Result<L
 }
 
 /// takes a file to its address and its row into the index, evicting first
-/// when it would pass `cap`. the order is the safe one: the new file is
+/// when it would pass `cap`, which `total` (the originals) and the kept
+/// thumbnails count against together. thumbnails go before any original,
+/// least recently used original first, since they are made again on
+/// request; an original that goes takes its thumbnails with it. the order
+/// is the safe one: the new file is
 /// placed, the rows are written (the new one, the victims' tombstones) and
 /// committed, and only then are the victims' files removed. a transaction
 /// that fails removes the placed file and leaves every victim readable; a
@@ -145,6 +162,7 @@ pub fn lookup(connection: &Connection, id: &str, now: i64) -> rusqlite::Result<L
 /// removes.
 pub fn commit(
     connection: &mut Connection,
+    thumbs: &mut Ledger,
     arrival: &Arrival<'_>,
     total: u64,
     cap: u64,
@@ -169,16 +187,22 @@ pub fn commit(
         return Ok(Ok(Committed::Duplicate { object: kept }));
     }
     // a live row whose file went missing: its bytes leave the count and come back with the file
-    let total = total.saturating_sub(counted.unwrap_or(0));
-    let Some(victims) = evict::plan(total, object.size, cap, candidates(&transaction, arrival)?)
-    else {
+    let total = total
+        .saturating_sub(counted.unwrap_or(0))
+        .saturating_add(thumbs.total());
+    let Some(victims) = evict::plan(
+        total,
+        object.size,
+        cap,
+        candidates(&transaction, thumbs, arrival)?,
+    ) else {
         return Ok(Ok(Committed::Full));
     };
     if let Err(e) = place(arrival.tmp, arrival.address) {
         return Ok(Err(e));
     }
     let written = (|| {
-        for victim in &victims {
+        for victim in victims.iter().filter(|v| !v.thumbs) {
             transaction.execute(
                 "UPDATE media SET evicted_at = ?2 WHERE id = ?1",
                 params![victim.id, arrival.now],
@@ -204,7 +228,7 @@ pub fn commit(
             return Err(error);
         }
     };
-    remove_victims(arrival.root, &victims);
+    remove_victims(arrival.root, thumbs, &victims);
     Ok(Ok(Committed::Stored {
         object: kept,
         added: object.size.saturating_sub(counted.unwrap_or(0)),
@@ -216,8 +240,12 @@ pub fn commit(
 /// be removed is an orphan: its row says evicted (410) and the count no
 /// longer holds it, so the disk is over the cap by it until the startup
 /// check removes it. logged, never a reason to undo the commit.
-fn remove_victims(root: &Path, victims: &[Candidate]) {
+fn remove_victims(root: &Path, thumbs: &mut Ledger, victims: &[Candidate]) {
     for victim in victims {
+        thumbs.remove(root, &victim.id);
+        if victim.thumbs {
+            continue;
+        }
         let Some(path) = super::address(root, &victim.id) else {
             continue;
         };
@@ -266,9 +294,34 @@ fn refresh(connection: &Connection, arrival: &Arrival<'_>) -> rusqlite::Result<M
     )
 }
 
-/// the files eviction may take, least recently used first: live, not the
-/// arriving id, past their pin and at least a day old.
-fn candidates(connection: &Connection, arrival: &Arrival<'_>) -> rusqlite::Result<Vec<Candidate>> {
+/// what eviction may take, in order: every kept thumbnail, by its
+/// original's last use, then the files, least recently used first: live,
+/// not the arriving id, past their pin and at least a day old.
+fn candidates(
+    connection: &Connection,
+    thumbs: &Ledger,
+    arrival: &Arrival<'_>,
+) -> rusqlite::Result<Vec<Candidate>> {
+    let mut used: Vec<(i64, &str)> = Vec::new();
+    if thumbs.total() > 0 {
+        let mut last_used = connection.prepare("SELECT last_used FROM media WHERE id = ?1")?;
+        for id in thumbs.ids() {
+            let at = last_used
+                .query_row([id], |row| row.get(0))
+                .optional()?
+                .unwrap_or(i64::MIN);
+            used.push((at, id));
+        }
+        used.sort_unstable();
+    }
+    let mut kept: Vec<Candidate> = used
+        .into_iter()
+        .map(|(_, id)| Candidate {
+            id: id.to_owned(),
+            size: thumbs.bytes_of(id),
+            thumbs: true,
+        })
+        .collect();
     let mut statement = connection.prepare(
         "SELECT id, size FROM media
          WHERE evicted_at IS NULL
@@ -277,14 +330,17 @@ fn candidates(connection: &Connection, arrival: &Arrival<'_>) -> rusqlite::Resul
            AND created <= ?2 - ?3
          ORDER BY last_used ASC, created ASC",
     )?;
-    statement
+    let files = statement
         .query_map(params![arrival.object.id, arrival.now, FLOOR_MS], |row| {
             Ok(Candidate {
                 id: row.get(0)?,
                 size: size_of(row.get(1)?),
+                thumbs: false,
             })
         })?
-        .collect()
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    kept.extend(files);
+    Ok(kept)
 }
 
 /// the arriving file's row: new, or a tombstone brought back (its sidecars

@@ -421,6 +421,12 @@ pub fn thread(info: &cmx2::SessionInfo, raw: Box<RawValue>) -> ThreadFacts {
             compact_at: c.compact_at.map(whole),
         }),
         cost: Some(info.cost),
+        tokens: Some(crate::wire::Tokens {
+            input: whole(info.tokens.input),
+            output: whole(info.tokens.output),
+            cache_read: whole(info.tokens.cache.read),
+            cache_write: whole(info.tokens.cache.write),
+        }),
         vcs: info.vcs.as_ref().map(|v| Vcs {
             branch: v.branch.clone(),
             dirty: v.dirty,
@@ -510,6 +516,10 @@ struct MessageJson {
     variant: serde_json::Value,
     #[serde(default)]
     cost: serde_json::Value,
+    #[serde(default)]
+    summary: serde_json::Value,
+    #[serde(default)]
+    notice: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -549,14 +559,22 @@ pub fn message(info: &RawValue) -> Result<Message, serde_json::Error> {
         client_id: m.client_id,
         queued: m.queued,
         steer: m.steer.as_bool().unwrap_or(false),
+        summary: m.summary.as_bool().unwrap_or(false),
+        notice: m.notice.as_bool().unwrap_or(false),
         finish: m.finish,
-        error: m
-            .error
-            .pointer("/data/message")
-            .and_then(serde_json::Value::as_str)
-            .map(|message| MessageError {
-                message: message.to_owned(),
+        // an error the app reads by name alone (a stopped turn) still counts
+        error: match (
+            m.error
+                .pointer("/data/message")
+                .and_then(serde_json::Value::as_str),
+            m.error.get("name").and_then(serde_json::Value::as_str),
+        ) {
+            (None, None) => None,
+            (message, name) => Some(MessageError {
+                message: message.unwrap_or_default().to_owned(),
+                name: name.map(str::to_owned),
             }),
+        },
         model,
         effort: text(&m.variant),
         cost: m.cost.as_f64(),
@@ -584,6 +602,8 @@ struct PartJson {
     /// false, as the reducer always read it, rather than refusing the part.
     #[serde(default)]
     streaming: serde_json::Value,
+    #[serde(default)]
+    notice: bool,
     #[serde(default)]
     time: serde_json::Value,
     #[serde(default)]
@@ -655,18 +675,20 @@ fn known(json: PartJson) -> Option<Part> {
             id: json.id,
             message_id: json.message_id,
             at,
-            text: json.text?,
+            text: Some(json.text?),
+            text_of: None,
             streaming,
             time: part_time(&json.time),
             synthetic: json.synthetic,
-            notice: false,
+            notice: json.notice,
             mail: mail(&json.mail),
         }),
         "reasoning" => Part::Reasoning(ReasoningPart {
             id: json.id,
             message_id: json.message_id,
             at,
-            text: json.text?,
+            text: Some(json.text?),
+            text_of: None,
             streaming,
             time: part_time(&json.time),
         }),

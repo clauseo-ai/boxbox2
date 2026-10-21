@@ -50,6 +50,9 @@ pub struct Thread {
     pub context: Option<Context>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<f64>,
+    /// the spend capability: tokens the thread has used, as its details read them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<Tokens>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vcs: Option<Vcs>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -120,6 +123,16 @@ pub struct Context {
     pub limit: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact_at: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(as = ThreadTokens)]
+pub struct Tokens {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

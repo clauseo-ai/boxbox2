@@ -473,6 +473,135 @@ before anything is written or compared. it prints a table, one row per
 golden, and exits 1 on any difference. `bun bench/golden-live.ts record`
 writes the files again, only for a new baseline.
 
+## thumbnails (protocol 3, section 13)
+
+`GET /api/media/{id}?w=<px>` ships a thumbnail for a format only when the
+pixel check passes for it: for every test image, ladder width (96, 192,
+384, 768, 1536) and device pixel ratio (2 and 3), at least 99.9% of the
+thumbnail's pixels within 2/255 on every channel of the browser's own
+downscale of the original in the same box, in chromium and in webkit. a
+format that fails answers the original for every `w`. **outcome: no format
+passes in webkit, so thumbnails are off (`THUMBNAILS` false in
+`media/thumbs.rs`) and every `w` answers the original.**
+
+`bun scripts/thumb-check.ts [--dir <scratch>] [--webkit]` runs it:
+
+1. the ignored hook `media::thumbs::tests::pixel_check_set` writes the
+   test set and the server's thumbnails through the server's own path
+   (`thumbs::scale`): photo-like gradients with noise at 2000x1333,
+   1023x2047, 3001x401 and 300x211, line art at 1600x901 and stripes under
+   an alpha ramp at 1201x777, as png (6), lossless webp (5) and jpeg (5).
+   chromium's canvas encoder then makes lossy webp (quality 0.85) of four
+   of the pngs, its srgb profile chunk removed, and the hook scales those
+   too.
+2. agent-browser's chromium (its own session, `--force-color-profile=srgb`)
+   draws, at dpr 2 and 3, the original and the thumbnail side by side in
+   the same box, w by h device px, and screenshots the page. the box is a
+   w by h css px image scaled by 1/dpr: a laid-out box of w/dpr by h/dpr
+   css px snaps a fractional css height to whole css px under emulated
+   dpr, which put the box a row off the thumbnail and scored a 1:1 draw
+   as a resample.
+3. with `--webkit`, the same pages (overflow hidden, images decoded in
+   line) go through `scripts/thumb-webkit.swift`, built with `swiftc -O`:
+   a WKWebView in a borderless offscreen window, the window's colour space
+   srgb, occlusion detection and hidden page throttling off (private
+   setters, so a locked or asleep screen does not stall it), snapshotted
+   with `takeSnapshot` and redrawn into an 8-bit srgb png. the screens of
+   the machine it ran on are scale 1, so each dpr is forced with
+   WKWebView's private `_setOverrideDeviceScaleFactor:` (2, then 3); the
+   page reports that `devicePixelRatio` and the snapshot comes back at
+   exactly css size times dpr, which the script checks. no server: the
+   pages load from disk.
+4. each pair is compared pixel by pixel: the share within 2/255 and the
+   largest delta, per engine, format, width and dpr (164 pairs per
+   engine).
+
+what it found in chromium (2026-10-21, worst image per row):
+
+| format | w | dpr 2: % within 2/255, max | dpr 3: % within 2/255, max | ships |
+|---|---|---|---|---|
+| png | 96 to 1536 | 100.00, 1 | 100.00, 1 | yes |
+| webp (lossless and lossy originals) | 96 to 1536 | 100.00, 2 | 100.00, 2 | yes |
+| jpeg (quality 90 re-encode) | 96 | 16.51, 18 | 16.51, 18 | no |
+| jpeg | 192 | 34.82, 17 | 34.80, 17 | no |
+| jpeg | 384 | 38.74, 18 | 37.99, 18 | no |
+| jpeg | 768 | 42.19, 22 | 42.20, 22 | no |
+| jpeg | 1536 | 65.21, 22 | 65.21, 22 | no |
+
+**near, not identical.** the png and webp thumbnails are not chromium's
+pixels: up to 1 (png) or 2 (webp) off on some pixels, inside the
+threshold everywhere. a quality 100 jpeg re-encode was also tried and
+still failed (19.95% at 96, 95.43% at 1536, max delta 11): the
+re-encode and the difference between chromium's jpeg decoder and the
+server's move pixels past 2/255. gif was not offered (motion, a palette).
+
+**the filter.** general resampling filters missed by far, each the worst
+image over png and webp at any width and dpr, from `fast_image_resize`
+6 (premultiplied, gamma-encoded): lanczos3 7.93% (max delta 89),
+catmull-rom 8.65% (78), triangle 12.50% (68), box 8.41% (168). linear
+light was not measured: chromium resamples gamma-encoded values, as the exact match below shows. impulse images (one
+white pixel per 32x32 block) showed chromium's path: skia's mip chain (2x2
+boxes, 1-2-1 taps on an odd side, truncating), sampled bilinearly on
+premultiplied pixels and blended between the two levels around the scale.
+a mip chain sampled at one level alone scored 0.11%. trilinear at skia's
+documented level `log2(scale) - 0.5` scored 96.32% (png) and 96.24%
+(webp); sweeping the bias on the line art at 384 (dpr 2) gave 0.42 89.93%,
+0.45 99.18%, 0.46 to 0.48 100%, 0.50 98.46%, 0.55 82.49%, so the server
+uses 0.47 (`media/thumbs.rs`, `LEVEL_BIAS`). the scaling is written in
+`media/thumbs.rs` (about 100 lines); no resampling crate offers this
+filter, so the crate added is `image`, for the png and webp codecs only.
+
+what it found in webkit (WKWebView on macOS 27.0.1, the same thumbnails,
+worst image per row; dpr 2 and dpr 3 gave the same numbers to two
+decimals):
+
+| format | w | % within 2/255, max | ships |
+|---|---|---|---|
+| png | 96 | 2.00, 119 | no |
+| png | 192 | 8.67, 116 | no |
+| png | 384 | 19.39, 100 | no |
+| png | 768 | 46.46, 116 | no |
+| png | 1536 | 73.56, 51 | no |
+| webp | 96 | 2.00, 117 | no |
+| webp | 192 | 8.67, 114 | no |
+| webp | 384 | 17.57, 100 | no |
+| webp | 768 | 46.46, 116 | no |
+| webp | 1536 | 73.56, 50 | no |
+| jpeg | 96 to 1536 | 1.92 to 52.38, up to 119 | no |
+
+the harness is not the cause: webkit's 1:1 draw of each png thumbnail
+matches the thumbnail file exactly (100% within 2/255, max 0, every png
+pair at 96, 384 and 1536). the engines are: webkit's downscale of an
+original against chromium's, in the same box, agrees on 2.00% (wide, 96)
+to 95.60% (photo, 1536) of pixels, max deltas 16 to 119. webkit
+antialiases the stripes chromium's mip chain aliases. a thumbnail within
+2/255 of both would put the two engines within 4/255 of each other, which
+they are not, so no one scaler can pass both. fitting the server's scaler
+to webkit was tried within reason and stopped: against webkit's own
+downscale at 384 (dpr 2), the general filters (box, triangle, hamming,
+catmull-rom, mitchell, gaussian, lanczos3, supersampled triangle) reach
+76 to 77% on the photo with max delta about 20 whatever the filter, up
+to 96.7% on the tall photo and 48% on the line art. a photo error that
+no filter changes suggests webkit samples large images from a reduced
+decode, but that was not established.
+
+**memory.** a thumbnail is at most 1536 by 4096 pixels
+(`MAX_THUMB_PIXELS`) and its original at most 40 M pixels (`MAX_PIXELS`),
+both decided from the header before anything is decoded; past either, the
+original answers. the sampling writes one row at a time straight to 8-bit
+pixels, so floats never take more than one row per mip level (24 KiB).
+the worst image both caps allow peaks at about 350 MB while it decodes
+(the encoded original, up to 64 MiB, an rgb decode of 120 MB and its rgba
+copy of 160 MB) and about 290 MB while it scales (the encoded original,
+the rgba original, its next level of 40 MB, the 25 MB thumbnail), one
+scaling at a time (`JOBS`). before the caps, a 1537 by 26000 screenshot
+at 1536 held a 640 MB float buffer, about 0.96 GB in all. computed from
+the buffer sizes, not measured.
+
+what it cannot answer: safari on ios (the ios app's webkit). images with
+a colour profile, gamma, an orientation or animation answer the original
+and were not measured. the bias is fitted to one chromium build.
+
 ## device checks that only a real device can answer
 
 keyboard behaviour on the iphone (decision 19), push delivery and the

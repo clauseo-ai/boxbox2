@@ -9,7 +9,10 @@
 //! its verb needs; an agent without it answers 422 `unsupported` and
 //! nothing reaches the source.
 
+pub mod page;
+pub mod read;
 pub mod routes;
+pub mod summary;
 #[cfg(test)]
 mod tests;
 

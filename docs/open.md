@@ -357,10 +357,11 @@ it is verified`. closed items move to the bottom with the commit.
   in one second as a 2,000-word child finished; what the worker sent and
   why it did not batch is unread. · the rows for that second named.
 
-- [agents] the cmx2 source's contract 2 hydration (`transcript`, `message`,
-  `thread`) answers `VerbError::NotBuilt` until the journals lane lands it,
-  and `GET T/messages` has no contract 2 route yet: contract 1 reaches the
-  daemon through `Cmx2Raw` and is unaffected. every other verb has its
+- [agents] the cmx2 source reads a thread whole, streamed and translated
+  message by message (`source/cmx2/verbs/read.rs`, `GET T/messages` and
+  `T/messages/{message}`); its `transcript` by daemon pages and `thread`
+  answer `VerbError::NotBuilt`, and contract 1 still reaches the daemon
+  through `Cmx2Raw`, unaffected. every other verb has its
   `/api/agents` route (verbs2 lane). `[[hermes]]` entries are read, checked
   and reserve their names, and the supervisor says once per connection that
   no source of their kind is built in yet (`[[openclaw]]` entries run, see

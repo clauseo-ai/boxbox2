@@ -23,6 +23,12 @@ pub enum ApiError {
     StoreDown,
     #[error("no such route")]
     NotFound,
+    #[error("the message {0} is not in this thread; open the thread again to see it as it is now")]
+    NoSuchMessage(String),
+    #[error(
+        "one turn of this thread is too large to read as a page; read the whole thread instead"
+    )]
+    PageTooLarge,
     #[error(
         "the app is not built into this server: run `just build`, or `just dev` for the dev server"
     )]
@@ -183,7 +189,7 @@ pub struct ErrorBody {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorDetail {
     /// stable, for code: `sign-in`, `wrong-password`, `bad-request`,
-    /// `batch-too-large`, `busy`, `store-down`, `not-found`, `app-missing`,
+    /// `batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `page-too-large`, `app-missing`,
     /// `vite-down`, `unknown-host`, `host-taken`, `address-taken`,
     /// `configured-host`, `pair-refused`, `pair-unsupported`,
     /// `pair-unreachable`, `pair-failed`, `host-failed`,
@@ -230,6 +236,8 @@ impl ApiError {
             Self::PhotosBusy => (StatusCode::SERVICE_UNAVAILABLE, "photos-busy"),
             Self::StoreDown => (StatusCode::SERVICE_UNAVAILABLE, "store-down"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not-found"),
+            Self::NoSuchMessage(_) => (StatusCode::NOT_FOUND, "no-such-message"),
+            Self::PageTooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "page-too-large"),
             Self::AppMissing => (StatusCode::NOT_FOUND, "app-missing"),
             Self::ViteDown(_) => (StatusCode::BAD_GATEWAY, "vite-down"),
             Self::UnknownHost(_) => (StatusCode::NOT_FOUND, "unknown-host"),

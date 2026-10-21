@@ -170,7 +170,7 @@ fn message_part_updated_is_a_part_placed_by_its_id() {
     let Part::Text(text) = *part else {
         panic!("not text")
     };
-    assert_eq!(text.text, "hello");
+    assert_eq!(text.text.as_deref(), Some("hello"));
     assert_eq!(text.at, Some(PartAt { step: 4, index: 2 }));
 }
 

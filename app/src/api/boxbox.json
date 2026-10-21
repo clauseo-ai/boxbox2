@@ -3563,7 +3563,7 @@
         "tags": [
           "super::media"
         ],
-        "summary": "a stored file, whole or one range of it.",
+        "summary": "a stored file, whole or one range of it, or a thumbnail of an image.",
         "operationId": "serve",
         "parameters": [
           {
@@ -3574,11 +3574,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "w",
+            "in": "query",
+            "description": "a thumbnail width in device pixels: 96, 192, 384, 768 or 1536; ignored, and the original answers, while thumbnails are off (`THUMBNAILS`, protocol section 13). a png or webp wider than `w` answers itself scaled to `w` (aspect kept, same format, png and webp lossless) with `etag: \"<id>.w<px>.s<n>\"` (`n` the scaler's version, moved whenever the scaling's bytes would change), the same immutable caching and no ranges; at or under `w`, any other format, or an image with a colour profile, gamma, an orientation, animation or 16-bit samples, the original answers exactly as without `w`",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "the whole file (also for several ranges), with `accept-ranges: bytes`, `cache-control: private, max-age=31536000, immutable`, `etag: \"<id>\"`, the stored `content-type` for image, audio, video and pdf (`application/octet-stream` for every other kind) and a `content-disposition` (inline for image, audio, video and pdf; attachment otherwise)",
+            "description": "the whole file (also for several ranges), with `accept-ranges: bytes`, `cache-control: private, max-age=31536000, immutable`, `etag: \"<id>\"`, the stored `content-type` for image, audio, video and pdf (`application/octet-stream` for every other kind) and a `content-disposition` (inline for image, audio, video and pdf; attachment otherwise); or the thumbnail `w` asked for",
             "content": {
               "*/*": {
                 "schema": {
@@ -3593,7 +3604,7 @@
             }
           },
           "206": {
-            "description": "one `range: bytes=a-b`, with `content-range`",
+            "description": "one `range: bytes=a-b`, with `content-range` (never for a thumbnail)",
             "content": {
               "*/*": {
                 "schema": {
@@ -3611,7 +3622,7 @@
             "description": "the `if-none-match` etag is current"
           },
           "400": {
-            "description": "id is not 64 lowercase hex",
+            "description": "id is not 64 lowercase hex, or `w` is not on the ladder",
             "content": {
               "application/json": {
                 "schema": {
@@ -4469,6 +4480,1368 @@
           }
         }
       },
+      "Activity": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "idle"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "since",
+              "state"
+            ],
+            "properties": {
+              "since": {
+                "type": "number",
+                "format": "double"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "busy"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "attempt",
+              "message",
+              "next",
+              "state"
+            ],
+            "properties": {
+              "attempt": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "message": {
+                "type": "string"
+              },
+              "next": {
+                "type": "number",
+                "format": "double"
+              },
+              "since": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "retry"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "idle, but waiting on agents under it still working and background jobs.",
+            "required": [
+              "agents",
+              "jobs",
+              "state"
+            ],
+            "properties": {
+              "agents": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "jobs": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "since": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "parked"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the last run ended in an error the agent reports on the thread; it\nholds until the next run starts. cmx2 never sends it.",
+            "required": [
+              "message",
+              "state"
+            ],
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "since": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "format": "double"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "what the thread is doing."
+      },
+      "Agent": {
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "source",
+          "mark",
+          "status",
+          "connection",
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/AgentConnection",
+            "description": "shared by every agent of one connection."
+          },
+          "key": {
+            "type": "string",
+            "description": "the agent's name on the wire, `[a-z0-9-]{1,32}`, and the first half\nof every thread key. a cmx2 agent's key is its connection's name."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentKind"
+          },
+          "label": {
+            "$ref": "#/components/schemas/Label"
+          },
+          "mark": {
+            "$ref": "#/components/schemas/Mark"
+          },
+          "palette": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "a named assistant slot; null: its threads take the repo palettes."
+          },
+          "runs": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Runs",
+                "description": "the runs window: null when no talking scheduled run is unseen."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/AgentSource"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentStatus"
+          }
+        }
+      },
+      "AgentAsk": {
+        "type": "object",
+        "required": [
+          "key",
+          "agent",
+          "id",
+          "thread",
+          "kind"
+        ],
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "created": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "expires": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "drives the \"answer by\" line; a client blocks an answer in its last 5 seconds."
+          },
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "the thread's key, `<agent>:<thread>`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AgentAskKind"
+          },
+          "permission": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Permission"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "questions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Question"
+            }
+          },
+          "thread": {
+            "type": "string",
+            "description": "the thread's key, as on every ask."
+          },
+          "tool": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ToolRef",
+                "description": "the tool call that raised it."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "AgentAskKind": {
+        "type": "string",
+        "enum": [
+          "permission",
+          "question"
+        ]
+      },
+      "AgentChange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "an agent appeared or changed: the whole agent, replacing the last.",
+            "required": [
+              "agent",
+              "type"
+            ],
+            "properties": {
+              "agent": {
+                "$ref": "#/components/schemas/Agent"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "agent"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "agent",
+              "type"
+            ],
+            "properties": {
+              "agent": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "agent.removed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the whole thread, replacing the last: on first sight, after\n`thread.removed`, and as the first frame for a key after a crash start.",
+            "required": [
+              "thread",
+              "type"
+            ],
+            "properties": {
+              "thread": {
+                "$ref": "#/components/schemas/Thread"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "thread"
+                ]
+              }
+            }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ThreadPatch",
+                "description": "only what changed, against the last state of the key in the journal."
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "thread.patch"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "only what changed, against the last state of the key in the journal."
+          },
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "thread.removed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "boxbox cannot prove its journal holds every row of the thread: drop\nits messages and read it again if it is shown.",
+            "required": [
+              "key",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "thread.reset"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "ask",
+              "type"
+            ],
+            "properties": {
+              "ask": {
+                "$ref": "#/components/schemas/AgentAsk"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ask"
+                ]
+              }
+            }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AskSettled"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "ask.settled"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "description": "the window order, whole: every key, first first, at most 300.",
+            "required": [
+              "keys",
+              "type"
+            ],
+            "properties": {
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "order"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the window order as edits of the last one, applied in order.",
+            "required": [
+              "ops",
+              "type"
+            ],
+            "properties": {
+              "ops": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OrderOp"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "order.patch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "message",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "message": {
+                "$ref": "#/components/schemas/AgentMessage"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "message"
+                ]
+              },
+              "upstream": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "the source's seq for the event; null makes it newer than any read.",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a part, created or replaced whole. a settled text or reasoning part\nmay omit `text` and carry `textOf` instead.",
+            "required": [
+              "key",
+              "part",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "part": {
+                "$ref": "#/components/schemas/AgentPart"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "part"
+                ]
+              },
+              "upstream": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "streamed text for a part, merged into batches of up to 100 ms.",
+            "required": [
+              "key",
+              "messageID",
+              "partID",
+              "field",
+              "delta",
+              "offset",
+              "type"
+            ],
+            "properties": {
+              "delta": {
+                "type": "string"
+              },
+              "field": {
+                "type": "string",
+                "description": "`text`, for text and reasoning parts alike."
+              },
+              "key": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "offset": {
+                "type": "integer",
+                "format": "int64",
+                "description": "utf-16 units of the part's text before this delta.",
+                "minimum": 0
+              },
+              "partID": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "delta"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "messageID",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "message.removed"
+                ]
+              },
+              "upstream": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a message's reactions, whole.",
+            "required": [
+              "key",
+              "messageID",
+              "reactions",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "messageID": {
+                "type": "string"
+              },
+              "reactions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Reaction"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "reactions"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "a change, discriminated on `type`. a client advances its cursor past a\ntype it does not know and ignores it."
+      },
+      "AgentConnection": {
+        "type": "object",
+        "required": [
+          "name",
+          "url",
+          "origin",
+          "since",
+          "connects",
+          "untested",
+          "frames"
+        ],
+        "properties": {
+          "connects": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "contract": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "cmx2 only: the daemon's contract, and whether it matches the pin."
+          },
+          "contractMatches": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frames": {
+            "$ref": "#/components/schemas/FrameCounts"
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "plain words; for pairing, the command to run on the machine."
+          },
+          "memory": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HostMemory",
+                "description": "cmx2 only (the admin capability)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "pinned": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the runtime version boxbox is built against (openclaw's pin)."
+          },
+          "protocol": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "the runtime's wire protocol; on a protocol refusal, the one it speaks.",
+            "minimum": 0
+          },
+          "refused": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Refusal",
+                "description": "why, while the status is refused."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reportsSystem": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "whether the runtime reports `system`: false when it cannot, absent until asked."
+          },
+          "since": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when the status last changed, ms; while ready, when it came up."
+          },
+          "system": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HostSystem",
+                "description": "what the machine is and how it is doing; cmx2 only (`/global/system`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "untested": {
+            "type": "boolean",
+            "description": "`version` differs from `pinned`: boxbox syncs and sends anyway."
+          },
+          "url": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the runtime's own version."
+          }
+        }
+      },
+      "AgentControl": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "the first frame of every stream; it carries no id.",
+            "required": [
+              "protocol",
+              "epoch",
+              "head",
+              "build",
+              "stream",
+              "interest",
+              "type"
+            ],
+            "properties": {
+              "build": {
+                "type": "string",
+                "description": "the server's build; a newer one lights \"update ready\"."
+              },
+              "epoch": {
+                "type": "string",
+                "description": "outlives server restarts; changes only when the persisted state is lost."
+              },
+              "head": {
+                "type": "integer",
+                "format": "int64",
+                "description": "the journal's newest seq.",
+                "minimum": 0
+              },
+              "interest": {
+                "$ref": "#/components/schemas/Interest",
+                "description": "the interest the stream opened with."
+              },
+              "protocol": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "stream": {
+                "type": "string",
+                "description": "this stream's id, 128-bit hex, for interest posts."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "hello"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the cursor cannot be caught up: this replaces everything the client\nholds, and live entries follow from `seq`. id `epoch:seq`.",
+            "required": [
+              "seq",
+              "epoch",
+              "reason",
+              "fleet",
+              "type"
+            ],
+            "properties": {
+              "epoch": {
+                "type": "string"
+              },
+              "fleet": {
+                "$ref": "#/components/schemas/Fleet"
+              },
+              "reason": {
+                "$ref": "#/components/schemas/StreamResetReason"
+              },
+              "seq": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "reset"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the end of a catch-up; the stream is live after it. id `epoch:seq`.",
+            "required": [
+              "seq",
+              "type"
+            ],
+            "properties": {
+              "seq": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "caught"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "transcript entries, each with its own seq, applied by the transcript\nrules alone; they never move the cursor. id-less.",
+            "required": [
+              "entries",
+              "type"
+            ],
+            "properties": {
+              "entries": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AgentJournalEntry"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "catchup"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "the confirm of an interest post, at journal head `seq`. id `epoch:seq`.",
+            "required": [
+              "ask",
+              "under",
+              "holds",
+              "seq",
+              "type"
+            ],
+            "properties": {
+              "ask": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "holds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "reset": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "keys reset since their `since`: drop their messages and read them."
+              },
+              "seq": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "stale": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "keys whose missed entries this stream cannot give: read them."
+              },
+              "thread": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "interest"
+                ]
+              },
+              "under": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "in a reconnect catch-up: a thread in interest whose missed entries\nthe server no longer holds. id-less.",
+            "required": [
+              "key",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "thread.stale"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "the stream's frames that are not journal entries."
+      },
+      "AgentJournalEntry": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AgentChange"
+          },
+          {
+            "type": "object",
+            "required": [
+              "seq"
+            ],
+            "properties": {
+              "seq": {
+                "type": "integer",
+                "format": "int64",
+                "description": "contiguous in the journal within an epoch; a stream may skip seqs\n(entries of threads outside its interest), and a skipped seq is never\na gap.",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "one journal entry at its place in the journal."
+      },
+      "AgentKind": {
+        "type": "string",
+        "enum": [
+          "coding",
+          "assistant",
+          "other"
+        ]
+      },
+      "AgentMessage": {
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "created"
+        ],
+        "properties": {
+          "clientID": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "on a user message boxbox sent: the send's client id."
+          },
+          "completed": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "created": {
+            "type": "number",
+            "format": "double"
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MessageError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finish": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "why the turn ended (\"aborted\", ...)."
+          },
+          "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "what this message ran with or asked for."
+          },
+          "notice": {
+            "type": "boolean",
+            "description": "a runtime or boxbox note rather than a prompt."
+          },
+          "origin": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MessageOrigin"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "position": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "its place in the thread's transcript, from the agent; clients place\nby it when present, by arrival otherwise.",
+            "minimum": 0
+          },
+          "queued": {
+            "type": "boolean",
+            "description": "the queue capability: a prompt still waiting behind the running turn."
+          },
+          "quote": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Quote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reactions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Reaction"
+            }
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "sender": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "a user message from someone who is not you (a group chat)."
+          },
+          "steer": {
+            "type": "boolean",
+            "description": "the steer capability: a prompt that joined the running turn."
+          },
+          "summary": {
+            "type": "boolean",
+            "description": "an assistant compaction summary: not a turn's answer."
+          }
+        }
+      },
+      "AgentPart": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TextPart"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ReasoningPart"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "reasoning"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ToolPart"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "tool"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/FilePart"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "file"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ImagePart"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "image"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AudioPart"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "audio"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CompactionPart"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "compaction"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MarkerPart"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "marker"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "discriminated on `type`."
+      },
+      "AgentPermissionReply": {
+        "type": "string",
+        "enum": [
+          "once",
+          "always",
+          "reject"
+        ]
+      },
+      "AgentSource": {
+        "type": "string",
+        "description": "the runtime's id: a kind of agent runtime boxbox speaks.",
+        "enum": [
+          "cmx2",
+          "openclaw",
+          "hermes"
+        ]
+      },
+      "AgentStatus": {
+        "type": "string",
+        "enum": [
+          "connecting",
+          "pairing",
+          "syncing",
+          "ready",
+          "down",
+          "refused"
+        ]
+      },
+      "AgentStreamFrame": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AgentControl"
+          },
+          {
+            "$ref": "#/components/schemas/ColourFrame"
+          },
+          {
+            "$ref": "#/components/schemas/AppFrame"
+          },
+          {
+            "$ref": "#/components/schemas/AgentJournalEntry"
+          }
+        ],
+        "description": "one frame's data on `GET /api/stream`, discriminated on `type` across\nevery kind. the board's own frames (`view`, `pin`, `replaced`) reach\nonly a stream that declared the board view."
+      },
       "AppFrame": {
         "oneOf": [
           {
@@ -4598,6 +5971,200 @@
           "question"
         ]
       },
+      "AskSettled": {
+        "type": "object",
+        "description": "how an ask ended.",
+        "required": [
+          "agent",
+          "id",
+          "outcome",
+          "at"
+        ],
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "at": {
+            "type": "number",
+            "format": "double",
+            "description": "ms, when boxbox saw it."
+          },
+          "by": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AskSettledBy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "option": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the option id or answer that won, when answered."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/Outcome"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "plain words, for cancelled and unknown."
+          }
+        }
+      },
+      "AskSettledBy": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "device": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the boxbox device id, when the answer went through boxbox."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SettlerKind"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "\"whatsapp\", a device's name."
+          }
+        }
+      },
+      "Attachments": {
+        "type": "object",
+        "required": [
+          "kinds",
+          "maxBytes",
+          "maxCount"
+        ],
+        "properties": {
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "mime patterns, `image/png` or `image/*`."
+          },
+          "maxBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "maxCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "AudioPart": {
+        "type": "object",
+        "required": [
+          "id",
+          "messageID",
+          "mime",
+          "media",
+          "flavour"
+        ],
+        "properties": {
+          "at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartAt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "flavour": {
+            "$ref": "#/components/schemas/Flavour"
+          },
+          "id": {
+            "type": "string"
+          },
+          "media": {
+            "$ref": "#/components/schemas/MediaRef"
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "spoken": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "what the agent's reply said aloud."
+          },
+          "transcript": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AudioTranscript",
+                "description": "your device's transcript of your own voice note, a boxbox sidecar."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waveform": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "at most 64 values from 0 to 255; on your own voice notes only."
+          }
+        }
+      },
+      "AudioTranscript": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "lang": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
       "Born": {
         "type": "object",
         "description": "the thread a birth made.",
@@ -4682,6 +6249,143 @@
           }
         ],
         "description": "who served a need: a person on one of their devices, a person somewhere\nboxbox cannot name (another client of the daemon), or nobody (the agent\nmoved on, the daemon dropped it)."
+      },
+      "Capabilities": {
+        "type": "object",
+        "required": [
+          "places",
+          "worktree",
+          "terminal",
+          "review",
+          "compact",
+          "queue",
+          "steer",
+          "model",
+          "approvals",
+          "questions",
+          "voice",
+          "quotes",
+          "reactions",
+          "threads",
+          "archive",
+          "commands",
+          "files",
+          "shell",
+          "history",
+          "subagents",
+          "spend",
+          "origins",
+          "admin"
+        ],
+        "properties": {
+          "admin": {
+            "type": "boolean",
+            "description": "reload, restart and memory for the runtime."
+          },
+          "approvals": {
+            "type": "boolean"
+          },
+          "archive": {
+            "type": "boolean"
+          },
+          "attachments": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Attachments",
+                "description": "what the composer may attach; null when nothing."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "commands": {
+            "type": "boolean",
+            "description": "slash commands."
+          },
+          "compact": {
+            "type": "boolean"
+          },
+          "files": {
+            "type": "boolean",
+            "description": "`@` file mentions."
+          },
+          "history": {
+            "type": "boolean",
+            "description": "past threads, paged; adopt."
+          },
+          "model": {
+            "type": "boolean",
+            "description": "a model picker from the agent's catalog."
+          },
+          "origins": {
+            "type": "boolean",
+            "description": "messages arrive from channels or schedules."
+          },
+          "places": {
+            "type": "boolean",
+            "description": "threads start in a repo or folder on the agent's machine."
+          },
+          "questions": {
+            "type": "boolean"
+          },
+          "queue": {
+            "type": "boolean",
+            "description": "a prompt sent during a turn waits behind it; run now; unsend."
+          },
+          "quotes": {
+            "type": "boolean"
+          },
+          "reactions": {
+            "type": "boolean"
+          },
+          "reasoning": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Reasoning",
+                "description": "the effort or thinking chip; null without one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review": {
+            "type": "boolean",
+            "description": "branch review of a thread's checkout, and review needs."
+          },
+          "shell": {
+            "type": "boolean",
+            "description": "`!` lines."
+          },
+          "spend": {
+            "type": "boolean",
+            "description": "cost and context fill mean something."
+          },
+          "steer": {
+            "type": "boolean",
+            "description": "a prompt can join the running turn at its next tool boundary."
+          },
+          "subagents": {
+            "type": "boolean",
+            "description": "threads have parent threads."
+          },
+          "terminal": {
+            "type": "boolean",
+            "description": "terminals on the agent's machine."
+          },
+          "threads": {
+            "type": "boolean",
+            "description": "more than one thread; start one with no place."
+          },
+          "voice": {
+            "$ref": "#/components/schemas/Voice"
+          },
+          "worktree": {
+            "type": "boolean",
+            "description": "a new thread may start in a fresh worktree."
+          }
+        }
       },
       "Change": {
         "oneOf": [
@@ -4998,6 +6702,31 @@
         ],
         "description": "a change to the fleet model, discriminated on `type`."
       },
+      "Changes": {
+        "type": "object",
+        "required": [
+          "additions",
+          "deletions",
+          "files"
+        ],
+        "properties": {
+          "additions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "deletions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "files": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "CheckoutRefusal": {
         "type": "object",
         "description": "why the daemon would not merge or discard a checkout, as the review card reads it.",
@@ -5161,7 +6890,7 @@
             }
           }
         ],
-        "description": "repo colours on `GET /api/stream?colours=1` (`colours.rs`): id-less data\nlines outside the journal, so contract 1 gains no change type and a\nstream that does not ask sees none of them. the whole map comes first,\nafter `hello` (and again before a replay page if it moved meanwhile);\nthen each change, ahead of the journal entry that first shows its repo."
+        "description": "repo colours: id-less frames outside the journal. the whole map comes\nfirst, after `hello`; then each change, ahead of the journal entry that\nfirst shows its repo."
       },
       "CommandChoice": {
         "type": "object",
@@ -5194,6 +6923,41 @@
           }
         }
       },
+      "CompactionPart": {
+        "type": "object",
+        "required": [
+          "id",
+          "messageID",
+          "auto"
+        ],
+        "properties": {
+          "at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartAt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "auto": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "overflow": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
       "Connection": {
         "type": "string",
         "enum": [
@@ -5201,6 +6965,33 @@
           "connected",
           "down"
         ]
+      },
+      "Context": {
+        "type": "object",
+        "required": [
+          "used",
+          "limit"
+        ],
+        "properties": {
+          "compactAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "used": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "Control": {
         "oneOf": [
@@ -5355,7 +7146,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,\nand the board's `no-board`, `no-board-window`, `board-busy`,\n`no-such-machine`, `board-protocol`."
+            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `page-too-large`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,\nand the board's `no-board`, `no-board-window`, `board-busy`,\n`no-such-machine`, `board-protocol`."
           },
           "message": {
             "type": "string",
@@ -5371,6 +7162,132 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "Family": {
+        "type": "string",
+        "description": "what kind of step a tool call is, whatever the source calls the tool.",
+        "enum": [
+          "read",
+          "search",
+          "edit",
+          "shell",
+          "web",
+          "spawn",
+          "message",
+          "wait",
+          "agents",
+          "ask",
+          "plan",
+          "skill",
+          "other"
+        ]
+      },
+      "FilePart": {
+        "type": "object",
+        "required": [
+          "id",
+          "messageID",
+          "mime",
+          "filename",
+          "flavour"
+        ],
+        "properties": {
+          "at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartAt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "flavour": {
+            "$ref": "#/components/schemas/Flavour"
+          },
+          "id": {
+            "type": "string"
+          },
+          "media": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MediaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "a `data:` url; only cmx2 parts carry one."
+          }
+        }
+      },
+      "Flavour": {
+        "type": "string",
+        "enum": [
+          "attached",
+          "voice",
+          "generated"
+        ]
+      },
+      "Fleet": {
+        "type": "object",
+        "description": "everything a reset carries, and `GET /api/fleet`'s body.",
+        "required": [
+          "agents",
+          "threads",
+          "asks",
+          "order"
+        ],
+        "properties": {
+          "agents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agent"
+            }
+          },
+          "asks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentAsk"
+            }
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "window keys, first first, at most 300; a runs window is `<agent>:runs`."
+          },
+          "threads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Thread"
+            }
           }
         }
       },
@@ -5499,6 +7416,16 @@
             "minimum": 0
           }
         }
+      },
+      "Glyph": {
+        "type": "string",
+        "description": "the kind of the quoted message's first part that is not text, else text.",
+        "enum": [
+          "text",
+          "audio",
+          "image",
+          "file"
+        ]
       },
       "Health": {
         "type": "object",
@@ -5976,6 +7903,163 @@
           "expired"
         ]
       },
+      "ImagePart": {
+        "type": "object",
+        "required": [
+          "id",
+          "messageID",
+          "mime",
+          "flavour"
+        ],
+        "properties": {
+          "alt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartAt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "flavour": {
+            "$ref": "#/components/schemas/Flavour"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "media": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MediaRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "Interest": {
+        "type": "object",
+        "description": "what a stream shows: the open thread, the layers under it and the\nchildren held for them.",
+        "properties": {
+          "holds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "at most 16."
+          },
+          "thread": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the open thread; null for the overview only."
+          },
+          "under": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "at most 8."
+          }
+        }
+      },
+      "InterestPost": {
+        "type": "object",
+        "description": "`POST /api/stream/{stream}/interest`'s body.",
+        "required": [
+          "ask"
+        ],
+        "properties": {
+          "ask": {
+            "type": "integer",
+            "format": "int64",
+            "description": "increases per stream; an older one than the last applied is answered\nwith no confirm.",
+            "minimum": 0
+          },
+          "holds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "since": {
+            "type": "object",
+            "description": "per key the client already holds, the seq after which it lacks that\nthread's transcript entries (its `left`). a key without one is read.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "thread": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "under": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "JournalEntry": {
         "allOf": [
           {
@@ -5998,6 +8082,39 @@
         ],
         "description": "one journal entry: a change to the fleet model, at its place in the\njournal."
       },
+      "Label": {
+        "type": "object",
+        "description": "shown joined with \" · \": \"cmx · vm-a\", \"assistant · openclaw · vm-b\".",
+        "required": [
+          "source",
+          "machine"
+        ],
+        "properties": {
+          "machine": {
+            "type": "string",
+            "description": "the config's `machine`, else the connection's name."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the config's name for the agent, else the agent's own display name;\nabsent on every cmx2 agent."
+          },
+          "source": {
+            "$ref": "#/components/schemas/LabelSource"
+          }
+        }
+      },
+      "LabelSource": {
+        "type": "string",
+        "description": "the runtime's word people read (`cmx` for cmx2).",
+        "enum": [
+          "cmx",
+          "openclaw",
+          "hermes"
+        ]
+      },
       "Login": {
         "type": "object",
         "required": [
@@ -6005,6 +8122,85 @@
         ],
         "properties": {
           "password": {
+            "type": "string"
+          }
+        }
+      },
+      "Mail": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fromID": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "description": "`task` (a brief), `report`, `message`."
+          }
+        }
+      },
+      "Mark": {
+        "type": "string",
+        "description": "square for a coding agent, round for an assistant and for other.",
+        "enum": [
+          "square",
+          "round"
+        ]
+      },
+      "MarkerKind": {
+        "type": "string",
+        "enum": [
+          "step-start",
+          "step-finish",
+          "patch",
+          "subtask",
+          "reset"
+        ]
+      },
+      "MarkerPart": {
+        "type": "object",
+        "description": "kept so order and accounting survive; never drawn.",
+        "required": [
+          "id",
+          "messageID",
+          "marker"
+        ],
+        "properties": {
+          "at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartAt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          },
+          "marker": {
+            "$ref": "#/components/schemas/MarkerKind"
+          },
+          "messageID": {
             "type": "string"
           }
         }
@@ -6090,6 +8286,33 @@
           }
         }
       },
+      "MediaRef": {
+        "type": "object",
+        "description": "a part's bytes in boxbox's media store.",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the sha256 of the bytes, 64 lowercase hex; null while pending."
+          },
+          "state": {
+            "$ref": "#/components/schemas/MediaState"
+          }
+        }
+      },
+      "MediaState": {
+        "type": "string",
+        "enum": [
+          "ready",
+          "pending",
+          "missing"
+        ]
+      },
       "MergeBody": {
         "type": "object",
         "description": "the squash commit's message.",
@@ -6103,6 +8326,69 @@
           }
         },
         "additionalProperties": false
+      },
+      "MessageError": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the runtime's error name (`MessageAbortedError` for a stopped turn)."
+          }
+        }
+      },
+      "MessageOrigin": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "`whatsapp`, `telegram`, `control-ui`.",
+            "required": [
+              "name",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "channel"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a timer or cron run; a heartbeat's name is `heartbeat`.",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "scheduled"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "where a turn came from or went to: absent means boxbox or the agent's\nown runtime."
       },
       "ModelChoice": {
         "type": "object",
@@ -6415,6 +8701,66 @@
           "unknown"
         ]
       },
+      "OrderOp": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": false,
+            "prefixItems": [
+              {
+                "type": "string",
+                "enum": [
+                  "-"
+                ]
+              },
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "integer",
+                "minimum": 0
+              }
+            ],
+            "maxItems": 3,
+            "minItems": 3
+          },
+          {
+            "type": "array",
+            "items": false,
+            "prefixItems": [
+              {
+                "type": "string",
+                "enum": [
+                  "+"
+                ]
+              },
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "maxItems": 3,
+            "minItems": 3
+          }
+        ],
+        "description": "[\"-\", i, n] removes n keys at index i; [\"+\", i, keys] inserts keys at index i"
+      },
+      "Outcome": {
+        "type": "string",
+        "enum": [
+          "answered",
+          "expired",
+          "cancelled",
+          "unknown"
+        ]
+      },
       "Pair": {
         "type": "object",
         "description": "what `cmx2 pair` printed, and what to call the machine.",
@@ -6469,6 +8815,112 @@
           }
         }
       },
+      "PartAt": {
+        "type": "object",
+        "description": "a part's place in its message: `step` counts the turn's steps, `index`\nthe part's place in its step.",
+        "required": [
+          "step",
+          "index"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "step": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PartTime": {
+        "type": "object",
+        "properties": {
+          "end": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "start": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "Permission": {
+        "type": "object",
+        "required": [
+          "title",
+          "patterns",
+          "always",
+          "options"
+        ],
+        "properties": {
+          "always": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "the patterns an \"always\" answer would grant."
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PermissionOption"
+            },
+            "description": "drawn as the server labels them."
+          },
+          "patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risk": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Risk"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scope": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "the recipients, payment, visibility or grant it reaches, plain lines."
+          },
+          "title": {
+            "type": "string",
+            "description": "what the agent wants: a tool or permission name (`bash`, `edit`)."
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "PermissionAnswer": {
         "type": "object",
         "description": "an answer to a permission.",
@@ -6501,6 +8953,25 @@
           }
         },
         "additionalProperties": false
+      },
+      "PermissionOption": {
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/AgentPermissionReply"
+          },
+          "label": {
+            "type": "string"
+          },
+          "lasting": {
+            "type": "boolean",
+            "description": "an answer that leaves a standing grant."
+          }
+        }
       },
       "PermissionReply": {
         "type": "string",
@@ -6797,6 +9268,37 @@
         },
         "additionalProperties": false
       },
+      "Question": {
+        "type": "object",
+        "required": [
+          "question",
+          "header",
+          "multiple",
+          "custom",
+          "options"
+        ],
+        "properties": {
+          "custom": {
+            "type": "boolean",
+            "description": "a free text answer is allowed."
+          },
+          "header": {
+            "type": "string"
+          },
+          "multiple": {
+            "type": "boolean"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestionOption"
+            }
+          },
+          "question": {
+            "type": "string"
+          }
+        }
+      },
       "QuestionAnswer": {
         "type": "object",
         "description": "an answer to a question: one list of chosen labels (or typed text) per\nquestion it asked.",
@@ -6827,6 +9329,78 @@
           }
         },
         "additionalProperties": false
+      },
+      "QuestionOption": {
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "Quote": {
+        "type": "object",
+        "required": [
+          "sender",
+          "glyph"
+        ],
+        "properties": {
+          "durationMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "the quoted voice note's length, when the glyph is audio and the source knows it.",
+            "minimum": 0
+          },
+          "glyph": {
+            "$ref": "#/components/schemas/Glyph"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the boxbox id of the quoted message; null when the source cannot resolve it."
+          },
+          "preview": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "one line, at most 140 characters, cut at a word; null when the source kept none."
+          },
+          "sender": {
+            "type": "string",
+            "description": "\"you\", the agent's name, or a person's label."
+          }
+        }
+      },
+      "Reaction": {
+        "type": "object",
+        "required": [
+          "emoji",
+          "by"
+        ],
+        "properties": {
+          "by": {
+            "type": "string",
+            "description": "`you` (the person), `agent` (this thread's agent), or a person's label."
+          },
+          "emoji": {
+            "type": "string"
+          }
+        }
       },
       "ReadBody": {
         "type": "object",
@@ -6890,6 +9464,97 @@
             "description": "that message's id."
           }
         }
+      },
+      "Reasoning": {
+        "type": "object",
+        "required": [
+          "word",
+          "levels"
+        ],
+        "properties": {
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "word": {
+            "$ref": "#/components/schemas/ReasoningWord"
+          }
+        }
+      },
+      "ReasoningPart": {
+        "type": "object",
+        "required": [
+          "id",
+          "messageID"
+        ],
+        "properties": {
+          "at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartAt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "streaming": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "absent only on a settled part in the stream, which carries `textOf`."
+          },
+          "textOf": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TextOf",
+                "description": "on a settled part in the stream instead of `text`: the length and\nhash of the text the deltas built."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ReasoningWord": {
+        "type": "string",
+        "enum": [
+          "effort",
+          "thinking"
+        ]
+      },
+      "Refusal": {
+        "type": "string",
+        "description": "why boxbox will not talk to an agent.",
+        "enum": [
+          "protocol",
+          "methods",
+          "auth",
+          "key"
+        ]
       },
       "RefusalKind": {
         "type": "string",
@@ -7010,6 +9675,69 @@
           }
         }
       },
+      "Risk": {
+        "type": "string",
+        "enum": [
+          "normal",
+          "high"
+        ]
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "user",
+          "assistant"
+        ]
+      },
+      "RunItem": {
+        "type": "object",
+        "required": [
+          "thread",
+          "at",
+          "preview"
+        ],
+        "properties": {
+          "at": {
+            "type": "number",
+            "format": "double"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preview": {
+            "type": "string"
+          },
+          "thread": {
+            "type": "string",
+            "description": "the run's thread id."
+          }
+        }
+      },
+      "Runs": {
+        "type": "object",
+        "description": "the runs window's content: talking scheduled runs not yet seen.",
+        "required": [
+          "unseen",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunItem"
+            },
+            "description": "at most 12, newest last."
+          },
+          "unseen": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "Seat": {
         "type": "object",
         "required": [
@@ -7126,6 +9854,35 @@
         },
         "additionalProperties": false
       },
+      "SendState": {
+        "type": "object",
+        "description": "a send whose outcome boxbox could not confirm. gone 30 minutes after\n`at`, or when the user message with its client id arrives.",
+        "required": [
+          "clientID",
+          "state",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "number",
+            "format": "double"
+          },
+          "clientID": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SendStateKind"
+          }
+        }
+      },
+      "SendStateKind": {
+        "type": "string",
+        "enum": [
+          "checking",
+          "uncertain",
+          "cancelled"
+        ]
+      },
       "Session": {
         "type": "object",
         "required": [
@@ -7240,6 +9997,15 @@
           }
         }
       },
+      "SettlerKind": {
+        "type": "string",
+        "enum": [
+          "device",
+          "channel",
+          "runtime",
+          "system"
+        ]
+      },
       "Shell": {
         "type": "object",
         "description": "a `!` line.",
@@ -7345,6 +10111,16 @@
           }
         ],
         "description": "one frame's data on `GET /api/stream`: a control frame or a journal\nentry, discriminated on `type` across both."
+      },
+      "StreamResetReason": {
+        "type": "string",
+        "description": "why a stream began with `reset`.",
+        "enum": [
+          "none",
+          "epoch",
+          "expired",
+          "invalid"
+        ]
       },
       "Subscribe": {
         "type": "object",
@@ -7456,6 +10232,81 @@
           "file"
         ]
       },
+      "TailPatch": {
+        "type": "object",
+        "description": "a tail's change: drop `drop` items from the front, then put each item at\nits index (replacing; the index equal to the length appends). the result\nis at most 12 items and equals the server's tail exactly.",
+        "required": [
+          "drop",
+          "put"
+        ],
+        "properties": {
+          "drop": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "put": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": false,
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                },
+                {
+                  "type": "object",
+                  "description": "one part as a window shows it. contract 2's kinds add `image` and\n`audio`; contract 1's encoder maps both to `file`.",
+                  "required": [
+                    "partID",
+                    "messageID",
+                    "kind",
+                    "role",
+                    "text"
+                  ],
+                  "properties": {
+                    "from": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "kind": {
+                      "$ref": "#/components/schemas/ThreadTailKind"
+                    },
+                    "messageID": {
+                      "type": "string"
+                    },
+                    "partID": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "text": {
+                      "type": "string"
+                    },
+                    "tool": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
       "TailRole": {
         "type": "string",
         "description": "cmx2's message roles, as the daemon names them.",
@@ -7547,6 +10398,101 @@
           }
         }
       },
+      "TextOf": {
+        "type": "object",
+        "description": "a settled text's length and hash (`docs/protocol.md`, section 8): the\nclient keeps the text it holds when both match, and re-reads the\nmessage when they do not.",
+        "required": [
+          "length",
+          "hash"
+        ],
+        "properties": {
+          "hash": {
+            "type": "string",
+            "description": "fnv-1a 32 over the utf-16 code units, 8 lowercase hex."
+          },
+          "length": {
+            "type": "integer",
+            "format": "int64",
+            "description": "utf-16 units.",
+            "minimum": 0
+          }
+        }
+      },
+      "TextPart": {
+        "type": "object",
+        "required": [
+          "id",
+          "messageID"
+        ],
+        "properties": {
+          "at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartAt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "mail": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Mail",
+                "description": "another agent's brief, report or note."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "notice": {
+            "type": "boolean",
+            "description": "a runtime or boxbox note (an ask cancelled by a restart, a media copy that failed)."
+          },
+          "streaming": {
+            "type": "boolean"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "description": "context the runtime added, never shown as typed."
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "absent only on a settled part in the stream, which carries `textOf`."
+          },
+          "textOf": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TextOf",
+                "description": "on a settled part in the stream instead of `text`: the length and\nhash of the text the deltas built."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "Theme": {
         "type": "string",
         "enum": [
@@ -7554,6 +10500,745 @@
           "dark",
           "light"
         ]
+      },
+      "Thread": {
+        "type": "object",
+        "required": [
+          "key",
+          "agent",
+          "id",
+          "title",
+          "created",
+          "updated",
+          "activity",
+          "queued",
+          "agents",
+          "processes",
+          "tail",
+          "needs"
+        ],
+        "properties": {
+          "activity": {
+            "$ref": "#/components/schemas/Activity"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "agents": {
+            "type": "integer",
+            "format": "int32",
+            "description": "child threads with a turn running now.",
+            "minimum": 0
+          },
+          "browseOnly": {
+            "type": "boolean",
+            "description": "imported history: read, never send. present only when true."
+          },
+          "changes": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Changes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cleared": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "set while the person has this thread cleared off home."
+          },
+          "context": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Context",
+                "description": "the spend capability."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "created": {
+            "type": "number",
+            "format": "double",
+            "description": "ms on the agent's clock."
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "opaque; changes when the agent swaps the conversation behind the key."
+          },
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "`<agent>:<thread>`."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "what the thread runs with now."
+          },
+          "needs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Need"
+            }
+          },
+          "origin": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MessageOrigin"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the parent thread's id (the subagents capability)."
+          },
+          "place": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThreadPlace",
+                "description": "the places capability only."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "processes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "background jobs a parked thread waits on.",
+            "minimum": 0
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "read": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReadMark"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "said": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "ms of the last turn that wrote text for you or raised an ask; set by\nsources whose agent runs on its own, absent on cmx2."
+          },
+          "sends": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SendState"
+            },
+            "description": "sends boxbox could not confirm, at most 32."
+          },
+          "tail": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadTailItem"
+            },
+            "description": "the window's tail, oldest first, at most 12."
+          },
+          "title": {
+            "type": "string"
+          },
+          "tokens": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThreadTokens",
+                "description": "the spend capability: tokens the thread has used, as its details read them."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated": {
+            "type": "number",
+            "format": "double"
+          },
+          "vcs": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Vcs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ThreadField": {
+        "type": "string",
+        "description": "a field of a thread that can become absent.",
+        "enum": [
+          "said",
+          "generation",
+          "parent",
+          "place",
+          "origin",
+          "sends",
+          "model",
+          "effort",
+          "context",
+          "cost",
+          "tokens",
+          "vcs",
+          "changes",
+          "browseOnly",
+          "read",
+          "cleared"
+        ]
+      },
+      "ThreadPatch": {
+        "type": "object",
+        "description": "a thread's change as only what changed (`docs/protocol.md`, section 6).\na client that holds no thread for `key` has a protocol error.",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "set": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThreadSet",
+                "description": "each top-level field whose value changed, with its new value whole."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tail": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TailPatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unset": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ThreadField"
+            },
+            "description": "fields that became absent (or null, for `read`)."
+          }
+        }
+      },
+      "ThreadPlace": {
+        "type": "object",
+        "required": [
+          "root",
+          "directory",
+          "name"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string",
+            "description": "where it works: a checkout's path for a thread in a worktree."
+          },
+          "name": {
+            "type": "string",
+            "description": "the repo word windows and push titles use."
+          },
+          "root": {
+            "type": "string",
+            "description": "the repo or folder the thread belongs to."
+          }
+        }
+      },
+      "ThreadSet": {
+        "type": "object",
+        "description": "the fields of a thread that changed, each whole. `key`, `agent` and `id`\nnever change; `tail` changes through `tail`.",
+        "properties": {
+          "activity": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Activity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agents": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "browseOnly": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "only ever `true` here; it becoming false is in `unset`."
+          },
+          "changes": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Changes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cleared": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "context": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Context"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "created": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "needs": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Need"
+            }
+          },
+          "origin": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MessageOrigin"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "place": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThreadPlace"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "processes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "queued": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "read": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ReadMark"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "said": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "sends": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SendState"
+            }
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tokens": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThreadTokens"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "vcs": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Vcs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ThreadTailItem": {
+        "type": "object",
+        "description": "one part as a window shows it. contract 2's kinds add `image` and\n`audio`; contract 1's encoder maps both to `file`.",
+        "required": [
+          "partID",
+          "messageID",
+          "kind",
+          "role",
+          "text"
+        ],
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ThreadTailKind"
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "partID": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "tool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ThreadTailKind": {
+        "type": "string",
+        "enum": [
+          "text",
+          "reasoning",
+          "tool",
+          "file",
+          "image",
+          "audio"
+        ]
+      },
+      "ThreadTokens": {
+        "type": "object",
+        "required": [
+          "input",
+          "output",
+          "cacheRead",
+          "cacheWrite"
+        ],
+        "properties": {
+          "cacheRead": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cacheWrite": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "input": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "output": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ToolPart": {
+        "type": "object",
+        "required": [
+          "id",
+          "messageID",
+          "callID",
+          "tool",
+          "family",
+          "state"
+        ],
+        "properties": {
+          "at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PartAt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "callID": {
+            "type": "string"
+          },
+          "family": {
+            "$ref": "#/components/schemas/Family",
+            "description": "the server's family for the tool; rich rows read `input` and\n`metadata` only when the family and the agent's source match theirs."
+          },
+          "id": {
+            "type": "string"
+          },
+          "messageID": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ToolState"
+          },
+          "tool": {
+            "type": "string",
+            "description": "the tool's name, as the source calls it."
+          }
+        }
+      },
+      "ToolRef": {
+        "type": "object",
+        "required": [
+          "messageID",
+          "callID"
+        ],
+        "properties": {
+          "callID": {
+            "type": "string"
+          },
+          "messageID": {
+            "type": "string"
+          }
+        }
+      },
+      "ToolState": {
+        "type": "object",
+        "required": [
+          "status",
+          "input"
+        ],
+        "properties": {
+          "attachments": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AgentPart"
+            },
+            "description": "files the tool made, as parts."
+          },
+          "attachmentsDropped": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "attachments left out past a cap.",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "input": {
+            "type": "object",
+            "description": "the source's json, as it came."
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "the source's json, as it came."
+          },
+          "output": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ToolStatus"
+          },
+          "time": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ToolTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ToolStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "error"
+        ]
+      },
+      "ToolTime": {
+        "type": "object",
+        "properties": {
+          "end": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "start": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
       },
       "Unreached": {
         "type": "object",
@@ -7594,6 +11279,21 @@
           }
         }
       },
+      "Vcs": {
+        "type": "object",
+        "required": [
+          "branch",
+          "dirty"
+        ],
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "dirty": {
+            "type": "boolean"
+          }
+        }
+      },
       "Verb": {
         "type": "object",
         "description": "dismissing a question, or stopping a turn.",
@@ -7614,6 +11314,23 @@
           }
         },
         "additionalProperties": false
+      },
+      "Voice": {
+        "type": "object",
+        "required": [
+          "notes",
+          "replies"
+        ],
+        "properties": {
+          "notes": {
+            "type": "boolean",
+            "description": "you can record a voice note and the agent hears it (the mic key)."
+          },
+          "replies": {
+            "type": "boolean",
+            "description": "the agent may answer with audio; gates nothing."
+          }
+        }
       },
       "WorktreeDiscarded": {
         "type": "object",

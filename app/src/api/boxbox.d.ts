@@ -805,7 +805,7 @@ export type paths = {
             path?: never;
             cookie?: never;
         };
-        /** a stored file, whole or one range of it. */
+        /** a stored file, whole or one range of it, or a thumbnail of an image. */
         get: operations["serve"];
         put?: never;
         post?: never;
@@ -1088,6 +1088,350 @@ export type components = {
             /** @description events dropped whole (unknown kind, or a kind the server owns). */
             dropped: number;
         };
+        /** @description what the thread is doing. */
+        Activity: {
+            /** @enum {string} */
+            state: "idle";
+        } | {
+            /** Format: double */
+            since: number;
+            /** @enum {string} */
+            state: "busy";
+        } | {
+            /** Format: int32 */
+            attempt: number;
+            message: string;
+            /** Format: double */
+            next: number;
+            /** Format: double */
+            since?: number | null;
+            /** @enum {string} */
+            state: "retry";
+        } | {
+            /** Format: int32 */
+            agents: number;
+            /** Format: int32 */
+            jobs: number;
+            /** Format: double */
+            since?: number | null;
+            /** @enum {string} */
+            state: "parked";
+        } | {
+            message: string;
+            /** Format: double */
+            since?: number | null;
+            /** @enum {string} */
+            state: "failed";
+        };
+        Agent: {
+            capabilities: components["schemas"]["Capabilities"];
+            /** @description shared by every agent of one connection. */
+            connection: components["schemas"]["AgentConnection"];
+            /**
+             * @description the agent's name on the wire, `[a-z0-9-]{1,32}`, and the first half
+             *     of every thread key. a cmx2 agent's key is its connection's name.
+             */
+            key: string;
+            kind: components["schemas"]["AgentKind"];
+            label: components["schemas"]["Label"];
+            mark: components["schemas"]["Mark"];
+            /** @description a named assistant slot; null: its threads take the repo palettes. */
+            palette?: string | null;
+            runs?: components["schemas"]["Runs"] | null;
+            source: components["schemas"]["AgentSource"];
+            status: components["schemas"]["AgentStatus"];
+        };
+        AgentAsk: {
+            agent: string;
+            /** Format: double */
+            created?: number | null;
+            /**
+             * Format: double
+             * @description drives the "answer by" line; a client blocks an answer in its last 5 seconds.
+             */
+            expires?: number | null;
+            id: string;
+            /** @description the thread's key, `<agent>:<thread>`. */
+            key: string;
+            kind: components["schemas"]["AgentAskKind"];
+            permission?: components["schemas"]["Permission"] | null;
+            questions?: components["schemas"]["Question"][] | null;
+            /** @description the thread's key, as on every ask. */
+            thread: string;
+            tool?: components["schemas"]["ToolRef"] | null;
+        };
+        /** @enum {string} */
+        AgentAskKind: "permission" | "question";
+        /**
+         * @description a change, discriminated on `type`. a client advances its cursor past a
+         *     type it does not know and ignores it.
+         */
+        AgentChange: {
+            agent: components["schemas"]["Agent"];
+            /** @enum {string} */
+            type: "agent";
+        } | {
+            agent: string;
+            /** @enum {string} */
+            type: "agent.removed";
+        } | {
+            thread: components["schemas"]["Thread"];
+            /** @enum {string} */
+            type: "thread";
+        } | (components["schemas"]["ThreadPatch"] & {
+            /** @enum {string} */
+            type: "thread.patch";
+        }) | {
+            key: string;
+            /** @enum {string} */
+            type: "thread.removed";
+        } | {
+            key: string;
+            /** @enum {string} */
+            type: "thread.reset";
+        } | {
+            ask: components["schemas"]["AgentAsk"];
+            /** @enum {string} */
+            type: "ask";
+        } | (components["schemas"]["AskSettled"] & {
+            /** @enum {string} */
+            type: "ask.settled";
+        }) | {
+            keys: string[];
+            /** @enum {string} */
+            type: "order";
+        } | {
+            ops: components["schemas"]["OrderOp"][];
+            /** @enum {string} */
+            type: "order.patch";
+        } | {
+            key: string;
+            message: components["schemas"]["AgentMessage"];
+            /** @enum {string} */
+            type: "message";
+            /**
+             * Format: int64
+             * @description the source's seq for the event; null makes it newer than any read.
+             */
+            upstream?: number | null;
+        } | {
+            key: string;
+            part: components["schemas"]["AgentPart"];
+            /** @enum {string} */
+            type: "part";
+            /** Format: int64 */
+            upstream?: number | null;
+        } | {
+            delta: string;
+            /** @description `text`, for text and reasoning parts alike. */
+            field: string;
+            key: string;
+            messageID: string;
+            /**
+             * Format: int64
+             * @description utf-16 units of the part's text before this delta.
+             */
+            offset: number;
+            partID: string;
+            /** @enum {string} */
+            type: "delta";
+        } | {
+            key: string;
+            messageID: string;
+            /** @enum {string} */
+            type: "message.removed";
+            /** Format: int64 */
+            upstream?: number | null;
+        } | {
+            key: string;
+            messageID: string;
+            reactions: components["schemas"]["Reaction"][];
+            /** @enum {string} */
+            type: "reactions";
+        };
+        AgentConnection: {
+            /** Format: int64 */
+            connects: number;
+            /**
+             * Format: int64
+             * @description cmx2 only: the daemon's contract, and whether it matches the pin.
+             */
+            contract?: number | null;
+            contractMatches?: boolean | null;
+            cursor?: string | null;
+            frames: components["schemas"]["FrameCounts"];
+            /** @description plain words; for pairing, the command to run on the machine. */
+            lastError?: string | null;
+            memory?: components["schemas"]["HostMemory"] | null;
+            name: string;
+            origin: string;
+            /** @description the runtime version boxbox is built against (openclaw's pin). */
+            pinned?: string | null;
+            /**
+             * Format: int32
+             * @description the runtime's wire protocol; on a protocol refusal, the one it speaks.
+             */
+            protocol?: number | null;
+            refused?: components["schemas"]["Refusal"] | null;
+            /** @description whether the runtime reports `system`: false when it cannot, absent until asked. */
+            reportsSystem?: boolean | null;
+            /**
+             * Format: int64
+             * @description when the status last changed, ms; while ready, when it came up.
+             */
+            since: number;
+            system?: components["schemas"]["HostSystem"] | null;
+            /** @description `version` differs from `pinned`: boxbox syncs and sends anyway. */
+            untested: boolean;
+            url: string;
+            /** @description the runtime's own version. */
+            version?: string | null;
+        };
+        /** @description the stream's frames that are not journal entries. */
+        AgentControl: {
+            /** @description the server's build; a newer one lights "update ready". */
+            build: string;
+            /** @description outlives server restarts; changes only when the persisted state is lost. */
+            epoch: string;
+            /**
+             * Format: int64
+             * @description the journal's newest seq.
+             */
+            head: number;
+            /** @description the interest the stream opened with. */
+            interest: components["schemas"]["Interest"];
+            /** Format: int32 */
+            protocol: number;
+            /** @description this stream's id, 128-bit hex, for interest posts. */
+            stream: string;
+            /** @enum {string} */
+            type: "hello";
+        } | {
+            epoch: string;
+            fleet: components["schemas"]["Fleet"];
+            reason: components["schemas"]["StreamResetReason"];
+            /** Format: int64 */
+            seq: number;
+            /** @enum {string} */
+            type: "reset";
+        } | {
+            /** Format: int64 */
+            seq: number;
+            /** @enum {string} */
+            type: "caught";
+        } | {
+            entries: components["schemas"]["AgentJournalEntry"][];
+            /** @enum {string} */
+            type: "catchup";
+        } | {
+            /** Format: int64 */
+            ask: number;
+            holds: string[];
+            /** @description keys reset since their `since`: drop their messages and read them. */
+            reset?: string[];
+            /** Format: int64 */
+            seq: number;
+            /** @description keys whose missed entries this stream cannot give: read them. */
+            stale?: string[];
+            thread?: string | null;
+            /** @enum {string} */
+            type: "interest";
+            under: string[];
+        } | {
+            key: string;
+            /** @enum {string} */
+            type: "thread.stale";
+        };
+        /** @description one journal entry at its place in the journal. */
+        AgentJournalEntry: components["schemas"]["AgentChange"] & {
+            /**
+             * Format: int64
+             * @description contiguous in the journal within an epoch; a stream may skip seqs
+             *     (entries of threads outside its interest), and a skipped seq is never
+             *     a gap.
+             */
+            seq: number;
+        };
+        /** @enum {string} */
+        AgentKind: "coding" | "assistant" | "other";
+        AgentMessage: {
+            /** @description on a user message boxbox sent: the send's client id. */
+            clientID?: string | null;
+            /** Format: double */
+            completed?: number | null;
+            /** Format: double */
+            cost?: number | null;
+            /** Format: double */
+            created: number;
+            effort?: string | null;
+            error?: components["schemas"]["MessageError"] | null;
+            /** @description why the turn ended ("aborted", ...). */
+            finish?: string | null;
+            id: string;
+            /** @description what this message ran with or asked for. */
+            model?: string | null;
+            /** @description a runtime or boxbox note rather than a prompt. */
+            notice?: boolean;
+            origin?: components["schemas"]["MessageOrigin"] | null;
+            /**
+             * Format: int64
+             * @description its place in the thread's transcript, from the agent; clients place
+             *     by it when present, by arrival otherwise.
+             */
+            position?: number | null;
+            /** @description the queue capability: a prompt still waiting behind the running turn. */
+            queued?: boolean;
+            quote?: components["schemas"]["Quote"] | null;
+            reactions?: components["schemas"]["Reaction"][] | null;
+            role: components["schemas"]["Role"];
+            /** @description a user message from someone who is not you (a group chat). */
+            sender?: string | null;
+            /** @description the steer capability: a prompt that joined the running turn. */
+            steer?: boolean;
+            /** @description an assistant compaction summary: not a turn's answer. */
+            summary?: boolean;
+        };
+        /** @description discriminated on `type`. */
+        AgentPart: (components["schemas"]["TextPart"] & {
+            /** @enum {string} */
+            type: "text";
+        }) | (components["schemas"]["ReasoningPart"] & {
+            /** @enum {string} */
+            type: "reasoning";
+        }) | (components["schemas"]["ToolPart"] & {
+            /** @enum {string} */
+            type: "tool";
+        }) | (components["schemas"]["FilePart"] & {
+            /** @enum {string} */
+            type: "file";
+        }) | (components["schemas"]["ImagePart"] & {
+            /** @enum {string} */
+            type: "image";
+        }) | (components["schemas"]["AudioPart"] & {
+            /** @enum {string} */
+            type: "audio";
+        }) | (components["schemas"]["CompactionPart"] & {
+            /** @enum {string} */
+            type: "compaction";
+        }) | (components["schemas"]["MarkerPart"] & {
+            /** @enum {string} */
+            type: "marker";
+        });
+        /** @enum {string} */
+        AgentPermissionReply: "once" | "always" | "reject";
+        /**
+         * @description the runtime's id: a kind of agent runtime boxbox speaks.
+         * @enum {string}
+         */
+        AgentSource: "cmx2" | "openclaw" | "hermes";
+        /** @enum {string} */
+        AgentStatus: "connecting" | "pairing" | "syncing" | "ready" | "down" | "refused";
+        /**
+         * @description one frame's data on `GET /api/stream`, discriminated on `type` across
+         *     every kind. the board's own frames (`view`, `pin`, `replaced`) reach
+         *     only a stream that declared the board view.
+         */
+        AgentStreamFrame: components["schemas"]["AgentControl"] | components["schemas"]["ColourFrame"] | components["schemas"]["AppFrame"] | components["schemas"]["AgentJournalEntry"];
         /**
          * @description what app windows on the board's mac receive on `/api/stream?board=1`:
          *     id-less frames outside the journal (they carry no seq and move no
@@ -1130,6 +1474,56 @@ export type components = {
         };
         /** @enum {string} */
         AskKind: "permission" | "question";
+        /** @description how an ask ended. */
+        AskSettled: {
+            agent: string;
+            /**
+             * Format: double
+             * @description ms, when boxbox saw it.
+             */
+            at: number;
+            by?: components["schemas"]["AskSettledBy"] | null;
+            id: string;
+            /** @description the option id or answer that won, when answered. */
+            option?: string | null;
+            outcome: components["schemas"]["Outcome"];
+            /** @description plain words, for cancelled and unknown. */
+            reason?: string | null;
+        };
+        AskSettledBy: {
+            /** @description the boxbox device id, when the answer went through boxbox. */
+            device?: string | null;
+            kind: components["schemas"]["SettlerKind"];
+            /** @description "whatsapp", a device's name. */
+            name?: string | null;
+        };
+        Attachments: {
+            /** @description mime patterns, `image/png` or `image/*`. */
+            kinds: string[];
+            /** Format: int64 */
+            maxBytes: number;
+            /** Format: int32 */
+            maxCount: number;
+        };
+        AudioPart: {
+            at?: components["schemas"]["PartAt"] | null;
+            /** Format: int64 */
+            durationMs?: number | null;
+            flavour: components["schemas"]["Flavour"];
+            id: string;
+            media: components["schemas"]["MediaRef"];
+            messageID: string;
+            mime: string;
+            /** @description what the agent's reply said aloud. */
+            spoken?: string | null;
+            transcript?: components["schemas"]["AudioTranscript"] | null;
+            /** @description at most 64 values from 0 to 255; on your own voice notes only. */
+            waveform?: number[] | null;
+        };
+        AudioTranscript: {
+            lang?: string | null;
+            text: string;
+        };
         /** @description the thread a birth made. */
         Born: {
             /** @description where it runs: the checkout, or the fresh worktree. */
@@ -1156,6 +1550,49 @@ export type components = {
         } | {
             /** @enum {string} */
             by: "agent";
+        };
+        Capabilities: {
+            /** @description reload, restart and memory for the runtime. */
+            admin: boolean;
+            approvals: boolean;
+            archive: boolean;
+            attachments?: components["schemas"]["Attachments"] | null;
+            /** @description slash commands. */
+            commands: boolean;
+            compact: boolean;
+            /** @description `@` file mentions. */
+            files: boolean;
+            /** @description past threads, paged; adopt. */
+            history: boolean;
+            /** @description a model picker from the agent's catalog. */
+            model: boolean;
+            /** @description messages arrive from channels or schedules. */
+            origins: boolean;
+            /** @description threads start in a repo or folder on the agent's machine. */
+            places: boolean;
+            questions: boolean;
+            /** @description a prompt sent during a turn waits behind it; run now; unsend. */
+            queue: boolean;
+            quotes: boolean;
+            reactions: boolean;
+            reasoning?: components["schemas"]["Reasoning"] | null;
+            /** @description branch review of a thread's checkout, and review needs. */
+            review: boolean;
+            /** @description `!` lines. */
+            shell: boolean;
+            /** @description cost and context fill mean something. */
+            spend: boolean;
+            /** @description a prompt can join the running turn at its next tool boundary. */
+            steer: boolean;
+            /** @description threads have parent threads. */
+            subagents: boolean;
+            /** @description terminals on the agent's machine. */
+            terminal: boolean;
+            /** @description more than one thread; start one with no place. */
+            threads: boolean;
+            voice: components["schemas"]["Voice"];
+            /** @description a new thread may start in a fresh worktree. */
+            worktree: boolean;
         };
         /** @description a change to the fleet model, discriminated on `type`. */
         Change: {
@@ -1241,6 +1678,14 @@ export type components = {
             /** Format: int64 */
             upstream?: number | null;
         };
+        Changes: {
+            /** Format: int64 */
+            additions: number;
+            /** Format: int64 */
+            deletions: number;
+            /** Format: int64 */
+            files: number;
+        };
         /** @description why the daemon would not merge or discard a checkout, as the review card reads it. */
         CheckoutRefusal: {
             /**
@@ -1286,11 +1731,9 @@ export type components = {
             root: string;
         };
         /**
-         * @description repo colours on `GET /api/stream?colours=1` (`colours.rs`): id-less data
-         *     lines outside the journal, so contract 1 gains no change type and a
-         *     stream that does not ask sees none of them. the whole map comes first,
-         *     after `hello` (and again before a replay page if it moved meanwhile);
-         *     then each change, ahead of the journal entry that first shows its repo.
+         * @description repo colours: id-less frames outside the journal. the whole map comes
+         *     first, after `hello`; then each change, ahead of the journal entry that
+         *     first shows its repo.
          */
         ColourFrame: {
             colours: components["schemas"]["RepoColour"][];
@@ -1310,8 +1753,23 @@ export type components = {
             /** @description `command` (a command file) or `skill`. */
             source: string;
         };
+        CompactionPart: {
+            at?: components["schemas"]["PartAt"] | null;
+            auto: boolean;
+            id: string;
+            messageID: string;
+            overflow?: boolean | null;
+        };
         /** @enum {string} */
         Connection: "connecting" | "connected" | "down";
+        Context: {
+            /** Format: int64 */
+            compactAt?: number | null;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            used: number;
+        };
         /** @description the stream's frames that are not journal entries. */
         Control: {
             /** @description the server's build; a newer one lights "update ready". */
@@ -1375,7 +1833,7 @@ export type components = {
         ErrorDetail: {
             /**
              * @description stable, for code: `sign-in`, `wrong-password`, `bad-request`,
-             *     `batch-too-large`, `busy`, `store-down`, `not-found`, `app-missing`,
+             *     `batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `page-too-large`, `app-missing`,
              *     `vite-down`, `unknown-host`, `host-taken`, `address-taken`,
              *     `configured-host`, `pair-refused`, `pair-unsupported`,
              *     `pair-unreachable`, `pair-failed`, `host-failed`,
@@ -1393,6 +1851,34 @@ export type components = {
             /** @description for people, in the interface's voice. */
             message: string;
             settled?: components["schemas"]["SettledBy"] | null;
+        };
+        /**
+         * @description what kind of step a tool call is, whatever the source calls the tool.
+         * @enum {string}
+         */
+        Family: "read" | "search" | "edit" | "shell" | "web" | "spawn" | "message" | "wait" | "agents" | "ask" | "plan" | "skill" | "other";
+        FilePart: {
+            at?: components["schemas"]["PartAt"] | null;
+            filename: string;
+            flavour: components["schemas"]["Flavour"];
+            id: string;
+            media?: components["schemas"]["MediaRef"] | null;
+            messageID: string;
+            mime: string;
+            /** Format: int64 */
+            size?: number | null;
+            /** @description a `data:` url; only cmx2 parts carry one. */
+            url?: string | null;
+        };
+        /** @enum {string} */
+        Flavour: "attached" | "voice" | "generated";
+        /** @description everything a reset carries, and `GET /api/fleet`'s body. */
+        Fleet: {
+            agents: components["schemas"]["Agent"][];
+            asks: components["schemas"]["AgentAsk"][];
+            /** @description window keys, first first, at most 300; a runs window is `<agent>:runs`. */
+            order: string[];
+            threads: components["schemas"]["Thread"][];
         };
         /** @description the whole fleet model, as `reset` and `GET /api/fleet` carry it. */
         FleetSnapshot: {
@@ -1441,6 +1927,11 @@ export type components = {
              */
             undecodable: number;
         };
+        /**
+         * @description the kind of the quoted message's first part that is not text, else text.
+         * @enum {string}
+         */
+        Glyph: "text" | "audio" | "image" | "file";
         Health: {
             /**
              * Format: int64
@@ -1645,6 +2136,54 @@ export type components = {
          * @enum {string}
          */
         How: "answered" | "seen" | "continued" | "settled" | "dropped" | "gone" | "expired";
+        ImagePart: {
+            alt?: string | null;
+            at?: components["schemas"]["PartAt"] | null;
+            filename?: string | null;
+            flavour: components["schemas"]["Flavour"];
+            /** Format: int32 */
+            height?: number | null;
+            id: string;
+            media?: components["schemas"]["MediaRef"] | null;
+            messageID: string;
+            mime: string;
+            /** Format: int64 */
+            size?: number | null;
+            url?: string | null;
+            /** Format: int32 */
+            width?: number | null;
+        };
+        /**
+         * @description what a stream shows: the open thread, the layers under it and the
+         *     children held for them.
+         */
+        Interest: {
+            /** @description at most 16. */
+            holds?: string[];
+            /** @description the open thread; null for the overview only. */
+            thread?: string | null;
+            /** @description at most 8. */
+            under?: string[];
+        };
+        /** @description `POST /api/stream/{stream}/interest`'s body. */
+        InterestPost: {
+            /**
+             * Format: int64
+             * @description increases per stream; an older one than the last applied is answered
+             *     with no confirm.
+             */
+            ask: number;
+            holds?: string[];
+            /**
+             * @description per key the client already holds, the seq after which it lacks that
+             *     thread's transcript entries (its `left`). a key without one is read.
+             */
+            since?: {
+                [key: string]: number;
+            };
+            thread?: string | null;
+            under?: string[];
+        };
         /**
          * @description one journal entry: a change to the fleet model, at its place in the
          *     journal.
@@ -1656,8 +2195,46 @@ export type components = {
              */
             seq: number;
         };
+        /** @description shown joined with " · ": "cmx · vm-a", "assistant · openclaw · vm-b". */
+        Label: {
+            /** @description the config's `machine`, else the connection's name. */
+            machine: string;
+            /**
+             * @description the config's name for the agent, else the agent's own display name;
+             *     absent on every cmx2 agent.
+             */
+            name?: string | null;
+            source: components["schemas"]["LabelSource"];
+        };
+        /**
+         * @description the runtime's word people read (`cmx` for cmx2).
+         * @enum {string}
+         */
+        LabelSource: "cmx" | "openclaw" | "hermes";
         Login: {
             password: string;
+        };
+        Mail: {
+            from?: string | null;
+            fromID?: string | null;
+            /** @description `task` (a brief), `report`, `message`. */
+            kind: string;
+        };
+        /**
+         * @description square for a coding agent, round for an assistant and for other.
+         * @enum {string}
+         */
+        Mark: "square" | "round";
+        /** @enum {string} */
+        MarkerKind: "step-start" | "step-finish" | "patch" | "subtask" | "reset";
+        /** @description kept so order and accounting survive; never drawn. */
+        MarkerPart: {
+            at?: components["schemas"]["PartAt"] | null;
+            /** Format: double */
+            cost?: number | null;
+            id: string;
+            marker: components["schemas"]["MarkerKind"];
+            messageID: string;
         };
         McpServer: {
             name: string;
@@ -1681,10 +2258,36 @@ export type components = {
             /** Format: int32 */
             width?: number | null;
         };
+        /** @description a part's bytes in boxbox's media store. */
+        MediaRef: {
+            /** @description the sha256 of the bytes, 64 lowercase hex; null while pending. */
+            id?: string | null;
+            state: components["schemas"]["MediaState"];
+        };
+        /** @enum {string} */
+        MediaState: "ready" | "pending" | "missing";
         /** @description the squash commit's message. */
         MergeBody: {
             /** @description made from the branch's commits when absent or blank. */
             message?: string | null;
+        };
+        MessageError: {
+            message: string;
+            /** @description the runtime's error name (`MessageAbortedError` for a stopped turn). */
+            name?: string | null;
+        };
+        /**
+         * @description where a turn came from or went to: absent means boxbox or the agent's
+         *     own runtime.
+         */
+        MessageOrigin: {
+            /** @enum {string} */
+            kind: "channel";
+            name: string;
+        } | {
+            /** @enum {string} */
+            kind: "scheduled";
+            name?: string | null;
         };
         ModelChoice: {
             /** @description the model's variants: its efforts, then the profile's named ones. */
@@ -1802,6 +2405,18 @@ export type components = {
         };
         /** @enum {string} */
         NotClearedWhy: "working" | "asking" | "subagent" | "unknown";
+        /** @description ["-", i, n] removes n keys at index i; ["+", i, keys] inserts keys at index i */
+        OrderOp: [
+            "-",
+            number,
+            number
+        ] | [
+            "+",
+            number,
+            string[]
+        ];
+        /** @enum {string} */
+        Outcome: "answered" | "expired" | "cancelled" | "unknown";
         /** @description what `cmx2 pair` printed, and what to call the machine. */
         Pair: {
             /** @description lowercase letters, digits and dashes; from the address when absent. */
@@ -1819,6 +2434,36 @@ export type components = {
             url: string;
             version: string;
         };
+        /**
+         * @description a part's place in its message: `step` counts the turn's steps, `index`
+         *     the part's place in its step.
+         */
+        PartAt: {
+            /** Format: int32 */
+            index: number;
+            /** Format: int32 */
+            step: number;
+        };
+        PartTime: {
+            /** Format: double */
+            end?: number | null;
+            /** Format: double */
+            start?: number | null;
+        };
+        Permission: {
+            /** @description the patterns an "always" answer would grant. */
+            always: string[];
+            detail?: string | null;
+            /** @description drawn as the server labels them. */
+            options: components["schemas"]["PermissionOption"][];
+            patterns: string[];
+            risk?: components["schemas"]["Risk"] | null;
+            /** @description the recipients, payment, visibility or grant it reaches, plain lines. */
+            scope?: string[] | null;
+            /** @description what the agent wants: a tool or permission name (`bash`, `edit`). */
+            title: string;
+            warning?: string | null;
+        };
         /** @description an answer to a permission. */
         PermissionAnswer: {
             /** @description a uuid the device picks once per answer and reuses on a retry. */
@@ -1828,6 +2473,12 @@ export type components = {
             /** @description with reject: what the agent should do instead. */
             message?: string | null;
             reply: components["schemas"]["PermissionReply"];
+        };
+        PermissionOption: {
+            id: components["schemas"]["AgentPermissionReply"];
+            label: string;
+            /** @description an answer that leaves a standing grant. */
+            lasting?: boolean;
         };
         /** @enum {string} */
         PermissionReply: "once" | "always" | "reject";
@@ -1950,6 +2601,14 @@ export type components = {
             /** @description `host:session`; a placeholder thread when absent. */
             thread?: string | null;
         };
+        Question: {
+            /** @description a free text answer is allowed. */
+            custom: boolean;
+            header: string;
+            multiple: boolean;
+            options: components["schemas"]["QuestionOption"][];
+            question: string;
+        };
         /**
          * @description an answer to a question: one list of chosen labels (or typed text) per
          *     question it asked.
@@ -1959,6 +2618,29 @@ export type components = {
             clientID: string;
             device: string;
             deviceClass: string;
+        };
+        QuestionOption: {
+            description?: string | null;
+            label: string;
+        };
+        Quote: {
+            /**
+             * Format: int64
+             * @description the quoted voice note's length, when the glyph is audio and the source knows it.
+             */
+            durationMs?: number | null;
+            glyph: components["schemas"]["Glyph"];
+            /** @description the boxbox id of the quoted message; null when the source cannot resolve it. */
+            message?: string | null;
+            /** @description one line, at most 140 characters, cut at a word; null when the source kept none. */
+            preview?: string | null;
+            /** @description "you", the agent's name, or a person's label. */
+            sender: string;
+        };
+        Reaction: {
+            /** @description `you` (the person), `agent` (this thread's agent), or a person's label. */
+            by: string;
+            emoji: string;
         };
         /** @description a device has seen a session through one message. */
         ReadBody: {
@@ -1995,6 +2677,27 @@ export type components = {
             /** @description that message's id. */
             message: string;
         };
+        Reasoning: {
+            levels: string[];
+            word: components["schemas"]["ReasoningWord"];
+        };
+        ReasoningPart: {
+            at?: components["schemas"]["PartAt"] | null;
+            id: string;
+            messageID: string;
+            streaming?: boolean;
+            /** @description absent only on a settled part in the stream, which carries `textOf`. */
+            text?: string | null;
+            textOf?: components["schemas"]["TextOf"] | null;
+            time?: components["schemas"]["PartTime"] | null;
+        };
+        /** @enum {string} */
+        ReasoningWord: "effort" | "thinking";
+        /**
+         * @description why boxbox will not talk to an agent.
+         * @enum {string}
+         */
+        Refusal: "protocol" | "methods" | "auth" | "key";
         /** @enum {string} */
         RefusalKind: "busy" | "conflict" | "refused";
         Reloaded: {
@@ -2042,6 +2745,25 @@ export type components = {
         Restarting: {
             host: string;
         };
+        /** @enum {string} */
+        Risk: "normal" | "high";
+        /** @enum {string} */
+        Role: "user" | "assistant";
+        RunItem: {
+            /** Format: double */
+            at: number;
+            name?: string | null;
+            preview: string;
+            /** @description the run's thread id. */
+            thread: string;
+        };
+        /** @description the runs window's content: talking scheduled runs not yet seen. */
+        Runs: {
+            /** @description at most 12, newest last. */
+            items: components["schemas"]["RunItem"][];
+            /** Format: int32 */
+            unseen: number;
+        };
         Seat: {
             /**
              * @description the digit is a paired key holding this thread (a [`Binding`]), not a
@@ -2085,6 +2807,18 @@ export type components = {
             /** @description a `data:` url for a photo or document, a `file://` url for a mention. */
             url?: string | null;
         };
+        /**
+         * @description a send whose outcome boxbox could not confirm. gone 30 minutes after
+         *     `at`, or when the user message with its client id arrives.
+         */
+        SendState: {
+            /** Format: double */
+            at: number;
+            clientID: string;
+            state: components["schemas"]["SendStateKind"];
+        };
+        /** @enum {string} */
+        SendStateKind: "checking" | "uncertain" | "cancelled";
         Session: {
             signedIn: boolean;
         };
@@ -2134,6 +2868,8 @@ export type components = {
             /** @description the device class or client that answered ("iphone", "mac"). */
             by: string;
         };
+        /** @enum {string} */
+        SettlerKind: "device" | "channel" | "runtime" | "system";
         /** @description a `!` line. */
         Shell: {
             clientID: string;
@@ -2165,6 +2901,11 @@ export type components = {
          *     entry, discriminated on `type` across both.
          */
         StreamFrame: components["schemas"]["Control"] | components["schemas"]["JournalEntry"];
+        /**
+         * @description why a stream began with `reset`.
+         * @enum {string}
+         */
+        StreamResetReason: "none" | "epoch" | "expired" | "invalid";
         /** @description a `PushSubscription` as `toJSON()` gives it, plus who it belongs to. */
         Subscribe: {
             device: string;
@@ -2209,6 +2950,28 @@ export type components = {
         /** @enum {string} */
         TailKind: "text" | "reasoning" | "tool" | "file";
         /**
+         * @description a tail's change: drop `drop` items from the front, then put each item at
+         *     its index (replacing; the index equal to the length appends). the result
+         *     is at most 12 items and equals the server's tail exactly.
+         */
+        TailPatch: {
+            /** Format: int32 */
+            drop: number;
+            put: [
+                number,
+                {
+                    from?: string | null;
+                    kind: components["schemas"]["ThreadTailKind"];
+                    messageID: string;
+                    partID: string;
+                    role: string;
+                    state?: string | null;
+                    text: string;
+                    tool?: string | null;
+                }
+            ][];
+        };
+        /**
          * @description cmx2's message roles, as the daemon names them.
          * @enum {string}
          */
@@ -2249,8 +3012,231 @@ export type components = {
              */
             id: string;
         };
+        /**
+         * @description a settled text's length and hash (`docs/protocol.md`, section 8): the
+         *     client keeps the text it holds when both match, and re-reads the
+         *     message when they do not.
+         */
+        TextOf: {
+            /** @description fnv-1a 32 over the utf-16 code units, 8 lowercase hex. */
+            hash: string;
+            /**
+             * Format: int64
+             * @description utf-16 units.
+             */
+            length: number;
+        };
+        TextPart: {
+            at?: components["schemas"]["PartAt"] | null;
+            id: string;
+            mail?: components["schemas"]["Mail"] | null;
+            messageID: string;
+            /** @description a runtime or boxbox note (an ask cancelled by a restart, a media copy that failed). */
+            notice?: boolean;
+            streaming?: boolean;
+            /** @description context the runtime added, never shown as typed. */
+            synthetic?: boolean;
+            /** @description absent only on a settled part in the stream, which carries `textOf`. */
+            text?: string | null;
+            textOf?: components["schemas"]["TextOf"] | null;
+            time?: components["schemas"]["PartTime"] | null;
+        };
         /** @enum {string} */
         Theme: "system" | "dark" | "light";
+        Thread: {
+            activity: components["schemas"]["Activity"];
+            agent: string;
+            /**
+             * Format: int32
+             * @description child threads with a turn running now.
+             */
+            agents: number;
+            /** @description imported history: read, never send. present only when true. */
+            browseOnly?: boolean;
+            changes?: components["schemas"]["Changes"] | null;
+            /**
+             * Format: double
+             * @description set while the person has this thread cleared off home.
+             */
+            cleared?: number | null;
+            context?: components["schemas"]["Context"] | null;
+            /** Format: double */
+            cost?: number | null;
+            /**
+             * Format: double
+             * @description ms on the agent's clock.
+             */
+            created: number;
+            effort?: string | null;
+            /** @description opaque; changes when the agent swaps the conversation behind the key. */
+            generation?: string | null;
+            id: string;
+            /** @description `<agent>:<thread>`. */
+            key: string;
+            /** @description what the thread runs with now. */
+            model?: string | null;
+            needs: components["schemas"]["Need"][];
+            origin?: components["schemas"]["MessageOrigin"] | null;
+            /** @description the parent thread's id (the subagents capability). */
+            parent?: string | null;
+            place?: components["schemas"]["ThreadPlace"] | null;
+            /**
+             * Format: int32
+             * @description background jobs a parked thread waits on.
+             */
+            processes: number;
+            /** Format: int32 */
+            queued: number;
+            read?: components["schemas"]["ReadMark"] | null;
+            /**
+             * Format: double
+             * @description ms of the last turn that wrote text for you or raised an ask; set by
+             *     sources whose agent runs on its own, absent on cmx2.
+             */
+            said?: number | null;
+            /** @description sends boxbox could not confirm, at most 32. */
+            sends?: components["schemas"]["SendState"][] | null;
+            /** @description the window's tail, oldest first, at most 12. */
+            tail: components["schemas"]["ThreadTailItem"][];
+            title: string;
+            tokens?: components["schemas"]["ThreadTokens"] | null;
+            /** Format: double */
+            updated: number;
+            vcs?: components["schemas"]["Vcs"] | null;
+        };
+        /**
+         * @description a field of a thread that can become absent.
+         * @enum {string}
+         */
+        ThreadField: "said" | "generation" | "parent" | "place" | "origin" | "sends" | "model" | "effort" | "context" | "cost" | "tokens" | "vcs" | "changes" | "browseOnly" | "read" | "cleared";
+        /**
+         * @description a thread's change as only what changed (`docs/protocol.md`, section 6).
+         *     a client that holds no thread for `key` has a protocol error.
+         */
+        ThreadPatch: {
+            key: string;
+            set?: components["schemas"]["ThreadSet"] | null;
+            tail?: components["schemas"]["TailPatch"] | null;
+            /** @description fields that became absent (or null, for `read`). */
+            unset?: components["schemas"]["ThreadField"][];
+        };
+        ThreadPlace: {
+            /** @description where it works: a checkout's path for a thread in a worktree. */
+            directory: string;
+            /** @description the repo word windows and push titles use. */
+            name: string;
+            /** @description the repo or folder the thread belongs to. */
+            root: string;
+        };
+        /**
+         * @description the fields of a thread that changed, each whole. `key`, `agent` and `id`
+         *     never change; `tail` changes through `tail`.
+         */
+        ThreadSet: {
+            activity?: components["schemas"]["Activity"] | null;
+            /** Format: int32 */
+            agents?: number | null;
+            /** @description only ever `true` here; it becoming false is in `unset`. */
+            browseOnly?: boolean | null;
+            changes?: components["schemas"]["Changes"] | null;
+            /** Format: double */
+            cleared?: number | null;
+            context?: components["schemas"]["Context"] | null;
+            /** Format: double */
+            cost?: number | null;
+            /** Format: double */
+            created?: number | null;
+            effort?: string | null;
+            generation?: string | null;
+            model?: string | null;
+            needs?: components["schemas"]["Need"][] | null;
+            origin?: components["schemas"]["MessageOrigin"] | null;
+            parent?: string | null;
+            place?: components["schemas"]["ThreadPlace"] | null;
+            /** Format: int32 */
+            processes?: number | null;
+            /** Format: int32 */
+            queued?: number | null;
+            read?: components["schemas"]["ReadMark"] | null;
+            /** Format: double */
+            said?: number | null;
+            sends?: components["schemas"]["SendState"][] | null;
+            title?: string | null;
+            tokens?: components["schemas"]["ThreadTokens"] | null;
+            /** Format: double */
+            updated?: number | null;
+            vcs?: components["schemas"]["Vcs"] | null;
+        };
+        /**
+         * @description one part as a window shows it. contract 2's kinds add `image` and
+         *     `audio`; contract 1's encoder maps both to `file`.
+         */
+        ThreadTailItem: {
+            from?: string | null;
+            kind: components["schemas"]["ThreadTailKind"];
+            messageID: string;
+            partID: string;
+            role: string;
+            state?: string | null;
+            text: string;
+            tool?: string | null;
+        };
+        /** @enum {string} */
+        ThreadTailKind: "text" | "reasoning" | "tool" | "file" | "image" | "audio";
+        ThreadTokens: {
+            /** Format: int64 */
+            cacheRead: number;
+            /** Format: int64 */
+            cacheWrite: number;
+            /** Format: int64 */
+            input: number;
+            /** Format: int64 */
+            output: number;
+        };
+        ToolPart: {
+            at?: components["schemas"]["PartAt"] | null;
+            callID: string;
+            /**
+             * @description the server's family for the tool; rich rows read `input` and
+             *     `metadata` only when the family and the agent's source match theirs.
+             */
+            family: components["schemas"]["Family"];
+            id: string;
+            messageID: string;
+            state: components["schemas"]["ToolState"];
+            /** @description the tool's name, as the source calls it. */
+            tool: string;
+        };
+        ToolRef: {
+            callID: string;
+            messageID: string;
+        };
+        ToolState: {
+            /** @description files the tool made, as parts. */
+            attachments?: components["schemas"]["AgentPart"][] | null;
+            /**
+             * Format: int32
+             * @description attachments left out past a cap.
+             */
+            attachmentsDropped?: number | null;
+            error?: string | null;
+            /** @description the source's json, as it came. */
+            input: Record<string, never>;
+            /** @description the source's json, as it came. */
+            metadata?: Record<string, never> | null;
+            output?: string | null;
+            status: components["schemas"]["ToolStatus"];
+            time?: components["schemas"]["ToolTime"] | null;
+            title?: string | null;
+        };
+        /** @enum {string} */
+        ToolStatus: "pending" | "running" | "completed" | "error";
+        ToolTime: {
+            /** Format: double */
+            end?: number | null;
+            /** Format: double */
+            start?: number | null;
+        };
         /** @description a machine that did not answer, and why. */
         Unreached: {
             host: string;
@@ -2263,11 +3249,21 @@ export type components = {
             /** @description false when the device had no subscription. */
             removed: boolean;
         };
+        Vcs: {
+            branch: string;
+            dirty: boolean;
+        };
         /** @description dismissing a question, or stopping a turn. */
         Verb: {
             clientID: string;
             device: string;
             deviceClass: string;
+        };
+        Voice: {
+            /** @description you can record a voice note and the agent hears it (the mic key). */
+            notes: boolean;
+            /** @description the agent may answer with audio; gates nothing. */
+            replies: boolean;
         };
         /** @description cmx2's answer to a discard, as it came. */
         WorktreeDiscarded: {
@@ -4960,7 +5956,10 @@ export interface operations {
     };
     serve: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description a thumbnail width in device pixels: 96, 192, 384, 768 or 1536; ignored, and the original answers, while thumbnails are off (`THUMBNAILS`, protocol section 13). a png or webp wider than `w` answers itself scaled to `w` (aspect kept, same format, png and webp lossless) with `etag: "<id>.w<px>.s<n>"` (`n` the scaler's version, moved whenever the scaling's bytes would change), the same immutable caching and no ranges; at or under `w`, any other format, or an image with a colour profile, gamma, an orientation, animation or 16-bit samples, the original answers exactly as without `w` */
+                w?: number;
+            };
             header?: never;
             path: {
                 /** @description the media id: the sha256 of the bytes, 64 lowercase hex */
@@ -4970,7 +5969,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description the whole file (also for several ranges), with `accept-ranges: bytes`, `cache-control: private, max-age=31536000, immutable`, `etag: "<id>"`, the stored `content-type` for image, audio, video and pdf (`application/octet-stream` for every other kind) and a `content-disposition` (inline for image, audio, video and pdf; attachment otherwise) */
+            /** @description the whole file (also for several ranges), with `accept-ranges: bytes`, `cache-control: private, max-age=31536000, immutable`, `etag: "<id>"`, the stored `content-type` for image, audio, video and pdf (`application/octet-stream` for every other kind) and a `content-disposition` (inline for image, audio, video and pdf; attachment otherwise); or the thumbnail `w` asked for */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -4979,7 +5978,7 @@ export interface operations {
                     "*/*": number[];
                 };
             };
-            /** @description one `range: bytes=a-b`, with `content-range` */
+            /** @description one `range: bytes=a-b`, with `content-range` (never for a thumbnail) */
             206: {
                 headers: {
                     [name: string]: unknown;
@@ -4995,7 +5994,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description id is not 64 lowercase hex */
+            /** @description id is not 64 lowercase hex, or `w` is not on the ladder */
             400: {
                 headers: {
                     [name: string]: unknown;

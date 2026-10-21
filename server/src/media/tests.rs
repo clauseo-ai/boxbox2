@@ -548,6 +548,32 @@ async fn a_fifth_upload_at_once_is_turned_away_busy() {
     }
 }
 
+#[tokio::test]
+async fn a_waiting_copy_takes_its_turn_where_a_copy_answers_busy() {
+    let s = open(DEFAULT_MAX_BYTES).await;
+    let all = Arc::clone(&s.media.inner.copies)
+        .acquire_many_owned(u32::try_from(COPIES).unwrap())
+        .await
+        .unwrap();
+    let busy = s
+        .media
+        .copy(body(&png(100, 41)), declared("image/png"))
+        .await
+        .unwrap_err();
+    assert!(matches!(busy, MediaError::Busy), "{busy:?}");
+    let media = s.media.clone();
+    let waiting = tokio::spawn(async move {
+        media
+            .copy_waiting(body(&png(100, 41)), declared("image/png"))
+            .await
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!waiting.is_finished(), "it waits while every copy is taken");
+    drop(all);
+    let stored = waiting.await.unwrap().unwrap();
+    assert_eq!(stored.object.size, 100);
+}
+
 #[test]
 fn ids_types_and_names_are_checked_as_the_index_keeps_them() {
     assert!(is_id(&"a1".repeat(32)));
@@ -652,6 +678,7 @@ async fn a_commit_that_fails_its_row_write_loses_no_victim_and_leaves_no_file() 
                 };
                 index::commit(
                     c,
+                    &mut thumbs::Ledger::default(),
                     &index::Arrival {
                         object: &object,
                         origin: Origin::Agent,

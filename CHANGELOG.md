@@ -6,6 +6,16 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **thread pages, the thread summary and one-message reads** under
+  `/api/agents` (protocol 3, sections 11 and 12; additive, nothing reads
+  them yet): pages newest first by turn with versions, 304s and cache
+  rules that never make an unfinished answer immutable; a summary with
+  the turn index, files, cost, models, roster and children, equal to what
+  the app computes from a whole thread. attachments can be served by
+  reference (off until the app reads them); display-size thumbnails are
+  built but stay off, since webkit's own downscale and chromium's differ
+  too much for one scaler to pass the pixel check in both.
+
 - **streamed words fade in, and far turns are light.** every blur-in
   became an opacity fade with the same 360 ms timing (the thinking box,
   home window prose and summary counts; a window's new tail line keeps

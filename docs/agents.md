@@ -385,11 +385,21 @@ long enough to lose its delta and committed more rows than the widest
 tail.
 
 transcripts hydrate from `GET /api/agents/{agent}/threads/{thread}/messages`
-(contract 2: `{info: Message, parts: Part[]}[]`, stamped `x-boxbox-upstream:
-<epoch>:<seq>` when the source numbers its events) and one message from
-`.../messages/{message}`. the cmx2 body is translated message by message
+(`{messages: {info: Message, parts: Part[]}[], older, total, turns}`, the
+page shape of `protocol.md` section 11, with no query the whole thread;
+stamped `x-boxbox-seq` and `x-boxbox-upstream: <epoch>:<seq>` when the
+source numbers its events) and one message from `.../messages/{message}`
+(`no-store`). `turns`, `before` and `at` ask for a page of whole turns,
+newest first, cut from the same streamed read (`http/agents/page.rs`:
+at most the page's turns and one message held), with the etags and cache
+headers of `protocol.md` section 11; `.../summary` answers section 12's
+summary, folded from one streamed read (`fleet/summary/fold.rs`, the
+app's whole-thread computations ported and checked field for field on
+the thread fixtures) and kept per thread (`fleet/summary.rs`: 64
+threads or 8 MiB, children's numbers apart, one computation per thread at a time, reused while `v`
+holds and for 10 s while its epoch and `rv` do). the cmx2 body is translated message by message
 as it streams from the daemon, never parsed whole: one message at most in
-memory, capped at the upstream frame cap (8 MiB, `architecture.md`,
+memory, capped at 32 MiB (the composer's 24 MiB of `data:` urls with room; `architecture.md`,
 memory). for openclaw and hermes, hydration is one read through per
 thread at a time, shared by every client that asked while it runs (single
 flight), at most 2 a second per connection, and served from the
@@ -1072,7 +1082,8 @@ this contract.
 - **one owner.** the media task owns the directory and the index rows:
   writes, copies, eviction. the route reads files directly, by id.
 - **the cap** is `[media] max_bytes` in `boxbox.toml`, 2 GiB unless set,
-  and every file counts. the owner is the media task.
+  and every file counts, thumbnails included (`media/thumbs/`, the route
+  below). the owner is the media task.
 - **eviction.** when a write would pass the cap, the least recently used
   (by `last_used`, set on every serve) go first until the total is under
   90% of it. pinned media never go (an upload until its send settles or
@@ -1080,7 +1091,11 @@ this contract.
   remain, the new copy is refused and its part is `missing` with a notice
   saying the store is full and where to raise the cap. an evicted file's
   row stays as a tombstone (`evicted_at`), at most 100,000 rows, oldest
-  tombstones dropped first.
+  tombstones dropped first. thumbnails go before any file (they are made
+  again on request), by their original's `last_used`, with no floor, pin
+  or tombstone; a file that goes takes its thumbnails with it, and the
+  startup check removes thumbnails whose file is gone. a thumbnail never
+  evicts anything: one that does not fit is served and not kept.
 - **evicted media** answer 410 `media-evicted` on the route. the client
   keeps the card (name, size, duration, the transcript or spoken text it
   already has) with one line saying the file is no longer on the server,
@@ -1106,6 +1121,29 @@ this contract.
   repo icons), since an svg is a document.
 - the body streams from the file (`tokio::fs`), never read whole.
 - unknown id 404 `no-such-media`, evicted 410 `media-evicted`.
+- **thumbnails** (`protocol.md` section 13; `media/thumbs.rs`). off for
+  now: while `THUMBNAILS` is false, `?w=` is ignored and the original
+  answers exactly as without it (the scaling matches chromium but not
+  webkit, `verification.md`, thumbnails). switched on, `?w=<px>` with `w` one of 96, 192, 384, 768, 1536 (device pixels; any
+  other value is 400 `bad-request` in words; other query parameters are
+  ignored, as before). a png or webp wider than `w` answers itself scaled
+  to `w`, aspect kept and height rounded, in its own format (png and webp
+  both written lossless), with `cache-control: private, max-age=31536000,
+  immutable`, `etag: "<id>.w<px>"` (304 on a match), the stored type and
+  disposition, and no ranges (a `range` header gets the whole thumbnail).
+  at or under `w`, for every other format, and for an image carrying what
+  the browser applies and a thumbnail would drop (an icc profile, png
+  gamma or chromaticities without `sRGB`, an exif orientation, animation,
+  16-bit samples), or past 40 megapixels, `w` answers the original exactly
+  as without it, under `etag: "<id>"`; a client already holding `"<id>"`
+  for the url gets 304. jpeg and gif answer the original: jpeg failed the
+  pixel check (`verification.md`, thumbnails), gif is motion and a
+  palette. the scaling is chromium's own (a skia mip chain sampled
+  trilinearly on premultiplied pixels), so a thumbnail lands within 2/255
+  of the browser's own downscale. one scales at a time, off the runtime;
+  the result is served at once and handed to the media task, which keeps
+  it under `media/thumbs/<first 2 hex>/<id>.w<px>` if it fits and its file
+  is still live. no client asks `w` yet.
 
 ### upload
 

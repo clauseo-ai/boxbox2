@@ -19,6 +19,7 @@ pub mod ask;
 pub mod capabilities;
 pub mod message;
 pub mod part;
+pub mod patch;
 pub mod send;
 pub mod stream;
 pub mod thread;
@@ -40,9 +41,14 @@ pub use part::{
     ToolPart, ToolState, ToolStatus, ToolTime, UnknownPart,
 };
 pub use send::{Accepted, AcceptedState, AnswerBody, Attachment, Born, Send, Start, Unsupported};
-pub use stream::{Change, Control, Fleet, JournalEntry, PROTOCOL};
+pub use stream::{
+    Change, ColourFrame, Control, ENCODER, Fleet, Interest, InterestPost, JournalEntry, OrderOp,
+    PROTOCOL, RepoColour, ResetReason, StreamFrame, TailPatch, TextOf, ThreadField, ThreadPatch,
+    ThreadSet,
+};
 pub use thread::{
-    Activity, Changes, Context, Place, SendState, SendStateKind, TailItem, TailKind, Thread, Vcs,
+    Activity, Changes, Context, Place, SendState, SendStateKind, TailItem, TailKind, Thread,
+    Tokens, Vcs,
 };
 pub use verbs::{ModelEntry, Models};
 

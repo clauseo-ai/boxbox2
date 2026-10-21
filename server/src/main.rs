@@ -216,6 +216,7 @@ async fn run(config: Config) -> Result<(), StartupError> {
         icons,
         media,
         births: http::compose::Births::default(),
+        summaries: crate::fleet::summary::Summaries::new(),
         sends: source::sends::Sends::new(fleet_upstream),
         board: config.board.clone().map(board::Board::new),
         shutdown: shutdown.clone(),

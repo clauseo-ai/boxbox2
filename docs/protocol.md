@@ -720,7 +720,9 @@ for threads whose transcript really changed.
 they replace `/api/hosts/{host}/sessions/{session}/messages` and
 `.../messages/{message}`. the cmx2 body is translated message by message
 as it streams from the daemon, never parsed whole (one message in
-memory, at most the 8 MiB frame cap), as contract 2 planned.
+memory, at most 32 MiB: boxbox's own composer sends up to 24 MiB of
+`data:` urls in one message), as contract 2 planned. a body that sends
+nothing for 45 s ends the read, the stream's stall rule.
 
 every answer carries:
 
@@ -747,8 +749,12 @@ every answer carries:
   thread's newest turn (at most 1,000; past that every entry counts as a
   rewrite), and drops the set when the next turn starts.
 - the etag is `"<encoder>.<epoch>.<v or rv>.<q>"`, where `q` is a short
-  hash of the normalised query. a request whose `if-none-match` matches
-  answers `304` without asking the source. a thread the server holds no
+  hash of the normalised query (`turns`, `before`, `at`; `rv` stays out,
+  it changes the headers, not the bytes). a request whose `if-none-match`
+  matches the etag on the current `v` answers `304` without asking the
+  source. a match on the `rv` form alone does not: the same string can be
+  the `v` etag of a page that held the newest turn, so it is read again
+  (immutable pages are not asked for again anyway). a thread the server holds no
   version for (outside the 1,000 kept threads) gets no etag.
 
 ### pages, newest first
@@ -760,14 +766,17 @@ are oldest first; pages go from newest to oldest.
 
 | query | meaning |
 |---|---|
-| none | the newest 8 turns |
+| none | the newest 8 turns, from a2's merge on; until then the whole thread (`older` null), so the app reads whole until it pages |
 | `turns=K` | at most `K` whole turns, 1 to 64 |
 | `before=<message id>` | only turns older than the turn that message starts (the `older` of the page after) |
 | `at=<message or part id>` | the turn holding it and up to `K - 1` turns older: a jump from the ruler, the turns panel, a `?at=` or `?part=` link, or a push focus (the ask's `tool.messageID`) |
-| `rv=<n>` | on an older page: the rewrite version the client expects (makes the page cacheable, below) |
+| `rv=<epoch>.<n>` | on an older page: the rewrite version the client expects, with the epoch it was read in (makes the page cacheable, below; a url kept for ever never meets the same `rv` from another epoch) |
 
 a page also stops adding older turns past 1 MiB of json (it always holds
-at least one turn).
+at least one turn). one turn a page holds is at most 64 MiB of json: the
+server holds each message of it once, and a page that would hold a
+bigger turn answers `413` `page-too-large`; that thread is read whole.
+an anchor the thread does not hold answers `404` `no-such-message`.
 
 ```
 {"messages": [{"info": {...}, "parts": [...]}],
@@ -775,20 +784,22 @@ at least one turn).
 ```
 
 `older` is the id to pass as `before` for the next page, null at the
-start; `total` counts messages and `turns` counts turns in the whole
-thread.
+start; `total` counts messages and `turns` counts the turns the app
+shows in the whole thread, the summary's `turns[]` length: one per user
+message, less a newest one with no part yet. messages before the first
+user message ride in the oldest page as turn 0 and count as none.
 
 ### cache headers
 
 - the newest page (no `before`; or `at` landing in the newest turn):
   `cache-control: private, no-cache` with the etag on `v`.
-- an older page with `rv` equal to the thread's current `rv`, none of
+- an older page with `rv` equal to the thread's current epoch and `rv`, none of
   whose messages is in the newest turn as `rv` counts it (a queued prompt
   and the answer streaming ahead of it are) and all of whose assistant
   messages have `time.completed`:
   `cache-control: private, max-age=31536000, immutable`, etag on `rv`.
   its bytes can only change if `rv` moves, and then the client asks with
-  the new `rv`, a new url. an older page holding any message of the
+  the new `rv` (or the new epoch), a new url. an older page holding any message of the
   newest turn, or an unfinished answer, is `private, no-cache` with the
   etag on `v`: a half answer is never cached immutable.
 - an older page without `rv`, or with a stale one: `private, no-cache`
@@ -797,16 +808,21 @@ thread.
 
 ## 12. the thread summary
 
-`GET .../summary`, etag on `v`, `cache-control: private, no-cache`. it
+`GET .../summary`, etag on `v` with a short hash of each child's key and
+the `v` its numbers came from, or that it failed or was not read (a
+working child moves it), `cache-control: private, no-cache`. it
 gives the app everything it reads from the whole history without the
 history (round three, thread history), computed by the server from one
 streamed read of the thread, cached per `(key, v)` (64 summaries or
-8 MiB, single flight per thread).
+8 MiB, single flight per thread; children's numbers in their own pool,
+1,024 children or 1 MiB, so they never evict a thread's summary).
 
 `v` moves on every transcript entry, so a streaming thread would cost a
 whole streamed read per request. a thread's summary is computed at most
-once per 10 s: a request inside that window gets the cached summary with
-its own `v` in the body and the etag. that is enough because the client
+once per 10 s while its epoch and `rv` hold: a request inside that window
+gets the cached summary with its own `v` in the body and the etag. a
+revert, a removal or a reset moves `rv` or the epoch and is computed
+again at once, so no stale turn list is served or confirmed by a `304`. that is enough because the client
 derives every turn it holds (the newest turn always) from its messages;
 the summary only speaks for turns it does not hold, which a stream entry
 for a message it does not hold tells it to fetch again.
@@ -821,7 +837,7 @@ for a message it does not hold tells it to fetch again.
     "answered": true, "messages": 9},
    {"id": "msg_40", "by": "mail", "from": "researcher", "fromID": "ses_9",
     "at": 1792050100000, "end": 1792050100000, "line": "", "steps": 0,
-    "status": "done", "answered": true, "messages": 1}
+    "status": "done", "answered": false, "messages": 1}
  ],
  "spawns": [{"turn": "msg_01", "part": "prt_2_3_1", "name": "researcher",
              "type": "explore", "child": "ses_9", "at": 1792050010000}],
@@ -832,15 +848,15 @@ for a message it does not hold tells it to fetch again.
 
 | field | what reads it today |
 |---|---|
-| `turns[]` | one per turn, in order, every kind (notices too): the ruler (prompts are `by` in you, queued, steer, brief, `stage.tsx:756`), the turns panel (all but notices, `stage.tsx:786`), the status count (all, `stage.tsx:252-254`), details steps, models and switches (`details-model.ts:109-203`) |
+| `turns[]` | one per turn, in order, every kind (notices too): the ruler (prompts are `by` in you, queued, brief, `stage.tsx:756`; the app derives no `steer` turn today, so the summary has none), the turns panel (all but notices, `stage.tsx:786`), the status count (all, `stage.tsx:252-254`), details steps, models and switches (`details-model.ts:109-203`) |
 | `by`, `from`, `fromID`, `note` | the turn's origin as `model.ts:433-455` derives it |
 | `line` | the first non-blank line of the prompt, cut at 300 characters, read from its first 20,000 (`stage.tsx:890`); empty for a prompt with only an image, `compacted` and mail labels are built by the client as today |
 | `steps`, `ask`, `error` | tool parts in the turn; one of them of family `ask`; one an error that was not interrupted (`rows.ts:71`) |
-| `at`, `end`, `status`, `answered` | `model.ts:565-632` |
+| `at`, `end`, `status`, `answered` | `model.ts:565-632`; `answered` is the app's rule: the turn ended in said words after its last step (a turn of only a prompt, a mail turn among them, is not answered) |
 | `model`, `effort`, `cost` | the last assistant message's model and effort; the sum of assistant costs, compaction summaries excluded (`model.ts:577-586`) |
 | `spawns[]` | each spawn step: the agent row, the roster, the report link (`model.ts:364-371`, `details-model.ts:28-54`, `rows.ts:318-322,490`) |
-| `files[]` | per path, add and del summed over completed edit steps, newest edited first (`model.ts:612-616`, `details-model.ts:86-103`) |
-| `children[]` | each child thread's step count and first and last times, for the agent rows and lanes (`live.ts:155-185`); a child's own summary has the same numbers |
+| `files[]` | per path, add and del summed over completed edit steps, in the order the app lists them: newest turn first, and inside a turn the reverse of each path's first edit; a path seen in a newer turn keeps that place, and `at` is its newest edit (`model.ts:612-616`, `details-model.ts:86-103`) |
+| `children[]` | each child thread's step count and first and last times, for the agent rows and lanes (`live.ts:155-185`); a child's own summary has the same numbers. the first 64 children are read, 4 at a time, each within 10 s and all within 15 s; one past the count or the time, gone, failing or late is `{key}` alone, as the app shows a child it has not read (no step count), and never fails the summary. a child that failed or ran late is not read again for 30 s; the etag counts it by its key and that it failed |
 
 how the app uses it: turns it holds come from the messages, as today;
 turns it does not hold come from `turns[]` and show their placeholder at
@@ -863,8 +879,18 @@ summary.
   state: "ready"}`, `size`, and for an image its `width` and `height` from
   its header. the source waits for the media task's acknowledgement
   before passing the event on, within the media caps (2 copies in flight
-  and 64 queued per connection). when the store refuses (full), the part
-  keeps its `data:` url, so it shows as it does today. decision 32 (cmx2
+  and 64 queued per connection, each copy also waiting for one of the
+  store's 8; a url past the queue keeps its `data:` url). a url the
+  connection copied before (the last 1,024, by the sha256 of the url) is
+  not copied again while the store still holds its id. when the store
+  refuses (full), the part
+  keeps its `data:` url, so it shows as it does today. until a3's merge
+  the references are off (`MEDIA_REFERENCES`, an internal constant, no
+  `boxbox.toml` key): parts keep their `data:` urls; a3's merge flips it.
+  thumbnails are off the same way (`THUMBNAILS` in `media/thumbs.rs`):
+  until it is switched on with a3's merge, `?w=` is ignored and the
+  original answers exactly as without it.
+  decision 32 (cmx2
   files travel inline) still holds between cmx2 and the server, not to
   devices.
 - **the route** is today's `GET /api/media/{id}`:
@@ -875,15 +901,30 @@ summary.
   up). the server scales the image to that width, never up (at or past
   the original width it answers the original), keeps the format (png
   stays lossless), caches the variant under `media/thumbs/` against the
-  media cap, and answers it immutable with etag `"<id>.w<px>"`.
-  scaling uses a resampling crate (named, with its licence, in
-  `THIRD_PARTY.md` by the package that adds it). thumbnails ship only for
+  media cap, and answers it immutable with etag `"<id>.w<px>.s<n>"`,
+  `n` the scaler's version (`SCALER_VERSION`), moved by any change that
+  would change a thumbnail's bytes, so an etag a client holds as
+  immutable never names other bytes. a thumbnail past 1536 by 4096
+  pixels (`MAX_THUMB_PIXELS`), or an original past 40 M pixels, answers
+  the original.
+  the scaling is written in `media/thumbs.rs`: chromium's own mip chain
+  (skia's 2x2 levels, sampled trilinearly on premultiplied pixels), since
+  every filter a resampling crate offers (lanczos3, catmull-rom, triangle,
+  box) failed the bar by far; the one crate added is `image`, for the png
+  and webp codecs (`THIRD_PARTY.md`). thumbnails ship only for
   a format that passes the pixel check: at least 99.9% of pixels within 2
   of 255 per channel of the browser's own downscale of the original in the
   same box, in webkit and chromium at device pixel ratios 2 and 3 (the
   owner's q4 answer; `verification.md` records that this is near, not
   identical). for a format that fails, `w` answers the original, so the
   app never branches.
+  **as built:** in chromium, png and webp pass (both written lossless)
+  and jpeg fails; gif (motion, a palette) was not offered. in webkit
+  (a WKWebView at dpr 2 and 3) every format fails: webkit's own downscale
+  differs from chromium's by more than the bar, so no one thumbnail can
+  pass both (`verification.md`, thumbnails). so `THUMBNAILS` stays off and
+  every `w` answers the original; jpeg and gif answer the original even
+  when it is on (`agents.md`, the route).
 - **on the device.** the worker fetches by id (and `w`), keeps the bytes
   as a blob in indexeddb, and hands the page a `blob:` url; it revokes
   urls no on-screen thread uses. copy image fetches the original. tail

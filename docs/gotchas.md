@@ -1783,3 +1783,5 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
 - **anything that takes controls out of a turn leaves `[data-copy-held]` marks.** copy names
   the controls below it by position (copy-run.ts renameAll), so a far turn's stand-in that
   dropped its copy buttons without the marks shifted every copy name under it.
+- **tower-http compression polls a body after it has ended.** a streamed body built with
+  `stream::unfold` must be fused, or the whole-thread read panics once it goes through gzip.

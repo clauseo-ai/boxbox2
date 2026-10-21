@@ -1,0 +1,151 @@
+{
+ "thread": "northstar-heavy.ses_f9e06dac4ffeWesFqrB3Echd9w",
+ "fixture": "northstar-heavy",
+ "source": {
+  "child": 0
+ },
+ "directory": "/",
+ "total": 105,
+ "turns": [
+  {
+   "id": "msg_061f92561001zRzJ4fGXDcP7IP",
+   "by": "mail",
+   "from": "/root",
+   "at": 1788350113122,
+   "end": 1788351593835,
+   "line": "",
+   "steps": 128,
+   "ask": false,
+   "error": false,
+   "status": "done",
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "high",
+   "cost": 16.67819074999999,
+   "answered": true,
+   "messages": 105
+  }
+ ],
+ "spawns": [],
+ "files": [
+  {
+   "path": "Docs/XCLOUD_PROTOCOL.md",
+   "add": 14,
+   "del": 8,
+   "at": 1788350932839
+  },
+  {
+   "path": "Docs/WEBRTC_CAPABILITIES.md",
+   "add": 8,
+   "del": 5,
+   "at": 1788350897010
+  },
+  {
+   "path": "Tools/webrtc-build/build_webrtc_tvos.sh",
+   "add": 11,
+   "del": 0,
+   "at": 1788350748658
+  },
+  {
+   "path": "Packages/StreamingCore/Tests/StreamingCoreTests/StreamingRuntimeTests.swift",
+   "add": 96,
+   "del": 7,
+   "at": 1788350801988
+  },
+  {
+   "path": "Packages/StreamingCore/Tests/StreamingCoreTests/StreamingCoreTestSupport.swift",
+   "add": 8,
+   "del": 1,
+   "at": 1788350682955
+  },
+  {
+   "path": "Packages/NorthstarCore/Tests/NorthstarCoreTests/StreamConfigBuilderTests.swift",
+   "add": 21,
+   "del": 0,
+   "at": 1788350646187
+  },
+  {
+   "path": "Packages/NorthstarModels/Tests/NorthstarModelsTests/NorthstarModelsTests.swift",
+   "add": 2,
+   "del": 2,
+   "at": 1788350637512
+  },
+  {
+   "path": "Packages/StreamingCore/Sources/StreamingCore/Rendering/StreamingSessionRendererTelemetry.swift",
+   "add": 5,
+   "del": 5,
+   "at": 1788350628805
+  },
+  {
+   "path": "Packages/StreamingCore/Sources/StreamingCore/Runtime/StreamingRuntime.swift",
+   "add": 41,
+   "del": 1,
+   "at": 1788350621725
+  },
+  {
+   "path": "Packages/NorthstarModels/Sources/NorthstarModels/Streaming/StreamingConfig.swift",
+   "add": 2,
+   "del": 1,
+   "at": 1788350589609
+  },
+  {
+   "path": "Packages/NorthstarCore/Sources/NorthstarCore/StreamConfigBuilder.swift",
+   "add": 2,
+   "del": 1,
+   "at": 1788350582112
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/WebRTCClientImplTVOSAudio.swift",
+   "add": 2,
+   "del": 1,
+   "at": 1788350572787
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/WebRTCClientImplStats.swift",
+   "add": 58,
+   "del": 6,
+   "at": 1788350552526
+  },
+  {
+   "path": "Packages/StreamingCore/Sources/StreamingCore/Metrics/StreamingSessionMetricsSupport.swift",
+   "add": 9,
+   "del": 0,
+   "at": 1788350505280
+  },
+  {
+   "path": "Packages/NorthstarModels/Sources/NorthstarModels/Streaming/StreamingRuntime.swift",
+   "add": 29,
+   "del": 0,
+   "at": 1788350499118
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/WebRTCClientImplDataChannels.swift",
+   "add": 11,
+   "del": 8,
+   "at": 1788350470345
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/WebRTCClientImplBridge.swift",
+   "add": 80,
+   "del": 13,
+   "at": 1788351494082
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/WebRTCClientStateSupport.swift",
+   "add": 96,
+   "del": 1,
+   "at": 1788350411343
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/WebRTCClientImpl.swift",
+   "add": 42,
+   "del": 6,
+   "at": 1788350361110
+  }
+ ],
+ "child": {
+  "key": "ses_f9e06dac4ffeWesFqrB3Echd9w",
+  "steps": 128,
+  "first": 1788350113122,
+  "end": 1788351593835
+ }
+}

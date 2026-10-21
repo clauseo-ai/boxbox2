@@ -472,4 +472,6 @@ fn frame(directory: Option<&str>, payload: &RawValue) -> Result<String, String> 
 }
 
 #[cfg(test)]
+mod protocol3;
+#[cfg(test)]
 mod tests;

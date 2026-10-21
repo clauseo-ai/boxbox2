@@ -31,6 +31,7 @@ pub mod board;
 pub mod change;
 pub mod clears;
 pub mod colours;
+pub mod encode;
 pub mod model;
 pub mod needs;
 pub mod read;
@@ -38,6 +39,7 @@ pub mod read;
 pub mod record;
 #[cfg(test)]
 mod replay;
+pub mod summary;
 #[cfg(any(test, feature = "record"))]
 pub mod tape;
 

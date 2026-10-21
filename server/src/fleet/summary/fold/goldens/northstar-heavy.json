@@ -1,0 +1,268 @@
+{
+ "thread": "northstar-heavy",
+ "fixture": "northstar-heavy",
+ "source": "messages",
+ "directory": "/",
+ "total": 209,
+ "turns": [
+  {
+   "id": "msg_061787eac001dvkZD3xIV1qIq9",
+   "by": "you",
+   "at": 1788341681836,
+   "end": 1788341744770,
+   "line": "Users/dev/Downloads/northstar-main - whenever i use upscaling the whole thing becomes janky with a ot of dropping frames. research upscaling latest tvos 27 stuff, and lemme know what’s the bedt performant strategy for wnjoyable cloud gaming setups. if there’s other perf stuff that can help the strea",
+   "steps": 12,
+   "ask": false,
+   "error": false,
+   "status": "done",
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "max",
+   "cost": 2.38625575,
+   "answered": false,
+   "messages": 13
+  },
+  {
+   "id": "msg_061f23cba001FqrH7Oyh3bJZv8",
+   "by": "you",
+   "at": 1788349660346,
+   "end": 1788351591258,
+   "line": "okay now go ahead and implement everything. i want a buttery smooth gameplay experience",
+   "steps": 89,
+   "ask": false,
+   "error": false,
+   "status": "done",
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "max",
+   "cost": 22.912281750000005,
+   "answered": false,
+   "messages": 90
+  },
+  {
+   "id": "msg_0620fb36b0010uDUaicZP4OWY3",
+   "by": "mail",
+   "from": "transport_impl",
+   "at": 1788351591275,
+   "end": 1788352379157,
+   "line": "",
+   "steps": 42,
+   "ask": false,
+   "error": false,
+   "status": "done",
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "max",
+   "cost": 10.361215499999997,
+   "answered": true,
+   "messages": 44
+  },
+  {
+   "id": "msg_0621c232d001MABVz5GQUHo1uS",
+   "by": "you",
+   "at": 1788352406317,
+   "end": 1788352561899,
+   "line": "commit push and deploy to my tv",
+   "steps": 12,
+   "ask": false,
+   "error": false,
+   "status": "done",
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "max",
+   "cost": 2.9373035,
+   "answered": true,
+   "messages": 14
+  },
+  {
+   "id": "msg_0622074b5001xw8vaMtbG2jbEA",
+   "by": "compaction",
+   "at": 1788352689333,
+   "end": 1788352689333,
+   "line": "",
+   "steps": 0,
+   "status": "done",
+   "answered": false,
+   "messages": 2
+  },
+  {
+   "id": "msg_0623939d3001N3n6bSoS9Vl9ZL",
+   "by": "you",
+   "at": 1788354312659,
+   "end": 1788354949923,
+   "line": "yeah it’s after connecting, it shows connected, but - on frame rate, nitrate and packet loss and render delay, input and output both still show 1920x1080",
+   "steps": 28,
+   "ask": false,
+   "error": false,
+   "status": "aborted",
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "max",
+   "cost": 4.02580325,
+   "answered": false,
+   "messages": 29
+  },
+  {
+   "id": "msg_0629e4f97001eqAIrfb3h8Gf59",
+   "by": "you",
+   "at": 1788360937367,
+   "end": 1788362009112,
+   "line": "i just played a whole game, better but still not there yet. what can we do to improve perf",
+   "steps": 15,
+   "ask": false,
+   "error": true,
+   "status": "done",
+   "model": "anthropic/claude-fable-5-1",
+   "effort": "max",
+   "cost": 8.367636999999997,
+   "answered": true,
+   "messages": 17
+  }
+ ],
+ "spawns": [
+  {
+   "turn": "msg_061f23cba001FqrH7Oyh3bJZv8",
+   "part": "prt_061f7ceb200du5OU9T1Kb1aE85",
+   "name": "transport_impl",
+   "type": "general",
+   "at": 1788350068041
+  },
+  {
+   "turn": "msg_061f23cba001FqrH7Oyh3bJZv8",
+   "part": "prt_061f8a5480025Ojtze59ekG5IM",
+   "name": "transport_impl",
+   "type": "general",
+   "child": "ses_f9e06dac4ffeWesFqrB3Echd9w",
+   "at": 1788350113091
+  }
+ ],
+ "files": [
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Features/Streaming/Rendering/RendererAttachmentCoordinator.swift",
+   "add": 902,
+   "del": 3,
+   "at": 1788361199715
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Features/CloudLibrary/Settings/NorthstarSettingsForm.swift",
+   "add": 7,
+   "del": 1,
+   "at": 1788361182834
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/MetalVideoRendererPresentationResources.swift",
+   "add": 339,
+   "del": 5,
+   "at": 1788361160984
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/MetalVideoRendererDrawPipeline.swift",
+   "add": 348,
+   "del": 16,
+   "at": 1788361174926
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/MetalVideoRenderer.swift",
+   "add": 504,
+   "del": 56,
+   "at": 1788361135426
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Features/Streaming/StreamView.swift",
+   "add": 3,
+   "del": 1,
+   "at": 1788352281408
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/WebRTCClientImpl.swift",
+   "add": 2,
+   "del": 1,
+   "at": 1788351680416
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Features/Streaming/Rendering/SampleBufferDisplayRendererLowLatencySuperResolution.swift",
+   "add": 471,
+   "del": 0,
+   "at": 1788351511534
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Features/Streaming/Rendering/SampleBufferDisplayRendererLowLatencySupport.swift",
+   "add": 222,
+   "del": 0,
+   "at": 1788351426397
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Features/Streaming/Rendering/SampleBufferDisplayRendererLifecycle.swift",
+   "add": 144,
+   "del": 0,
+   "at": 1788351392464
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Features/Streaming/Rendering/SampleBufferDisplayRendererPlainPipeline.swift",
+   "add": 344,
+   "del": 0,
+   "at": 1788351370549
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Features/Streaming/Rendering/SampleBufferDisplayRenderer.swift",
+   "add": 192,
+   "del": 0,
+   "at": 1788351316931
+  },
+  {
+   "path": "Apps/Northstar/Tests/NorthstarTests/Streaming/StreamSurfaceModelTests.swift",
+   "add": 3,
+   "del": 1,
+   "at": 1788351254271
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/../Features/Streaming/Rendering/UIKitAdapters/RendererContainerView.swift",
+   "add": 67,
+   "del": 0,
+   "at": 1788350681407
+  },
+  {
+   "path": "Apps/Northstar/Sources/Northstar/Integration/WebRTC/CASShader.metal",
+   "add": 95,
+   "del": 0,
+   "at": 1788350665643
+  },
+  {
+   "path": "Packages/NorthstarCore/Sources/NorthstarCore/SettingsStore.swift",
+   "add": 50,
+   "del": 1,
+   "at": 1788350501168
+  },
+  {
+   "path": "Packages/VideoRenderingKit/Tests/VideoRenderingKitTests/UpscaleCapabilityResolverTests.swift",
+   "add": 316,
+   "del": 0,
+   "at": 1788350342120
+  },
+  {
+   "path": "Packages/VideoRenderingKit/Sources/VideoRenderingKit/RenderLadderPlanner.swift",
+   "add": 240,
+   "del": 0,
+   "at": 1788350293051
+  },
+  {
+   "path": "Packages/VideoRenderingKit/Sources/VideoRenderingKit/LiveUpscaleCapabilityProbe.swift",
+   "add": 55,
+   "del": 0,
+   "at": 1788350258970
+  },
+  {
+   "path": "Packages/VideoRenderingKit/Sources/VideoRenderingKit/UpscaleCapabilityResolver.swift",
+   "add": 192,
+   "del": 0,
+   "at": 1788350247686
+  },
+  {
+   "path": "Packages/VideoRenderingKit/Sources/VideoRenderingKit/UpscaleStrategy.swift",
+   "add": 46,
+   "del": 0,
+   "at": 1788350224203
+  }
+ ],
+ "child": {
+  "key": "ses_f9e87817fffeH0tZHSX6W8HVg5",
+  "steps": 198,
+  "first": 1788341681836,
+  "end": 1788362009112
+ }
+}

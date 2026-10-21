@@ -36,6 +36,8 @@ data-encoding = "2.11"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
 hmac = "0.13"
+# thumbnails: the png and webp codecs only; the scaling is media/thumbs.rs
+image = { version = "0.25", default-features = false, features = ["png", "webp"] }
 jiff = "0.2.37"
 p256 = { version = "0.13.2", default-features = false, features = ["ecdsa", "std"] }
 rand = "0.10"
@@ -72,4 +74,6 @@ syn = { version = "3", features = ["full"] }
 typify = "0.8.0"
 
 [dev-dependencies]
+# the pixel check hook measures jpeg too (media/thumbs/tests.rs); the server never encodes it
+image = { version = "0.25", default-features = false, features = ["png", "webp", "jpeg"] }
 tokio = { version = "1.53", features = ["test-util"] }

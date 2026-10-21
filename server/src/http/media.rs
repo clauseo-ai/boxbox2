@@ -1,6 +1,7 @@
 //! the media routes (`agents.md`, media): `POST /api/media` streams one
 //! file of any kind into the store, and `GET`/`HEAD /api/media/{id}` serve
-//! it back with ranges and immutable caching. the store, its caps and its
+//! it back with ranges and immutable caching, or with `?w=` a thumbnail at
+//! a ladder width (`media/thumbs.rs`, `docs/protocol.md` section 13). the store, its caps and its
 //! eviction are `media/`; this file is the http face and the one place a
 //! media error becomes a status.
 //!
@@ -14,7 +15,7 @@ use std::time::Instant;
 
 use axum::Json;
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
@@ -24,6 +25,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use super::AppState;
 use super::error::{ErrorBody, ErrorDetail};
 use crate::media::range::{self, Answer};
+use crate::media::thumbs;
 use crate::media::{
     BUSY_RETRY_S, Declared, Lookup, MEDIA_BODY, Media, MediaError, MediaObject, WAVEFORM_BYTES,
     clean_filename, is_id, normalize_mime,
@@ -229,16 +231,19 @@ fn percent_decode(raw: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// a stored file, whole or one range of it.
+/// a stored file, whole or one range of it, or a thumbnail of an image.
 #[utoipa::path(
     get,
     path = "/api/media/{id}",
-    params(("id" = String, Path, description = "the media id: the sha256 of the bytes, 64 lowercase hex")),
+    params(
+        ("id" = String, Path, description = "the media id: the sha256 of the bytes, 64 lowercase hex"),
+        ("w" = Option<u32>, Query, description = "a thumbnail width in device pixels: 96, 192, 384, 768 or 1536; ignored, and the original answers, while thumbnails are off (`THUMBNAILS`, protocol section 13). a png or webp wider than `w` answers itself scaled to `w` (aspect kept, same format, png and webp lossless) with `etag: \"<id>.w<px>.s<n>\"` (`n` the scaler's version, moved whenever the scaling's bytes would change), the same immutable caching and no ranges; at or under `w`, any other format, or an image with a colour profile, gamma, an orientation, animation or 16-bit samples, the original answers exactly as without `w`"),
+    ),
     responses(
-        (status = 200, description = "the whole file (also for several ranges), with `accept-ranges: bytes`, `cache-control: private, max-age=31536000, immutable`, `etag: \"<id>\"`, the stored `content-type` for image, audio, video and pdf (`application/octet-stream` for every other kind) and a `content-disposition` (inline for image, audio, video and pdf; attachment otherwise)", content_type = "*/*", body = Vec<u8>),
-        (status = 206, description = "one `range: bytes=a-b`, with `content-range`", content_type = "*/*", body = Vec<u8>),
+        (status = 200, description = "the whole file (also for several ranges), with `accept-ranges: bytes`, `cache-control: private, max-age=31536000, immutable`, `etag: \"<id>\"`, the stored `content-type` for image, audio, video and pdf (`application/octet-stream` for every other kind) and a `content-disposition` (inline for image, audio, video and pdf; attachment otherwise); or the thumbnail `w` asked for", content_type = "*/*", body = Vec<u8>),
+        (status = 206, description = "one `range: bytes=a-b`, with `content-range` (never for a thumbnail)", content_type = "*/*", body = Vec<u8>),
         (status = 304, description = "the `if-none-match` etag is current"),
-        (status = 400, description = "id is not 64 lowercase hex", body = ErrorBody),
+        (status = 400, description = "id is not 64 lowercase hex, or `w` is not on the ladder", body = ErrorBody),
         (status = 401, description = "not signed in", body = ErrorBody),
         (status = 404, description = "`no-such-media`: boxbox never held it", body = ErrorBody),
         (status = 410, description = "`media-evicted`: the store made room for newer files", body = ErrorBody),
@@ -248,16 +253,40 @@ fn percent_decode(raw: &str) -> Option<String> {
 pub async fn serve(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    RawQuery(query): RawQuery,
     method: Method,
     headers: HeaderMap,
 ) -> Response {
-    give(&state.media, &id, &method, &headers).await
+    give(
+        &state.media,
+        &id,
+        width_of(query.as_deref(), thumbs::THUMBNAILS),
+        &method,
+        &headers,
+    )
+    .await
 }
 
-/// the serve, given the store: what the route and its tests share.
-pub async fn give(media: &Media, id: &str, method: &Method, headers: &HeaderMap) -> Response {
+/// the `w` a query asks for, if any (the first) and thumbnails are `on`;
+/// every other parameter is ignored, as it always was.
+fn width_of(query: Option<&str>, on: bool) -> Option<&str> {
+    if !on {
+        return None;
+    }
+    query?.split('&').find_map(|pair| pair.strip_prefix("w="))
+}
+
+/// the serve, given the store and the `w` asked for: what the route and its
+/// tests share.
+pub async fn give(
+    media: &Media,
+    id: &str,
+    w: Option<&str>,
+    method: &Method,
+    headers: &HeaderMap,
+) -> Response {
     let started = Instant::now();
-    let (response, bytes, first) = match answer(media, id, method, headers).await {
+    let (response, bytes, first) = match answer(media, id, w, method, headers).await {
         Ok(served) => served,
         Err(refusal) => (refusal.into_response(), 0, true),
     };
@@ -273,6 +302,7 @@ pub async fn give(media: &Media, id: &str, method: &Method, headers: &HeaderMap)
 async fn answer(
     media: &Media,
     id: &str,
+    w: Option<&str>,
     method: &Method,
     headers: &HeaderMap,
 ) -> Result<(Response, u64, bool), Refusal> {
@@ -281,12 +311,27 @@ async fn answer(
             "a media id is 64 lowercase hex characters".into(),
         ));
     }
+    let w = w
+        .map(|raw| {
+            thumbs::width(raw).ok_or_else(|| {
+                Refusal::BadRequest(
+                    "w is a thumbnail width in device pixels: 96, 192, 384, 768 or 1536".into(),
+                )
+            })
+        })
+        .transpose()?;
     let object = match media.lookup(id).await.map_err(Refusal::Store)? {
         Lookup::Ready(object) => object,
         Lookup::Evicted => return Err(Refusal::Evicted),
         Lookup::Unknown => return Err(Refusal::NoSuchMedia),
     };
     let etag = format!("\"{id}\"");
+    if let Some(w) = w
+        && thumbs::Format::of(&object.mime).is_some()
+        && let Some(served) = thumbnail(media, &object, w, &etag, method, headers).await?
+    {
+        return Ok(served);
+    }
     let mut base = HeaderMap::new();
     base.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     base.insert(header::CACHE_CONTROL, HeaderValue::from_static(IMMUTABLE));
@@ -362,6 +407,52 @@ async fn answer(
         headers.insert(header::CONTENT_DISPOSITION, value);
     }
     Ok((response, length, first))
+}
+
+/// the thumbnail answer, or `None` when the original answers instead (also
+/// when the client already holds the original under this url).
+async fn thumbnail(
+    media: &Media,
+    object: &MediaObject,
+    w: u32,
+    original: &str,
+    method: &Method,
+    headers: &HeaderMap,
+) -> Result<Option<(Response, u64, bool)>, Refusal> {
+    let etag = format!("\"{}\"", thumbs::name(&object.id, w));
+    let mut base = HeaderMap::new();
+    base.insert(header::CACHE_CONTROL, HeaderValue::from_static(IMMUTABLE));
+    if let Ok(value) = HeaderValue::from_str(&etag) {
+        base.insert(header::ETAG, value);
+    }
+    let held = headers.get(header::IF_NONE_MATCH);
+    if matches(held, &etag) {
+        let mut response = StatusCode::NOT_MODIFIED.into_response();
+        response.headers_mut().extend(base);
+        return Ok(Some((response, 0, false)));
+    }
+    if matches(held, original) {
+        return Ok(None);
+    }
+    let Some(bytes) = media.thumbnail(object, w).await.map_err(Refusal::Media)? else {
+        return Ok(None);
+    };
+    let length = bytes.len() as u64;
+    let mut response = if *method == Method::HEAD {
+        Response::new(Body::empty())
+    } else {
+        Response::new(Body::from(bytes))
+    };
+    let headers = response.headers_mut();
+    headers.extend(base);
+    if let Ok(value) = HeaderValue::from_str(&object.mime) {
+        headers.insert(header::CONTENT_TYPE, value);
+    }
+    headers.insert(header::CONTENT_LENGTH, HeaderValue::from(length));
+    if let Ok(value) = HeaderValue::from_str(&disposition(object)) {
+        headers.insert(header::CONTENT_DISPOSITION, value);
+    }
+    Ok(Some((response, length, true)))
 }
 
 /// whether an `if-none-match` names this etag (or is `*`).

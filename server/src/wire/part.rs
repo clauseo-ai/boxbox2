@@ -62,7 +62,13 @@ pub struct TextPart {
     #[serde(rename = "messageID")]
     pub message_id: String,
     pub at: Option<PartAt>,
-    pub text: String,
+    /// absent only on a settled part in the stream, which carries `textOf`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// on a settled part in the stream instead of `text`: the length and
+    /// hash of the text the deltas built.
+    #[serde(default, rename = "textOf", skip_serializing_if = "Option::is_none")]
+    pub text_of: Option<super::stream::TextOf>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub streaming: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,7 +102,13 @@ pub struct ReasoningPart {
     #[serde(rename = "messageID")]
     pub message_id: String,
     pub at: Option<PartAt>,
-    pub text: String,
+    /// absent only on a settled part in the stream, which carries `textOf`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// on a settled part in the stream instead of `text`: the length and
+    /// hash of the text the deltas built.
+    #[serde(default, rename = "textOf", skip_serializing_if = "Option::is_none")]
+    pub text_of: Option<super::stream::TextOf>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub streaming: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]

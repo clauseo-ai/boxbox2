@@ -6,6 +6,10 @@ use utoipa::ToSchema;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(as = AgentMessage)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each flag is its own field on the wire, as the runtime sends it"
+)]
 pub struct Message {
     pub id: String,
     pub role: Role,
@@ -25,6 +29,12 @@ pub struct Message {
     /// the steer capability: a prompt that joined the running turn.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub steer: bool,
+    /// an assistant compaction summary: not a turn's answer.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub summary: bool,
+    /// a runtime or boxbox note rather than a prompt.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub notice: bool,
     /// why the turn ended ("aborted", ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finish: Option<String>,
@@ -69,6 +79,9 @@ impl Role {
 #[serde(rename_all = "camelCase")]
 pub struct MessageError {
     pub message: String,
+    /// the runtime's error name (`MessageAbortedError` for a stopped turn).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// where a turn came from or went to: absent means boxbox or the agent's

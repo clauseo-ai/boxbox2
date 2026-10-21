@@ -21,8 +21,9 @@ use crate::config::HostConfig;
 use crate::source::cmx2::translate;
 use crate::source::{
     AgentFacts, AgentSource, Answer, Archived, AskRef, Catalog, Cmx2Raw, ConnectionConfig,
-    ConnectionStatus, Exit, MediaBody, MediaSource, MessageWithParts, Page, Send, SourceSender,
-    Stamped, Start, TerminalSource, ThreadFacts, ThreadRef, Transcript, Verb, VerbError,
+    ConnectionStatus, Exit, MediaBody, MediaSource, MessageWithParts, Page, Reading, Send,
+    SourceSender, Stamped, Start, TerminalSource, ThreadFacts, ThreadRef, Transcript, Verb,
+    VerbError,
 };
 use crate::wire::{Accepted, Born};
 
@@ -40,6 +41,9 @@ pub struct Cmx2Source {
     /// the memory photos may take while their `data:` urls are built,
     /// shared by every cmx2 source.
     pub(crate) photos: Arc<tokio::sync::Semaphore>,
+    /// media references: this connection's copy turns and the urls it
+    /// copied (`verbs/refs.rs`).
+    pub(crate) refs: crate::source::cmx2::verbs::refs::Refs,
 }
 
 impl Cmx2Source {
@@ -60,6 +64,7 @@ impl Cmx2Source {
             agents,
             media: shared.media.clone(),
             photos: Arc::clone(&shared.photos),
+            refs: crate::source::cmx2::verbs::refs::Refs::new(shared.media.clone()),
         }
     }
 
@@ -81,6 +86,11 @@ impl Cmx2Source {
     pub fn publish(&self, agent: AgentFacts) {
         self.agents.send_replace(vec![agent]);
     }
+}
+
+/// a daemon id as one path segment.
+fn segment(id: &str) -> Result<&str, VerbError> {
+    crate::http::asks::segment(id).map_err(crate::source::cmx2::verbs::typed::verb_error)
 }
 
 /// what every cmx2 source shares: the media store its sends read from, and
@@ -138,18 +148,28 @@ impl AgentSource for Cmx2Source {
         })
     }
 
-    // contract 2's hydration translates message by message; it comes with
-    // the journals (m9, the neutral wire). contract 1 reads through `Cmx2Raw`.
+    // a cmx2 thread is read whole, streamed and translated message by
+    // message (`verbs/read.rs`); the route cuts its pages.
     fn transcript(&self, _thread: &ThreadRef, _page: Page) -> Verb<'_, Transcript> {
-        not_built("contract 2's hydration of a cmx2 thread")
+        not_built("a cmx2 thread by daemon pages; it is read whole, streamed")
     }
 
-    fn message(&self, _thread: &ThreadRef, _message: &str) -> Verb<'_, Stamped<MessageWithParts>> {
-        not_built("contract 2's hydration of a cmx2 message")
+    fn read(&self, thread: &ThreadRef) -> Verb<'_, Reading> {
+        let thread = thread.clone();
+        Box::pin(async move { Cmx2Source::read(self, segment(&thread.id)?).await })
     }
 
-    fn thread(&self, _thread: &ThreadRef) -> Verb<'_, ThreadFacts> {
-        not_built("contract 2's read of one cmx2 thread")
+    fn message(&self, thread: &ThreadRef, message: &str) -> Verb<'_, Stamped<MessageWithParts>> {
+        let (thread, message) = (thread.clone(), message.to_owned());
+        Box::pin(async move {
+            self.read_one(segment(&thread.id)?, segment(&message)?)
+                .await
+        })
+    }
+
+    fn thread(&self, thread: &ThreadRef) -> Verb<'_, ThreadFacts> {
+        let thread = thread.clone();
+        Box::pin(async move { self.read_facts(segment(&thread.id)?).await })
     }
 
     fn prompt(&self, thread: &ThreadRef, send: Send) -> Verb<'_, Accepted> {

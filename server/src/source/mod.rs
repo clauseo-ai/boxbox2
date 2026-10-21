@@ -231,6 +231,7 @@ pub struct ThreadFacts {
     pub effort: Option<String>,
     pub context: Option<Context>,
     pub cost: Option<f64>,
+    pub tokens: Option<crate::wire::Tokens>,
     pub vcs: Option<Vcs>,
     pub changes: Option<Changes>,
     pub browse_only: bool,
@@ -466,6 +467,21 @@ pub struct Page {
     pub limit: Option<u32>,
 }
 
+/// a whole-thread read under way: the source event it reflects, and its
+/// messages, oldest first, as they arrive (`docs/protocol.md`, section 11).
+pub struct Reading {
+    pub upstream: Option<Stamp>,
+    pub messages: futures_util::stream::BoxStream<'static, Result<MessageWithParts, VerbError>>,
+}
+
+impl std::fmt::Debug for Reading {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Reading")
+            .field("upstream", &self.upstream)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Transcript {
     pub messages: Vec<MessageWithParts>,
@@ -608,6 +624,28 @@ pub trait AgentSource: std::marker::Send + Sync + 'static {
     // every source
     fn transcript(&self, thread: &ThreadRef, page: Page) -> Verb<'_, Transcript>;
     fn message(&self, thread: &ThreadRef, message: &str) -> Verb<'_, Stamped<MessageWithParts>>;
+    /// the whole thread, oldest first, streamed. a source that cannot
+    /// stream its read gives its whole transcript at once.
+    fn read(&self, thread: &ThreadRef) -> Verb<'_, Reading> {
+        let thread = thread.clone();
+        Box::pin(async move {
+            let whole = self
+                .transcript(
+                    &thread,
+                    Page {
+                        before: None,
+                        limit: None,
+                    },
+                )
+                .await?;
+            Ok(Reading {
+                upstream: whole.upstream,
+                messages: Box::pin(futures_util::stream::iter(
+                    whole.messages.into_iter().map(Ok),
+                )),
+            })
+        })
+    }
     fn thread(&self, thread: &ThreadRef) -> Verb<'_, ThreadFacts>;
     fn prompt(&self, thread: &ThreadRef, send: Send) -> Verb<'_, Accepted>;
     fn abort(&self, thread: &ThreadRef) -> Verb<'_, ()>;

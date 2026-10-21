@@ -215,6 +215,9 @@ use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, Syste
         Unsubscribed,
         TerminalChange,
         TerminalSize,
+        crate::wire::StreamFrame,
+        crate::wire::Fleet,
+        crate::wire::InterestPost,
     ))
 )]
 pub struct ApiDoc;

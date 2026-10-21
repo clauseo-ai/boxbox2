@@ -342,7 +342,15 @@ fn every_contract_2_change_is_tagged_with_its_seq_first() {
         json!({"seq": 10, "type": "message.removed", "key": "vm-a:ses_1", "upstream": 5, "messageID": "msg_1"}),
         json!({"seq": 11, "type": "reactions", "key": "vm-a:ses_1", "messageID": "msg_1",
                "reactions": [{"emoji": "x", "by": "agent"}]}),
-        json!({"seq": 12, "type": "agent.reset", "agent": "vm-a", "threads": [], "asks": []}),
+        json!({"seq": 12, "type": "thread.patch", "key": "vm-a:ses_1",
+               "set": {"updated": 3.0, "activity": {"state": "busy", "since": 3.0}},
+               "unset": ["cost"],
+               "tail": {"drop": 1, "put": [[11, {"partID": "p1", "messageID": "msg_1",
+                        "kind": "text", "role": "assistant", "text": "reading"}]]}}),
+        json!({"seq": 13, "type": "order.patch", "ops": [["-", 4, 1], ["+", 0, ["vm-a:ses_2"]]]}),
+        json!({"seq": 14, "type": "part", "key": "vm-a:ses_1", "upstream": 9,
+               "part": {"type": "text", "id": "p1", "messageID": "msg_1", "at": null,
+                        "textOf": {"length": 41, "hash": "1c0e9b7f"}}}),
     ];
     for change in &changes {
         round_trip::<JournalEntry>(change);
@@ -350,9 +358,27 @@ fn every_contract_2_change_is_tagged_with_its_seq_first() {
 }
 
 #[test]
-fn hello_says_protocol_2_and_reset_carries_the_contract_2_fleet() {
+fn hello_says_protocol_3_and_reset_carries_the_neutral_fleet() {
+    assert_eq!(PROTOCOL, 3);
     round_trip::<Control>(&json!({
-        "type": "hello", "epoch": "e2", "head": 0, "build": "dev", "protocol": PROTOCOL
+        "type": "hello", "protocol": PROTOCOL, "epoch": "3f9a0c21b7d4", "head": 48211,
+        "build": "dev", "stream": "9c1f0e7a5b2d4c66a1e3f00b7d2c9a41",
+        "interest": {"thread": "vm-a:ses_2", "under": [], "holds": []}
+    }));
+    round_trip::<Control>(&json!({"type": "caught", "seq": 48240}));
+    round_trip::<Control>(&json!({"type": "thread.stale", "key": "vm-a:ses_8"}));
+    round_trip::<Control>(&json!({
+        "type": "catchup", "entries": [{"seq": 48236, "type": "delta", "key": "vm-a:ses_7",
+        "messageID": "msg_4", "partID": "prt_7_4_0", "field": "text",
+        "delta": " and the build passes.", "offset": 112}]
+    }));
+    round_trip::<Control>(&json!({
+        "type": "interest", "ask": 3, "thread": "vm-a:ses_7", "under": ["vm-a:ses_2"],
+        "holds": ["vm-a:ses_8"], "seq": 48240, "stale": ["vm-a:ses_8"]
+    }));
+    round_trip::<InterestPost>(&json!({
+        "ask": 4, "thread": "vm-a:ses_7", "under": ["vm-a:ses_2"], "holds": ["vm-a:ses_8"],
+        "since": {"vm-a:ses_7": 48190}
     }));
     round_trip::<Control>(&json!({
         "type": "reset", "seq": 0, "epoch": "e2", "reason": "epoch",
@@ -380,6 +406,9 @@ fn every_shape_has_a_schema_the_document_can_hold() {
         Change::schema(),
         Control::schema(),
         Fleet::schema(),
+        StreamFrame::schema(),
+        OrderOp::schema(),
+        InterestPost::schema(),
     ];
     for schema in schemas {
         let json = serde_json::to_value(&schema).unwrap();

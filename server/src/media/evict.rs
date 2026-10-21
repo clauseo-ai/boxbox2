@@ -3,11 +3,14 @@
 //! used first, already past their pin and the 24 hour floor, and this says
 //! which of them to drop, or that the write cannot fit.
 
-/// a file eviction may take.
+/// a file eviction may take, or the thumbnails of one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
     pub id: String,
     pub size: u64,
+    /// only `id`'s thumbnails (`thumbs.rs`), not the file: they go first and
+    /// leave no tombstone.
+    pub thumbs: bool,
 }
 
 /// eviction stops once the store, the new file included, is at or under
@@ -55,6 +58,7 @@ mod tests {
             .map(|(id, size)| Candidate {
                 id: (*id).to_owned(),
                 size: *size,
+                thumbs: false,
             })
             .collect()
     }

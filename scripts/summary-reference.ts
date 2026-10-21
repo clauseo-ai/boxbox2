@@ -1,0 +1,128 @@
+/* the thread summary's reference (docs/protocol.md, section 12): runs the app's own turn model over each thread fixture and
+   writes the summary the server's fold must give, one golden per thread, under server/src/fleet/summary/fold/goldens.
+   `bun scripts/summary-reference.ts` writes them; `--check` fails when a committed golden differs from what it would write.
+
+   what the app computes inside components, reproduced here as the smallest pure equivalent:
+   - the turns as createTurns (turns.ts) makes them: the shown messages (shownCount), cut at each user message, each turn
+     built alone by turnsOf over its own slice; messages before the first user message make no turn
+   - the turn's line: stage.tsx's firstLineOf (a closure in the component)
+   - the child facts: live.ts's summary memo for a held thread (steps, first, end)
+
+   the server folds neutral messages, whose model is "provider/model" (translate.rs, message); the app reads `modelID`, so
+   each assistant message's modelID is mapped the same way before the app reads it. */
+
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { filesChanged } from "../app/src/ui/thread/details-model";
+import { type Step, type Turn, projectRoot, shownCount, spawnsOf, turnsOf } from "../app/src/ui/thread/model";
+import { isBad } from "../app/src/ui/thread/rows";
+import type { WireMessage } from "../app/src/ui/thread/wire";
+
+const repo = join(dirname(new URL(import.meta.url).pathname), "..");
+const fixtures = join(repo, "app/src/ui/thread/fixtures");
+const out = join(repo, "server/src/fleet/summary/fold/goldens");
+
+type Fixture = { session: { id: string; directory: string }; messages: WireMessage[]; children?: Array<{ session: { id: string; directory: string }; messages: WireMessage[] }>; snapshots?: Array<{ messages: WireMessage[] }> };
+
+/** where a thread's messages sit in its fixture file, as the rust test reads them */
+type Thread = { name: string; fixture: string; source: "messages" | "last-snapshot" | { child: number }; key: string; directory: string; messages: WireMessage[] };
+
+function threadsOf(file: string): Thread[] {
+  const f = JSON.parse(readFileSync(join(fixtures, `${file}.json`), "utf8")) as Fixture;
+  const threads: Thread[] = [];
+  const last = f.snapshots?.at(-1);
+  if (last) threads.push({ name: file, fixture: file, source: "last-snapshot", key: f.session.id, directory: f.session.directory, messages: last.messages });
+  else threads.push({ name: file, fixture: file, source: "messages", key: f.session.id, directory: f.session.directory, messages: f.messages });
+  (f.children ?? []).forEach((c, i) => threads.push({ name: `${file}.${c.session.id}`, fixture: file, source: { child: i }, key: c.session.id, directory: c.session.directory, messages: c.messages }));
+  return threads;
+}
+
+/** an assistant message's model as the neutral message names it: `provider/model` (translate.rs, message) */
+function neutralModel(m: WireMessage): WireMessage {
+  if (m.info.role !== "assistant") return m;
+  const info = m.info as unknown as Record<string, unknown>;
+  const provider = info["providerID"], model = info["modelID"];
+  if (typeof model !== "string") return m;
+  if (typeof provider !== "string") throw new Error(`message ${m.info.id} has a modelID and no providerID: the neutral message would carry no model`);
+  return { ...m, info: { ...info, modelID: `${provider}/${model}` } as unknown as WireMessage["info"] };
+}
+
+/** stage.tsx's firstLineOf */
+const firstLineOf = (text: string): string => { for (const line of text.slice(0, 20_000).split("\n")) if (line.trim()) return line.slice(0, 300); return ""; };
+
+/** createTurns (turns.ts) without its memos: each turn with how many messages it holds */
+function turnsAsShown(all: readonly WireMessage[], root: string): Array<{ turn: Turn; messages: number }> {
+  const n = shownCount(all);
+  const cuts: Array<{ from: number; to: number }> = [];
+  for (let i = 0; i < n; i++) {
+    if ((all[i] as WireMessage).info.role !== "user") continue;
+    const last = cuts.at(-1);
+    if (last) last.to = i;
+    cuts.push({ from: i, to: n });
+  }
+  return cuts.flatMap(({ from, to }) => {
+    const turn = turnsOf(all.slice(from, to), root)[0];
+    return turn ? [{ turn, messages: to - from }] : [];
+  });
+}
+
+const steps = (t: Turn): Step[] => t.items.filter((x): x is Step => x.k === "step");
+
+function summaryOf(thread: Thread): unknown {
+  const all = thread.messages.map(neutralModel);
+  const root = projectRoot(thread.directory, all);
+  const shown = turnsAsShown(all, root);
+  const turns = shown.map(({ turn: t, messages }) => {
+    const s = steps(t);
+    return {
+      id: t.id,
+      by: t.by,
+      ...(t.from ? { from: t.from } : {}),
+      ...(t.fromID ? { fromID: t.fromID } : {}),
+      ...(t.note ? { note: true } : {}),
+      at: t.at,
+      end: t.end,
+      line: t.by === "mail" || t.by === "compaction" ? "" : firstLineOf(t.prompt),
+      steps: s.length,
+      ...(s.length ? { ask: s.some((x) => x.family === "ask"), error: s.some(isBad) } : {}),
+      status: t.status,
+      ...(t.model ? { model: t.model } : {}),
+      ...(t.effort ? { effort: t.effort } : {}),
+      ...(t.cost !== 0 ? { cost: t.cost } : {}),
+      answered: t.answer !== undefined,
+      messages,
+    };
+  });
+  const spawns = shown.flatMap(({ turn: t }) => spawnsOf(t).map((s) => ({
+    turn: t.id,
+    part: s.id,
+    name: s.agent?.name ?? s.object,
+    ...(s.agent?.type ? { type: s.agent.type } : {}),
+    ...(s.agent?.child ? { child: s.agent.child } : {}),
+    at: s.at,
+  })));
+  /* files[].at is the spec's (the app has no such value): the time of the newest completed edit of that path */
+  const newest = new Map<string, number>();
+  for (const { turn: t } of shown) for (const s of steps(t)) if (s.family === "edit" && s.status === "completed" && s.object) newest.set(s.object, Math.max(newest.get(s.object) ?? -Infinity, s.at));
+  const files = filesChanged(shown.map((x) => x.turn)).files.map((f) => ({ path: f.path, add: f.add, del: f.del, at: newest.get(f.path) as number }));
+  /* live.ts's summary of a held child */
+  const first = all[0]?.info.time.created ?? 0;
+  const child = { key: thread.key, steps: shown.reduce((n, { turn }) => n + steps(turn).length, 0), first, end: all.at(-1)?.info.time.completed ?? first };
+  return { thread: thread.name, fixture: thread.fixture, source: thread.source, directory: thread.directory, total: all.length, turns, spawns, files, child };
+}
+
+const check = process.argv.includes("--check");
+let stale = 0;
+mkdirSync(out, { recursive: true });
+for (const file of ["cmx-deploy", "northstar-heavy", "notes-asks"]) {
+  for (const thread of threadsOf(file)) {
+    const text = `${JSON.stringify(summaryOf(thread), null, 1)}\n`;
+    const path = join(out, `${thread.name}.json`);
+    if (check) {
+      let held = "";
+      try { held = readFileSync(path, "utf8"); } catch { /* missing */ }
+      if (held !== text) { stale++; console.error(`${thread.name}: the golden differs from the app's answer`); }
+    } else writeFileSync(path, text);
+  }
+}
+if (stale) process.exit(1);

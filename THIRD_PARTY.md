@@ -14,6 +14,7 @@ lands here in the same change that adds it (AGENTS.md, dependencies).
 | flate2 (rust backend), tar | `boxbox upgrade` reads a release tarball in-process, checked against `SHA256SUMS`, instead of shelling out to `tar`; pure rust (miniz_oxide), no xattr support compiled in | MIT OR Apache-2.0 |
 | futures-util | stream combinators for the upstream reader | MIT OR Apache-2.0 |
 | hmac, sha2 | the session cookie's signature | MIT OR Apache-2.0 |
+| image (`png` and `webp` only; pulls in png, fdeflate, image-webp, quick-error, bytemuck, byteorder-lite and num-traits, MIT OR Apache-2.0 or looser, and moxcms and pxfm, BSD-3-Clause OR Apache-2.0) | decoding and encoding media thumbnails (`server/src/media/thumbs.rs`); the scaling itself is written there, since the pixel check picked chromium's own mip chain over every filter a crate offers (`docs/verification.md`, thumbnails). tests add `jpeg` (zune-jpeg, MIT OR Apache-2.0 OR Zlib) to measure jpeg | MIT OR Apache-2.0 |
 | jiff | the local day a telemetry row belongs to | MIT OR Unlicense |
 | rand | backoff jitter, the cookie secret, minted ids | MIT OR Apache-2.0 |
 | reqwest (rustls, gzip) | requests to the cmx2 daemons, taking gzip and decoding it by `Content-Encoding` (the decompression it builds from tower-http and async-compression, already in the tree) | MIT OR Apache-2.0 |

@@ -520,9 +520,9 @@ pub(crate) fn part_facts(part: &Part) -> Option<PartFacts<'_>> {
                 kind: Some(m.kind.clone()),
                 from: m.from.clone(),
             }),
-            ..facts_of(part, "text", Some(&p.text))
+            ..facts_of(part, "text", p.text.as_deref())
         },
-        Part::Reasoning(p) => facts_of(part, "reasoning", Some(&p.text)),
+        Part::Reasoning(p) => facts_of(part, "reasoning", p.text.as_deref()),
         Part::Tool(p) => PartFacts {
             tool: Some(p.tool.clone()),
             state: Some(ToolFacts {

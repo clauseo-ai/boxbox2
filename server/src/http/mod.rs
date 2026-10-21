@@ -68,6 +68,8 @@ pub struct AppState {
     pub media: crate::media::Media,
     /// new threads by client id, so a retried birth makes no second thread.
     pub births: compose::Births,
+    /// the thread summaries (`fleet/summary.rs`).
+    pub summaries: crate::fleet::summary::Summaries,
     /// contract 2's sends by agent and client id, so none runs twice.
     pub sends: crate::source::sends::Sends,
     /// the board's channel, only with `[board]` in `boxbox.toml`.
@@ -383,9 +385,11 @@ fn contract_two(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(&at("/abort"), post(v2::abort))
         .route(&at("/compact"), post(v2::compact))
         .route(&at("/run-now"), post(v2::run_now))
+        .route(&at("/messages"), get(agents::read::messages))
+        .route(&at("/summary"), get(agents::summary::summary))
         .route(
             &at("/messages/{message}"),
-            axum::routing::delete(v2::unsend),
+            get(agents::read::message).delete(v2::unsend),
         )
         .route(
             &at("/messages/{message}/reactions"),
@@ -583,6 +587,7 @@ pub(crate) mod tests {
             icons,
             media,
             births: compose::Births::default(),
+            summaries: crate::fleet::summary::Summaries::new(),
             sends,
             board,
             shutdown,

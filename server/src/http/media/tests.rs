@@ -23,6 +23,11 @@ impl Drop for Served {
 }
 
 async fn served(cap: u64) -> Served {
+    served_with(cap, true).await
+}
+
+/// the routes with thumbnails on or off, whatever `thumbs::THUMBNAILS` says.
+async fn served_with(cap: u64, thumbnails: bool) -> Served {
     let (store, _thread, dir) = scratch();
     let (media, _task) = Media::open(
         &dir,
@@ -45,11 +50,19 @@ async fn served(cap: u64) -> Served {
         .route(
             "/api/media/{id}",
             get(
-                |State(media): State<Media>,
-                 Path(id): Path<String>,
-                 method: Method,
-                 headers: HeaderMap| async move {
-                    give(&media, &id, &method, &headers).await
+                move |State(media): State<Media>,
+                      Path(id): Path<String>,
+                      RawQuery(query): RawQuery,
+                      method: Method,
+                      headers: HeaderMap| async move {
+                    give(
+                        &media,
+                        &id,
+                        width_of(query.as_deref(), thumbnails),
+                        &method,
+                        &headers,
+                    )
+                    .await
                 },
             ),
         )
@@ -298,4 +311,184 @@ async fn ids_that_are_not_ids_unknown_ids_and_evicted_ids_each_answer_their_own_
     assert_eq!(full.status(), 507);
     let said: serde_json::Value = json(full).await;
     assert_eq!(said["error"]["code"], "media-full");
+}
+
+/// a real image: gradients, so a thumbnail has something to scale.
+fn picture(w: u32, h: u32, format: image::ImageFormat) -> Vec<u8> {
+    let pixels = image::RgbImage::from_fn(w, h, |x, y| {
+        image::Rgb([
+            u8::try_from(x % 256).unwrap(),
+            u8::try_from(y % 256).unwrap(),
+            u8::try_from((x + y) % 256).unwrap(),
+        ])
+    });
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(pixels)
+        .write_to(&mut out, format)
+        .unwrap();
+    out.into_inner()
+}
+
+async fn fetch_at(
+    addr: SocketAddr,
+    id: &str,
+    w: &str,
+    extra: &[(&str, &str)],
+) -> reqwest::Response {
+    fetch(addr, &format!("{id}?w={w}"), extra).await
+}
+
+#[tokio::test]
+async fn a_width_off_the_ladder_answers_400_in_words() {
+    let s = served(crate::media::DEFAULT_MAX_BYTES).await;
+    let object = json(
+        post_file(
+            s.addr,
+            "image/png",
+            picture(400, 300, image::ImageFormat::Png),
+            &[],
+        )
+        .await,
+    )
+    .await;
+    let id = object["id"].as_str().unwrap();
+    for w in ["100", "", "abc", "096", "3072"] {
+        let refused = fetch_at(s.addr, id, w, &[]).await;
+        assert_eq!(refused.status(), 400, "w={w}");
+        let body = json(refused).await;
+        assert_eq!(body["error"]["code"], "bad-request");
+        assert_eq!(
+            body["error"]["message"],
+            "w is a thumbnail width in device pixels: 96, 192, 384, 768 or 1536"
+        );
+    }
+    // a parameter that is not w changes nothing, as before
+    let other = fetch(s.addr, &format!("{id}?v=2"), &[]).await;
+    assert_eq!(other.status(), 200);
+    assert_eq!(header(&other, "etag"), format!("\"{id}\""));
+}
+
+#[tokio::test]
+async fn a_png_wider_than_w_answers_its_thumbnail_immutable_under_its_own_etag() {
+    let s = served(crate::media::DEFAULT_MAX_BYTES).await;
+    let object = json(
+        post_file(
+            s.addr,
+            "image/png",
+            picture(800, 600, image::ImageFormat::Png),
+            &[("x-boxbox-filename", "shot.png")],
+        )
+        .await,
+    )
+    .await;
+    let id = object["id"].as_str().unwrap();
+    let thumb = fetch_at(s.addr, id, "192", &[]).await;
+    assert_eq!(thumb.status(), 200);
+    assert_eq!(header(&thumb, "etag"), format!("\"{id}.w192.s1\""));
+    assert_eq!(
+        header(&thumb, "cache-control"),
+        "private, max-age=31536000, immutable"
+    );
+    assert_eq!(header(&thumb, "content-type"), "image/png");
+    assert!(header(&thumb, "content-disposition").starts_with("inline; filename=\"shot.png\""));
+    assert_eq!(header(&thumb, "accept-ranges"), "");
+    let length: usize = header(&thumb, "content-length").parse().unwrap();
+    let bytes = thumb.bytes().await.unwrap();
+    assert_eq!(bytes.len(), length);
+    let small = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png).unwrap();
+    assert_eq!((small.width(), small.height()), (192, 144));
+
+    let current = fetch_at(
+        s.addr,
+        id,
+        "192",
+        &[("if-none-match", &format!("\"{id}.w192.s1\""))],
+    )
+    .await;
+    assert_eq!(current.status(), 304);
+    assert_eq!(header(&current, "etag"), format!("\"{id}.w192.s1\""));
+    assert_eq!(
+        header(&current, "cache-control"),
+        "private, max-age=31536000, immutable"
+    );
+
+    let head = reqwest::Client::new()
+        .head(format!("http://{}/api/media/{id}?w=192", s.addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(head.status(), 200);
+    assert_eq!(header(&head, "content-length"), length.to_string());
+    assert_eq!(header(&head, "etag"), format!("\"{id}.w192.s1\""));
+}
+
+#[tokio::test]
+async fn at_or_past_the_width_and_for_a_jpeg_w_answers_the_original_as_without_it() {
+    let s = served(crate::media::DEFAULT_MAX_BYTES).await;
+    let png = picture(384, 200, image::ImageFormat::Png);
+    let object = json(post_file(s.addr, "image/png", png.clone(), &[]).await).await;
+    let id = object["id"].as_str().unwrap();
+    for w in ["384", "768"] {
+        let original = fetch_at(s.addr, id, w, &[]).await;
+        assert_eq!(original.status(), 200);
+        assert_eq!(header(&original, "etag"), format!("\"{id}\""));
+        assert_eq!(header(&original, "accept-ranges"), "bytes");
+        assert_eq!(original.bytes().await.unwrap(), png);
+    }
+    let part = fetch_at(s.addr, id, "768", &[("range", "bytes=0-9")]).await;
+    assert_eq!(part.status(), 206);
+    assert_eq!(part.bytes().await.unwrap(), png[..10]);
+    // a client holding the original under this url keeps it
+    let held = fetch_at(s.addr, id, "96", &[("if-none-match", &format!("\"{id}\""))]).await;
+    assert_eq!(held.status(), 304);
+    assert_eq!(header(&held, "etag"), format!("\"{id}\""));
+
+    let jpeg = picture(800, 600, image::ImageFormat::Jpeg);
+    let object = json(post_file(s.addr, "image/jpeg", jpeg.clone(), &[]).await).await;
+    let id = object["id"].as_str().unwrap();
+    let original = fetch_at(s.addr, id, "96", &[]).await;
+    assert_eq!(header(&original, "etag"), format!("\"{id}\""));
+    assert_eq!(original.bytes().await.unwrap(), jpeg);
+}
+
+#[test]
+fn thumbnails_are_off_until_the_app_asks_for_them() {
+    const { assert!(!thumbs::THUMBNAILS) };
+}
+
+#[tokio::test]
+async fn while_thumbnails_are_off_w_answers_the_original_exactly_as_without_it() {
+    let s = served_with(crate::media::DEFAULT_MAX_BYTES, thumbs::THUMBNAILS).await;
+    let png = picture(800, 600, image::ImageFormat::Png);
+    let object = json(post_file(s.addr, "image/png", png.clone(), &[]).await).await;
+    let id = object["id"].as_str().unwrap();
+    let plain = fetch(s.addr, id, &[]).await;
+    let plain_headers = plain.headers().clone();
+    assert_eq!(plain.bytes().await.unwrap(), png);
+    for w in ["192", "96", "100", ""] {
+        let answer = fetch_at(s.addr, id, w, &[]).await;
+        assert_eq!(answer.status(), 200, "w={w}");
+        for name in [
+            "etag",
+            "cache-control",
+            "accept-ranges",
+            "content-type",
+            "content-length",
+            "content-disposition",
+        ] {
+            assert_eq!(
+                answer.headers().get(name),
+                plain_headers.get(name),
+                "w={w} {name}"
+            );
+        }
+        assert_eq!(answer.bytes().await.unwrap(), png);
+    }
+    let part = fetch_at(s.addr, id, "192", &[("range", "bytes=0-9")]).await;
+    assert_eq!(part.status(), 206);
+    assert!(
+        !thumbs::address(&s.dir.join("media"), id, 192)
+            .unwrap()
+            .exists()
+    );
 }
