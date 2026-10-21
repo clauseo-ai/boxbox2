@@ -6,6 +6,13 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **a closed thread's screen keeps nothing alive.** when a stage is disposed
+  its scroll, wheel and pointer listeners come off and its detached dom is
+  taken apart, so an element something else still holds (safari reader
+  caches element rects) is bare: before, the owner's macbook kept every
+  closed copy of his root thread's stage (four in two minutes, each with
+  its turns and store), which is most of the page's memory climb.
+
 - **a fading word carries on when its window moves.** the css fades from the
   last release restarted from nothing when a reorder moved a window, when
   a hidden window showed again and after the fade had ended; a running

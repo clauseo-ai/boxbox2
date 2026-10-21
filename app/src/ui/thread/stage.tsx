@@ -28,6 +28,7 @@ import { factsOf, filesChanged, rosterOf, spendOf, summaryOf } from "./details-m
 import { type DetailsRoom, docksBeside, type InspectorLink } from "./inspector";
 import { askActions, replies, settled } from "./asks";
 import { type ThreadData, createThreadData, toneOfColour } from "./live";
+import { listen, releaseOnCleanup } from "./release";
 import { watchMeasure } from "./measure";
 import { createPin, endRoom } from "./pin";
 import { viewOf } from "./view";
@@ -299,6 +300,14 @@ export function Stage(props: StageProps) {
     io.observe(titleBlock);
     onCleanup(() => io.disconnect());
   });
+  /* the stage's own listeners on its elements come off when it is disposed, and its tree is taken apart once it has left the
+     document (release.ts): a disposed stage whose scroller something still held (safari reader caches it) kept the whole stage */
+  onMount(() => {
+    listen(scroller, "scroll", onScroll);
+    listen(scroller, "wheel", markTouched);
+    listen(rulerEl, "pointercancel", rulerUp);
+  });
+  releaseOnCleanup(() => stageEl);
   onMount(() => {
     /* wide is read from the stage itself, whose box `wide` does not change; the scroller's does (the gutter, the docked
        turns), and observing it looped the observer once per resize. the width comes from the entry, so the callback
@@ -769,7 +778,7 @@ export function Stage(props: StageProps) {
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   const showRuler = () => { if (docks() && panel() !== null) return; setRulerShown(true); clearTimeout(hideTimer); hideTimer = setTimeout(() => { if (rulerDrag() === null) setRulerShown(false); }, RULER_HIDE_MS); };
   onCleanup(() => clearTimeout(hideTimer));
-  createEffect(on(() => scroller, () => scroller.addEventListener("scroll", () => { if (rulerDrag() === null) setCur(current()); }, { passive: true })));
+  createEffect(on(() => scroller, () => listen(scroller, "scroll", () => { if (rulerDrag() === null) setCur(current()); }, { passive: true })));
   let rulerEl!: HTMLDivElement;
   const pick = (e: PointerEvent) => {
     const ticks = [...rulerEl.children] as HTMLElement[];
@@ -794,7 +803,7 @@ export function Stage(props: StageProps) {
   const spent = createMemo(() => spendOf(data.turns(), session(), data.kin(), agents()));
   const facts = createMemo(() => factsOf(data.turns(), session(), spent().agents));
   const [here, setHere] = createSignal<string | null>(null);
-  createEffect(on(() => scroller, () => scroller.addEventListener("scroll", () => setHere(turnAtLine(turnEls())?.dataset["turn"] ?? null), { passive: true })));
+  createEffect(on(() => scroller, () => listen(scroller, "scroll", () => setHere(turnAtLine(turnEls())?.dataset["turn"] ?? null), { passive: true })));
   const goTo = (t: Turn) => {
     const el = win.reveal(t.id);
     if (el) { pin.input(); win.travel(() => topOf(el) - 72); }
@@ -1095,7 +1104,7 @@ export function Stage(props: StageProps) {
           </div>
           <Show when={state.board.met}><BoardReceipt thread={key()} /></Show>
           <Show when={linkCopied()}>{(c) => <p class="stage-receipt" role="status">{c() === "copied" ? "copied" : "could not copy. the address bar holds the same link"}</p>}</Show>
-          <div ref={scroller} class="stage-scroll" onScroll={onScroll} onWheel={markTouched} onTouchStart={markTouched} onPointerDown={markTouched} onKeyDown={markTouched}>
+          <div ref={scroller} class="stage-scroll" onTouchStart={markTouched} onPointerDown={markTouched} onKeyDown={markTouched}>
             <div ref={threadEl} class="thread" classList={{ wide: wide() }} data-flip-root aria-label="transcript">
               <div ref={titleBlock} class="title-block">
                 {/* the repo line is the door to the repo's colour (docs/thread.md, the repo line) */}
@@ -1162,7 +1171,7 @@ export function Stage(props: StageProps) {
                 clear above it */}
             <div class="stage-dock-room" aria-hidden="true" />
           </div>
-          <div ref={rulerEl} class="ruler" classList={{ show: rulerShown(), drag: rulerDrag() !== null }} role="slider" aria-label="jump to a turn" aria-valuemin={1} aria-valuemax={prompts().length} aria-valuenow={cur() + 1} tabIndex={0} onPointerDown={rulerDown} onPointerMove={rulerMove} onPointerUp={rulerUp} onPointerCancel={rulerUp} style={{ "--gap": `${Math.max(4, Math.min(9, (scroller?.clientHeight ?? 600) / Math.max(1, prompts().length) - 0.5))}px` }}>
+          <div ref={rulerEl} class="ruler" classList={{ show: rulerShown(), drag: rulerDrag() !== null }} role="slider" aria-label="jump to a turn" aria-valuemin={1} aria-valuemax={prompts().length} aria-valuenow={cur() + 1} tabIndex={0} onPointerDown={rulerDown} onPointerMove={rulerMove} onPointerUp={rulerUp} style={{ "--gap": `${Math.max(4, Math.min(9, (scroller?.clientHeight ?? 600) / Math.max(1, prompts().length) - 0.5))}px` }}>
             {/* by place, not by turn: the marks are alike and the turns are new objects on every frame, so a keyed list made them all again */}
             <Index each={prompts()}>{(t, j) => <b classList={{ "k-cur": j === cur(), "k-ask": t().items.some((x) => x.k === "step" && x.family === "ask") }} />}</Index>
           </div>

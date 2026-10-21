@@ -334,6 +334,17 @@
   `/api/`, so its size is unexplained. · the process is identified (an app
   build without a service worker on the macbook) and its memory explained
   or cut.
+- **the same thread's stage is mounted again from scratch.** the owner's
+  safari heap snapshots (2026-10-21) held four stages of one root thread:
+  closing and reopening it, back then the strip's pour (home.tsx, the stage
+  never empties), and a resize across strip and rail (home.tsx, moving
+  between arrangements) each give `layers()` a new entry for the same key,
+  so the stage is built again, its turns rebuilt, and hide then show makes
+  the worker send the whole thread again (about 17 mb of store objects for
+  a 970-message thread). a disposed stage no longer stays alive through its
+  dom (`ui/thread/release.ts`), so this costs churn, not a leak. · the
+  same thread keeps its stage where the screen shows it unchanged, or a
+  remount within a task does not drop and re-send a thread the worker holds.
 
 ### housekeeping
 
