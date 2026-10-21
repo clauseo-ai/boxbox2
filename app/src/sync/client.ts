@@ -27,12 +27,22 @@ type Unsent = { ok: boolean; message: string | null; returned: boolean };
 const unsending = new Map<string, (result: Unsent) => void>();
 let sampled = 0;
 let timed: { at: number; key: string } | null = null;
+/* the landing is writing the store inside a frame's callbacks: what changes now paints in this frame, not the next */
+let inFrame = false;
 /* the worker's patches land in the store at the ui's frame, the stream's status after them, what it held while hidden in one
    go (landing.ts) */
 const landing = new Landing(
   {
     hidden: () => document.visibilityState === "hidden",
-    frame: (run) => requestAnimationFrame(run),
+    frame: (run) =>
+      requestAnimationFrame(() => {
+        inFrame = true;
+        try {
+          run();
+        } finally {
+          inFrame = false;
+        }
+      }),
     cancel: (handle) => cancelAnimationFrame(handle),
     apply: applyPatches,
     stream: setStream,
@@ -148,6 +158,12 @@ function leaving(how: "flush" | "pause") {
   navigator.sendBeacon("/api/telemetry", new Blob([JSON.stringify({ device: device.id, deviceClass: device.deviceClass, events })], { type: "text/plain" }));
 }
 
+/** whether the store is being written from inside a frame (the landing's): a change made now paints in this frame, so its time
+    is the frame's, and a frame asked for now would be the one after (stage.tsx, perf.thread) */
+export function landingInFrame(): boolean {
+  return inFrame;
+}
+
 /** the worker holds its posts while the page is hidden, and lets them out when it is shown (gate.ts) */
 function tellVisibility() {
   send({ type: "visibility", hidden: document.visibilityState === "hidden" });
@@ -196,6 +212,8 @@ function detach() {
   for (const resolve of unsending.values()) resolve({ ok: false, message: "not connected", returned: false });
   unsending.clear();
   if (photosAsked) void draftPhotos().then((m) => m.clear());
+  if (pressed) clearTimeout(pressed.timer);
+  pressed = null;
   shownBy.clear();
   staged = null;
 }
@@ -230,17 +248,58 @@ let staged: string | null = null;
 
 /** a thread is on screen: the store takes it from the worker as it holds it now, and every change from here */
 export function showThread(key: string): void {
+  if (pressed?.key === key) pressed.alone = false;
+  show(key, false);
+}
+
+function show(key: string, press: boolean): void {
   const count = shownBy.get(key) ?? 0;
   shownBy.set(key, count + 1);
-  if (count === 0) send({ type: "show", key });
+  if (count === 0) send(press ? { type: "show", key, press: true } : { type: "show", key });
 }
 
 /** what showed a thread no longer does: once nothing does, the store lets it go (with its turn models) and the worker cools it */
 export function hideThread(key: string): void {
+  hide(key, false);
+}
+
+function hide(key: string, press: boolean): void {
   const count = shownBy.get(key) ?? 0;
   if (count > 1) return void shownBy.set(key, count - 1);
   shownBy.delete(key);
-  if (count === 1) send({ type: "hide", key });
+  if (count === 1) send(press ? { type: "hide", key, press: true } : { type: "hide", key });
+}
+
+/** how long a press on a thread's window holds the thread for the click that may follow */
+export const PRESS_HOLD_MS = 1500;
+/* the one thread a press holds. the copy-back from the worker (and a cooled thread's restore before it) takes a frame and
+   more, and the press comes a little before the click: started at the press, the thread is in the store when the click
+   mounts its stage, which paints it in the click's frame. `alone`: nothing else showed it meanwhile, so letting it go is
+   not a close (the worker keeps its place among the closed) */
+let pressed: { key: string; timer: ReturnType<typeof setTimeout>; alone: boolean } | null = null;
+
+/** a press went down on what opens a thread (its window): the store takes the thread now. it is let go when the open that
+    follows holds it, when another press takes its place, or PRESS_HOLD_MS after the press with no open */
+export function pressThread(key: string): void {
+  if (!worker) return;
+  if (pressed?.key === key) {
+    clearTimeout(pressed.timer);
+    pressed.timer = setTimeout(releasePress, PRESS_HOLD_MS);
+    return;
+  }
+  releasePress();
+  // on screen already (the stage, a layer, a held child): the store has it
+  if (shownBy.has(key)) return;
+  pressed = { key, timer: setTimeout(releasePress, PRESS_HOLD_MS), alone: true };
+  show(key, true);
+}
+
+function releasePress(): void {
+  const held = pressed;
+  if (!held) return;
+  pressed = null;
+  clearTimeout(held.timer);
+  hide(held.key, held.alone);
 }
 
 function stage(key: string | null): void {
@@ -253,6 +312,8 @@ function stage(key: string | null): void {
 export function openThread(key: string, place: Partial<ThreadPlace> = {}): void {
   send({ type: "open", key });
   stage(key);
+  // the press that took this thread ahead of its click hands it to the stage
+  if (pressed?.key === key) releasePress();
   void loadDraftPhotos(key);
   setOpenThread(key);
   const url = new URL(location.href);

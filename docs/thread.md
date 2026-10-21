@@ -1818,7 +1818,9 @@ its inputs are 16 px.
 **telemetry.** `surface.view {route}` on mount; `surface.ready {cached}`
 and `perf.thread what=thread {cached, messages}` at the first frame that
 shows the thread (its rows, or that it is empty once the worker
-answered). `cached` is whether the rows came from the client's own copy,
+answered): the frame the rows paint in, which is the landing's own frame
+when the copy-back lands at a frame (`landingInFrame` in `client.ts`),
+and the next one when the store took the rows in a task. `cached` is whether the rows came from the client's own copy,
 which a thread restored from indexeddb after the stage mounted is
 (`paint-source.ts`): the stage cannot see where rows came from, but it
 sees what an open from the wire looks like, an empty thread the worker

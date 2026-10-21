@@ -1769,6 +1769,16 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   worker holds its posts while the page is hidden and releases them together; a status
   landing ahead of its patches, or any timer between them, races the caught-up second (the
   1 s hidden queue that was reverted did exactly that; `wire.test.ts` now catches it).
+- **a frame asked for from inside a frame is the one after.** perf.thread asked for a frame
+  from its first-paint effect; when the rows came from the landing, which writes the store
+  inside a frame's callbacks, that frame was already the one painting them, so every reopen
+  since a5298d1 read a frame late. time what a change paints by whether it was made inside a
+  frame (`landingInFrame`), not by asking for another.
+- **a press is not an open.** a thread a press shows ahead of its click (`pressThread`) is let
+  go with `press` when no open followed, and the worker puts it back where it was among the
+  closed: stamped as closed now, a press on a window would push a thread the person did read
+  out of the three kept warm. touch presses take nothing: a finger on a window starts a swipe
+  through the deck as often as a tap.
 - **cool a thread only when nothing of it is marked or being saved.** a cooled thread comes
   back from its indexeddb pages, so a mark or a save in flight would come back without it.
 - **with reqwest's gzip feature on, a client decodes bodies and drops the header.** a test that
@@ -1785,3 +1795,9 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   dropped its copy buttons without the marks shifted every copy name under it.
 - **tower-http compression polls a body after it has ended.** a streamed body built with
   `stream::unfold` must be fused, or the whole-thread read panics once it goes through gzip.
+- **a frame asked for from inside a frame is the one after.** an effect that runs in a
+  requestAnimationFrame callback and asks for another to time its paint measures one frame
+  late; perf.thread counts the frame the rows paint in.
+- **a press is not an open.** a pointerdown may start loading what a click would open, but
+  holds it at most 1.5 s and one at a time; touch presses are left out, since a finger on a
+  window often starts a swipe.

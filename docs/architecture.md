@@ -101,7 +101,12 @@ order.
    `showThread` and `hideThread` in `app/src/sync/client.ts`): the worker
    posts a thread's patches only while it is shown, the thread as it holds it
    when it is shown again, and a delete when it is not, with which the ui
-   drops the thread's turn models and keeps its measured heights. while the
+   drops the thread's turn models and keeps its measured heights. a mouse or
+   pen press on a thread's window shows it ahead of the click
+   (`pressThread`): one thread at a time, let go when its open holds it, at
+   the next press, or 1.5 s later with no open, and a press no open followed
+   leaves the worker's order of the closed as it was. the copy-back (and a
+   cooled thread's restore) then lands before the click mounts the stage. while the
    page is hidden the worker posts nothing: it holds the patches, coalesced
    as they come, and the stream's last status, and posts them as one message
    (the status after the patches) when the page is shown, which the ui lands

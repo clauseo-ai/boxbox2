@@ -70,9 +70,11 @@ export type ToWorker =
       opened thread is not changed by it */
   | { type: "release"; key: string }
   /** the ui shows a thread (the stage, a layer under it, a child it holds) and its store takes the thread's patches; `hide`:
-      it no longer does, its store lets the thread go, and the worker cools it in time */
-  | { type: "show"; key: string }
-  | { type: "hide"; key: string }
+      it no longer does, its store lets the thread go, and the worker cools it in time. `press`: a press on the thread's window
+      took it ahead of the click that may follow (client.ts, pressThread); a hide with `press` means no open followed, so
+      the thread keeps the place it had among the closed */
+  | { type: "show"; key: string; press?: true }
+  | { type: "hide"; key: string; press?: true }
   /** a stage with nothing to show asks for its thread again now (its retry): a read that waits on its backoff starts over */
   | { type: "reread"; key: string }
   /** write the cache and the telemetry queue now: the page is being hidden */

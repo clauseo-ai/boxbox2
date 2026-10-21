@@ -6,6 +6,28 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **a pressed window's thread is ready by its click.** a mouse or pen
+  press on a window starts copying its thread back from the worker (or
+  restoring it from indexeddb), so with a normal click a reopened thread
+  paints in the click's frame again, as it did before closed threads left
+  the page (webkit, 491 messages: perf.thread p50 52 to 14 ms warm, 55 to
+  12 ms cooled). a trackpad tap-to-click and a finger tap still paint one
+  frame later. perf.thread now counts the frame the rows paint in:
+  readings since the memory change over-reported by one frame.
+
+- **a pressed window's thread is ready by its click.** a mouse or pen
+  press on a thread's window takes the thread from the worker (a cooled
+  one restored from indexeddb) before the click, so a reopened thread
+  paints in the click's frame again, as before the store let closed
+  threads go: in webkit, rows in the click's frame on a warm, a cooled and
+  a first-after-reload open with an 80 ms press (the next frame without
+  it, as on main). one thread at a time, let go 1.5 s after a press with
+  no open; a press no open followed leaves the worker's three warm
+  threads as they were. a touch takes nothing (a swipe starts the same
+  way). perf.thread now times the frame the rows paint in: since a5298d1
+  a reopened thread landed inside a frame and was reported a frame late,
+  so readings since then over-report by one frame.
+
 - **thread pages, the thread summary and one-message reads** under
   `/api/agents` (protocol 3, sections 11 and 12; additive, nothing reads
   them yet): pages newest first by turn with versions, 304s and cache

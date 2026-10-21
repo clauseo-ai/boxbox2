@@ -11,7 +11,7 @@ import { carried, play, whenLanded } from "../../motion/animate";
 import { FADE, TICK_DRAW } from "../../motion/springs";
 import { FOCUS_FOR_MS, type Focus, openFocus, releaseFocus, state, threadCaches } from "../../store";
 import { BoardPair, BoardReceipt } from "../../board/lazy";
-import { type ThreadPlace, closeThread, deviceIdentity, emit, markPlace, openThread, placeInUrl, rereadThread } from "../../sync/client";
+import { type ThreadPlace, closeThread, deviceIdentity, emit, landingInFrame, markPlace, openThread, placeInUrl, rereadThread } from "../../sync/client";
 import { splitKey } from "../../sync/protocol";
 import { Composer } from "../composer/composer";
 import { compactThread } from "../composer/compact";
@@ -649,11 +649,16 @@ export function Stage(props: StageProps) {
     painted = true;
     requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => setStill(false))));
     const cached = source.cached();
-    requestAnimationFrame(() => {
+    const report = () => {
       const ms = Math.round(performance.now() - mountedAt);
       emit("perf.thread", { what: "thread", cached: cached ? 1 : 0, messages: messagesCount() }, { ms, ok: ms <= (cached ? 300 : 1500), surface: "thread", session: key() });
       emit("surface.ready", { cached: cached ? 1 : 0 }, { ms, surface: "thread", session: key() });
-    });
+    };
+    /* the time is the frame that paints the rows. rows the store took in a task (held at mount, or landed at once on a hidden
+       page) paint in the next frame; rows the landing wrote inside a frame paint in that one, and a frame asked for from there
+       is the one after: every reopen since the store let closed threads go (a5298d1) was counted a frame late that way */
+    if (landingInFrame()) report();
+    else requestAnimationFrame(report);
   }));
   /* the stage already on a thread is sent to its ask: the window's pill in the strip and the rail, where the thread is on stage */
   let linkFrame = 0;

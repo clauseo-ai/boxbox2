@@ -112,6 +112,8 @@ export class Sync {
   private readonly shown = new Set<string>();
   /** when each thread the ui let go of was closed, for the sweep that cools it (`sweep`) */
   private readonly closedAt = new Map<string, number>();
+  /** when each thread a press shows had closed (0 for one that was cold), for the hide that follows when no open did */
+  private readonly pressedFrom = new Map<string, number>();
   private coolTimer: ReturnType<typeof setTimeout> | undefined;
   private sweeping = false;
   /** a sweep was asked for while one waited on its save: it runs again when that one ends */
@@ -238,9 +240,11 @@ export class Sync {
 
   /** the ui shows a thread (on stage, a layer under it, a child it holds): it gets the thread as the worker holds it now, and
       every patch to it from here. one that is cold comes back from the cache first */
-  show(key: string): void {
+  show(key: string, press = false): void {
     if (this.shown.has(key)) return;
     this.shown.add(key);
+    if (press) this.pressedFrom.set(key, this.closedAt.get(key) ?? 0);
+    else this.pressedFrom.delete(key);
     this.closedAt.delete(key);
     const thread = this.state.threads[key];
     if (thread) {
@@ -249,10 +253,14 @@ export class Sync {
     } else void this.restore(key, false);
   }
 
-  /** the ui no longer shows a thread: its store lets go of it, and the worker cools it in time (`sweep`) */
-  hide(key: string): void {
+  /** the ui no longer shows a thread: its store lets go of it, and the worker cools it in time (`sweep`). a press that no
+      open followed (`press`) puts it back where it was among the closed: the person never saw it, so it must not push a
+      thread they did see out of the KEEP_WARM */
+  hide(key: string, press = false): void {
     if (!this.shown.delete(key)) return;
-    this.closedAt.set(key, this.now());
+    const before = this.pressedFrom.get(key);
+    this.pressedFrom.delete(key);
+    this.closedAt.set(key, press && before !== undefined ? before : this.now());
     this.pending.push({ path: ["threads", key], value: undefined, closed: true });
     this.scheduleFrame();
     void this.sweep();
@@ -886,10 +894,10 @@ scope.addEventListener("message", (event) => {
         current.release(message.key);
         return;
       case "show":
-        current.show(message.key);
+        current.show(message.key, message.press === true);
         return;
       case "hide":
-        current.hide(message.key);
+        current.hide(message.key, message.press === true);
         return;
       case "reread":
         await current.reread(message.key);

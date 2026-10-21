@@ -30,6 +30,7 @@ import type { TailLine } from "./tail";
 import { footClock, parkedOn, type WindowView, windowName } from "./view";
 import { BoardKey, boardWords } from "../../board/lazy";
 import { state } from "../../store";
+import { pressThread } from "../../sync/client";
 
 export type Arrangement = "deck" | "strip" | "rail";
 
@@ -164,6 +165,12 @@ export function Window(props: WindowProps) {
     event.preventDefault();
     props.onOpen(root, event);
   };
+  /* a mouse or pen press takes the thread ahead of its click (sync/client.ts, pressThread), so a thread the store let go
+     paints in the click's frame. a touch is left out: a finger on a window is as often the start of a swipe through the
+     deck, and a restore under every swipe would cost its frames */
+  const press = (event: PointerEvent) => {
+    if (event.pointerType !== "touch" && event.button === 0) pressThread(props.view.key);
+  };
 
   return (
     <article
@@ -203,7 +210,7 @@ export function Window(props: WindowProps) {
         </Show>
       </header>
       <h2>
-        <button class="win-open" type="button" aria-label={`${windowName(props.view)}${boardWords(props.view.key)}${openSuffix(props.view.key)}`} aria-current={props.current ? "true" : undefined} onClick={open}>
+        <button class="win-open" type="button" aria-label={`${windowName(props.view)}${boardWords(props.view.key)}${openSuffix(props.view.key)}`} aria-current={props.current ? "true" : undefined} onPointerDown={press} onClick={open}>
           {props.view.title}
         </button>
       </h2>
