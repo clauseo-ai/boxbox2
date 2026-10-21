@@ -57,7 +57,9 @@ export type Query = { query: "counters" } | { query: "transcript"; key: string }
 export type ToWorker =
   /** `open` is the thread the url names, whose pages boot reads for the first frame */
   /** `board`: a desktop-class device, whose stream asks for board frames (docs/board.md) */
-  | { type: "start"; device: string; deviceClass: DeviceClass; open: string | null; board: boolean }
+  | { type: "start"; device: string; deviceClass: DeviceClass; open: string | null; board: boolean; hidden: boolean }
+  /** the page was hidden or shown: hidden, the worker holds what it would post (gate.ts) and posts it, in order, when shown */
+  | { type: "visibility"; hidden: boolean }
   /** the person opens a thread: it is cached up to the caps, evicted last, and its recency is the person's */
   | { type: "open"; key: string }
   /** keep a thread current for another one on stage (a child under its parent). it leases one of 16 places of its own,
@@ -67,6 +69,10 @@ export type ToWorker =
   /** a held thread is not needed now: its place is free at once, and the thread stays cached, first to be evicted. an
       opened thread is not changed by it */
   | { type: "release"; key: string }
+  /** the ui shows a thread (the stage, a layer under it, a child it holds) and its store takes the thread's patches; `hide`:
+      it no longer does, its store lets the thread go, and the worker cools it in time */
+  | { type: "show"; key: string }
+  | { type: "hide"; key: string }
   /** a stage with nothing to show asks for its thread again now (its retry): a read that waits on its backoff starts over */
   | { type: "reread"; key: string }
   /** write the cache and the telemetry queue now: the page is being hidden */
@@ -92,12 +98,18 @@ export type ToWorker =
       now that sends the words itself does not ask for that */
   | { type: "unsend"; key: string; messageID: string; clientID: string | null; toDraft: boolean }
   /** keep the record of a reply this device made to an ask, once the daemon settled it (replies.ts): the ui's store has it already */
-  | { type: "replied"; record: AskReply };
+  | { type: "replied"; record: AskReply }
+  /** a draft's composer opened and the draft's photos are on the device, not read (`Draft.held`): read them */
+  | { type: "photos"; key: string };
+
+/** what the ui lands in its store in order, at its frame (landing.ts) */
+export type Landed = { type: "patches"; patches: Patch[] } | { type: "stream"; stream: StreamStatus };
 
 export type FromWorker =
   | { type: "boot"; sync: UiSync }
-  | { type: "patches"; patches: Patch[] }
-  | { type: "stream"; stream: StreamStatus }
+  | Landed
+  /** what the worker held while the page was hidden, in the order it was sent, landed in one go (gate.ts) */
+  | { type: "held"; messages: Landed[] }
   | { type: "signed-out" }
   /** the server speaks another protocol: only a reload can continue */
   | { type: "reload" }
@@ -123,4 +135,6 @@ export type FromWorker =
   | { type: "drafts"; kept: boolean }
   /** a board frame, as the stream had it; and a `board.gone` of the worker's own when a connection that carried one ends, since
       the next may come from a mac the board has left, or never come */
-  | { type: "board"; frame: BoardFrame };
+  | { type: "board"; frame: BoardFrame }
+  /** a draft's photos, read for its composer; null when the read failed and the draft still holds them unread */
+  | { type: "photos"; key: string; photos: Photo[] | null };

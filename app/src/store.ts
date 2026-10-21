@@ -320,8 +320,12 @@ export function applyPatches(patches: readonly Patch[]): void {
   let sessions = false;
   for (const patch of patches) {
     const [top, second] = patch.path;
-    // a thread the worker let go (evicted, or the cache reset): what is kept for it goes too
-    if (top === "threads" && patch.path.length === 2 && !isAppend(patch) && patch.value === undefined) threadCaches.dropThread(String(second));
+    // a thread the worker let go (evicted, or the cache reset): what is kept for it goes too. one the ui stopped showing lets go
+    // of its turn models and keeps its measured heights, for when it is shown again
+    if (top === "threads" && patch.path.length === 2 && !isAppend(patch) && patch.value === undefined) {
+      if (patch.closed) threadCaches.dropModels(String(second));
+      else threadCaches.dropThread(String(second));
+    }
     else if (top === "fleet" && (second === undefined || second === "sessions")) sessions = true;
   }
   batch(() => {

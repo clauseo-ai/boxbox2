@@ -72,6 +72,9 @@ export type ThreadCaches = {
   heights: Lru<number>;
   /** a thread left the worker's memory: what is kept for it goes too (the html is by text, shared by whatever says the same) */
   dropThread(thread: string): void;
+  /** a thread left the screen: its turn models go (turns, ledgers), and its measured heights stay, so going back to it lays
+      it out as it was */
+  dropModels(thread: string): void;
   /** signed out: everything goes */
   clear(): void;
   /** a mark a writer takes when it begins what it will write for `thread` (a turn built, a view made), and carries to `keep`. a view that
@@ -96,18 +99,24 @@ export function createThreadCaches(): ThreadCaches {
   let floor = 0;
   const droppedAt = new Map<string, number>();
   const fresh = (thread: string, stamp: number): boolean => stamp >= clearedAt && stamp >= floor && stamp >= (droppedAt.get(thread) ?? 0);
+  const drop = (thread: string, caches: ReadonlyArray<Lru<unknown>>) => {
+    const mine = belongs(thread);
+    for (const cache of caches) cache.dropWhere(mine);
+    droppedAt.delete(thread);
+    droppedAt.set(thread, ++clock);
+    if (droppedAt.size > DROPS_KEPT) {
+      const [oldest, at] = droppedAt.entries().next().value as [string, number];
+      droppedAt.delete(oldest);
+      floor = Math.max(floor, at);
+    }
+  };
   return {
     turns, ledgers, html, heights,
     dropThread(thread) {
-      const mine = belongs(thread);
-      for (const cache of [turns, ledgers, heights] as Array<Lru<unknown>>) cache.dropWhere(mine);
-      droppedAt.delete(thread);
-      droppedAt.set(thread, ++clock);
-      if (droppedAt.size > DROPS_KEPT) {
-        const [oldest, at] = droppedAt.entries().next().value as [string, number];
-        droppedAt.delete(oldest);
-        floor = Math.max(floor, at);
-      }
+      drop(thread, [turns, ledgers, heights] as Array<Lru<unknown>>);
+    },
+    dropModels(thread) {
+      drop(thread, [turns, ledgers] as Array<Lru<unknown>>);
     },
     clear() {
       for (const cache of [turns, ledgers, html, heights] as Array<Lru<unknown>>) cache.clear();

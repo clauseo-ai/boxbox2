@@ -10,11 +10,15 @@
    can be compared by a digest of what the ui held at each of them. */
 
 import { unwrap } from "solid-js/store";
-import { applyPatches, state as ui } from "../../store";
+import { applyPatches, setStream, state as ui } from "../../store";
+import { CATCH_UP_MS } from "../../ui/caught-up";
+import { PageGate } from "../gate";
+import { Landing } from "../landing";
+import type { FromWorker, StreamStatus } from "../messages";
 import type { Ask, Frame, Message, Part, SessionEntry } from "../protocol";
 import { parseCursor } from "../protocol";
 import { PatchQueue } from "../queue";
-import { type Action, coalesce, INITIAL_STATE, reduce, type SyncState, viewOf } from "../reducer";
+import { type Action, coalesce, INITIAL_STATE, type Patch, reduce, type SyncState, viewOf } from "../reducer";
 
 type Recorded = { id: string | null; frame: Frame };
 /** one frame of the replay; `together` keeps the next one in the same post */
@@ -36,7 +40,27 @@ export type Replay = {
   uiDigest: string;
   /** a digest of the worker's final state, without what only a newer build keeps (`bookkeeping`) */
   workerDigest: string;
+  /** with `catchUp`: how many times the ui's caught-up second ran out, and the first time it did with the store behind */
+  caughtUps: number;
+  behind: string | null;
+  /** the ui's store equals the worker's state at the end, key order included */
+  endsEqual: boolean;
 };
+
+/** how a run lands what the worker posts while the page is hidden, for the caught-up check:
+    - `gate`: the worker holds it and posts it in one message when the page is shown (gate.ts), landed in one go (landing.ts);
+    - `separate`: held the same, but posted one message at a time when the page is shown (the status after the patches);
+    - `naive`: posted as always, and the ui holds a hidden page's patches for a second while the status lands at once (the
+      queue that was reverted for racing the caught-up second) */
+export type CatchUp = { mode: "gate" | "separate" | "naive"; hidden: [number, number]; reconnect: number };
+
+/** each frame of the replay is this long on the run's clock */
+const STEP_MS = 20;
+/** the furthest behind the worker the store may be when the caught-up second runs out: a post waits up to six frames and
+    the ui's frame up to three posts, so what the worker made by this long before the deadline has landed */
+const SLACK_MS = 18 * STEP_MS + 40;
+/** the reverted ui's wait for a hidden page's patches */
+const NAIVE_HOLD_MS = 1000;
 
 /** a chained digest, which the caller supplies (node's crypto in the tests): this file is built with the app */
 export type Hasher = { update(text: string): void; digest(): string };
@@ -205,6 +229,11 @@ const keysOf = (steps: readonly Step[]): string[] => {
 const bookkeeping = new Set<string>(["bufferBytes", "heldBytes"]);
 const workerJson = (state: SyncState): string => JSON.stringify(state, (name, value: unknown) => (bookkeeping.has(name) ? undefined : value));
 
+/** the worker's count of the changes it had made when it posted (`catchUp` runs): a patch at its own path, which a coalesce
+    keeps the last of, so the store holds the newest count it was given */
+const PROBE = "probe";
+const probeOf = (): number => Number((unwrap(ui) as unknown as Record<string, unknown>)[PROBE] ?? 0);
+
 /** the ui's copy of what the worker holds: the fleet, and the view of every thread */
 const uiJson = (): string => JSON.stringify({ fleet: unwrap(ui.fleet), threads: unwrap(ui.threads) });
 const mirrorJson = (state: SyncState): string => {
@@ -215,8 +244,10 @@ const mirrorJson = (state: SyncState): string => {
 
 /** `hidden`: the steps, by index, during which the page is hidden and every post lands at once; `gap`: the step whose
     frame is lost the first time, so the next one is a gap and the worker reconnects from its cursor */
-export function replayWire(steps: readonly Step[], hasher: () => Hasher, seed = 1, options: { hidden?: [number, number]; gap?: number } = {}): Replay {
-  applyPatches([{ path: ["fleet"], value: structuredClone(INITIAL_STATE.fleet) }, { path: ["threads"], value: {} }]);
+export function replayWire(steps: readonly Step[], hasher: () => Hasher, seed = 1, options: { hidden?: [number, number]; gap?: number; catchUp?: CatchUp } = {}): Replay {
+  applyPatches([{ path: ["fleet"], value: structuredClone(INITIAL_STATE.fleet) }, { path: ["threads"], value: {} }, { path: [PROBE], value: undefined }]);
+  setStream({ state: "connecting", since: 0, lastEventAt: null });
+  const catchUp = options.catchUp;
   const random = seeded(seed);
   const daemon = new Daemon();
   const queue = new PatchQueue();
@@ -227,13 +258,78 @@ export function replayWire(steps: readonly Step[], hasher: () => Hasher, seed = 
   let tick = 0;
   let reads = 0;
   let reconnect = false;
-  const result: Replay = { mismatch: null, applies: 0, posts: 0, patches: 0, bytes: 0, applyMs: 0, seen: { refetches: 0, answered: 0, gaps: 0, hydrations: 0, removed: 0 }, uiDigest: "", workerDigest: "" };
+  const result: Replay = { mismatch: null, applies: 0, posts: 0, patches: 0, bytes: 0, applyMs: 0, seen: { refetches: 0, answered: 0, gaps: 0, hydrations: 0, removed: 0 }, uiDigest: "", workerDigest: "", caughtUps: 0, behind: null, endsEqual: false };
   const chain = hasher();
+
+  /* —— the page, for `catchUp` runs: its clock, the worker's changes by time, the channel, its frames and its timers —— */
+  let now = 0;
+  let pageHidden = false;
+  /** when the worker made each change: `made[n - 1]` is change n's time */
+  const made: number[] = [];
+  const channel: FromWorker[] = [];
+  const frames: Array<{ handle: number; run: () => void }> = [];
+  let handles = 0;
+  /** the caught-up timer the ui's effect holds (ui/caught-up.ts): one, set again with every status */
+  let caughtUpAt = null as { due: number; since: number } | null;
+  let naive = null as { queue: PatchQueue; due: number } | null;
+  const gate = new PageGate((message) => {
+    if (catchUp?.mode === "separate" && message.type === "held") channel.push(...message.messages);
+    else channel.push(message);
+  });
+  const status = (stream: StreamStatus) => {
+    setStream(stream);
+    caughtUpAt = stream.state === "live" ? { due: Math.max(now, stream.since + CATCH_UP_MS), since: stream.since } : null;
+  };
+  const landing = new Landing({
+    hidden: () => pageHidden,
+    frame: (run) => {
+      frames.push({ handle: ++handles, run });
+      return handles;
+    },
+    cancel: (handle) => {
+      const at = frames.findIndex((f) => f.handle === handle);
+      if (at >= 0) frames.splice(at, 1);
+    },
+    apply: (patches) => applyAndCheck(patches),
+    stream: status,
+  });
+  /** the timers due by now run first, as a browser may run a timer before the next message or frame */
+  const timers = () => {
+    if (naive && naive.due <= now) {
+      const held = naive.queue.take();
+      naive = null;
+      applyAndCheck(held);
+    }
+    const timer = caughtUpAt;
+    if (!timer || timer.due > now) return;
+    caughtUpAt = null;
+    result.caughtUps++;
+    const deadline = timer.since + CATCH_UP_MS - SLACK_MS;
+    let needed = 0;
+    while (needed < made.length && (made[needed] as number) <= deadline) needed++;
+    if (result.behind === null && probeOf() < needed) result.behind = `caught up at ${now} ms with the store at change ${probeOf()} of the ${needed} made by ${deadline} ms`;
+  };
+  const deliver = () => {
+    timers();
+    while (channel.length > 0) {
+      const message = channel.shift() as FromWorker; // the channel is not empty
+      if (message.type === "patches" && catchUp?.mode === "naive" && pageHidden) {
+        naive ??= { queue: new PatchQueue(), due: now + NAIVE_HOLD_MS };
+        naive.queue.push(message.patches);
+      } else if (message.type === "patches" || message.type === "stream" || message.type === "held") landing.take(message);
+      timers();
+    }
+  };
+  const runFrames = () => {
+    for (const frame of frames.splice(0)) frame.run();
+  };
+  const postToPage = (patches: Patch[]) => gate.send({ type: "patches", patches: [...patches, { path: [PROBE], value: made.length }] });
 
   const dispatch = (action: Action) => {
     const reduced = reduce(worker, action);
     worker = reduced.state;
     pending.push(...reduced.patches);
+    if (reduced.patches.length > 0) made.push(now);
     for (const effect of reduced.effects) {
       if (effect.type === "hydrate") {
         const wait = effect.key.endsWith("becf") && tick < 400 ? 400 - tick : 5 + Math.floor(random() * 40);
@@ -261,8 +357,7 @@ export function replayWire(steps: readonly Step[], hasher: () => Hasher, seed = 
       }
     }
   };
-  const apply = () => {
-    const patches = queue.take();
+  const applyAndCheck = (patches: Patch[]) => {
     if (patches.length === 0) return;
     const started = performance.now();
     applyPatches(patches);
@@ -270,7 +365,12 @@ export function replayWire(steps: readonly Step[], hasher: () => Hasher, seed = 
     result.applies++;
     const seen = uiJson();
     chain.update(seen);
-    if (result.mismatch === null && pending.length === 0 && seen !== mirrorJson(worker)) result.mismatch = `apply ${result.applies}, frame ${tick}`;
+    const settled = pending.length === 0 && channel.length === 0 && !gate.waiting && !landing.waiting && naive === null;
+    if (result.mismatch === null && settled && seen !== mirrorJson(worker)) result.mismatch = `apply ${result.applies}, frame ${tick}`;
+  };
+  const apply = () => {
+    if (catchUp) return runFrames();
+    applyAndCheck(queue.take());
   };
   const post = (hidden: boolean) => {
     if (pending.length === 0) return;
@@ -280,9 +380,14 @@ export function replayWire(steps: readonly Step[], hasher: () => Hasher, seed = 
     result.patches += patches.length;
     result.bytes += JSON.stringify(patches).length;
     // postMessage hands the ui a copy: the store mutates what it is given in place, never the worker's state
+    if (catchUp) return postToPage(structuredClone(patches));
     queue.push(structuredClone(patches));
     if (hidden) apply();
   };
+  if (catchUp) {
+    gate.send({ type: "stream", stream: { state: "live", since: 0, lastEventAt: null } });
+    deliver();
+  }
 
   const keys = keysOf(steps);
   keys.forEach((key, i) => dispatch(i === keys.length - 1 ? { type: "hold", key, at: i + 1 } : { type: "open", key, at: i + 1 }));
@@ -303,6 +408,22 @@ export function replayWire(steps: readonly Step[], hasher: () => Hasher, seed = 
       continue;
     }
     tick++;
+    now = tick * STEP_MS;
+    if (catchUp) {
+      const hiddenNow = at >= catchUp.hidden[0] && at < catchUp.hidden[1];
+      if (hiddenNow !== pageHidden) {
+        pageHidden = hiddenNow;
+        if (catchUp.mode !== "naive") gate.setHidden(hiddenNow);
+        // shown again, the reverted ui lands what it held at once
+        if (!hiddenNow && naive) naive.due = now;
+      }
+      if (at === catchUp.reconnect) {
+        // the connection drops and comes back: the stream is down, then live again, and what follows is the replay
+        post(false);
+        gate.send({ type: "stream", stream: { state: "down", since: now, lastEventAt: null } });
+        gate.send({ type: "stream", stream: { state: "live", since: now, lastEventAt: null } });
+      }
+    }
     const epoch = frame.type === "reset" ? frame.epoch : parseCursor(id)?.epoch;
     dispatch({ type: "frame", frame, epoch });
     if (frame.type === "session.removed" || frame.type === "message.removed") result.seen.removed++;
@@ -321,18 +442,27 @@ export function replayWire(steps: readonly Step[], hasher: () => Hasher, seed = 
       const resume = steps.findIndex((s) => s.frame.type !== "hello" && s.frame.type !== "reset" && "seq" in s.frame && s.frame.seq === from + 1);
       if (resume >= 0) at = resume - 1;
     }
+    if (catchUp) deliver();
     if (step.together) continue;
-    const hidden = options.hidden !== undefined && at >= options.hidden[0] && at < options.hidden[1];
+    const hidden = catchUp ? pageHidden : options.hidden !== undefined && at >= options.hidden[0] && at < options.hidden[1];
     if (--untilPost > 0) continue;
     untilPost = 1 + Math.floor(random() * 6);
     post(hidden);
+    if (catchUp) deliver();
     if (hidden || --untilApply > 0) continue;
     untilApply = 1 + Math.floor(random() * 3);
     apply();
   }
   for (let rounds = 0; later.length > 0 && rounds < 100; rounds++) for (const one of later.splice(0)) dispatch(one.answer());
   post(false);
+  if (catchUp) {
+    pageHidden = false;
+    gate.setHidden(false);
+    now += NAIVE_HOLD_MS + CATCH_UP_MS;
+    deliver();
+  }
   apply();
+  result.endsEqual = uiJson() === mirrorJson(worker);
   result.uiDigest = chain.digest();
   const final = hasher();
   final.update(workerJson(worker));

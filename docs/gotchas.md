@@ -1765,3 +1765,9 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
   launch beside the shell's call; the page now holds one registration promise
   (`shell/worker.ts`) and push awaits it. openapi-fetch captures `fetch` when its client is
   made, so tests stub `api.GET` and `api.POST`, not `globalThis.fetch`.
+- **a hidden page's held posts land as one message, patches before the last status.** the
+  worker holds its posts while the page is hidden and releases them together; a status
+  landing ahead of its patches, or any timer between them, races the caught-up second (the
+  1 s hidden queue that was reverted did exactly that; `wire.test.ts` now catches it).
+- **cool a thread only when nothing of it is marked or being saved.** a cooled thread comes
+  back from its indexeddb pages, so a mark or a save in flight would come back without it.

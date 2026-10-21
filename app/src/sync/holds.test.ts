@@ -8,7 +8,9 @@ import { type Action, BYTE_CAP, type Cold, type Effect, HELD_CAP, INITIAL_STATE,
 const EPOCH = "j1";
 const key = (n: number) => `bench:ses_${n}`;
 const keys = (state: SyncState) => Object.keys(state.threads).sort();
-const MB = 1024 * 1024;
+/** the sizes here were written against a byte cap of 150 of these: a 150th of the cap, so every case keeps its proportions
+    to the cap it is about */
+const MB = BYTE_CAP / 150;
 /** a step is an action, or one made from the state it meets: an answer to a read carries the number the reducer gave the read */
 type Step = Action | ((state: SyncState) => Action);
 

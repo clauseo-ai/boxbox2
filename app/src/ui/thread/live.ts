@@ -5,11 +5,11 @@
    needs from around it: the pending asks by call id, the agents' child
    sessions for the tape, and the clock while a turn runs. */
 
-import { type Accessor, createMemo, createRoot, createSignal, getOwner, onCleanup, runWithOwner, untrack } from "solid-js";
+import { type Accessor, createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup, runWithOwner, untrack } from "solid-js";
 import type { Message } from "../../sync/protocol";
 import type { ReadTrouble } from "../../sync/read";
 import type { AskReply } from "../../sync/replies";
-import { holdThread, releaseThread } from "../../sync/client";
+import { hideThread, holdThread, releaseThread, showThread } from "../../sync/client";
 import { state } from "../../store";
 import { type Item, type Turn, projectRoot, spawnsOf } from "./model";
 import { NO_MESSAGES, type TurnsOptions, createTurns } from "./turns";
@@ -95,6 +95,13 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
   const host = () => key().split(":")[0] ?? "";
   const session = () => state.fleet.sessions[key()];
   const thread = () => state.threads[key()];
+  /* the store holds a thread only while something shows it (sync/client.ts): this layer does for as long as it is drawn, so a
+     thread leaving the stage keeps its data through its way out */
+  createEffect(() => {
+    const shown = key();
+    showThread(shown);
+    onCleanup(() => hideThread(shown));
+  });
   const rawMessages = () => thread()?.messages ?? NO_MESSAGES;
   const directory = () => session()?.info.directory ?? "";
   const repoRoot = () => {
@@ -210,7 +217,17 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
     setOnScreen(distance === null ? rest : [...rest, { key: k, distance }]);
   };
   const liveChildren = createMemo(() => childKeys().filter((k) => { const st = children().get(k.slice(host().length + 1))?.state; return st === "working" || st === "wants" || st === "parked"; }), [], { equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]) });
-  createHolds({ live: liveChildren, visible: onScreen, present: (k) => state.threads[k] !== undefined, hold: holdThread, release: releaseThread });
+  /* a child a lane held stays in the store while this thread is drawn, released or not, as it always did (its row, its lane and the
+     details read it); the store lets it go when this thread leaves the stage (sync/client.ts, showThread) */
+  const shownChildren = new Set<string>();
+  onCleanup(() => { for (const k of shownChildren) hideThread(k); shownChildren.clear(); });
+  const holdChild = (k: string): void => {
+    holdThread(k);
+    if (shownChildren.has(k)) return;
+    shownChildren.add(k);
+    showThread(k);
+  };
+  createHolds({ live: liveChildren, visible: onScreen, present: (k) => state.threads[k] !== undefined, hold: holdChild, release: releaseThread });
 
   /* every session under this thread at any depth, for what its agents cost (details-model.ts, spendOf): the fleet's
      sessions by their parent, plus the agents the spawn rows name (this thread's, and its held children's) for one the

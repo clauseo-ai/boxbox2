@@ -185,22 +185,32 @@ export function draftRetryMs(failures: number): number {
 /** failed rounds of draft writes in a row after which the person is told this device cannot keep drafts */
 export const DRAFT_TROUBLE_AFTER = 3;
 
-export type Draft = { text: string; photos: Photo[]; model: string | null; effort: string | null; at: number };
+/** photos a draft keeps on the device that have not been read back: how many, and their characters of data url. a draft's
+    photos are read when its composer opens (sync/client.ts, `loadDraftPhotos`), so a launch carries none it may never show,
+    and what counts them (the device's cap, a place that holds a draft) reads this until they are */
+export type HeldPhotos = { count: number; bytes: number; /** the read failed (draft-photos.ts) */ failed?: true };
+
+export type Draft = { text: string; photos: Photo[]; model: string | null; effort: string | null; at: number; held?: HeldPhotos };
 
 /** a draft as it crosses to the worker. a keystroke carries the words and `"kept"`: the photos are megabytes, and the worker
     already holds the set the last edit that changed it sent, so they travel (and are written to indexeddb) only when the set changes */
 export type DraftMessage = Omit<Draft, "photos"> & { photos: Photo[] | "kept" };
 
 /** the two records a draft is kept in: its words, small and written at every pause in typing, and its photos, written
-    only when the set changes. the words record carries no photos */
-export function splitDraft(draft: Draft): { words: Draft; photos: Photo[] } {
-  return { words: { ...draft, photos: [] }, photos: draft.photos };
+    only when the set changes. the words record carries no photos, only how many there are and their size (`held`), so a
+    launch can count them without reading them; `unread` is that count for photos still on the device and not read */
+export function splitDraft(draft: Draft, unread?: HeldPhotos): { words: Draft; photos: Photo[] } {
+  const { held: _counted, ...rest } = draft;
+  const held = draft.photos.length ? { count: draft.photos.length, bytes: photoBytes(draft.photos) } : unread;
+  return { words: { ...rest, photos: [], ...(held ? { held } : {}) }, photos: draft.photos };
 }
 
 /** a draft from its two records. a record written before they were split carried its photos itself, which stand when
     there is no photos record */
 export function joinDraft(words: Draft, photos: Photo[] | undefined): Draft {
-  return photos === undefined ? words : { ...words, photos };
+  if (photos === undefined) return words;
+  const { held: _read, ...rest } = words;
+  return { ...rest, photos };
 }
 
 export function entryOf(input: { clientID: string; verb: Verb; target: Target; text: string; photos: Photo[]; model: string | null; effort: string | null; at: number }, live: boolean): OutboxEntry {

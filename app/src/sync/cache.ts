@@ -30,8 +30,12 @@
    read folds back into its message, so a streaming answer costs each save
    what it added, not what it has grown to. the chunks are folded into their
    pages, and dropped, by the first save that writes any page of the thread
-   (a part settling, a message joining) or that would pass `CHUNKS`. the
-   worker's `Saver` keeps one save in flight at most: what changes while it
+   (a part settling, a message joining), that would pass `CHUNKS`, or that
+   would leave the chunks holding more words than the texts they grow held
+   when their pages were written (and `FOLD_FLOOR`): each fold at least
+   doubles the words the next one waits for, so a stream writes what it
+   streamed a few times over however long it runs, never its whole length
+   once per so many saves. the worker's `Saver` keeps one save in flight at most: what changes while it
    commits waits for the next, which writes all of it. */
 
 import type { Cold, Counters, Fleet, Patch, SyncState, Thread } from "./reducer";
@@ -51,10 +55,14 @@ const ROW = "row:";
 const ASK = "ask:";
 const STORES = ["meta", "fleet", "threads", "drafts", "draftPhotos", "outbox", "prefs"] as const;
 export const PAGE = 50;
-/** the most chunk records a thread keeps before a save folds them into its pages: a read stays a few hundred small records
-    at worst, and a stream that never settles rewrites its message once per this many saves (51 s at one save per 200 ms),
-    not once per save */
-export const CHUNKS = 256;
+/** the most chunk records a thread keeps before a save folds them into its pages: a read stays a thousand small records at
+    worst (one key range), and a slow stream that never settles rewrites its message once per this many saves (17 minutes at
+    one save a second), not once per save */
+export const CHUNKS = 1024;
+/** the words a thread's chunks may hold before a fold however short the texts they grow: below it a new part's first words
+    would fold at every save. above it, chunks fold once they hold more words than those texts held on their pages, so the
+    folds write a stream's words about twice in all, not its whole length once per `CHUNKS` saves */
+export const FOLD_FLOOR = 64 * 1024;
 
 /** the fleet's fields kept as a record per entry; every other field is a record of its own */
 const ENTRIES = ["sessions", "asks", "hosts"] as const;
@@ -98,7 +106,7 @@ export function markAppend(dirty: Dirty, key: string, append: Append): void {
   markThread(dirty, key, Number.POSITIVE_INFINITY);
   let texts = dirty.appends.get(key);
   if (!texts) dirty.appends.set(key, (texts = new Map()));
-  const id = `${append.at}/${append.part}/${append.field}`;
+  const id = textId(append);
   const had = texts.get(id);
   if (!had || append.from < had.from) texts.set(id, append);
 }
@@ -260,9 +268,12 @@ type SavedHead = Partial<ThreadHead> & { baseline?: Baseline };
     characters. a read folds them into the message in key order (`fold`) */
 type Chunk = Append & { text: string };
 
-/** what this cache knows of a thread's records on disk: where its pages start (`layout`), how many chunks follow them, and
-    the messages they grow */
-type OnDisk = { starts: number[]; chunks: number; chunked: Set<number> };
+/** what this cache knows of a thread's records on disk: where its pages start (`layout`), how many chunks follow them, the
+    messages they grow, the words the chunks hold (`words`), and how long the texts they grow were on their pages (`under`,
+    each text's first chunk's `from`), which together decide the next fold */
+type OnDisk = { starts: number[]; chunks: number; chunked: Set<number>; words: number; under: number; texts: Set<string> };
+
+const textId = (append: Append) => `${append.at}/${append.part}/${append.field}`;
 
 export type Booted = { cursor: Cursor | null; counters: Counters | null; fleet: Fleet | null; heads: Cold[] };
 
@@ -293,6 +304,24 @@ function fold(messages: Message[], chunks: readonly Chunk[]): boolean {
     else return false;
   }
   return true;
+}
+
+/** what the records read hold: their pages' starts, and the chunks after them as the next fold weighs them */
+function onDiskOf(starts: number[], chunks: readonly Chunk[]): OnDisk {
+  const disk: OnDisk = { starts, chunks: chunks.length, chunked: new Set(), words: 0, under: 0, texts: new Set() };
+  for (const chunk of chunks) addChunk(disk, chunk, chunk.text.length);
+  return disk;
+}
+
+/** a chunk of `words` written onto `disk`'s count; the first one of a text says how long that text was on its page */
+function addChunk(disk: OnDisk, append: Append, words: number): void {
+  disk.chunks++;
+  disk.chunked.add(append.at);
+  disk.words += words;
+  const id = textId(append);
+  if (disk.texts.has(id)) return;
+  disk.texts.add(id);
+  disk.under += append.from;
 }
 
 /** the page of `starts` that holds message `at` */
@@ -532,7 +561,7 @@ export class Cache {
     starts.push(messages.length);
     if (!fold(messages, chunks)) return null;
     // the pages and chunks as they lie, whichever layout wrote them: the next save of this thread rewrites only what changes
-    this.known.set(head.key, { starts, chunks: chunks.length, chunked: new Set(chunks.map((chunk) => chunk.at)) });
+    this.known.set(head.key, onDiskOf(starts, chunks));
     return messages;
   }
 
@@ -685,27 +714,35 @@ export class Cache {
       const text = textAt(messages, append);
       return typeof text === "string" && text.length >= append.from;
     });
-    let chunks = old?.chunks ?? 0;
-    const chunked = new Set(old?.chunked);
-    if (old && writes.size === 0 && fits && chunks + grown.length <= CHUNKS) {
-      for (const append of grown) {
+    const adds = fits ? grown.map((append) => ({ append, words: (textAt(messages, append) as string).length - append.from })).filter((add) => add.words > 0) : [];
+    // the chunks on disk once this save adds its own, weighed as the fold rule weighs them (`FOLD_FLOOR`)
+    const after: OnDisk = { starts, chunks: old?.chunks ?? 0, chunked: new Set(old?.chunked), words: old?.words ?? 0, under: old?.under ?? 0, texts: new Set(old?.texts) };
+    for (const { append, words } of adds) addChunk(after, append, words);
+    if (old && writes.size === 0 && fits && after.chunks <= CHUNKS && after.words <= Math.max(after.under, FOLD_FLOOR)) {
+      let seq = old.chunks;
+      for (const { append } of adds) {
         const text = textAt(messages, append) as string; // `fits` found a string at least `from` long
-        if (text.length === append.from) continue;
-        put(threads, { ...append, text: text.slice(append.from) } satisfies Chunk, chunkKey(key, chunks++));
-        chunked.add(append.at);
+        put(threads, { ...append, text: text.slice(append.from) } satisfies Chunk, chunkKey(key, seq++));
       }
-    } else if (old) {
+      return this.putHead(threads, put, thread, starts, after);
+    }
+    if (old) {
       // the messages chunks grow are rewritten whole, so the chunks go
-      for (const at of [...chunked, ...grown.map((append) => append.at)]) if (at < below) writes.add(pageOf(starts, at));
-      if (chunks > 0) threads.delete(chunkRange(key));
-      chunks = 0;
-      chunked.clear();
+      for (const at of [...old.chunked, ...grown.map((append) => append.at)]) if (at < below) writes.add(pageOf(starts, at));
+      if (old.chunks > 0) threads.delete(chunkRange(key));
     }
     for (const page of [...writes].sort((a, b) => a - b)) {
       const start = starts[page] ?? 0;
       put(threads, messages.slice(start, starts[page + 1] ?? start), pageKey(key, page));
     }
     if (old) for (let page = pages; page < old.starts.length - 1; page++) threads.delete(pageKey(key, page));
+    return this.putHead(threads, put, thread, starts, { starts, chunks: 0, chunked: new Set(), words: 0, under: 0, texts: new Set() });
+  }
+
+  /** a held thread's head record, written with every save of it; returns `disk`, what is on disk once this commits */
+  private putHead(threads: IDBObjectStore, put: (store: IDBObjectStore, value: unknown, key: string) => void, thread: Thread, starts: number[], disk: OnDisk): OnDisk {
+    const { key } = thread;
+    const pages = starts.length - 1;
     put(
       threads,
       {
@@ -725,7 +762,7 @@ export class Cache {
       } satisfies ThreadHead,
       headKey(key),
     );
-    return { starts, chunks, chunked };
+    return disk;
   }
 
   /** the fleet's records `dirty` names: every one when the fleet changed whole, none is on disk yet or another writer wrote
@@ -761,25 +798,38 @@ export class Cache {
   }
 
   /** the composer's drafts by target key, the sends not yet echoed, the telemetry rows the server has not taken, and this device's
-      replies to asks as they were written (replies.ts reads them) */
-  async loadComposer(): Promise<{ drafts: Record<string, Draft>; outbox: OutboxEntry[]; rows: RawEvent[]; replies: unknown[] }> {
+      replies to asks as they were written (replies.ts reads them). a draft's photos are read only for `open`, the thread
+      the launch shows: every other draft says how many it keeps (`Draft.held`) and its photos are read when its composer
+      opens (`loadDraftPhotos`) */
+  async loadComposer(open: string | null = null): Promise<{ drafts: Record<string, Draft>; outbox: OutboxEntry[]; rows: RawEvent[]; replies: unknown[] }> {
     const tx = this.db.transaction(["drafts", "draftPhotos", "outbox"], "readonly");
-    const [keys, values, photoKeys, photoValues, outboxKeys, outboxValues] = await Promise.all([
+    const photoStore = tx.objectStore("draftPhotos");
+    const [keys, values, photoKeys, outboxKeys, outboxValues] = await Promise.all([
       done(tx.objectStore("drafts").getAllKeys()) as Promise<IDBValidKey[]>,
       done(tx.objectStore("drafts").getAll()) as Promise<Draft[]>,
-      done(tx.objectStore("draftPhotos").getAllKeys()) as Promise<IDBValidKey[]>,
-      done(tx.objectStore("draftPhotos").getAll()) as Promise<Photo[][]>,
+      done(photoStore.getAllKeys()) as Promise<IDBValidKey[]>,
       done(tx.objectStore("outbox").getAllKeys()) as Promise<IDBValidKey[]>,
       done(tx.objectStore("outbox").getAll()) as Promise<unknown[]>,
     ]);
+    const withPhotos = new Set(photoKeys.map(String));
+    // the photos read now: the open thread's, and a draft's whose words were written before they counted them, which is read
+    // as it always was until its next edit writes the count
+    const reads = keys.map(String).filter((key, i) => withPhotos.has(key) && (key === open || values[i]?.held === undefined));
     const photoSets = new Map<string, Photo[]>();
-    photoKeys.forEach((key, i) => photoSets.set(String(key), photoValues[i] ?? []));
+    await Promise.all(reads.map(async (key) => photoSets.set(key, ((await done(photoStore.get(key))) as Photo[] | undefined) ?? [])));
     const drafts: Record<string, Draft> = {};
     // a draft written before the photos had a record of their own still holds them in its words: it reads as it was, and the
     // sender writes its photos into their own record with its first edit (`Sender.restore`)
     keys.forEach((key, i) => {
       const words = values[i];
-      if (words) drafts[String(key)] = joinDraft(words, photoSets.get(String(key)));
+      if (!words) return;
+      const name = String(key);
+      const draft = joinDraft(words, photoSets.get(name));
+      // a count whose photos are gone counts nothing
+      if (draft.held && !withPhotos.has(name)) {
+        const { held: _gone, ...rest } = draft;
+        drafts[name] = rest;
+      } else drafts[name] = draft;
     });
     // one store, three kinds of entry: a send by its client id, a row by `row:<id>`, a reply's record by `ask:<key>`
     const outbox: OutboxEntry[] = [];
@@ -793,6 +843,19 @@ export class Cache {
       else outbox.push(value as OutboxEntry);
     });
     return { drafts, outbox, rows, replies };
+  }
+
+  /** a thread's pages on disk as this cache knows them, for a thread whose records are its own: how many pages, and how many
+      messages they hold. null when this cache does not know (another writer, or never written or read here) */
+  pagesOf(key: string): { pages: number; count: number } | null {
+    const disk = this.mine.has(key) ? this.known.get(key) : undefined;
+    return disk ? { pages: disk.starts.length - 1, count: disk.starts[disk.starts.length - 1] ?? 0 } : null;
+  }
+
+  /** a draft's photos, read when its composer opens; none when it keeps none */
+  async loadDraftPhotos(key: string): Promise<Photo[]> {
+    const tx = this.db.transaction("draftPhotos", "readonly");
+    return ((await done(tx.objectStore("draftPhotos").get(key))) as Photo[] | undefined) ?? [];
   }
 
   /** keeps telemetry rows in the outbox until the server takes them (telemetry.ts) */
@@ -865,6 +928,10 @@ export class Saver {
   private next: Promise<void> | null = null;
   /** the meta the last save wrote, so a save with nothing marked and the same cursor and counters writes nothing */
   private written: { cursor: Cursor | null; counters: Counters } | null = null;
+  /** the last save took words streamed onto a text: a part is streaming, so the next save waits `streamingMs` */
+  private streaming = false;
+  /** what the save committing now writes */
+  private inFlight: Dirty | null = null;
 
   constructor(
     private readonly cache: () => Cache | null,
@@ -872,6 +939,10 @@ export class Saver {
     private readonly delayMs: number,
     /** told what each save that committed wrote */
     private readonly saved: (stats: SaveStats) => void = () => {},
+    /** the wait while a part streams: its words, the session ticks that come with them and the cursor are written this often.
+        a reload replays what came since from the cursor saved with them, so a longer wait costs a longer replay, never a
+        word twice or lost */
+    private readonly streamingMs = delayMs,
   ) {}
 
   mark(patches: readonly Patch[]): void {
@@ -883,9 +954,16 @@ export class Saver {
     markThread(this.dirty, key, from);
   }
 
-  /** a save in `delayMs`, unless one is due already */
+  /** nothing of a thread is marked to be written or being written: the disk holds it as the state does */
+  clean(key: string): boolean {
+    const writing = this.inFlight;
+    return !this.dirty.threads.has(key) && !this.dirty.appends.has(key) && !(writing && (writing.threads.has(key) || writing.appends.has(key)));
+  }
+
+  /** a save in `delayMs`, or `streamingMs` while a part streams, unless one is due already */
   schedule(): void {
-    if (this.timer === undefined && this.cache()) this.timer = setTimeout(() => void this.save(), this.delayMs);
+    if (this.timer !== undefined || !this.cache()) return;
+    this.timer = setTimeout(() => void this.save(), this.streaming || this.dirty.appends.size > 0 ? this.streamingMs : this.delayMs);
   }
 
   /** writes everything marked; resolves once it is on disk, or the write failed and what it held is marked again */
@@ -906,6 +984,8 @@ export class Saver {
     if (isClean(this.dirty) && this.written?.cursor === state.cursor && this.written.counters === state.counters) return Promise.resolve();
     const dirty = this.dirty;
     this.dirty = cleanDirty();
+    this.streaming = dirty.appends.size > 0;
+    this.inFlight = dirty;
     const running = cache
       .save(state, dirty)
       .then(
@@ -928,6 +1008,7 @@ export class Saver {
       )
       .finally(() => {
         this.running = null;
+        this.inFlight = null;
       });
     this.running = running;
     return running;

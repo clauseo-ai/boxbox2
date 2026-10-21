@@ -12,9 +12,10 @@
 
 import { Backoff } from "./backoff";
 import { Cache, type SaveStats, Saver, weight } from "./cache";
+import { PageGate } from "./gate";
 import type { Emit, FromWorker, StreamStatus, SyncCounters, ToWorker, UiSync } from "./messages";
 import { inDaemonOrderAll } from "./order";
-import { formatCursor, type Message, parseCursor, PROTOCOL, routeFrame, splitKey } from "./protocol";
+import { formatCursor, type Frame, type Message, parseCursor, PROTOCOL, routeFrame, splitKey } from "./protocol";
 import {
   type Action,
   type Cold,
@@ -47,6 +48,8 @@ const scope = globalThis as unknown as WorkerScope;
 /** a reader aborts after this long without a byte; the server writes a heartbeat every 15 s */
 const STALL_MS = 45_000;
 const SAVE_DEBOUNCE_MS = 200;
+/** the save's wait while a part streams (`Saver`): a second's words, ticks and cursor in one write instead of five */
+const STREAMING_SAVE_MS = 1000;
 /** how often the worker says what its connection cost it (`perf.sync`) */
 const TALLY_MS = 60_000;
 /** patches wait for the next animation frame, or this long where a worker has none or the tab is hidden */
@@ -54,9 +57,18 @@ const FRAME_FALLBACK_MS = 50;
 /** a message asked for again within this long of its last ask is coming back stale, so it waits before it is fetched */
 const REFETCH_STREAK_MS = 5_000;
 const REFETCH_BACKOFF_MS = { floor: 250, cap: 8_000 };
+/** a thread nobody shows is cooled (its messages leave memory, its pages stay in the cache) this long after it closed */
+export const COOL_AFTER_MS = 5 * 60_000;
+/** the threads closed last stay warm whatever their age, so going back to one of them reads nothing */
+export const KEEP_WARM = 3;
+/** while threads nobody shows are warm, they are looked at again at least this often (a session that stopped being busy) */
+const COOL_SWEEP_MS = 30_000;
+
+/** everything the worker says to the ui goes through it: held while the page is hidden (gate.ts) */
+const gate = new PageGate((message) => scope.postMessage(message));
 
 function post(message: FromWorker) {
-  scope.postMessage(message);
+  gate.send(message);
 }
 
 /** a wait the worker can cut short when it stops */
@@ -95,6 +107,15 @@ export class Sync {
   private replay: { head: number; count: number; resumed: boolean; downMs: number | null } | null = null;
 
   private pending: Patch[] = [];
+  /** the threads the ui shows (the stage, the layers under it, the children it holds): the only ones its store holds, so the
+      only ones whose patches go to it (`show`, `hide`) */
+  private readonly shown = new Set<string>();
+  /** when each thread the ui let go of was closed, for the sweep that cools it (`sweep`) */
+  private readonly closedAt = new Map<string, number>();
+  private coolTimer: ReturnType<typeof setTimeout> | undefined;
+  private sweeping = false;
+  /** a sweep was asked for while one waited on its save: it runs again when that one ends */
+  private sweepAgain = false;
   private frameHandle: number | undefined;
   private frameTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -103,6 +124,7 @@ export class Sync {
     () => this.state,
     SAVE_DEBOUNCE_MS,
     (stats) => this.tallySave(stats),
+    STREAMING_SAVE_MS,
   );
   /** what the connection cost since `since`, told once a minute while it is up (`perf.sync`): counts and sizes, no content */
   private tally = { since: 0, frames: 0, received: 0, posts: 0, patches: 0, posted: 0, saves: 0, puts: 0, stored: 0 };
@@ -126,11 +148,14 @@ export class Sync {
 
   /** `board`: this device may sit beside a board, so its stream asks for board frames (docs/board.md) */
   /** `frameCap`: the most text one sse frame may hold (sse.ts), smaller only in tests */
+  /** `now`: the clock threads are cooled by */
   constructor(
     device: string,
     deviceClass: ConstructorParameters<typeof Telemetry>[1],
     private readonly board = false,
     private readonly frameCap = FRAME_CAP,
+    /** the clock the sweep reads, a test's own in tests */
+    private readonly now: () => number = Date.now,
   ) {
     this.telemetry = new Telemetry(
       device,
@@ -168,17 +193,19 @@ export class Sync {
         counters: loaded.counters ?? INITIAL_STATE.counters,
       };
     }
-    // the thread the url opens paints on the first frame, so its pages are read now; no other thread's are
+    // the thread the url opens paints on the first frame, so its pages are read now; no other thread's are. the ui shows it
+    // (its open, sent next, says so too)
+    if (open) this.shown.add(open);
     if (open) await this.restore(open, true);
     const ms = Math.round(performance.now() - started);
-    const composer = (await this.cache?.loadComposer().catch(() => null)) ?? { drafts: {}, outbox: [], rows: [], replies: [] };
+    const composer = (await this.cache?.loadComposer(open).catch(() => null)) ?? { drafts: {}, outbox: [], rows: [], replies: [] };
     this.sender.restore(composer.outbox, composer.drafts);
     this.telemetry.restore(composer.rows);
     const replies = restoreReplies(composer.replies);
     this.replies = replies.book;
     if (replies.dropped.length) void this.cache?.putReply(null, null, replies.dropped).catch(() => undefined);
     const views: Record<string, ThreadView> = {};
-    for (const [key, thread] of Object.entries(this.state.threads)) views[key] = viewOf(thread);
+    for (const [key, thread] of Object.entries(this.state.threads)) if (this.shown.has(key)) views[key] = viewOf(thread);
     const sync: UiSync = { fleet: this.state.fleet, threads: views, stream: this.stream, drafts: composer.drafts, outbox: this.sender.views(), replies: Object.values(this.replies) };
     post({ type: "boot", sync });
     this.telemetry.emit("perf.cache", { what: "boot", threads: Object.keys(this.state.cold).length + Object.keys(this.state.threads).length, messages: Object.values(this.state.threads).reduce((n, t) => n + t.messages.length, 0) }, { ms, ok: true });
@@ -207,6 +234,105 @@ export class Sync {
 
   release(key: string): void {
     this.dispatch({ type: "release", key });
+  }
+
+  /** the ui shows a thread (on stage, a layer under it, a child it holds): it gets the thread as the worker holds it now, and
+      every patch to it from here. one that is cold comes back from the cache first */
+  show(key: string): void {
+    if (this.shown.has(key)) return;
+    this.shown.add(key);
+    this.closedAt.delete(key);
+    const thread = this.state.threads[key];
+    if (thread) {
+      this.pending.push({ path: ["threads", key], value: viewOf(thread) });
+      this.scheduleFrame();
+    } else void this.restore(key, false);
+  }
+
+  /** the ui no longer shows a thread: its store lets go of it, and the worker cools it in time (`sweep`) */
+  hide(key: string): void {
+    if (!this.shown.delete(key)) return;
+    this.closedAt.set(key, this.now());
+    this.pending.push({ path: ["threads", key], value: undefined, closed: true });
+    this.scheduleFrame();
+    void this.sweep();
+  }
+
+  /** cools the threads nobody shows, keeping warm the ones a session is busy in, the ones held for another, and the
+      KEEP_WARM the person closed last; the rest go COOL_AFTER_MS after they closed (a lane's child is shown, and so warm,
+      for as long as its parent is drawn, released or not). a
+      thread goes only once the cache holds its pages exactly as memory does: everything marked is saved first, and one
+      that changed meanwhile waits for the next sweep. without a cache nothing is cooled (its pages would be lost) */
+  async sweep(): Promise<void> {
+    clearTimeout(this.coolTimer);
+    this.coolTimer = undefined;
+    if (!this.cache || this.life.signal.aborted) return;
+    if (this.sweeping) {
+      this.sweepAgain = true;
+      return;
+    }
+    const now = this.now();
+    const busy = (key: string) => {
+      const status = this.state.fleet.sessions[key]?.status?.type;
+      return status === "busy" || status === "retry";
+    };
+    const warm = Object.values(this.state.threads).filter((t) => !this.shown.has(t.key));
+    for (const t of warm) if (!this.closedAt.has(t.key)) this.closedAt.set(t.key, now);
+    const closed = (key: string) => this.closedAt.get(key) ?? now;
+    const due: string[] = [];
+    let next = Number.POSITIVE_INFINITY;
+    let kept = 0;
+    for (const t of [...warm].sort((a, b) => closed(b.key) - closed(a.key))) {
+      if (t.leased || busy(t.key)) {
+        next = Math.min(next, now + COOL_SWEEP_MS);
+        continue;
+      }
+      // the person's own threads closed last stay; a child held for a lane goes in time like the rest
+      if (t.openedAt > 0 && kept < KEEP_WARM) {
+        kept++;
+        continue;
+      }
+      const at = closed(t.key) + COOL_AFTER_MS;
+      if (at <= now) due.push(t.key);
+      else next = Math.min(next, at);
+    }
+    if (due.length > 0) {
+      this.sweeping = true;
+      try {
+        await this.saver.save();
+        await this.saver.idle();
+      } finally {
+        this.sweeping = false;
+      }
+      // a worker that stopped meanwhile (a sign-out) changes nothing more
+      if (this.life.signal.aborted) return;
+      if (this.sweepAgain) {
+        this.sweepAgain = false;
+        return this.sweep();
+      }
+      const threads: Record<string, number> = {};
+      for (const key of due) {
+        const pages = this.coolable(key);
+        if (pages === null) next = Math.min(next, this.now() + COOL_SWEEP_MS);
+        else threads[key] = pages;
+      }
+      if (Object.keys(threads).length > 0) this.dispatch({ type: "cool", threads });
+      for (const key of Object.keys(threads)) if (!this.state.threads[key]) this.closedAt.delete(key);
+      // one the reducer kept (a read or a refetch began) is looked at again
+      if (Object.keys(threads).some((key) => this.state.threads[key])) next = Math.min(next, this.now() + COOL_SWEEP_MS);
+    }
+    for (const key of this.closedAt.keys()) if (!this.state.threads[key]) this.closedAt.delete(key);
+    if (Number.isFinite(next) && !this.life.signal.aborted) this.coolTimer = setTimeout(() => void this.sweep(), Math.max(0, next - this.now()));
+  }
+
+  /** the pages a thread nobody shows has in the cache, when the cache holds it exactly as memory does now (nothing of it is
+      marked or being written, its pages are this cache's own, and it is not being read again); null when it does not */
+  private coolable(key: string): number | null {
+    const thread = this.state.threads[key];
+    if (!this.cache || !thread || this.shown.has(key) || thread.status !== "live" || !this.saver.clean(key)) return null;
+    const pages = this.cache.pagesOf(key);
+    // the pages on disk are the ones this cache wrote for these messages, in the layout it knows they lie in
+    return pages !== null && pages.count === thread.messages.length ? pages.pages : null;
   }
 
   /** a stage's retry: a thread waiting on its read reads again now; one the worker does not hold in memory (evicted, or never
@@ -244,6 +370,8 @@ export class Sync {
     // and its head is written with it, so the next restore finds a size and measures nothing
     if (messages && !head.sized) this.saver.markThread(head.key, Number.POSITIVE_INFINITY);
     this.dispatch({ type: "restored", key: head.key, messages, ...(messages && !head.sized ? { bytes } : {}) }, quiet);
+    // a thread back in memory that nobody shows is cooled in time like any (its open may have come and gone meanwhile)
+    if (!this.shown.has(head.key)) void this.sweep();
     this.telemetry.emit("perf.cache", { what: "restore", threads: 1, messages: messages?.length ?? 0, bytes }, { ms: Math.round(performance.now() - started), ok: messages !== null });
   }
 
@@ -251,19 +379,17 @@ export class Sync {
   dispatch(action: Action, quiet = false): void {
     const result = reduce(this.state, action);
     this.state = result.state;
-    if (action.type === "restored") {
-      // what came back from the cache is what the cache holds: only a thread that starts over is written, and its head alone
-      // changes otherwise (a read that begins again)
-      if (action.messages === null) this.saver.markThread(action.key, 0);
-      else if (result.effects.length > 0) this.saver.markThread(action.key, Number.POSITIVE_INFINITY);
-      if (!quiet && result.patches.length > 0) {
-        this.pending.push(...result.patches);
-        this.scheduleFrame();
+    if (action.type === "restored" || action.type === "cool") {
+      // what came back from the cache, or went to it, is what the cache holds: only a thread that starts over is written, and
+      // its head alone changes otherwise (a read that begins again)
+      if (action.type === "restored") {
+        if (action.messages === null) this.saver.markThread(action.key, 0);
+        else if (result.effects.length > 0) this.saver.markThread(action.key, Number.POSITIVE_INFINITY);
       }
+      if (!quiet) this.toUi(result.patches);
     } else if (result.patches.length > 0) {
-      if (!quiet) this.pending.push(...result.patches);
+      if (!quiet) this.toUi(result.patches);
       this.saver.mark(result.patches);
-      if (!quiet) this.scheduleFrame();
     }
     for (const effect of result.effects) this.run(effect);
     this.saver.schedule();
@@ -404,11 +530,10 @@ export class Sync {
       this.wentLive(frame.head);
     }
     const epoch = parseCursor(sse.id)?.epoch;
-    const resetting = frame.type === "reset";
+    if (frame.type === "reset") return this.reset(frame, epoch);
     this.dispatch({ type: "frame", frame, epoch });
     this.sender.frame(frame);
-    if (resetting) this.replayDone(false);
-    else if (frame.type !== "hello") {
+    if (frame.type !== "hello") {
       // the status the ui holds is a copy (`setStream` posts it), so the worker's own is changed in place, not made anew per frame
       this.stream.lastEventAt = Date.now();
       if (this.replay) {
@@ -416,6 +541,23 @@ export class Sync {
         if (frame.seq >= this.replay.head) this.replayDone(true);
       }
     }
+  }
+
+  /** the server could not replay from the cursor: the threads on screen are read again, and every other thread whose pages the
+      cache holds as memory does goes cold and stale (read again when it is wanted), so a reset costs what is on screen. one
+      with changes not yet on disk is read again, as every thread was before. the reset lands at once, never after a save:
+      the stream said live at the hello, and its caught-up second (ui/caught-up.ts) must find the snapshot's fleet in the
+      store */
+  private reset(frame: Extract<Frame, { type: "reset" }>, epoch: string | undefined): void {
+    const cool: Record<string, number> = {};
+    for (const key of Object.keys(this.state.threads)) {
+      const pages = this.coolable(key);
+      if (pages !== null) cool[key] = pages;
+    }
+    this.dispatch({ type: "frame", frame, epoch, cool });
+    this.sender.frame(frame);
+    this.replayDone(false);
+    for (const key of Object.keys(cool)) this.closedAt.delete(key);
   }
 
   private wentLive(head: number): void {
@@ -619,6 +761,18 @@ export class Sync {
 
   /* —— patches, once a frame —— */
 
+  /** the patches the ui's store takes: a thread's only while it shows it, so the store holds what is on screen and no more */
+  private toUi(patches: readonly Patch[]): void {
+    let any = false;
+    for (const patch of patches) {
+      const [top, key] = patch.path;
+      if (top === "threads" && typeof key === "string" && !this.shown.has(key)) continue;
+      this.pending.push(patch);
+      any = true;
+    }
+    if (any) this.scheduleFrame();
+  }
+
   private scheduleFrame(): void {
     if (this.frameTimer !== undefined) return;
     this.frameTimer = setTimeout(() => this.flushPatches(), FRAME_FALLBACK_MS);
@@ -677,6 +831,7 @@ export class Sync {
     this.life.abort();
     this.connection?.abort();
     clearTimeout(this.frameTimer);
+    clearTimeout(this.coolTimer);
     this.saver.stop();
     if (this.frameHandle !== undefined) scope.cancelAnimationFrame?.(this.frameHandle);
     this.telemetry.stop();
@@ -706,7 +861,10 @@ let ready: Promise<void> = Promise.resolve();
 
 scope.addEventListener("message", (event) => {
   const message = event.data;
+  // the page's visibility is the gate's, whatever the worker is doing: it takes effect at once, boot or not
+  if (message.type === "visibility") return gate.setHidden(message.hidden);
   if (message.type === "start") {
+    gate.setHidden(message.hidden);
     if (sync) return;
     const started = new Sync(message.device, message.deviceClass, message.board);
     sync = started;
@@ -726,6 +884,12 @@ scope.addEventListener("message", (event) => {
         return;
       case "release":
         current.release(message.key);
+        return;
+      case "show":
+        current.show(message.key);
+        return;
+      case "hide":
+        current.hide(message.key);
         return;
       case "reread":
         await current.reread(message.key);
@@ -766,6 +930,9 @@ scope.addEventListener("message", (event) => {
         return;
       case "replied":
         current.replied(message.record);
+        return;
+      case "photos":
+        post({ type: "photos", key: message.key, photos: await current.sender.photos(message.key) });
         return;
       default:
         message satisfies never;

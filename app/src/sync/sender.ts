@@ -6,7 +6,7 @@
 
 import { Backoff } from "./backoff";
 import type { FromWorker, Outgoing, StreamState } from "./messages";
-import { type Answer, answered, DRAFT_TROUBLE_AFTER, type Draft, type DraftMessage, draftRetryMs, echoed, entryOf, nextWaiting, OUTBOX_CAP, OUTBOX_PHOTO_BYTES, isPhotoKind, type OutboxEntry, orphaned, overdue, type Photo, perfVerb, photoBytes, postBudgetMs, REISSUE_MS, removed, splitDraft, viewOfEntry, wasQueued } from "./outbox";
+import { type Answer, answered, DRAFT_TROUBLE_AFTER, type Draft, type DraftMessage, draftRetryMs, echoed, entryOf, type HeldPhotos, nextWaiting, OUTBOX_CAP, OUTBOX_PHOTO_BYTES, isPhotoKind, type OutboxEntry, orphaned, overdue, type Photo, perfVerb, photoBytes, postBudgetMs, REISSUE_MS, removed, splitDraft, viewOfEntry, wasQueued } from "./outbox";
 import type { Frame, Message } from "./protocol";
 import type { Telemetry } from "./telemetry";
 
@@ -27,6 +27,7 @@ type Identity = { device: string; deviceClass: string };
 export type OutboxStore = {
   putDraft(key: string, words: Draft | null, photos?: readonly Photo[]): Promise<void>;
   putEntry(clientID: string, entry: OutboxEntry | null): Promise<void>;
+  loadDraftPhotos(key: string): Promise<Photo[]>;
 };
 
 /** what a message says whose photos went back to the draft because too many were waiting to go: what happened, where they
@@ -71,6 +72,9 @@ export class Sender {
   private readonly photoSets = new Map<string, Photo[]>();
   /** drafts whose photo set changed since the last write: the only ones whose photos go to indexeddb */
   private readonly photosChanged = new Set<string>();
+  /** drafts whose photos are on the device and not read (their composer has not opened since boot), with their count: the
+      words written meanwhile carry it, and an edit that sets the photos ends it */
+  private readonly unread = new Map<string, HeldPhotos>();
   private draftTimer: ReturnType<typeof setTimeout> | undefined;
   private watch: ReturnType<typeof setInterval> | undefined;
   private liveSince: number | null = null;
@@ -94,7 +98,9 @@ export class Sender {
     for (const entry of outbox) this.entries.set(entry.clientID, entry.state === "sending" ? { ...entry, state: "waiting" } : entry);
     // a kept draft's start is not stored; its last write stands in, so a restored draft's heldMs is a floor
     for (const [key, draft] of Object.entries(drafts)) {
-      if (draft.text || draft.photos.length) this.writing.set(key, { since: draft.at, peak: draft.text.length, photos: draft.photos.length });
+      const photoCount = draft.photos.length || (draft.held?.count ?? 0);
+      if (draft.text || photoCount) this.writing.set(key, { since: draft.at, peak: draft.text.length, photos: photoCount });
+      if (draft.held && !draft.photos.length) this.unread.set(key, draft.held);
       if (draft.photos.length) {
         this.photoSets.set(key, draft.photos);
         // the next write of this draft carries its photos once, whatever record they were read from: a draft written
@@ -115,13 +121,16 @@ export class Sender {
       if (incoming.photos.length) this.photoSets.set(key, incoming.photos);
       else this.photoSets.delete(key);
       this.photosChanged.add(key);
+      this.unread.delete(key);
     } else if (!incoming) {
       this.photoSets.delete(key);
       this.photosChanged.add(key);
+      this.unread.delete(key);
     }
     const photos = this.photoSets.get(key) ?? [];
-    this.measure(key, incoming ? { text: incoming.text, photos: photos.length } : null, abandoned);
-    const words = incoming ? splitDraft({ ...incoming, photos }).words : null;
+    const unread = this.unread.get(key);
+    this.measure(key, incoming ? { text: incoming.text, photos: photos.length || (unread?.count ?? 0) } : null, abandoned);
+    const words = incoming ? splitDraft({ ...incoming, photos }, unread).words : null;
     if (words) this.latest.set(key, words);
     else this.latest.delete(key);
     this.drafts.set(key, words);
@@ -147,6 +156,20 @@ export class Sender {
     }
     if (chars || photos) this.writing.set(key, { since: was?.since ?? Date.now(), peak: Math.max(was?.peak ?? 0, chars), photos: Math.max(was?.photos ?? 0, photos) });
     else this.writing.delete(key);
+  }
+
+  /** a draft's photos, for its composer, which has just opened: the set an edit sent, or the one on the device, read once.
+      null when the read failed, so the draft still says it holds them and its composer asks again when it opens again. an edit
+      that changed the set while the read was out has the last word */
+  async photos(key: string): Promise<Photo[] | null> {
+    const unread = this.unread.get(key);
+    if (!unread) return this.photoSets.get(key) ?? [];
+    const read = await this.cache()?.loadDraftPhotos(key).catch(() => null);
+    if (this.unread.get(key) !== unread) return this.photoSets.get(key) ?? [];
+    if (!read) return null;
+    this.unread.delete(key);
+    if (read.length) this.photoSets.set(key, read);
+    return read;
   }
 
   /** the page is going away: drafts are written now */

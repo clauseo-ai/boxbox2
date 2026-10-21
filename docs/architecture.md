@@ -86,7 +86,22 @@ order.
    whole again is compared with the one held and patched leaf by leaf
    (an array item that changed goes whole, so nothing the ui holds
    changes under it), and a delta posts only the words it adds, as an
-   append the ui joins to the text it holds.
+   append the ui joins to the text it holds. the ui's store holds only the
+   threads it shows (the stage, the layers under it, and the children their
+   lanes held while that layer is drawn, released or not, as before;
+   `showThread` and `hideThread` in `app/src/sync/client.ts`): the worker
+   posts a thread's patches only while it is shown, the thread as it holds it
+   when it is shown again, and a delete when it is not, with which the ui
+   drops the thread's turn models and keeps its measured heights. while the
+   page is hidden the worker posts nothing: it holds the patches, coalesced
+   as they come, and the stream's last status, and posts them as one message
+   (the status after the patches) when the page is shown, which the ui lands
+   in one go
+   (`app/src/sync/gate.ts`, `landing.ts`), so the caught-up second never
+   runs out with the store behind the replay (`ui/caught-up.ts`; the wire
+   replay times it, and fails the hidden queue that was reverted for racing
+   it). a reset diffs the snapshot against the fleet held, so a session it
+   sends as it was keeps its identity in the ui.
 
 **cold launch** reads the cache (fleet model plus the open thread's pages)
 and paints on the first frame, then the worker resumes the stream from the
@@ -186,7 +201,7 @@ owner; every map has an eviction rule. the caps:
 | client outbound channel | 512 kb | the stream is closed; the client resumes from its cursor. a slow phone can never grow the server |
 | upstream sse line buffer | 8 mb per frame (a tool part's 4 mb of image attachments, whole) | the frame is logged and skipped, the stream survives |
 | transcript hydration proxy | streamed, never buffered whole; gzip on the wire (`http/compress.rs`) | n/a |
-| worker cache (indexeddb) and the threads in its memory | 40 opened threads, 16 held-only threads beside them, and 150 mb for both, by the size of each thread's json (a read's body, then every change applied) | the count caps evict their own kind, longest unused first; the byte cap evicts held-only threads first, then opened ones longest ago first, never the thread on stage or the one the open or read is for (the indexeddb layout, above) |
+| worker cache (indexeddb) and the threads in its memory | 40 opened threads, 16 held-only threads beside them, and 50 mb for both, by the size of each thread's json (a read's body, then every change applied) | the count caps evict their own kind, longest unused first; the byte cap evicts held-only threads first, then opened ones longest ago first, never the thread on stage or the one the open or read is for (the indexeddb layout, above) |
 | worker sse frame buffer (`app/src/sync/sse.ts`) | 32 mb of text for one frame, four times the largest the server forwards | the connection is dropped, `perf.sync` says `overflow`, and the stream resumes from the cursor with a growing backoff |
 | worker saves | one committing and one waiting, whatever the disk's speed | a save asked for while one commits joins the one waiting |
 | worker entries waiting on a read: a hydration's buffer, and what waits for a message fetched again | the buffer 20,000 entries or 128 mb, what waits for refetches 128 mb per thread (each sixteen frames at the server's 8 mb frame cap), by the size of each entry's words (a part as the thread counts it) | the thread is read again whole, which covers everything that waited |
@@ -358,7 +373,8 @@ set again per chunk, and the parser holds at most 32 mb of text for one
 frame (four times the largest the server forwards): past it the
 connection is dropped, a `perf.sync` row says so, and the stream resumes
 from the cursor, backing off as a dial that never went live does, since
-the server sends the same frame again. saves are 200 ms after the first change and one at a
+the server sends the same frame again. saves are 200 ms after the first change (1 s while a part
+streams) and one at a
 time: what changes while a save commits waits for the next, which writes
 all of it from the state as it is then, so a slow disk (a mac with its
 display asleep) costs fewer, larger writes and never a queue of them. a
@@ -398,9 +414,16 @@ grew at its end (the reducer's appends) rewrites nothing: each save puts
 the words added since the last one in a chunk record (message, part,
 field, the length it starts from, the words), a read folds the chunks into
 their messages, and the first save that writes any page of the thread (the
-part settling, the next message joining) or would pass 256 chunks folds
-them into their pages and drops them, so a streaming answer stores about
-what it streamed, not its length at every save. the head is written with
+part settling, the next message joining), would pass 1,024 chunks, or
+would leave the chunks holding more words than the texts they grow held on
+their pages (64 kb at least) folds them into their pages and drops them.
+each fold at least doubles the words the next one waits for, so a
+streaming answer stores about two to three times what it streamed however
+long it runs (a 10 minute answer of 4.4 mb wrote 31 mb when chunks folded
+every 256 saves, and writes 9.3 mb), not its length at every save or every
+fold. while a part streams the worker saves once a second instead of every
+200 ms (the cursor goes with each save, so a reload replays at most a
+second more from it). the head is written with
 every save of its thread and so holds no baseline (a number per part,
 which grows with the thread): the baseline has its own record, written
 when it changes. v5 moved each head's baseline out in place, in the
@@ -420,7 +443,7 @@ threads in memory and cold together:
 |---|---|---|
 | opened threads | 40 | the one opened longest ago |
 | held-only threads | 16, beside the opened ones, each place a lease | a lease lasts while the thread is held and not released, however old it is. with all 16 leased a new hold is refused: nothing is read and no other lease is touched, so a lane that wants more than the reserve (several stages at once) does not read each child again every round, and its children show the fleet's facts until a place frees. a released place, or one whose thread was evicted, is free at once; a released thread stays cached and is the first held-only thread to go (the one held longest ago first). the lease is in memory only: a page that is reloaded starts with every place free, so a release that was missed cannot outlive the page |
-| both together | 150 mb, by each thread's `bytes`: the size of its json, which is what the wire and the cache carry (a read's body, then every change applied; not the heap, which is `design.md`'s budget) | held-only threads, released ones first and then the longest held; then opened ones, longest ago first, never the one opened last (the thread on stage). a child's own read (or its growth) takes room only from released held threads and opened threads off stage, never from another lease; an open the person made, or the stage's own growth, may take leases |
+| both together | 50 mb (150 mb until round three's memory work), by each thread's `bytes`: the size of its json, which is what the wire and the cache carry (a read's body, then every change applied; not the heap, which is `design.md`'s budget) | held-only threads, released ones first and then the longest held; then opened ones, longest ago first, never the one opened last (the thread on stage). a child's own read (or its growth) takes room only from released held threads and opened threads off stage, never from another lease; an open the person made, or the stage's own growth, may take leases |
 
 the thread an open or a read is for is never the one evicted, except a child
 (a held-only thread) that cannot fit: the room a child can have is the byte cap
@@ -441,6 +464,26 @@ text, and a weight of the json for any other part (strings by their length,
 never made into text), so a big tool output is not stringified on each change. a
 thread's head records `openedAt`, `heldAt`, `bytes` and its pages' count (not
 the lease).
+
+**the worker cools what nobody shows.** a thread the ui stops showing stays
+in memory for 5 minutes, and the 3 the person closed last stay whatever their
+age, as do threads whose session is busy and children a lane holds; the rest
+are cooled: their messages leave memory and they are cold, their pages in the
+cache, read back when they are opened again (a lane's children, released or
+not, stay shown while their parent is drawn, so its details read them as
+before; `ui/thread/released.reactive.test.ts`). a thread is cooled only once the cache holds it exactly as
+memory does: the worker saves first, and one that changed meanwhile, or is
+being read or fetched again, waits for the next sweep. with no cache nothing
+is cooled. a reset reads again only the threads on screen: every other thread
+whose pages the cache holds as memory does (nothing of it marked or being
+written) goes cold and stale, read again when it is wanted, so a server restart
+costs a device what it shows, not every thread it opened; one with changes not
+yet on disk is read again, as before. the reset lands at once and never waits
+on a save: the stream said live at the hello, and its caught-up second must
+find the snapshot's fleet in the store. a thread read again reaches
+the ui as the messages that differ and the ones that joined, not whole
+(`app/src/sync/memory.test.ts` holds these rules against the real worker and
+cache).
 
 **boot reads heads, not pages.** the cache's boot reads the meta, the fleet
 and every thread's head record, and the pages of the one thread the url

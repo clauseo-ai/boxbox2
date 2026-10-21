@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { Entry, FleetSnapshot, Frame, Message, Part, SessionEntry } from "./protocol";
 import think from "./fixtures/think-turn.json";
 import { inDaemonOrder, inDaemonOrderAll, placeBefore, positionOf } from "./order";
-import { type Action, appended, coalesce, INITIAL_STATE, isAppend, type Patch, type PathSegment, reduce, type Result, SERVER_FRAME_BYTES, type SetPatch, type SyncState } from "./reducer";
+import { type Action, appended, coalesce, INITIAL_STATE, isAppend, type Patch, type PathSegment, reduce, type Result, SERVER_FRAME_BYTES, type SetPatch, type SyncState, viewOf } from "./reducer";
 import { PatchQueue } from "./queue";
 
 const EPOCH = "j1";
@@ -47,6 +47,25 @@ function run(state: SyncState, actions: Action[]): { state: SyncState; results: 
 }
 
 const frame = (f: Frame, epoch: string | undefined = EPOCH): Action => ({ type: "frame", frame: f, epoch });
+
+/** the ui's copy of the worker's fleet and thread views after `patches`, applied as the store applies them, as json: key order
+    included */
+function mirrored(before: SyncState, patches: readonly Patch[]): string {
+  const root: Record<string, unknown> = structuredClone({ fleet: before.fleet, threads: Object.fromEntries(Object.entries(before.threads).map(([k, t]) => [k, viewOf(t)])) });
+  for (const patch of patches) {
+    let node = root as Record<string | number, unknown>;
+    for (const segment of patch.path.slice(0, -1)) {
+      if (typeof node[segment] !== "object" || node[segment] === null) node[segment] = {};
+      node = node[segment] as Record<string | number, unknown>;
+    }
+    const last = patch.path[patch.path.length - 1] as PathSegment; // every path here has a segment
+    if (isAppend(patch)) node[last] = appended(node[last], patch);
+    else if (patch.value === undefined) delete node[last];
+    else node[last] = structuredClone(patch.value);
+  }
+  return JSON.stringify(root);
+}
+const mirrorOf = (state: SyncState) => JSON.stringify({ fleet: state.fleet, threads: Object.fromEntries(Object.entries(state.threads).map(([k, t]) => [k, viewOf(t)])) });
 const reset = (seq = 0, fleet = snapshot()): Action => frame({ type: "reset", seq, epoch: EPOCH, reason: "none", fleet });
 
 /** a journal as the server writes one while cmx2 streams a reply: the message, its part, then deltas */
@@ -108,7 +127,7 @@ describe("the journal cursor", () => {
 });
 
 describe("a reset", () => {
-  test("replaces the fleet whole and reads every held transcript again", () => {
+  test("replaces the fleet with what changed and reads every held transcript again", () => {
     const before = run(openThread(), streamingJournal(0).map((e) => frame(e))).state;
     const other = session("bench:ses_9");
     const { state, results } = run(before, [frame({ type: "reset", seq: 40, epoch: "j2", reason: "epoch", fleet: snapshot([other]) })]);
@@ -117,8 +136,80 @@ describe("a reset", () => {
     expect(state.threads[KEY]?.status).toBe("hydrating");
     expect(partText(state)).toBe("hello wörld 🙂 again");
     expect(results[0]?.effects).toEqual([{ type: "hydrate", key: KEY, hydration: 2 }]);
-    expect(results[0]?.patches[0]).toEqual({ path: ["fleet"], value: state.fleet });
+    // the session that went, the one that came and the order, not the fleet whole: the ui ends equal, key order included
+    expect(results[0]?.patches.some((p) => p.path.length === 1 && p.path[0] === "fleet")).toBe(false);
+    expect(mirrored(before, results[0]?.patches ?? [])).toBe(mirrorOf(state));
     expect(state.counters.resets).toBe(2);
+  });
+
+  test("a snapshot that sends the fleet as it was changes nothing in the ui's fleet", () => {
+    const before = run(INITIAL_STATE, [reset(0, snapshot([session(), session("bench:ses_9")]))]).state;
+    const { results } = run(before, [reset(5, snapshot([session(), session("bench:ses_9")]))]);
+    expect(results[0]?.patches.filter((p) => p.path[0] === "fleet")).toEqual([]);
+  });
+
+  test("the threads it is told to cool go cold and stale, their heads written, and only the rest are read again", () => {
+    const two = run(openThread(), [{ type: "open", key: "bench:ses_2", at: 6 }]).state;
+    const hydration = two.threads["bench:ses_2"]?.hydration ?? 0;
+    const opened = run(two, [{ type: "hydrated", key: "bench:ses_2", hydration, upstreamEpoch: "u1", at: 3, messages: [message("msg_9")] }]).state;
+    const { state, results } = run(opened, [{ ...reset(9), cool: { "bench:ses_2": 1 } } as Action]);
+    expect(Object.keys(state.threads)).toEqual([KEY]);
+    expect(state.threads[KEY]?.status).toBe("hydrating");
+    expect(state.cold["bench:ses_2"]).toMatchObject({ key: "bench:ses_2", status: "live", pages: 1, stale: true, sized: true, openedAt: 6 });
+    expect(results[0]?.effects).toEqual([{ type: "hydrate", key: KEY, hydration: 3 }, { type: "head", key: "bench:ses_2" }]);
+    expect(results[0]?.patches).toContainEqual({ path: ["threads", "bench:ses_2"], value: undefined });
+  });
+});
+
+describe("cooling", () => {
+  const ready = () => {
+    const two = run(openThread(), [{ type: "open", key: "bench:ses_2", at: 6 }]).state;
+    const hydration = two.threads["bench:ses_2"]?.hydration ?? 0;
+    return run(two, [{ type: "hydrated", key: "bench:ses_2", hydration, upstreamEpoch: "u1", at: 3, messages: [message("msg_9", [text("prt_9", "words", "msg_9")])] }]).state;
+  };
+
+  test("a thread nobody shows goes cold with the head its pages were saved with, and comes back from them as it was", () => {
+    const before = ready();
+    const held = before.threads["bench:ses_2"];
+    const { state, results } = run(before, [{ type: "cool", threads: { "bench:ses_2": 2 } }]);
+    expect(state.threads["bench:ses_2"]).toBeUndefined();
+    expect(state.cold["bench:ses_2"]).toMatchObject({ status: "live", pages: 2, stale: false, bytes: held?.bytes, baseline: held?.baseline, openedAt: 6 });
+    // nothing to write: the cache holds the head as the save that came before wrote it
+    expect(results[0]?.effects).toEqual([]);
+    const back = run(state, [{ type: "restored", key: "bench:ses_2", messages: structuredClone(held?.messages ?? []) }]).state;
+    const again = back.threads["bench:ses_2"];
+    expect(again && viewOf(again)).toEqual(held && viewOf(held));
+    expect({ ...again, hydration: 0 }).toEqual({ ...held, hydration: 0 } as typeof again & {});
+  });
+
+  test("a thread being read or fetched again is not cooled, nor one that is gone", () => {
+    const reading = run(INITIAL_STATE, [reset(), { type: "open", key: KEY, at: 1 }]).state;
+    const { state, results } = run(reading, [{ type: "cool", threads: { [KEY]: 1, "bench:nope": 1 } }]);
+    expect(state).toEqual(reading);
+    expect(results[0]?.patches).toEqual([]);
+  });
+});
+
+describe("a thread read again", () => {
+  test("reaches the ui as the messages that differ and the ones that joined, not the thread whole", () => {
+    const messages = Array.from({ length: 10 }, (_, i) => message(`msg_${i}`, [text(`prt_${i}`, `words ${i}`, `msg_${i}`)]));
+    const live = openThread(5, messages);
+    const again = run(live, [reset(9)]);
+    const reread = [...structuredClone(messages), message("msg_10")];
+    reread[3] = message("msg_3", [text("prt_3", "words 3, edited", "msg_3")]);
+    const hydration = again.state.threads[KEY]?.hydration ?? 0;
+    const { state, results } = run(again.state, [{ type: "hydrated", key: KEY, hydration, upstreamEpoch: "u1", at: 20, messages: reread }]);
+    expect(results[0]?.patches.map((p) => p.path.join("/"))).toEqual([`threads/${KEY}/status`, `threads/${KEY}/messages/3`, `threads/${KEY}/messages/10`]);
+    expect(mirrored(again.state, results[0]?.patches ?? [])).toBe(mirrorOf(state));
+  });
+
+  test("a message removed, or most of them changed, sets the list whole", () => {
+    const messages = Array.from({ length: 4 }, (_, i) => message(`msg_${i}`));
+    const again = run(openThread(5, messages), [reset(9)]);
+    const hydration = again.state.threads[KEY]?.hydration ?? 0;
+    const removed = run(again.state, [{ type: "hydrated", key: KEY, hydration, upstreamEpoch: "u1", at: 20, messages: messages.slice(1) }]);
+    expect(removed.results[0]?.patches.map((p) => p.path.join("/"))).toEqual([`threads/${KEY}/status`, `threads/${KEY}/messages`]);
+    expect(mirrored(again.state, removed.results[0]?.patches ?? [])).toBe(mirrorOf(removed.state));
   });
 });
 
@@ -584,7 +675,7 @@ describe("repo colours", () => {
     const before = run(INITIAL_STATE, [{ type: "colours", colours: [api, notes] }]).state;
     const { state, results } = run(before, [reset(4)]);
     expect(state.fleet.colours).toEqual(both);
-    expect(results[0]?.patches).toEqual([{ path: ["fleet"], value: state.fleet }]);
+    expect(mirrored(before, results[0]?.patches ?? [])).toBe(mirrorOf(state));
   });
 
   test("colour frames are outside the journal: no cursor moves, nothing counts as applied, a duplicate or a gap", () => {

@@ -67,7 +67,7 @@ export function directoryOfTyped(text: string, home: string | null): string | nu
 
 /** a draft that holds something: words, a photo, or a model or effort picked */
 export function isDrafted(draft: Draft | undefined): draft is Draft {
-  return Boolean(draft && (draft.text.trim() || draft.photos.length || draft.model || draft.effort));
+  return Boolean(draft && (draft.text.trim() || draft.photos.length || draft.held || draft.model || draft.effort));
 }
 
 /** what a pick of another place does to the words: they go with you. the draft at the place you leave moves to the place
@@ -83,7 +83,7 @@ export function followDraft(leaving: Draft | undefined, arriving: Draft | undefi
     count, so the worker hands them back when the entry is discarded (`returned`), and they join the draft this makes */
 export function restoredDraft(held: Draft | undefined, refused: { text: string; model: string | null; effort: string | null }, now: number): Draft {
   const text = isDrafted(held) && held.text.trim() ? `${refused.text}\n\n${held.text}` : refused.text;
-  return { text, photos: held?.photos ?? [], model: refused.model ?? held?.model ?? null, effort: refused.effort ?? held?.effort ?? null, at: now };
+  return { text, photos: held?.photos ?? [], model: refused.model ?? held?.model ?? null, effort: refused.effort ?? held?.effort ?? null, at: now, ...(held?.held ? { held: held.held } : {}) };
 }
 
 /** the folder a pick means: the project root the host's own sessions name for it, when it has one. cmx2 names a git

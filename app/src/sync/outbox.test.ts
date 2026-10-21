@@ -324,9 +324,9 @@ describe("a draft kept in two records", () => {
   const photo: Photo = { mime: "image/heic", filename: "a.heic", url: "data:image/heic;base64,AAAA", width: null, height: null };
   const draft = { text: "look", photos: [photo], model: null, effort: null, at: 5 };
 
-  test("the words record holds no photos and the photos record holds all of them", () => {
+  test("the words record holds no photos, only how many and their size, and the photos record holds all of them", () => {
     const { words, photos } = splitDraft(draft);
-    expect(words).toEqual({ ...draft, photos: [] });
+    expect(words).toEqual({ ...draft, photos: [], held: { count: 1, bytes: photo.url.length } });
     expect(photos).toEqual([photo]);
   });
 

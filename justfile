@@ -60,7 +60,7 @@ check:
     bunx tsc --noEmit -p app/.ladle
     cargo test --locked
     bun test telemetry board probes app
-    bun test --conditions browser app/src/ui/thread/live.reactive.test.ts app/src/ui/thread/holds.reactive.test.ts app/src/ui/thread/stage-window.reactive.test.ts app/src/ui/thread/kin.reactive.test.ts app/src/ui/thread/strip.reactive.test.ts app/src/ui/clock.reactive.test.ts app/src/ui/home/fleet.reactive.test.ts app/src/ui/home/views.reactive.test.ts app/src/ui/home/streaming.reactive.test.ts
+    bun test --conditions browser app/src/ui/thread/live.reactive.test.ts app/src/ui/thread/holds.reactive.test.ts app/src/ui/thread/stage-window.reactive.test.ts app/src/ui/thread/kin.reactive.test.ts app/src/ui/thread/released.reactive.test.ts app/src/ui/thread/strip.reactive.test.ts app/src/ui/clock.reactive.test.ts app/src/ui/home/fleet.reactive.test.ts app/src/ui/home/views.reactive.test.ts app/src/ui/home/streaming.reactive.test.ts
     cargo build --locked --quiet
     bun scripts/gen-api.ts --check
     bun scripts/vendor.ts --check

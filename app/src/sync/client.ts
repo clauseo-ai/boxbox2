@@ -13,7 +13,7 @@ import { applyPatches, boardCompose, boardFocus, boardGone, boardHere, bootSync,
 import type { Emit, FromWorker, Outgoing, Query, StreamStatus, SyncCounters, ToWorker } from "./messages";
 import type { BoardFrame } from "./protocol";
 import { type Draft, type DraftMessage, type Photo, photosNotFitted, takeBackDraft } from "./outbox";
-import { PatchQueue } from "./queue";
+import { Landing } from "./landing";
 import type { AskReply } from "./replies";
 import { mintId } from "./telemetry";
 
@@ -25,9 +25,24 @@ const waiting = new Map<number, (value: unknown) => void>();
 /** unsends waiting for the worker's word, by `key messageID` */
 type Unsent = { ok: boolean; message: string | null; returned: boolean };
 const unsending = new Map<string, (result: Unsent) => void>();
-const queue = new PatchQueue();
-let frame: number | undefined;
 let sampled = 0;
+let timed: { at: number; key: string } | null = null;
+/* the worker's patches land in the store at the ui's frame, the stream's status after them, what it held while hidden in one
+   go (landing.ts) */
+const landing = new Landing(
+  {
+    hidden: () => document.visibilityState === "hidden",
+    frame: (run) => requestAnimationFrame(run),
+    cancel: (handle) => cancelAnimationFrame(handle),
+    apply: applyPatches,
+    stream: setStream,
+  },
+  () => {
+    const sample = timed;
+    timed = null;
+    if (sample) requestAnimationFrame(() => { const ms = performance.now() - sample.at; emit("perf.thread", { what: "event" }, { ms: Math.round(ms), ok: ms <= 150, surface: "thread", session: sample.key }); });
+  },
+);
 /* the rows this thread emitted and the worker has not yet reported sent: on the way out they go by beacon, since a
    navigation can end the worker before its flush. the server keys rows by id, so a row both sent is counted once */
 const device: { id: string; deviceClass: DeviceClass } = { id: "", deviceClass: "desktop" };
@@ -43,28 +58,18 @@ function onMessage(event: MessageEvent<FromWorker>) {
     case "boot":
       bootSync(message.sync);
       return;
-    case "patches":
-      // a hidden page runs no animation frames, so waiting for one would queue every patch of a long
-      // absence; nothing paints while hidden, so apply at once, and otherwise on the ui's own frame,
-      // so two messages paint once.
-      // the queue is coalesced as it grows, bounded by the paths it touches, not by the time away
-      queue.push(message.patches);
-      if (document.visibilityState === "hidden") {
-        applyPatches(queue.take());
-        return;
-      }
+    case "patches": {
       // one patch in twenty-five for the open thread is timed from its arrival here to the frame after it painted:
       // the worker-to-glyph part of the stream budget (perf.thread, event)
       const open = state.openThread;
-      const timed = open !== null && frame === undefined && ++sampled % 25 === 0 && message.patches.some((p) => p.path[0] === "threads" && p.path[1] === open) ? { at: performance.now(), key: open } : null;
-      frame ??= requestAnimationFrame(() => {
-        frame = undefined;
-        applyPatches(queue.take());
-        if (timed) requestAnimationFrame(() => { const ms = performance.now() - timed.at; emit("perf.thread", { what: "event" }, { ms: Math.round(ms), ok: ms <= 150, surface: "thread", session: timed.key }); });
-      });
+      const sample = open !== null && !landing.waiting && document.visibilityState !== "hidden" && ++sampled % 25 === 0 && message.patches.some((p) => p.path[0] === "threads" && p.path[1] === open);
+      if (sample) timed = { at: performance.now(), key: open };
+      landing.take(message);
       return;
+    }
     case "stream":
-      setStream(message.stream);
+    case "held":
+      landing.take(message);
       return;
     case "signed-out":
       stopSync();
@@ -90,13 +95,17 @@ function onMessage(event: MessageEvent<FromWorker>) {
       setBorn(message.clientID, message.key);
       return;
     case "returned":
-      takeBack(message.key, message.photos, message.text);
+      // photos come back to a draft once the ones it keeps are read, so they join them and do not replace them
+      void loadDraftPhotos(message.key).then(() => takeBack(message.key, message.photos, message.text));
       return;
     case "drafts":
       setDraftsKept(message.kept);
       return;
     case "board":
       onBoard(message.frame);
+      return;
+    case "photos":
+      void draftPhotos().then((m) => m.read(message.key, message.photos));
       return;
     case "unsent": {
       const id = `${message.key} ${message.messageID}`;
@@ -139,7 +148,13 @@ function leaving(how: "flush" | "pause") {
   navigator.sendBeacon("/api/telemetry", new Blob([JSON.stringify({ device: device.id, deviceClass: device.deviceClass, events })], { type: "text/plain" }));
 }
 
+/** the worker holds its posts while the page is hidden, and lets them out when it is shown (gate.ts) */
+function tellVisibility() {
+  send({ type: "visibility", hidden: document.visibilityState === "hidden" });
+}
+
 function onVisibility() {
+  tellVisibility();
   if (document.visibilityState === "hidden") leaving("flush");
 }
 
@@ -150,6 +165,8 @@ function onPageHide() {
 }
 
 function onPageShow(event: PageTransitionEvent) {
+  // a page brought back from the back/forward cache may not have heard its visibility change
+  tellVisibility();
   if (event.persisted) send({ type: "resume" });
 }
 
@@ -161,7 +178,7 @@ export function startSync(): void {
   device.id = deviceId();
   device.deviceClass = deviceClass();
   const key = new URLSearchParams(location.search).get(THREAD_PARAM);
-  send({ type: "start", device: device.id, deviceClass: device.deviceClass, open: key, board: boardCapable() });
+  send({ type: "start", device: device.id, deviceClass: device.deviceClass, open: key, board: boardCapable(), hidden: document.visibilityState === "hidden" });
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("pagehide", onPageHide);
   window.addEventListener("pageshow", onPageShow);
@@ -172,13 +189,15 @@ function detach() {
   document.removeEventListener("visibilitychange", onVisibility);
   window.removeEventListener("pagehide", onPageHide);
   window.removeEventListener("pageshow", onPageShow);
-  if (frame !== undefined) cancelAnimationFrame(frame);
-  frame = undefined;
-  queue.clear();
+  landing.clear();
+  timed = null;
   for (const resolve of waiting.values()) resolve(null);
   waiting.clear();
   for (const resolve of unsending.values()) resolve({ ok: false, message: "not connected", returned: false });
   unsending.clear();
+  if (photosAsked) void draftPhotos().then((m) => m.clear());
+  shownBy.clear();
+  staged = null;
 }
 
 /** stops the worker without touching its cache (the stream said the session ended) */
@@ -204,8 +223,37 @@ const PART_PARAM = "part";
 /** where a link points inside a thread: the turn at the top of the view, and a row to open and light */
 export type ThreadPlace = { at: string | null; part: string | null };
 
+/* the threads the ui shows, counted by what shows them: the thread on stage (`staged`), each stage layer's data (live.ts) and
+   each child its lanes held while that layer is drawn, released or not (live.ts). the worker posts a thread's patches only while it is shown, so the store holds what is on screen */
+const shownBy = new Map<string, number>();
+let staged: string | null = null;
+
+/** a thread is on screen: the store takes it from the worker as it holds it now, and every change from here */
+export function showThread(key: string): void {
+  const count = shownBy.get(key) ?? 0;
+  shownBy.set(key, count + 1);
+  if (count === 0) send({ type: "show", key });
+}
+
+/** what showed a thread no longer does: once nothing does, the store lets it go (with its turn models) and the worker cools it */
+export function hideThread(key: string): void {
+  const count = shownBy.get(key) ?? 0;
+  if (count > 1) return void shownBy.set(key, count - 1);
+  shownBy.delete(key);
+  if (count === 1) send({ type: "hide", key });
+}
+
+function stage(key: string | null): void {
+  if (staged === key) return;
+  if (key !== null) showThread(key);
+  if (staged !== null) hideThread(staged);
+  staged = key;
+}
+
 export function openThread(key: string, place: Partial<ThreadPlace> = {}): void {
   send({ type: "open", key });
+  stage(key);
+  void loadDraftPhotos(key);
   setOpenThread(key);
   const url = new URL(location.href);
   url.searchParams.set(THREAD_PARAM, key);
@@ -256,6 +304,7 @@ export function markPlace(place: ThreadPlace): void {
 }
 
 export function closeThread(): void {
+  stage(null);
   setOpenThread(null);
   const url = new URL(location.href);
   url.searchParams.delete(THREAD_PARAM);
@@ -297,11 +346,27 @@ export function emit<K extends EventKind>(kind: K, props: PropsOf<K>, envelope: 
     photos as they were says `photos: "kept"`, and only its words cross to the worker (and reach indexeddb): the photos can
     be 24 mb, and a key is not the time to copy them */
 export function saveDraft(key: string, draft: Draft | null, abandoned = false, photos: "kept" | "changed" = "changed"): void {
+  // a new set made before the draft's own photos were read would replace them: they are read first (draft-photos.ts)
+  if (draft?.held && photos === "changed") return void draftPhotos().then((m) => m.saveAfterRead(key, draft, abandoned, send, saveDraft));
   setDraft(key, draft);
   // a draft is built from the store's own, whose arrays are proxies; a worker message must be plain data
   const plain = draft ? unwrap(draft) : null;
   const carried: DraftMessage | null = plain ? structuredClone({ ...plain, photos: photos === "kept" ? ("kept" as const) : plain.photos }) : null;
   send({ type: "draft", key, draft: carried, abandoned });
+}
+
+/** the reading of drafts' photos, loaded only once a draft has photos to read (a launch reads only the open thread's) */
+let photosAsked = false;
+export const draftPhotos = () => {
+  photosAsked = true;
+  return import("./draft-photos");
+};
+
+/** a draft's photos, read from the device when its composer opens (or a thread with it is opened): resolves at once for a
+    draft that holds none unread (`Draft.held`) */
+export function loadDraftPhotos(key: string): Promise<void> {
+  if (!worker || !state.composer.drafts[key]?.held) return Promise.resolve();
+  return draftPhotos().then((m) => m.load(key, send));
 }
 
 /** keeps the record of a reply this device made to an ask, once the daemon settled it: the store has it at once, so the row says

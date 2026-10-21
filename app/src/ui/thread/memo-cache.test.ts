@@ -64,6 +64,13 @@ describe("what the store's caches forget", () => {
     expect(c.heights.size).toBe(1);
     expect(c.turns.get(cacheKey("desk:ses_10", "m1"))).toBeDefined();
   });
+  test("a thread that left the screen takes its turn models and keeps its heights", () => {
+    const c = createThreadCaches();
+    put(c, "desk:ses_1", "m1");
+    c.ledgers.set(cacheKey("desk:ses_1", "m1"), {} as never, 10);
+    c.dropModels("desk:ses_1");
+    expect([c.turns.size, c.ledgers.size, c.heights.size]).toEqual([0, 0, 1]);
+  });
   test("signing out empties every cache", () => {
     const c = createThreadCaches();
     put(c, "desk:ses_1", "m1");

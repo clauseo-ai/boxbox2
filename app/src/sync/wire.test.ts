@@ -46,6 +46,40 @@ describe("the wire, replayed", () => {
       expect(run.seen.hydrations).toBeGreaterThan(5);
       expect(run.uiDigest).toBe(BEFORE[name]?.ui ?? "");
       expect(run.workerDigest).toBe(BEFORE[name]?.worker ?? "");
+      expect(run.endsEqual).toBe(true);
     });
   }
+});
+
+/* a hidden page does no page work: the worker holds what it would post (gate.ts) and the ui lands it in one go when the page
+   is shown (landing.ts). the connection drops and comes back while the page is hidden, so the stream goes live and its
+   replay follows, held; the ui's caught-up second (ui/caught-up.ts) is timed on the run's clock, and each time it runs out
+   the store must hold everything the worker had made by then (less the frames a visible page waits anyway). the queue that
+   was reverted for racing it fails the same check */
+describe("a hidden page and the caught-up second", () => {
+  const catchUp = (mode: "gate" | "separate" | "naive") => ({ mode, hidden, reconnect: hidden[0] + 30 });
+
+  test("held by the worker and landed in one go: never behind when the stream has caught up, and the replay ends equal", () => {
+    const run = replayWire(steps, sha, 3, { gap, catchUp: catchUp("gate") });
+    expect(run.caughtUps).toBeGreaterThanOrEqual(2);
+    expect(run.behind).toBeNull();
+    expect(run.mismatch).toBeNull();
+    expect(run.endsEqual).toBe(true);
+    // the worker did what it does with the page visible: the same final state as every other run of this seed
+    expect(run.workerDigest).toBe(BEFORE["hidden for a while, batches 3"]?.worker ?? "");
+    expect(run.seen.gaps).toBe(1);
+  });
+
+  test("the hidden queue that was reverted is caught: the ui says caught up with the replay still waiting", () => {
+    const run = replayWire(steps, sha, 3, { gap, catchUp: catchUp("naive") });
+    expect(run.behind).not.toBeNull();
+    expect(run.endsEqual).toBe(true);
+  });
+
+  test("held and posted one message at a time holds too: the status comes after the patches, which land before it", () => {
+    const run = replayWire(steps, sha, 3, { gap, catchUp: catchUp("separate") });
+    expect(run.caughtUps).toBeGreaterThanOrEqual(2);
+    expect(run.behind).toBeNull();
+    expect(run.endsEqual).toBe(true);
+  });
 });

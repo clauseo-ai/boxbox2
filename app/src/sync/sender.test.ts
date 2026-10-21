@@ -238,6 +238,9 @@ describe("a draft with photos on every keystroke", () => {
     const writes: Write[] = [];
     /** the writes the store refuses (the quota): while it is above zero, each putDraft rejects and counts one off */
     const refusing = { count: 0 };
+    /** the photos records on the device, and how many times one was read */
+    const disk = new Map<string, Photo[]>();
+    const reads = { count: 0 };
     const store: OutboxStore = {
       putDraft: (key, words, photos) => {
         writes.push({ key, words, photos });
@@ -248,11 +251,15 @@ describe("a draft with photos on every keystroke", () => {
         return Promise.resolve();
       },
       putEntry: () => Promise.resolve(),
+      loadDraftPhotos: (key) => {
+        reads.count++;
+        return Promise.resolve(disk.get(key) ?? []);
+      },
     };
     const telemetry: Pick<Telemetry, "emit"> = { emit: () => undefined };
     const said: FromWorker[] = [];
     const sender = new Sender(() => store, { device: "d", deviceClass: "phone" }, telemetry, (m: FromWorker) => void said.push(m), new AbortController().signal);
-    return { sender, writes, refusing, said };
+    return { sender, writes, refusing, said, disk, reads };
   }
   const photo = (name: string): Photo => ({ mime: "image/heic", filename: name, url: "data:image/heic;base64,AAAA", width: null, height: null });
   const words = (text: string, photos: Photo[] | "kept"): DraftMessage => ({ text, photos, model: null, effort: null, at: 1 });
@@ -268,7 +275,7 @@ describe("a draft with photos on every keystroke", () => {
     expect(writes).toHaveLength(2);
     expect(writes[0]?.photos).toEqual([photo("a.heic")]);
     expect(writes[1]?.photos).toBeUndefined();
-    expect(writes[1]?.words).toEqual({ text: "wh", photos: [], model: null, effort: null, at: 1 });
+    expect(writes[1]?.words).toEqual({ text: "wh", photos: [], model: null, effort: null, at: 1, held: { count: 1, bytes: photo("a.heic").url.length } });
   });
 
   test("a words record never holds photos, so the keystrokes cannot rewrite them", async () => {
@@ -312,6 +319,38 @@ describe("a draft with photos on every keystroke", () => {
     sender.draft(key, words("look at it", "kept"));
     await sender.flush();
     expect(writes[1]?.photos).toBeUndefined();
+  });
+
+  test("a restored draft whose photos were not read keeps their count in its words, and reads them once, for its composer", async () => {
+    const { sender, writes, disk, reads } = recording();
+    const held = { count: 2, bytes: 2 * photo("a.heic").url.length };
+    disk.set(key, [photo("a.heic"), photo("b.jpg")]);
+    sender.restore([], { [key]: { text: "look", photos: [], model: null, effort: null, at: 1, held } });
+    // keystrokes before the composer read them write the words with the count, never the photos
+    sender.draft(key, words("look at", "kept"));
+    await sender.flush();
+    expect(writes).toEqual([{ key, words: { text: "look at", photos: [], model: null, effort: null, at: 1, held }, photos: undefined }]);
+    expect(reads.count).toBe(0);
+    expect(await sender.photos(key)).toEqual([photo("a.heic"), photo("b.jpg")]);
+    expect(await sender.photos(key)).toEqual([photo("a.heic"), photo("b.jpg")]);
+    expect(reads.count).toBe(1);
+    // from here the sender holds them, as for a draft whose photos an edit sent
+    sender.draft(key, words("look at it", "kept"));
+    await sender.flush();
+    expect(writes[1]?.words?.held).toEqual(held);
+    expect(writes[1]?.photos).toBeUndefined();
+  });
+
+  test("a set an edit sends while the photos are being read is the one kept, and a cleared draft reads nothing", async () => {
+    const { sender, disk } = recording();
+    const held = { count: 1, bytes: photo("a.heic").url.length };
+    disk.set(key, [photo("a.heic")]);
+    sender.restore([], { [key]: { text: "", photos: [], model: null, effort: null, at: 1, held } });
+    const reading = sender.photos(key);
+    sender.draft(key, words("", [photo("c.png")]));
+    expect(await reading).toEqual([photo("c.png")]);
+    sender.draft(key, null);
+    expect(await sender.photos(key)).toEqual([]);
   });
 
   test("a write that failed is tried again with the photo set, and a keystroke between cannot lose it", async () => {
@@ -372,6 +411,7 @@ describe("a draft with photos on every keystroke", () => {
         return writes.length === 1 ? new Promise((_, reject) => void slow.push(reject)) : Promise.resolve();
       },
       putEntry: () => Promise.resolve(),
+      loadDraftPhotos: () => Promise.resolve([]),
     };
     const sender = new Sender(() => store, { device: "d", deviceClass: "phone" }, { emit: () => undefined }, (_: FromWorker) => undefined, new AbortController().signal);
     sender.draft(key, words("one", [photo("a.heic")]));

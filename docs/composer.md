@@ -755,6 +755,27 @@ new-thread route makes one before the session when asked.
     words (no photos), `draftPhotos` holds the set and is written only when it
     changed (database v3). tested in `sender.test.ts` (what each write
     carried) and `outbox.test.ts` (the split and the join).
+  - **a draft's photos are read when its composer opens.** a launch read every
+    draft's photos and posted them to the ui, so each draft held up to 24 mb in
+    the worker and again in the ui's store for the life of the page, shown or
+    not. now the words record says how many photos the draft keeps and their
+    size (`held`), boot reads the photos of the thread the url opens and no
+    other, and a composer asks the worker for its draft's as it opens (as does
+    an open of its thread, a few frames ahead of the stage); the worker reads
+    the one record once and keeps it as it keeps a set an edit sent. what counts
+    photos before they are read (the device's 72 mb, a place holding a draft)
+    reads the count; a send, a new set, or photos handed back (`returned`) wait
+    for the read, so they join the draft's photos and never replace them. a
+    read that fails leaves the photos on the device as they are: an edit keeps
+    the count and writes only the words, a send says "its photos could not be
+    read, so it did not go. send it again", a draft is not moved to another
+    place without them, and emptying its words lets photos that cannot be read
+    go, so a record that cannot be read never holds its place. the reading is
+    its own chunk (`app/src/sync/draft-photos.ts`), loaded only when a draft
+    has photos to read, so the first load carries none of it.
+    words written before the count existed read their photos at boot as before,
+    until the next edit writes it. tested in `cache.test.ts` (what boot reads)
+    and `sender.test.ts` (one read, an edit during it keeps the last word).
   - **a write that fails is not forgotten, and does not go on for ever.** a
     draft write the store refuses (the quota, a closing database) goes back,
     made from the draft's newest words and never the words the failed write

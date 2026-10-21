@@ -207,7 +207,8 @@ export type PathSegment = string | number;
     (a streamed part), `append` what came after the string's first `from` characters. an append carries the new words and
     not the whole text, so a long answer costs the wire and the ui's store what each delta added, not what it has grown to */
 export type Patch = SetPatch | AppendPatch;
-export type SetPatch = { path: readonly PathSegment[]; value: unknown };
+/** `closed`: a thread's delete because the ui stopped showing it (the worker's `hide`), not because the worker let it go */
+export type SetPatch = { path: readonly PathSegment[]; value: unknown; closed?: true };
 export type AppendPatch = { path: readonly PathSegment[]; append: string; from: number };
 
 export const isAppend = (patch: Patch): patch is AppendPatch => "append" in patch;
@@ -232,7 +233,12 @@ export type Effect =
   | { type: "head"; key: string };
 
 export type Action =
-  | { type: "frame"; frame: Frame; epoch: string | undefined }
+  /** `cool`, on a reset: the threads in memory that nobody shows and whose pages the cache holds as they are, with how many
+      pages that is. they go cold and stale instead of being read again (`reset`); every other thread is read again */
+  | { type: "frame"; frame: Frame; epoch: string | undefined; cool?: Readonly<Record<string, number>> }
+  /** threads nobody shows, whose pages the cache holds exactly as memory does, leave memory: each is cold, with `pages` pages
+      (the worker's sweep, a few minutes after they closed). one that is being read or fetched again, or is gone, stays as it is */
+  | { type: "cool"; threads: Readonly<Record<string, number>> }
   /** the person opened a thread: it joins the set, or is promoted to opened if it was only held */
   | { type: "open"; key: string; at: number }
   /** a thread is held for another (a child under its parent on stage): read and kept current, never at an opened
@@ -269,7 +275,7 @@ export const HELD_CAP = 16;
 /** how many unfit children are remembered */
 export const UNFIT_CAP = 64;
 /** the cache's byte cap, counted in `Thread.bytes` */
-export const BYTE_CAP = 150 * 1024 * 1024;
+export const BYTE_CAP = 50 * 1024 * 1024;
 /** entries one thread may hold while hydrating; past it the hydration starts over from a newer read */
 export const BUFFER_CAP = 20_000;
 /** the largest frame the server passes on (`FRAME_CAP`, server/src/upstream/watcher.rs): a tool part with 4 mb of image
@@ -312,7 +318,10 @@ export function reduce(state: SyncState, action: Action): Result {
   let next: SyncState;
   switch (action.type) {
     case "frame":
-      next = applyFrame(work, state, action.frame, action.epoch);
+      next = applyFrame(work, state, action.frame, action.epoch, action.cool ?? {});
+      break;
+    case "cool":
+      next = cool(work, state, action.threads);
       break;
     case "open":
       next = open(work, state, action.key, action.at);
@@ -354,12 +363,12 @@ function unreachable(value: never): never {
   throw new Error(`the reducer met ${JSON.stringify(value)}, which its union does not declare`);
 }
 
-function applyFrame(work: Work, state: SyncState, frame: Frame, epoch: string | undefined): SyncState {
+function applyFrame(work: Work, state: SyncState, frame: Frame, epoch: string | undefined, toCool: Readonly<Record<string, number>>): SyncState {
   switch (frame.type) {
     case "hello":
       return hello(state, frame);
     case "reset":
-      return reset(work, state, frame.fleet, { epoch: frame.epoch, seq: frame.seq });
+      return reset(work, state, frame.fleet, { epoch: frame.epoch, seq: frame.seq }, toCool);
     default:
       return entry(work, state, frame, epoch);
   }
@@ -369,16 +378,63 @@ function hello(state: SyncState, frame: Hello): SyncState {
   return { ...state, head: frame.head };
 }
 
-function reset(work: Work, state: SyncState, snapshot: FleetSnapshot, cursor: Cursor): SyncState {
+function reset(work: Work, state: SyncState, snapshot: FleetSnapshot, cursor: Cursor, toCool: Readonly<Record<string, number>>): SyncState {
   work.count("resets");
   // the colours travel outside the journal and arrive ahead of the reset on the same connection, so the snapshot has
   // none and the map stays as it is
   const fleet = { ...fleetOf(snapshot), colours: state.fleet.colours };
-  work.patch(["fleet"], fleet);
-  // the transcripts may have missed anything; each is read again, and shows what it had meanwhile
+  // what the snapshot changed, not the whole fleet: a session it sends as it was keeps its identity in the ui
+  changed(work, ["fleet"], state.fleet, fleet);
+  // the transcripts may have missed anything. the ones on screen are read again, and show what they had meanwhile; the rest
+  // go cold and stale, as a thread the journal passed while it was cold, and are read again only when they are wanted
   const threads: Record<string, Thread> = {};
-  for (const [key, thread] of Object.entries(state.threads)) threads[key] = rehydrate(work, thread);
-  return { ...state, cursor, head: Math.max(state.head, cursor.seq), fleet, threads, cold: staleAll(work, state.cold, () => true) };
+  const cold = { ...staleAll(work, state.cold, () => true) };
+  for (const [key, thread] of Object.entries(state.threads)) {
+    const pages = toCool[key];
+    if (pages === undefined) threads[key] = rehydrate(work, thread);
+    else cold[key] = coldOf(work, thread, pages, true);
+  }
+  return { ...state, cursor, head: Math.max(state.head, cursor.seq), fleet, threads, cold };
+}
+
+/** a thread leaving memory: its head, as the cache's head record for its pages holds it. `stale` when the journal may have
+    passed it (a reset), so it is read again from the daemon when it is wanted, and its head is written saying so */
+function coldOf(work: Work, thread: Thread, pages: number, stale: boolean): Cold {
+  work.patch(["threads", thread.key], undefined);
+  if (stale) work.effects.push({ type: "head", key: thread.key });
+  return {
+    key: thread.key,
+    status: thread.status,
+    hydration: thread.hydration,
+    upstreamEpoch: thread.upstreamEpoch,
+    hydratedAt: thread.hydratedAt,
+    lastUpstream: thread.lastUpstream,
+    baseline: thread.baseline,
+    refetching: Object.keys(thread.refetching),
+    openedAt: thread.openedAt,
+    heldAt: thread.heldAt,
+    leased: thread.leased,
+    bytes: thread.bytes,
+    sized: true,
+    pages,
+    stale,
+  };
+}
+
+/** threads nobody shows leave memory, their pages saved as they are (the worker's sweep). a thread being read or fetched
+    again stays: what it waits for would be lost, and its pages are not yet what it shows */
+function cool(work: Work, state: SyncState, which: Readonly<Record<string, number>>): SyncState {
+  let threads = state.threads;
+  let cold = state.cold;
+  for (const [key, pages] of Object.entries(which)) {
+    const thread = threads[key];
+    if (!thread || thread.status !== "live" || Object.keys(thread.refetching).length > 0) continue;
+    if (threads === state.threads) threads = { ...state.threads };
+    if (cold === state.cold) cold = { ...state.cold };
+    delete threads[key];
+    cold[key] = coldOf(work, thread, pages, false);
+  }
+  return threads === state.threads ? state : { ...state, threads, cold };
 }
 
 export function fleetOf(snapshot: FleetSnapshot): Fleet {
@@ -1124,12 +1180,32 @@ function hydrated(work: Work, state: SyncState, action: Extract<Action, { type: 
     bytes: action.bytes ?? sizeOf(action.messages),
     trouble: null,
   };
-  work.patch(["threads", action.key], viewOf(thread));
+  viewChanged(work, held, thread);
   for (const buffered of held.buffer) thread = threadEntry(work, thread, buffered);
   // the read may be what passes the byte cap
   const room = makeRoom(work, state, { ...state.threads, [action.key]: thread }, state.cold, action.key);
   // a child that fit now has no size to be refused for
   return { ...state, ...room, unfit: room.threads[action.key] ? forget(room.unfit, action.key) : room.unfit };
+}
+
+/** the patches that make the ui's view of `before` into `after`'s once a read lands. a thread read again (a reset, a stale
+    restore) is mostly what it was, so only the messages that differ go, each whole, and the ones that joined the end; a
+    message removed, or most of them changed, sets the list whole, as does a thread that held none */
+function viewChanged(work: Work, before: Thread, after: Thread): void {
+  const base = ["threads", after.key] as const;
+  if (before.messages.length === 0) return work.patch(base, viewOf(after));
+  if (before.status !== after.status) work.patch([...base, "status"], after.status);
+  const path = [...base, "messages"] as const;
+  const shared = Math.min(before.messages.length, after.messages.length);
+  const differ: number[] = [];
+  for (let i = 0; i < shared; i++) if (before.messages[i] !== after.messages[i] && !sameJson(before.messages[i], after.messages[i])) differ.push(i);
+  if (after.messages.length < before.messages.length || differ.length * 2 > shared) work.patch(path, after.messages);
+  else {
+    for (const i of differ) work.patch([...path, i], after.messages[i]);
+    for (let i = shared; i < after.messages.length; i++) work.patch([...path, i], after.messages[i]);
+  }
+  if (before.trouble && !after.trouble) work.patch([...base, "trouble"], undefined);
+  else if (after.trouble && !sameJson(before.trouble, after.trouble)) work.patch([...base, "trouble"], after.trouble);
 }
 
 /** a try of the thread's current read failed: it is said once per change, so a read failing the same way each try sends

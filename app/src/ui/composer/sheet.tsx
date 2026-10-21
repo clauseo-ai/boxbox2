@@ -16,7 +16,7 @@ import { For, Show, createEffect, createMemo, createResource, createSignal, onCl
 import { play } from "../../motion/animate";
 import { FADE, SHEET } from "../../motion/springs";
 import { state } from "../../store";
-import { discardSend, retrySend, saveDraft } from "../../sync/client";
+import { discardSend, loadDraftPhotos, retrySend, saveDraft } from "../../sync/client";
 import { type Target, targetKey } from "../../sync/outbox";
 import { createKeyboardInset } from "../term/keyboard";
 import { RepoMark } from "../repo-mark/repo-mark";
@@ -111,11 +111,18 @@ export function NewThreadSheet(props: SheetProps) {
     const from = keyFor(host(), chosen());
     const to = keyFor(nextHost, nextDir);
     if (from !== to) {
-      const moved = followDraft(state.composer.drafts[from], state.composer.drafts[to], Date.now());
-      if (moved.clearLeaving && moved.arriving) {
-        saveDraft(to, moved.arriving);
-        saveDraft(from, null);
-      }
+      const move = () => {
+        // photos that could not be read from the device stay where they are, with their draft
+        if (state.composer.drafts[from]?.held) return;
+        const moved = followDraft(state.composer.drafts[from], state.composer.drafts[to], Date.now());
+        if (moved.clearLeaving && moved.arriving) {
+          saveDraft(to, moved.arriving);
+          saveDraft(from, null);
+        }
+      };
+      // the draft moves with its photos, so ones still on the device are read first (they are, as its composer opens)
+      if (state.composer.drafts[from]?.held) void loadDraftPhotos(from).then(move);
+      else move();
     }
     setHost(nextHost);
     setDirectory(nextDir);

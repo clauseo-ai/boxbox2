@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Cache, cleanDirty, layout, PAGE } from "./cache";
 import type { Message } from "./protocol";
+import { type Draft, type Photo, splitDraft } from "./outbox";
 import { INITIAL_STATE, type SyncState, type Thread } from "./reducer";
 
 const message = (n: number): Message => ({ info: { id: `msg_${n}`, sessionID: "ses_1", role: "assistant", time: { created: n } }, parts: [] });
@@ -191,5 +192,45 @@ describe("the cache's writes", () => {
     dirty.threads.set("bench:old", Number.POSITIVE_INFINITY);
     await open().save({ ...INITIAL_STATE, cold: { "bench:old": { ...head, stale: true } } }, dirty);
     expect((await open().loadBoot()).heads[0]).toMatchObject({ stale: true, bytes: 0, sized: false });
+  });
+});
+
+describe("the drafts at boot", () => {
+  const photo = (name: string): Photo => ({ mime: "image/jpeg", filename: name, url: `data:image/jpeg;base64,${name}`, width: 1, height: 1 });
+  const draft = (text: string, photos: Photo[]): Draft => ({ text, photos, model: null, effort: null, at: 3 });
+  const keep = async (key: string, d: Draft) => {
+    const { words, photos } = splitDraft(d);
+    await open().putDraft(key, words, photos);
+  };
+
+  test("read every draft's words and only the open thread's photos: the rest say how many they keep, and come when asked", async () => {
+    await keep("bench:a", draft("open one", [photo("a1"), photo("a2")]));
+    await keep("bench:b", draft("another", [photo("b1")]));
+    await keep("bench:c", draft("words only", []));
+    const watch = watchReads();
+    const { drafts } = await open().loadComposer("bench:a");
+    watch.stop();
+    expect(drafts["bench:a"]).toEqual(draft("open one", [photo("a1"), photo("a2")]));
+    expect(drafts["bench:b"]).toEqual({ ...draft("another", []), held: { count: 1, bytes: photo("b1").url.length } });
+    expect(drafts["bench:c"]).toEqual(draft("words only", []));
+    // the photos store is asked for its keys and for one record, never for all of them
+    expect(watch.reads.filter((r) => r.call.startsWith("draftPhotos"))).toEqual([
+      { call: "draftPhotos.getAllKeys", key: "" },
+      { call: "draftPhotos.get", key: "bench:a" },
+    ]);
+    expect(await open().loadDraftPhotos("bench:b")).toEqual([photo("b1")]);
+    expect(await open().loadDraftPhotos("bench:c")).toEqual([]);
+  });
+
+  test("a draft whose words were written before they counted its photos reads them as it always did", async () => {
+    await open().putDraft("bench:old", draft("old", []), [photo("o1")]);
+    const { drafts } = await open().loadComposer(null);
+    expect(drafts["bench:old"]).toEqual(draft("old", [photo("o1")]));
+  });
+
+  test("a count whose photos record is gone counts nothing", async () => {
+    await open().putDraft("bench:gone", { ...draft("gone", []), held: { count: 1, bytes: 10 } });
+    const { drafts } = await open().loadComposer(null);
+    expect(drafts["bench:gone"]).toEqual(draft("gone", []));
   });
 });

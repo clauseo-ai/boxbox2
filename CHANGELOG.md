@@ -6,6 +6,20 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the app holds only the threads on screen.** a closed thread leaves the
+  page's store at once and is copied back from the worker when it opens
+  again; the worker cools it to its saved copy 5 minutes after it closes,
+  keeping the 3 closed last warm, and a reopened cooled thread comes back
+  from indexeddb byte for byte. a reset re-reads only the threads on
+  screen, applied message by message, and the fleet it carries is diffed
+  against the one held. a hidden page does no page work: the worker holds
+  its posts and lands them in one go when the page shows. a streamed
+  answer is saved at most once a second and folded by size, so a
+  10-minute answer writes 9.3 mb instead of 31; draft photos are read when
+  their composer opens; the on-device cap is 50 mb (it was 150 mib). in
+  bun, six fixture threads opened and closed held 22.2 mb, now 11.7 mb at
+  once and 6.2 mb five minutes later.
+
 - **a launch asks the network for less.** the page registers its service
   worker once (push used to register it again, three calls a launch, now
   one); the four app icons leave the offline precache (167 kb less to

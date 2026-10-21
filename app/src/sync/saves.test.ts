@@ -551,6 +551,44 @@ describe("the upgrades", () => {
   });
 });
 
+describe("the save's wait", () => {
+  test("is the short one until a save takes streamed words, and the streaming one while they keep coming", async () => {
+    const cache = track(await openCache());
+    let t = thread("bench:s", [message(0, "the answer")]);
+    let state = withThread(t, 1);
+    let saves = 0;
+    const saver = new Saver(() => cache, () => state, 10, () => saves++, 400);
+    const settled = async (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    saver.markThread(t.key, 0);
+    saver.schedule();
+    await settled(100);
+    expect(saves).toBe(1);
+    const grown = grow(t, 0, " more");
+    t = grown.thread;
+    state = withThread(t, 2);
+    saver.mark([grown.patch]);
+    saver.schedule();
+    await settled(100);
+    expect(saves).toBe(1);
+    await settled(400);
+    expect(saves).toBe(2);
+    // a session tick after streamed words waits as long: the part is still streaming
+    state = withThread(t, 3);
+    saver.markThread(t.key, Number.POSITIVE_INFINITY);
+    saver.schedule();
+    await settled(100);
+    expect(saves).toBe(2);
+    await settled(400);
+    expect(saves).toBe(3);
+    // the save before took no words: the short wait again
+    saver.markThread(t.key, Number.POSITIVE_INFINITY);
+    saver.schedule();
+    await settled(100);
+    expect(saves).toBe(4);
+    saver.stop();
+  });
+});
+
 describe("saves asked for while one commits", () => {
   test("are merged into one save after it, which writes all they marked from the state as it is then", async () => {
     const cache = track(await openCache());
@@ -921,7 +959,7 @@ describe("a long answer streamed and saved at many points", () => {
       answer.bytes += stats.bytes;
     });
     // the threads hold what streamed, so a load at every save reads the answers and not the recorded transcripts again
-    const steps = [...recordedSteps(recording, { histories: false, answer: 24_000, answers: 2 })];
+    const steps = [...recordedSteps(recording, { histories: false, answer: 80_000, answers: 2 })];
     const last = steps[steps.length - 1];
     const watch = watchPuts();
     let saves = 0;
@@ -965,7 +1003,8 @@ describe("a long answer streamed and saved at many points", () => {
     }
     expect(saves).toBeGreaterThan(600);
     expect(crashes).toBeGreaterThan(200);
-    // the answers went to disk as chunks, past the cap at least once, and the thread's pages were written a few times
+    // the answers went to disk as chunks, past the fold floor, so each folded into its page mid-stream, and the thread's
+    // pages were written a few times
     expect(answer.chunks).toBeGreaterThan(2 * CHUNKS);
     // what the saves of the two answers stored, all of it: a head and a cursor of a few hundred bytes each, and a few times
     // what streamed, where rewriting the growing message stored half an answer per save, some 12 kb
@@ -1162,6 +1201,35 @@ describe("a streamed text's chunks", () => {
     expect(folds).toEqual([CHUNKS, CHUNKS * 2 + 1]);
     await expectLoads(state);
   });
+
+  test("a long stream writes its words a few times over, not its length once per fold: the writes grow with it in a line", async () => {
+    const cache = track(await openCache());
+    let t = base();
+    let state = await seeded(cache, t);
+    let written = 0;
+    const saver = new Saver(() => cache, () => state, 200, (stats) => (written += stats.bytes));
+    const watch = watchPuts();
+    const folds: number[] = [];
+    const words = "w".repeat(2_000);
+    // a second of a fast answer per save (436 kb a minute), for 2,000 saves: 4 mb, which folds by its words only
+    for (let tick = 0; tick < 2_000; tick++) {
+      watch.puts.length = 0;
+      const grown = grow(t, 59, words);
+      t = grown.thread;
+      state = withThread(t, 2 + tick);
+      saver.mark([grown.patch]);
+      await saver.save();
+      if (watch.puts.some((p) => isPage(p.key))) folds.push(tick);
+    }
+    watch.stop();
+    const streamed = 2_000 * words.length;
+    // the folds come when the chunks hold what the page held: each one at least doubles the wait for the next
+    for (let i = 1; i < folds.length; i++) expect((folds[i] as number) + 1).toBeGreaterThanOrEqual(2 * ((folds[i - 1] as number) + 1));
+    expect(folds.length).toBeLessThan(12);
+    // the words once as chunks and at most about twice more in folds, plus a head and a cursor per save
+    expect(written).toBeLessThan(3 * streamed + 2_000 * 600);
+    await expectLoads(state);
+  }, 30_000);
 
   test("a text that was not there is created where the reducer puts it, and one that stood undefined keeps its place", async () => {
     const cache = track(await openCache());

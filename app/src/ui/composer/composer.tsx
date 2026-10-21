@@ -22,7 +22,7 @@ import { flyInto } from "../../motion/fly";
 import { flip, play } from "../../motion/animate";
 import { ROLL_IN, SNAP } from "../../motion/springs";
 import { state, setCompaction, setComposerNotice } from "../../store";
-import { discardSend, retrySend, saveDraft, sendMessage, unsendQueued } from "../../sync/client";
+import { discardSend, draftPhotos, loadDraftPhotos, retrySend, saveDraft, sendMessage, unsendQueued } from "../../sync/client";
 import { type Draft, type OutboxView, type Photo, photoBytes, type Target, targetKey, type Verb } from "../../sync/outbox";
 import { api } from "../../api/client";
 import { deviceClass, deviceId } from "../../push/device";
@@ -104,6 +104,8 @@ export function Composer(props: ComposerProps) {
   const directory = () => props.target.directory;
   const repo = () => repoName(directory());
   const draft = () => state.composer.drafts[key()] ?? EMPTY;
+  /* the draft's photos are read from the device as the composer opens (a launch reads only the open thread's) */
+  createEffect(() => void loadDraftPhotos(key()));
   const entry = () => (props.target.kind === "session" ? state.fleet.sessions[key()] : undefined);
   /* a session's colour is its repo root's, as its window's is (window/view.ts): its directory may be a worktree, which
      is not the repo the colour belongs to */
@@ -255,10 +257,13 @@ export function Composer(props: ComposerProps) {
   const write = (next: Partial<Draft>) => {
     const before = draft();
     const merged = { ...before, ...next, at: Date.now() };
+    // photos that could not be read go when the words are emptied: a record that cannot be read must not keep the draft for good
+    if (merged.held?.failed && !merged.text && !merged.photos.length) delete merged.held;
     // only the person's own edits come through here, so emptying it is throwing it away (friction.abandon)
-    const abandoned = Boolean(before.text || before.photos.length) && !merged.text && !merged.photos.length;
-    // words, a model or an effort changed and the photos did not: only the words go to the worker (a photo can be megabytes)
-    saveDraft(key(), merged.text || merged.photos.length || merged.model || merged.effort ? merged : null, abandoned, "photos" in next ? "changed" : "kept");
+    const abandoned = Boolean(before.text || before.photos.length || before.held) && !merged.text && !merged.photos.length && !merged.held;
+    // words, a model or an effort changed and the photos did not: only the words go to the worker (a photo can be megabytes).
+    // photos on the device and not read yet (`held`) keep the draft
+    saveDraft(key(), merged.text || merged.photos.length || merged.held || merged.model || merged.effort ? merged : null, abandoned, "photos" in next ? "changed" : "kept");
   };
   let editor: HTMLTextAreaElement | undefined;
   /* —— the words' shape (docs/composer.md, the layout): one line sits between the plus and send; a second line (a wrap at the
@@ -520,7 +525,7 @@ export function Composer(props: ComposerProps) {
   /* the slash that opened the menu was only a way to ask for the command: it goes, and what else the draft holds stays */
   const clearSlash = () => {
     const d = draft();
-    saveDraft(key(), d.photos.length || d.model || d.effort ? { ...d, text: "", at: Date.now() } : null);
+    saveDraft(key(), d.photos.length || d.held || d.model || d.effort ? { ...d, text: "", at: Date.now() } : null, false, "kept");
     if (editor) {
       editor.value = "";
       editor.focus({ preventScroll: true });
@@ -590,7 +595,7 @@ export function Composer(props: ComposerProps) {
     if (first) say(noRoomLeft(agentName(), MAX_ATTACHMENTS, first.name));
     const added: Photo[] = [];
     // what the device holds that has not gone: every draft's photos and files and every unsent message's (one cap; AGENTS.md, memory and latency)
-    const onDevice = () => Object.values(state.composer.drafts).reduce((sum, d) => sum + photoBytes(d.photos), 0) + state.composer.outbox.reduce((sum, e) => sum + e.photoBytes, 0);
+    const onDevice = () => Object.values(state.composer.drafts).reduce((sum, d) => sum + photoBytes(d.photos) + (d.held?.bytes ?? 0), 0) + state.composer.outbox.reduce((sum, e) => sum + e.photoBytes, 0);
     for (const file of all.slice(0, room)) {
       const kind = isPhoto(file) ? null : fileKind(file);
       const read = kind ? await readFile(file, kind) : await clampPhoto(file);
@@ -646,6 +651,9 @@ export function Composer(props: ComposerProps) {
   /* —— sending —— */
   let windowEl: HTMLDivElement | undefined;
   const send = async (mode?: "steer") => {
+    // a message takes the draft's photos, so ones still on the device are read first (they are, as the composer opens)
+    if (draft().held) await loadDraftPhotos(key());
+    if (draft().held) return setProblem((await draftPhotos()).PHOTOS_UNREAD);
     if (!has() || props.blocked) return;
     const text = draft().text.trim();
     if (text === "/compact" && props.target.kind === "session" && !draft().photos.length) {
