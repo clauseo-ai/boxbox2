@@ -12,7 +12,7 @@
      after one mutation), never inside a frame loop. */
 
 import { type Accessor, createSignal } from "solid-js";
-import { type Curve, FADE, REDUCED_FADE, SETTLE, SHEET, SNAP, type Spring, SWEEP, motionProperties } from "./springs";
+import { type Curve, FADE, REDUCED_FADE, SHEET, SNAP, type Spring, SWEEP, motionProperties } from "./springs";
 
 /** what a keyframe may touch */
 export type Frame = {
@@ -158,19 +158,26 @@ export function flip(elements: Iterable<Element>, mutate: () => void, curve: Spr
     const dx = was.left - now.left;
     const dy = was.top - now.top;
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
-    el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: curve.duration, easing: curve.easing });
+    move(el, [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: curve.duration, easing: curve.easing });
   }
 }
 
-/** a streamed word (or run of words) fading in. words are inline, so they wrap with the prose; transform does not
-    apply to inline boxes, and a blur gave every arriving run a layer of its own, so the settle is opacity alone */
-export function settle(el: Element, live: boolean): void {
-  play(
-    el,
-    [{ opacity: 0 }, { opacity: 1 }],
-    SETTLE,
-    { live, fill: "backwards" },
-  );
+/* webkit keeps every animation an element was given alive for as long as the element lives, finished or cancelled
+   (docs/gotchas.md, home): home's windows move at every reorder, a fleet streaming reorders them about every second, and
+   each window held one animation, its keyframes and its spring's curve per move, twenty a second in all. an element moved
+   again replays its own animation with the new keyframes instead */
+const moves = new WeakMap<Element, Animation>();
+function move(el: Element, frames: Keyframe[], timing: { duration: number; easing: string }): void {
+  const was = moves.get(el);
+  const effect = was?.effect;
+  if (was && effect instanceof KeyframeEffect) {
+    effect.setKeyframes(frames);
+    effect.updateTiming(timing);
+    was.currentTime = 0;
+    was.play();
+    return;
+  }
+  moves.set(el, el.animate(frames, timing));
 }
 
 /** the one sweep of light an earned moment makes across a window */

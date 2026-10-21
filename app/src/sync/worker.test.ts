@@ -141,15 +141,15 @@ async function until(what: string, ok: () => boolean, ms = 3_000) {
 
 const state = (): SyncState => (sync as unknown as { state: SyncState }).state;
 
-/** a booted worker on a live stream: the hello, then a reset at seq 5 with three idle threads */
-async function live(board = false): Promise<Sync> {
+/** a booted worker on a live stream: the hello, then a reset at seq 5 with three idle threads (or `keys`) */
+async function live(board = false, keys = [A, B, C]): Promise<Sync> {
   const s = new Sync("device", "mac", board);
   sync = s;
   await s.boot(null);
   await until("the dial", () => server.dials.length === 1);
   server.head = 5;
   server.hello();
-  server.push({ type: "reset", seq: 5, epoch: "j1", reason: "none", fleet: snapshot([thread(A), thread(B), thread(C)]) }, "j1:5");
+  server.push({ type: "reset", seq: 5, epoch: "j1", reason: "none", fleet: snapshot(keys.map((key) => thread(key))) }, "j1:5");
   await until("the reset", () => state().cursor?.seq === 5);
   return s;
 }
@@ -161,7 +161,7 @@ async function openAndShow(key: string) {
   s.show(key);
 }
 
-const settled = () => state().interest.posts.length === 0;
+const settled = () => state().interest.posts.length === 0 && !state().interest.due;
 
 describe("protocol 3: what the page shows", () => {
   beforeEach(() => {
@@ -178,20 +178,20 @@ describe("protocol 3: what the page shows", () => {
     );
   });
 
-  test("the first dial asks for no colours flag; opening, layering and holding post the interest in order; a pagehide and pageshow dial again with all of it in the query, each key with its left", async () => {
+  test("the first dial asks for no colours flag; opening, layering and holding post the interest, once a turn; a pagehide and pageshow dial again with all of it in the query, each key with its left", async () => {
     const s = await live();
     expect(server.dials[0]?.url).toBe("/api/stream");
     await openAndShow(A);
     await until("a read", () => state().threads[A]?.status === "live");
     // an entry for the stage moves the cursor past the confirm
     server.push({ seq: 7, type: "message", key: A, upstream: 60, message: { id: "msg_a_2", role: "assistant", created: 2 } }, "j1:7");
+    // B layered over A and C held for it in one turn: one post says both
     await openAndShow(B);
     await s.hold(C);
     await until("the confirms", () => settled() && state().threads[B]?.status === "live" && state().threads[C]?.status === "live");
     expect(server.posts.map((p) => [p.url, p.body])).toEqual([
       [`/api/stream/${server.stream}/interest`, { ask: 1, thread: A, under: [], holds: [] }],
-      [`/api/stream/${server.stream}/interest`, { ask: 2, thread: B, under: [A], holds: [] }],
-      [`/api/stream/${server.stream}/interest`, { ask: 3, thread: B, under: [A], holds: [C] }],
+      [`/api/stream/${server.stream}/interest`, { ask: 2, thread: B, under: [A], holds: [C] }],
     ]);
     // the reads waited for their confirm and took the new route
     expect(server.reads.map((r) => r.url)).toEqual(["/api/agents/bench/threads/ses_a/messages", "/api/agents/bench/threads/ses_b/messages", "/api/agents/bench/threads/ses_c/messages"]);
@@ -212,15 +212,17 @@ describe("protocol 3: what the page shows", () => {
     await openAndShow(B);
     await until("both read", () => settled() && state().threads[B]?.status === "live" && state().threads[A]?.status === "live");
     server.push({ seq: 9, type: "thread.patch", key: A, set: { updated: 3 } }, "j1:9");
+    // A and B opened in one turn went in one post
+    expect(server.posts.map((p) => p.body)).toEqual([{ ask: 1, thread: B, under: [A], holds: [] }]);
     s.hide(A);
-    await until("the confirm", () => settled() && server.posts.length === 3);
-    expect(server.posts[2]?.body).toEqual({ ask: 3, thread: B, under: [], holds: [] });
+    await until("the confirm", () => settled() && server.posts.length === 2);
+    expect(server.posts[1]?.body).toEqual({ ask: 2, thread: B, under: [], holds: [] });
     expect(state().threads[A]?.left).toBe(9);
     const reads = server.reads.length;
     // back on stage over B: it enters with its left, and the server's catch-up (none here) is all it needs
     await openAndShow(A);
-    await until("the confirm", () => settled() && server.posts.length === 4);
-    expect(server.posts[3]?.body).toEqual({ ask: 4, thread: A, under: [B], holds: [], since: { [A]: 9 } });
+    await until("the confirm", () => settled() && server.posts.length === 3);
+    expect(server.posts[2]?.body).toEqual({ ask: 3, thread: A, under: [B], holds: [], since: { [A]: 9 } });
     await Bun.sleep(20);
     expect(server.reads.length).toBe(reads);
     expect(state().threads[A]?.left).toBeUndefined();
@@ -233,12 +235,12 @@ describe("protocol 3: what the page shows", () => {
     await until("both read", () => settled() && state().threads[B]?.status === "live" && state().threads[A]?.status === "live");
     const reads = server.reads.length;
     s.hide(B);
-    await until("the confirm", () => settled() && server.posts.length === 3);
-    expect(server.posts[2]?.body).toEqual({ ask: 3, thread: A, under: [], holds: [] });
+    await until("the confirm", () => settled() && server.posts.length === 2);
+    expect(server.posts[1]?.body).toEqual({ ask: 2, thread: A, under: [], holds: [] });
     // and closing that one too goes home
     s.hide(A);
-    await until("the confirm", () => settled() && server.posts.length === 4);
-    expect(server.posts[3]?.body).toEqual({ ask: 4, thread: null, under: [], holds: [] });
+    await until("the confirm", () => settled() && server.posts.length === 3);
+    expect(server.posts[2]?.body).toEqual({ ask: 3, thread: null, under: [], holds: [] });
     await Bun.sleep(20);
     expect(server.reads.length).toBe(reads);
   });
@@ -316,6 +318,72 @@ describe("protocol 3: what the page shows", () => {
   });
 });
 
+/* the page sends what it shows one message at a time, and each is its own task in the worker: opening a thread with five
+   agent children is an open, a show and five holds. they reach the worker together, queued ahead of the timer the first one
+   starts, so the interest they add up to goes in one post */
+describe("protocol 3: one interest post a turn", () => {
+  const P = "bench:ses_p";
+  const kids = [1, 2, 3, 4, 5].map((n) => `bench:ses_k${n}`);
+
+  beforeEach(() => {
+    server = fakeServer();
+    server.transcript = (key) => [message(`msg_${key.slice(10)}_1`)];
+  });
+  afterEach(() => server.restore());
+
+  /** each call its own task, all queued at once, as the page's messages reach the worker */
+  const messages = (...calls: (() => unknown)[]) => {
+    for (const call of calls) setTimeout(() => void call(), 0);
+  };
+
+  test("opening a thread with five children posts once, with all of it; the reads wait for that confirm; closing it posts once", async () => {
+    const s = await live(false, [P, ...kids]);
+    // how many reads had gone out when each confirm was sent
+    const readsAtConfirm: number[] = [];
+    server.beforeConfirm = () => {
+      readsAtConfirm.push(server.reads.length);
+      return [];
+    };
+    messages(
+      () => s.open(P),
+      () => s.show(P),
+      ...kids.map((kid) => () => s.hold(kid)),
+    );
+    await until("every read", () => settled() && [P, ...kids].every((key) => state().threads[key]?.status === "live"));
+    expect(server.posts.map((p) => p.body)).toEqual([{ ask: 1, thread: P, under: [], holds: kids }]);
+    // every key entered without since: none was read before the confirm said where it entered, each once after it
+    expect(readsAtConfirm).toEqual([0]);
+    expect(server.reads.map((r) => r.key).sort()).toEqual([P, ...kids].sort());
+    messages(...kids.map((kid) => () => s.release(kid)), () => s.hide(P));
+    await until("the confirm", () => settled() && server.posts.length === 2);
+    await Bun.sleep(20);
+    expect(server.posts.map((p) => p.body)).toEqual([
+      { ask: 1, thread: P, under: [], holds: kids },
+      { ask: 2, thread: null, under: [], holds: [] },
+    ]);
+    expect(state().interest.confirmed).toEqual({ thread: null, under: [], holds: [] });
+  });
+
+  test("a turn that opens a thread over the stage and closes it again posts nothing and leaves nothing waiting", async () => {
+    const s = await live();
+    await openAndShow(A);
+    await until("read", () => settled() && state().threads[A]?.status === "live");
+    expect(server.posts).toHaveLength(1);
+    messages(
+      () => s.open(B),
+      () => s.show(B),
+      () => s.hide(B),
+    );
+    await until("the turn", () => state().threads[B] !== undefined && !state().interest.due);
+    await Bun.sleep(20);
+    expect(server.posts).toHaveLength(1);
+    expect(state().interest.posts).toEqual([]);
+    expect(state().interest.confirmed).toEqual({ thread: A, under: [], holds: [] });
+    // B was opened, so it is read all the same, and nothing holds that read back
+    await until("B read", () => state().threads[B]?.status === "live");
+  });
+});
+
 describe("protocol 3: a hidden page", () => {
   beforeEach(() => {
     server = fakeServer();
@@ -332,7 +400,8 @@ describe("protocol 3: a hidden page", () => {
     s.visibility(true);
     await advance(HIDDEN_AFTER_MS - 1_000, 1_000);
     expect(server.posts).toHaveLength(1);
-    await advance(1_000, 100);
+    // the post goes on a turn of its own, after the timer that asked for it
+    await advance(1_100, 100);
     expect(server.posts[1]?.body).toEqual({ ask: 2, thread: null, under: [], holds: [] });
     jest.useRealTimers();
     await until("the confirm", () => settled());

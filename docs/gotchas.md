@@ -828,6 +828,24 @@ in `scars.md`.
   reply, or an ask is open.
 ## home
 
+- **webkit keeps every finished `Element.animate()` alive, with its
+  element.** a static page that fades 20 spans a second in with
+  `el.animate(opacity, { fill: "backwards" })` and removes them after 3 s
+  held every animation it ever made (WebAnimation, KeyframeEffect,
+  BlendingKeyframe) and every removed span and text node, about 10 kb each,
+  after a forced gc; `cancel()` frees none of them and no js reference is
+  needed. the same page with a css `@keyframes` class kept only the live
+  ones. home's streamed words settled through `Element.animate`, about
+  twenty a second with a fleet streaming, and that was most of the page
+  process's WebKit Malloc growth (20 MB a minute after gc, home alone,
+  WKWebView on macos). chromium frees them. home's windows were the bigger
+  share: each reorder flips every window that moved, and each window kept
+  one animation per move. rule: anything that animates per word, per batch
+  or per row uses a css animation (`.settle-in`, `.live-text .w`); an
+  element animated again and again reuses its one animation (`flip`'s
+  `move`, motion/animate.ts); `Element.animate` is otherwise for
+  transitions a person starts.
+
 - **`performance.now()` starts at the page, so 0 is not "never".** the calm
   law's "1 s after the last touch" was written with the last touch at 0,
   so every launch held the first windows back for up to a second (the

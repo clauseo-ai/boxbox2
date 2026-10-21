@@ -36,6 +36,16 @@ describe("a part announced and still empty", () => {
     expect(turn?.items).toEqual([]);
     expect(turn?.answer).toBeUndefined();
   });
+
+  test("a part of white space alone is nothing to show, by the white space trim takes, and one with a word in it is shown whole", () => {
+    const space = " \t\n\r\u00a0\u2028\ufeff\u3000";
+    const [none] = turnsOf([user("u"), assistant("a", [text("t", space), reasoning("r", space)], true)], "/");
+    expect(none?.items).toEqual([]);
+    expect(none?.answer).toBeUndefined();
+    const [some] = turnsOf([user("u"), assistant("a", [reasoning("r", `${space}x${space}`), text("t", `${space}y\n`)], true)], "/");
+    expect(some?.items.map((it) => (it.k === "think" ? it.text : ""))).toEqual([`${space}x${space}`]);
+    expect(some?.answer?.text).toBe(`${space}y\n`);
+  });
 });
 
 describe("parts only imported history carries (cmx2 a15, contract 6)", () => {

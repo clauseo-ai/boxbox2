@@ -223,7 +223,7 @@ describe("a reset", () => {
     (sync as Sync).hide(KEYS[0]);
     // the reset lands at once, so only a thread already on disk as memory holds it goes cold: the confirm that takes it out of
     // interest writes its `left` to its head first
-    await until("the confirm", () => worker().interest.posts.length === 0);
+    await until("the confirm", () => worker().interest.posts.length === 0 && !worker().interest.due);
     await (sync as Sync).save();
     reads = [];
     server.epoch = "j2";

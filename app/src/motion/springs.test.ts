@@ -45,6 +45,10 @@ describe("the short curves", () => {
     expect(FADE).toEqual({ easing: "cubic-bezier(.2, .8, .2, 1)", duration: 160 });
     expect(SETTLE.duration).toBe(360);
   });
+  test("a streamed word settles by the css property, and not at all under reduced motion", () => {
+    expect(motionProperties(false)["--settle-t"]).toBe(`360ms ${SETTLE.easing}`);
+    expect(motionProperties(true)["--settle-t"]).toBe(`0ms ${SETTLE.easing}`);
+  });
 });
 
 describe("the css properties", () => {

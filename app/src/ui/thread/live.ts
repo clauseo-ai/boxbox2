@@ -86,6 +86,10 @@ function spawnedOf(turn: Turn): readonly string[] {
   return found;
 }
 
+/** a released child as it read while held (createThreadData, `kept`): its step count, how long it ran, when its first message was made,
+    its spawn rows (the spend walks its agents through them) and what its messages cost (for one the fleet let go) */
+type Kept = { steps: number; ms: number; first: number | undefined; items: readonly Item[]; cost: number };
+
 const sameKin = (a: readonly Kin[], b: readonly Kin[]): boolean => a === b || (a.length === b.length && a.every((x, i) => { const y = b[i]; return y !== undefined && x.id === y.id && x.parent === y.parent && x.title === y.title && x.at === y.at && x.cost === y.cost && x.gone === y.gone; }));
 
 const sameChild = (a: Child | undefined, b: Child | undefined): boolean => a === b || (a !== undefined && b !== undefined && a.steps === b.steps && a.ms === b.ms && a.items === b.items && a.held === b.held && a.state === b.state && a.since === b.since && a.created === b.created && a.title === b.title);
@@ -154,6 +158,10 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
     return [...keys].sort();
   }, [], { equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]) });
   const owner = getOwner();
+  /* what each child a lane let go of read as while it was held, by its key: what its row, the details panel's agents list and the
+     spend read of it, so they read as they did while the transcript itself leaves the store and cools in the worker (below, release).
+     a few numbers and its spawn rows per child; a child held again reads its own thread once that is read, and is kept again when let go */
+  const kept = new Map<string, Kept>();
   const summaries = new Map<string, { summary: Accessor<Child | undefined>; dispose: () => void }>();
   onCleanup(() => { for (const c of summaries.values()) c.dispose(); summaries.clear(); });
   const summaryOf = (k: string): Accessor<Child | undefined> => {
@@ -173,8 +181,9 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
            only started (hydrating, nothing in it yet) is not read, and says no step count, never "0 steps" */
         const there = state.threads[k];
         const loaded = isRead(there);
-        const all = items();
-        const first = loaded ? (state.threads[k]?.messages[0]?.info.created ?? entry?.created ?? 0) : entry?.created ?? 0;
+        const was = loaded ? undefined : kept.get(k);
+        const all = was ? was.items : items();
+        const first = loaded ? (state.threads[k]?.messages[0]?.info.created ?? entry?.created ?? 0) : was ? (was.first ?? entry?.created ?? 0) : entry?.created ?? 0;
         /* a thread not held says how long its session lasted from the fleet's own times: created to last updated */
         const end = loaded ? (state.threads[k]?.messages.at(-1)?.info.completed ?? first) : entry?.updated ?? first;
         const asked = Object.values(state.fleet.asks).some((a) => a.key === k);
@@ -182,7 +191,7 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
         const state_: ChildState = !entry ? "idle" : asked ? "wants" : activity?.state === "busy" || activity?.state === "retry" ? "working" : activity?.state === "parked" ? "parked" : "idle";
         /* an idle thread carries no since (cmx2's idle-not-parked since has no neutral home): it falls to the first message, as a thread with no status did */
         const since = activity && "since" in activity ? activity.since || undefined : undefined;
-        return { steps: loaded ? all.reduce((n, x) => n + (x.k === "step" ? 1 : 0), 0) : 0, ms: Math.max(0, end - first), items: all, held: loaded, state: state_, since: since ?? first, created: entry?.created ?? first, title: entry?.title ?? "" };
+        return { steps: loaded ? all.reduce((n, x) => n + (x.k === "step" ? 1 : 0), 0) : was ? was.steps : 0, ms: was ? was.ms : Math.max(0, end - first), items: all, held: loaded || was !== undefined, state: state_, since: since ?? first, created: entry?.created ?? first, title: entry?.title ?? "" };
       }, undefined, { equals: sameChild });
       return { summary, dispose };
     }));
@@ -216,17 +225,45 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
     setOnScreen(distance === null ? rest : [...rest, { key: k, distance }]);
   };
   const liveChildren = createMemo(() => childKeys().filter((k) => { const st = children().get(k.slice(host().length + 1))?.state; return st === "working" || st === "wants" || st === "parked"; }), [], { equals: (a, b) => a.length === b.length && a.every((k, i) => k === b[i]) });
-  /* a child a lane held stays in the store while this thread is drawn, released or not, as it always did (its row, its lane and the
-     details read it); the store lets it go when this thread leaves the stage (sync/client.ts, showThread) */
+  /* a child a lane holds is in the store while it is held. one let go of leaves the store (and cools in the worker, sync/worker.ts) once
+     it was read: what its row, the details and the spend read of it is kept (`kept`, above), so they read as they did while it was held.
+     a parent drawn for hours whose agent started dozens of helpers held every transcript a lane ever read, the whole while. one let go
+     of before it was read stays until it is (`unread`), then goes the same way; held again before that, it simply stays */
   const shownChildren = new Set<string>();
-  onCleanup(() => { for (const k of shownChildren) hideThread(k); shownChildren.clear(); });
+  const [unread, setUnread] = createSignal<ReadonlySet<string>>(new Set());
+  const without = (k: string): void => { const was = untrack(unread); if (was.has(k)) setUnread(new Set([...was].filter((x) => x !== k))); };
+  onCleanup(() => { for (const k of shownChildren) hideThread(k); shownChildren.clear(); kept.clear(); });
   const holdChild = (k: string): void => {
     holdThread(k);
+    without(k);
     if (shownChildren.has(k)) return;
     shownChildren.add(k);
     showThread(k);
   };
-  createHolds({ live: liveChildren, visible: onScreen, present: (k) => state.threads[k] !== undefined, hold: holdChild, release: releaseThread });
+  /** lets a released child's transcript go once it was read, keeping what it read as */
+  const letGo = (k: string): boolean => {
+    const there = state.threads[k];
+    const child = summaries.get(k)?.summary();
+    if (!there || !isRead(there) || !child?.held) return false;
+    const messages = there.messages;
+    kept.set(k, {
+      steps: child.steps,
+      ms: child.ms,
+      first: messages[0]?.info.created,
+      items: child.items.filter((it) => it.k === "step" && it.family === "spawn" && it.agent?.child !== undefined),
+      cost: messages.reduce((n, m) => n + (m.info.role === "assistant" ? (number(m.info.cost) ?? 0) : 0), 0),
+    });
+    without(k);
+    shownChildren.delete(k);
+    hideThread(k);
+    return true;
+  };
+  const releaseChild = (k: string): void => {
+    releaseThread(k);
+    if (shownChildren.has(k) && !letGo(k)) setUnread(new Set([...untrack(unread), k]));
+  };
+  createEffect(() => { for (const k of unread()) if (isRead(state.threads[k])) untrack(() => letGo(k)); });
+  createHolds({ live: liveChildren, visible: onScreen, present: (k) => state.threads[k] !== undefined, hold: holdChild, release: (k) => untrack(() => releaseChild(k)) });
 
   /* every session under this thread at any depth, for what its agents cost (details-model.ts, spendOf): the fleet's
      sessions by their parent, plus the agents the spawn rows name (this thread's, and its held children's) for one the
@@ -252,8 +289,9 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
       const k = `${host()}:${id}`;
       const entry = state.fleet.threads[k];
       const held = state.threads[k];
-      const cost = entry ? (entry.cost ?? 0) : held ? held.messages.reduce((n, m) => n + (m.info.role === "assistant" ? (number(m.info.cost) ?? 0) : 0), 0) : null;
-      out.push({ id, parent, title: entry?.title ?? "", at: entry?.created ?? held?.messages[0]?.info.created ?? 0, cost, gone: !entry });
+      const was = held ? undefined : kept.get(k);
+      const cost = entry ? (entry.cost ?? 0) : held ? held.messages.reduce((n, m) => n + (m.info.role === "assistant" ? (number(m.info.cost) ?? 0) : 0), 0) : was ? was.cost : null;
+      out.push({ id, parent, title: entry?.title ?? "", at: entry?.created ?? held?.messages[0]?.info.created ?? was?.first ?? 0, cost, gone: !entry });
       for (const next of under.get(id) ?? []) queue.push([id, next]);
     }
     return out;

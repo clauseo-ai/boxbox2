@@ -12,8 +12,9 @@
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
 import { mintId } from "./mint-id";
 
-/** the server takes at most 500 per batch; a queue past this drops its oldest */
-const QUEUE_CAP = 500;
+/** the server takes at most 500 per batch; a queue past this drops its oldest. the page holds no more of its own
+    rows than this either (client.ts, `unsent`) */
+export const QUEUE_CAP = 500;
 const FLUSH_MS = 10_000;
 const FLUSH_AT = 50;
 
@@ -41,6 +42,9 @@ export class Telemetry {
     /** the outbox, once the cache is open; null keeps rows in memory only */
     private readonly store: () => RowStore | null = () => null,
     private readonly endpoint = "/api/telemetry",
+    /** called with the ids of rows dropped at the cap, unsent: the page stops holding them too, or with telemetry
+        failing it would keep every row it ever emitted until it hid */
+    private readonly onDropped: (ids: string[]) => void = () => {},
   ) {}
 
   /** rows a closed page left in the outbox go out first, in the order they were written; rows written before the
@@ -111,6 +115,7 @@ export class Telemetry {
     if (this.queue.length <= QUEUE_CAP) return;
     const dropped = this.queue.splice(0, this.queue.length - QUEUE_CAP).map((e) => e.id);
     this.keep(() => this.store()?.forget(dropped));
+    this.onDropped(dropped);
   }
 
   /** an outbox write that fails leaves the row in memory, where it was going to be sent from anyway */

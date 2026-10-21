@@ -16,6 +16,7 @@ import { type Draft, type DraftMessage, type Photo, photosNotFitted, takeBackDra
 import { Landing } from "./landing";
 import type { AskReply } from "./replies";
 import { mintId } from "./mint-id";
+import { QUEUE_CAP } from "./telemetry";
 
 const THREAD_PARAM = "thread";
 
@@ -53,8 +54,10 @@ const landing = new Landing(
     if (sample) requestAnimationFrame(() => { const ms = performance.now() - sample.at; emit("perf.thread", { what: "event" }, { ms: Math.round(ms), ok: ms <= 150, surface: "thread", session: sample.key }); });
   },
 );
-/* the rows this thread emitted and the worker has not yet reported sent: on the way out they go by beacon, since a
-   navigation can end the worker before its flush. the server keys rows by id, so a row both sent is counted once */
+/* the rows this thread emitted and the worker has not yet reported sent or dropped: on the way out they go by beacon,
+   since a navigation can end the worker before its flush. the server keys rows by id, so a row both sent is counted
+   once. rows the worker keeps retrying (a 5xx, no network) stay here, so the map is capped at the worker's own queue
+   cap, the oldest out first: the worker has dropped those, or will, and a lost message must not let it grow */
 const device: { id: string; deviceClass: DeviceClass } = { id: "", deviceClass: "desktop" };
 const unsent = new Map<string, Record<string, unknown>>();
 
@@ -96,6 +99,7 @@ function onMessage(event: MessageEvent<FromWorker>) {
       waiting.delete(message.id);
       return;
     case "flushed":
+    case "dropped":
       for (const id of message.ids) unsent.delete(id);
       return;
     case "outbox":
@@ -397,6 +401,8 @@ export function emit<K extends EventKind>(kind: K, props: PropsOf<K>, envelope: 
   // in dev, every row shows in the console as it leaves the ui, so a missing row is found on the ui side or the worker's
   if (import.meta.env.DEV) console.debug("telemetry", kind, props, stamped);
   unsent.set(stamped.id as string, { ...stamped, kind, props });
+  // a map keeps its insertion order, so the first key is the oldest row
+  if (unsent.size > QUEUE_CAP) unsent.delete(unsent.keys().next().value as string);
   // the kind and its props agree by the signature; the pair type (`Emit`) is what crosses the boundary
   send({ type: "telemetry", kind, props, envelope: stamped } as ToWorker & Emit);
 }

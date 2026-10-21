@@ -6,6 +6,18 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **less memory held and churned while agents stream (webkit).** streamed
+  words and changing counts fade in by a css animation instead of
+  Element.animate (webkit kept every finished web animation and its
+  element alive), and a window moved at a reorder replays its own
+  animation instead of a new one; a released agent child keeps only the
+  numbers its row, the details and the spend read, not its transcript;
+  a running turn is digested once it ends, not at every batch, and a
+  text's emptiness is found without a copy (together about 350 mb a
+  minute less allocation with a lead open in chromium); interest posts go
+  out once a turn (opening a thread with five children posted six times);
+  the page's unsent telemetry rows are bounded.
+
 - **a server restart costs devices nothing.** the stream's epoch, head,
   every key's last state, versions, whole flags, transcript revisions and
   each cmx2 cursor go to boxbox.db in acknowledged batches (migration 11),

@@ -221,15 +221,18 @@ export type InterestState = {
   epoch: string | null;
   /** what the worker last asked for: what the page shows (`want`), capped */
   wanted: Interest;
+  /** `wanted` changed since the last post: it goes out at the next `post-interest`, which the worker sends once the
+      messages already queued have run, so a burst of wants (an open and a hold per child) posts once */
+  due: boolean;
   /** the newest ask number posted on any stream */
   ask: number;
-  /** posts not yet confirmed, oldest first, each with the keys it sent a `since` for */
-  posts: { ask: number; since: string[] }[];
+  /** posts not yet confirmed, oldest first, each with what it asked for and the keys it sent a `since` for */
+  posts: { ask: number; interest: Interest; since: string[] }[];
 };
 
 export const NO_INTEREST: Interest = { thread: null, under: [], holds: [] };
 
-export const INITIAL_INTEREST: InterestState = { stream: null, confirmed: NO_INTEREST, entered: {}, epoch: null, wanted: NO_INTEREST, ask: 0, posts: [] };
+export const INITIAL_INTEREST: InterestState = { stream: null, confirmed: NO_INTEREST, entered: {}, epoch: null, wanted: NO_INTEREST, due: false, ask: 0, posts: [] };
 
 export type SyncState = {
   cursor: Cursor | null;
@@ -292,6 +295,9 @@ export type Effect =
   | { type: "head"; key: string }
   /** a protocol error or a rule's miss, for telemetry (`sync.fault`, docs/protocol.md section 16) */
   | { type: "fault"; what: Fault }
+  /** an interest post is due (`InterestState.due`): the worker sends `post-interest` once the messages already queued have
+      run, once however many wants came meanwhile */
+  | { type: "interest-due" }
   /** the interest to post to `POST /api/stream/{stream}/interest`: the page shows something else */
   | { type: "interest-changed"; stream: string; post: InterestPost }
   /** the confirm of the newest post landed (`sync.interest`): how many keys entered, came back stale, or were reset */
@@ -308,9 +314,13 @@ export type Action =
   /** a frame that cannot apply because it does not parse (a catch-up or a confirm): a protocol error */
   | { type: "broken"; what: Fault }
   /** what the page shows: the thread on stage, the layers under it (bottom first; the nearest 8 count) and the children
-      held for them (the first 16 count). an interest that differs from the last one asked is posted (`interest-changed`)
-      while a stream is open; `streamQuery` gives it for the next connect either way. a hidden page asks for none */
+      held for them (the first 16 count). an interest that differs from the last one asked makes a post due
+      (`interest-due`) while a stream is open; `streamQuery` gives it for the next connect either way. a hidden page asks
+      for none */
   | { type: "want"; thread: string | null; under: readonly string[]; holds: readonly string[] }
+  /** the due post goes out (`interest-changed`), carrying what the page wants now, unless the server already has it or
+      will once what is out applies */
+  | { type: "post-interest" }
   /** the stream closed (an error, a pagehide, an overflow): every thread in interest that is current takes the cursor as
       its `left` */
   | { type: "dropped" }
@@ -398,10 +408,10 @@ class Work {
   fault(what: Fault) {
     this.effects.push({ type: "fault", what });
   }
-  /** a read of `key` waits for a confirm: a post that asks for it is out, and the interest the server applies lacks it */
+  /** a read of `key` waits for a confirm: a post that asks for it is out or due, and the interest the server applies lacks it */
   defers(key: string): boolean {
     const interest = this.interest;
-    return interest.stream !== null && interest.posts.length > 0 && inInterest(interest.wanted, key) && !inInterest(interest.confirmed, key);
+    return interest.stream !== null && (interest.posts.length > 0 || interest.due) && inInterest(interest.wanted, key) && !inInterest(interest.confirmed, key);
   }
 }
 
@@ -420,6 +430,9 @@ export function reduce(state: SyncState, action: Action): Result {
       break;
     case "want":
       next = want(work, state, action);
+      break;
+    case "post-interest":
+      next = postInterest(work, state);
       break;
     case "dropped":
       next = dropped(work, state);
@@ -514,8 +527,10 @@ const inInterest = (interest: Interest, key: string): boolean => interest.thread
 
 const keysOf = (interest: Interest): string[] => [...(interest.thread === null ? [] : [interest.thread]), ...interest.under, ...interest.holds];
 
+/** the same keys in each part. order is not compared: the server takes `under` and `holds` as sets, so a child released and
+    held again (back at the end of `holds`) asks for nothing new. both sides come from `interestOf`, so neither repeats a key */
 const sameInterest = (a: Interest, b: Interest): boolean =>
-  a.thread === b.thread && a.under.length === b.under.length && a.holds.length === b.holds.length && a.under.every((k, i) => b.under[i] === k) && a.holds.every((k, i) => b.holds[i] === k);
+  a.thread === b.thread && a.under.length === b.under.length && a.holds.length === b.holds.length && a.under.every((k) => b.under.includes(k)) && a.holds.every((k) => b.holds.includes(k));
 
 /** at most 8 layers (the nearest the stage) and 16 holds (the first), none twice (docs/protocol.md, section 5) */
 export const UNDER_CAP = 8;
@@ -568,8 +583,22 @@ export function streamQuery(state: SyncState): Interest & { since: Record<string
 function want(work: Work, state: SyncState, action: Extract<Action, { type: "want" }>): SyncState {
   const wanted = interestOf(action.thread, action.under, action.holds);
   if (sameInterest(wanted, state.interest.wanted)) return state;
-  let interest: InterestState = { ...state.interest, wanted };
-  if (interest.stream !== null) interest = post(work, state, interest);
+  const interest: InterestState = { ...state.interest, wanted, due: state.interest.stream !== null };
+  if (interest.due && !state.interest.due) work.effects.push({ type: "interest-due" });
+  work.interest = interest;
+  return releaseWaiting(work, { ...state, interest }, (key) => !work.defers(key));
+}
+
+/** the due post goes out with what the page wants now. each page message is its own worker task and most change what it
+    shows (opening a thread with five agent children is an open and five holds), so posting at every want posted six times
+    where one says it all. nothing goes when the server has what is wanted, or will once the newest post out applies (it
+    applies only an ask above the last it took, docs/protocol.md, order): a burst that ends where it began (A to B to A, a
+    child released and held again) posts nothing, and no ask is ever left waiting, since every ask posted is sent */
+function postInterest(work: Work, state: SyncState): SyncState {
+  if (!state.interest.due) return state;
+  let interest: InterestState = { ...state.interest, due: false };
+  const applies = interest.posts.at(-1)?.interest ?? interest.confirmed;
+  if (interest.stream !== null && !sameInterest(interest.wanted, applies)) interest = post(work, state, interest);
   work.interest = interest;
   return releaseWaiting(work, { ...state, interest }, (key) => !work.defers(key));
 }
@@ -581,7 +610,7 @@ function post(work: Work, state: SyncState, interest: InterestState): InterestSt
   const keys = Object.keys(since);
   const body: InterestPost = { ask, ...interest.wanted, ...(keys.length > 0 ? { since } : {}) };
   work.effects.push({ type: "interest-changed", stream: interest.stream as string, post: body }); // the callers checked the stream
-  return { ...interest, ask, posts: [...interest.posts, { ask, since: keys }] };
+  return { ...interest, ask, posts: [...interest.posts, { ask, interest: interest.wanted, since: keys }] };
 }
 
 /** the reads that waited for a confirm go out, those `which` names */
@@ -641,17 +670,14 @@ function hello(work: Work, state: SyncState, frame: Hello, dialed: readonly stri
   const since = new Set(dialed ?? Object.keys(sinceFor(state, confirmed)));
   const entered: Record<string, number> = {};
   for (const key of keys) entered[key] = frame.head;
-  let interest: InterestState = { ...state.interest, stream: frame.stream, confirmed, entered, epoch: frame.epoch, posts: [] };
+  // what the page asked for while the stream was connecting is due, posted with whatever else the page asks this turn
+  const due = !sameInterest(state.interest.wanted, confirmed);
+  const interest: InterestState = { ...state.interest, stream: frame.stream, confirmed, entered, epoch: frame.epoch, posts: [], due };
+  if (due && !state.interest.due) work.effects.push({ type: "interest-due" });
   work.interest = interest;
   let next: SyncState = { ...state, head: frame.head, interest };
   // a key without `since` gets nothing from the catch-up: it is read, from the hello on (H = head)
   for (const key of keys) if (!since.has(key)) next = readKey(work, next, key, false);
-  // what the page asked for while the stream was connecting
-  if (!sameInterest(interest.wanted, confirmed)) {
-    interest = post(work, next, interest);
-    work.interest = interest;
-    next = { ...next, interest };
-  }
   return releaseWaiting(work, next, (key) => !work.defers(key));
 }
 
@@ -729,7 +755,8 @@ function threadStale(work: Work, state: SyncState, key: string): SyncState {
 
 /** the stream closed: each current thread in interest lacks what comes after the cursor */
 function dropped(work: Work, state: SyncState): SyncState {
-  const interest: InterestState = { ...state.interest, stream: null, posts: [] };
+  // nothing is due: the next connect asks for what is wanted in its query
+  const interest: InterestState = { ...state.interest, stream: null, posts: [], due: false };
   work.interest = interest;
   let next: SyncState = { ...state, interest };
   if (state.cursor === null) return next;

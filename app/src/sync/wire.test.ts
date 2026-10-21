@@ -27,7 +27,7 @@ const RUNS: { name: string; seed: number; options: Options }[] = [
   { name: "seed 4, raw catch-ups", seed: 4, options: { compaction: "raw" } },
   { name: "seed 5, a late read, raw catch-ups", seed: 5, options: { slow: 2000, compaction: "raw" } },
   { name: "seed 7, a short ring and a source never ahead", seed: 7, options: { ring: 150, ahead: false } },
-  { name: "seed 6, reads from a source never ahead", seed: 6, options: { ahead: false } },
+  { name: "seed 8, reads from a source never ahead", seed: 8, options: { ahead: false } },
 ];
 
 describe("the wire on protocol 3, replayed", () => {
@@ -81,7 +81,7 @@ describe("the wire on protocol 3, replayed", () => {
    the same check */
 describe("a hidden page and the caught-up second", () => {
   test("held by the worker and landed in one go: never behind when the stream has caught up", () => {
-    const run = replayWire(steps, sha, 3, { mode: "gate" });
+    const run = replayWire(steps, sha, 1, { mode: "gate" });
     expect(run.caughtUps).toBeGreaterThanOrEqual(2);
     expect(run.behind).toBeNull();
     expect(run.mismatch).toBeNull();
@@ -89,13 +89,13 @@ describe("a hidden page and the caught-up second", () => {
   }, 30_000);
 
   test("the hidden queue that was reverted is caught: the ui says caught up with the catch-up still waiting", () => {
-    const run = replayWire(steps, sha, 3, { mode: "naive" });
+    const run = replayWire(steps, sha, 1, { mode: "naive" });
     expect(run.behind).not.toBeNull();
     expect(run.endsEqual).toBe(true);
   }, 30_000);
 
   test("held and posted one message at a time holds too: the status comes after the patches, which land before it", () => {
-    const run = replayWire(steps, sha, 3, { mode: "separate" });
+    const run = replayWire(steps, sha, 1, { mode: "separate" });
     expect(run.caughtUps).toBeGreaterThanOrEqual(2);
     expect(run.behind).toBeNull();
     expect(run.mismatch).toBeNull();

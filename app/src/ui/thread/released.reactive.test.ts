@@ -1,7 +1,7 @@
-/* a child a lane let go of reads in the details panel's agents list as it did before the store held only what is on screen
-   (docs/architecture.md, the worker to the ui): while its parent is drawn, a released child stays in the store, so its step
-   count, its report state and, for an archived child, its cost are what they were while it was held, which is what main
-   showed; when the parent leaves the stage the store lets it go. the real worker runs in this process with its cache on
+/* a child a lane let go of reads in the details panel's agents list as it did while it was held (docs/architecture.md, the worker to
+   the ui): while its parent is drawn, a released child that was read leaves the store and cools in the worker, and its step count,
+   its report state and, for an archived child, its cost are what the layer kept of it at the release (live.ts, `kept`); held again,
+   it reads its own thread again. the real worker runs in this process with its cache on
    fake-indexeddb, against the fake protocol 3 server (sync/fixtures/server.ts), and the sync client's verbs are routed to it,
    so live.ts, the holds and the worker's filter are the app's own. the transcripts are cmx2's messages made neutral
    (sync/fixtures/neutral.ts). solid's browser build only (`bun test --conditions browser`, the justfile's check). */
@@ -142,15 +142,29 @@ describe.skipIf(!reactive)("a released child in the details panel's agents list"
     expect(JSON.parse(heldPanel).agents).toContainEqual(["ses_child", "3 steps", 3, expect.any(Number), true]);
     expect(JSON.parse(heldPanel).kin).toContainEqual(["ses_gone", 0.25, true]);
 
-    // scrolled away: the lane lets go of both, and the parent stays on the stage. main kept them in the store; so does this
+    // scrolled away: the lane lets go of both, and the parent stays on the stage. the panel reads as it did while they were held, from
+    // what the layer kept of them, while their transcripts leave the store and cool in the worker
     view.data.seen("ses_child", null);
     view.data.seen("ses_gone", null);
+    await until("the store lets the released children go", () => unwrapped()[CHILD] === undefined && unwrapped()[GONE] === undefined);
     await Bun.sleep(80);
+    expect(panel()).toBe(heldPanel);
     clock += workerModule.COOL_AFTER_MS + 60_000;
     await worker.sweep();
     await Bun.sleep(80);
     expect(panel()).toBe(heldPanel);
-    expect(unwrapped()[CHILD]).toBeDefined();
+    const cooled = (worker as unknown as { state: { cold: Record<string, unknown> } }).state;
+    expect(cooled.cold[CHILD]).toBeDefined();
+    expect(cooled.cold[GONE]).toBeDefined();
+
+    // held again (its row back on screen): it is read again, and reads the same
+    view.data.seen("ses_child", 100);
+    await until("the child held again", () => unwrapped()[CHILD] !== undefined && view.data.children().get("ses_child")?.held === true);
+    await Bun.sleep(60);
+    expect(JSON.parse(panel()).agents).toEqual(JSON.parse(heldPanel).agents);
+    view.data.seen("ses_child", null);
+    await until("let go again", () => unwrapped()[CHILD] === undefined);
+    expect(panel()).toBe(heldPanel);
 
     // the parent leaves the stage: its children leave the store with it, and memory in time
     view.dispose();

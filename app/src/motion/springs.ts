@@ -103,6 +103,8 @@ export function motionProperties(reduced: boolean): Record<string, string> {
     "--press-ms": pressMs,
     "--press-t": `${pressMs} ${PRESS.easing}`,
     "--leave-ms": leaveMs,
+    /* a streamed word's settle (decoration, off under reduced motion), as a css animation: styles.css, .settle-in */
+    "--settle-t": `${reduced ? 0 : SETTLE.duration}ms ${SETTLE.easing}`,
     "--leave-t": `${leaveMs} ${LEAVE.easing}`,
     "--press-scale": String(reduced ? 1 : PRESS_SCALE),
     "--press-scale-large": String(reduced ? 1 : PRESS_SCALE_LARGE),

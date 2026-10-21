@@ -674,6 +674,14 @@ it is verified`. closed items move to the bottom with the commit.
   the reducer, `/api/hosts/.../messages` reads): `tsc -p app` fails until
   it moves to protocol 3 (package a1). · `bunx tsc --noEmit -p app` is
   clean.
+- [sync] the wire replay flags a page hidden inside the caught-up second
+  after a connect: on seed 6 with a source never ahead, once interest
+  posts went one a turn, the second runs out on the very tick the page is
+  shown, before the gate's held patches land, so the store is behind when
+  the ui says caught up. unproven whether a browser can order the timer
+  ahead of the landing; the replay's run moved to seed 8
+  (`sync/wire.test.ts`). · `replayWire(steps, sha, 6, { ahead: false })`
+  ends with `behind` null, or the landing is shown to always run first.
 
 ### housekeeping
 

@@ -1657,7 +1657,12 @@ models read, each message's info whole (cost, model, effort, finish,
 error, mail) and each part whole (a tool's state read once per state
 object: its input, metadata, output), read in idle time after a turn's first
 paint (hashing a thread's whole text in the task that opens it was a share of
-that task), so a part sent again before it is read is built again. a part sent again with the same
+that task), so a part sent again before it is read is built again. a running
+turn is not digested at all until it ends: what changes in it is its stream,
+which always says something else, and digesting the whole turn at every
+100 ms batch was most of the page's garbage with an agent streaming (about
+200 of 400 mb a minute allocated, chromium's sampling profiler, a lead
+thread open over children of 300 kb). a part sent again with the same
 words is the same turn and keeps its dom; any change to a field a turn
 shows is a different digest, and the turn is built again. untouched turns keep
 their objects and their dom. the turn that is rebuilt is not
@@ -1746,7 +1751,12 @@ one evicted within a second and a half of its hold; the timer looks once a
 thread has had that second and a half to arrive, again after another, and when
 the budget lets the first ask go, and is let go when the thread arrives, stops
 being wanted or the stage closes); one that stops being wanted is
-released, and all of them when the parent leaves the stage. the agents
+released, and all of them when the parent leaves the stage. a released child
+that was read leaves the store (and cools in the worker like any thread
+nobody shows); its layer keeps what its row, the panel and the spend read of
+it (its step count, how long it ran, its first message's time, its spawn rows
+and its cost), so it reads as it did while held, and one held again reads its
+own thread again once that is read (`live.ts`, `kept`). the agents
 panel never holds. what is not held is read from the fleet's session info
 alone: its title, its status, when it started and how long it lasted
 (created to updated), and the step count is left off until the thread is

@@ -540,6 +540,10 @@ export function replayWire(steps: readonly Step[], hasher: () => Hasher, seed = 
         case "fault":
           result.faults[effect.what]++;
           break;
+        case "interest-due":
+          // worker.ts posts on a timer of its own, after the messages already queued: here, after what this tick does
+          later_(0, () => dispatch({ type: "post-interest" }));
+          break;
         case "interest-changed": {
           const { stream, post: body } = effect;
           result.seen.posts++;

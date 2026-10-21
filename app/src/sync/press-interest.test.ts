@@ -26,7 +26,7 @@ async function until(what: string, ok: () => boolean, ms = 3_000) {
   }
 }
 const state = (): SyncState => (sync as unknown as { state: SyncState }).state;
-const settled = () => state().interest.posts.length === 0;
+const settled = () => state().interest.posts.length === 0 && !state().interest.due;
 beforeEach(() => {
   scope["indexedDB"] = undefined;
   scope["postMessage"] = () => {};

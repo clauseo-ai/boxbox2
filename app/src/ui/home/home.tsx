@@ -21,7 +21,7 @@
 
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import { flip, insetOf, installMotionProperties, play, prefersReducedMotion, settle } from "../../motion/animate";
+import { flip, insetOf, installMotionProperties, play, prefersReducedMotion } from "../../motion/animate";
 import { birth } from "../../motion/fly";
 import { FADE, SHEET, SNAP } from "../../motion/springs";
 import { composeHost, focusPlan, holdsWords, type Over } from "../../board/requests";
@@ -1133,7 +1133,7 @@ export function Home(props: HomeProps) {
   /* a count that changes in front of you fades in, as a streamed word does; the line as it was
      painted, or as the screen came up, does not move */
   const upAt = performance.now();
-  const partIn = (el: HTMLElement) => settle(el, motion() && performance.now() - upAt > 800);
+  const partIn = (el: HTMLElement) => { if (motion() && performance.now() - upAt > 800) el.classList.add("settle-in"); };
 
   /* —— updates: a new build waits for the next cold launch —— */
   const [updateReady, setUpdateReady] = createSignal(false);

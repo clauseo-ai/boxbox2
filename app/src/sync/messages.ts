@@ -123,6 +123,9 @@ export type FromWorker =
   | { type: "reply"; id: number; value: unknown }
   /** telemetry rows the server took, by id, so the ui can drop its copies of the ones it emitted */
   | { type: "flushed"; ids: string[] }
+  /** telemetry rows the worker dropped at its queue cap without sending them: the ui drops its copies too, and nothing
+      counts them as sent */
+  | { type: "dropped"; ids: string[] }
   | { type: "outbox"; outbox: OutboxView[] }
   /** a new thread's first send has its own session: from the server's answer, or from its echo. said once, because the
       outbox drops the entry when the echo lands, often before the ui has drawn the thread */

@@ -169,8 +169,11 @@ export function createTurns(messages: Accessor<readonly Message[]>, root: Access
         const cached = untrack(() => caches?.turns.get(key));
         /* the store holds other objects than it did: a part sent again, or the thread fetched again, or a turn this stage has not built that
            an earlier stage did. whether they say something else is what the digest tells, so a refetch of the same words keeps the turn (and
-           its dom), and a finished tool re-sent with another exit code does not */
-        if (last?.digest !== undefined || cached) {
+           its dom), and a finished tool re-sent with another exit code does not. not while the turn last built is running: what changes in
+           it is its stream, which always says something else, and digesting the whole turn at every 100 ms batch (each part's json, every
+           message's info) made hundreds of megabytes of garbage a minute in a page with an agent streaming */
+        const running = last?.turn.status === "working";
+        if (!running && (last?.digest !== undefined || cached)) {
           const digest = digestOf(slice, dir);
           if (last?.digest === digest) { last = { fast, digest, turn: last.turn }; return last.turn; }
           if (cached && cached.digest === digest) { last = { fast, digest, turn: cached.turn }; return cached.turn; }
@@ -179,10 +182,11 @@ export function createTurns(messages: Accessor<readonly Message[]>, root: Access
         if (!built) return undefined;
         const mine = { fast, digest: undefined as string | undefined, turn: built };
         last = mine;
-        /* what is written for later is refused if the thread was let go or everything cleared in between (memo-cache.ts, stamp) */
+        /* what is written for later is refused if the thread was let go or everything cleared in between (memo-cache.ts, stamp). a running
+           turn is digested and kept once it has ended, not at every batch it streams */
         const owner = untrack(thread);
         const stamp = caches?.stamp(owner) ?? 0;
-        if (caches) later(() => {
+        if (caches && built.status !== "working") later(() => {
           // the messages are as they were when the turn was built, else this memo has run again and the digest would be of other words
           if (last !== mine || `${printOf(slice)}|${dir}` !== fast) return;
           mine.digest = digestOf(slice, dir);

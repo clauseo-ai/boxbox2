@@ -190,15 +190,15 @@ describe("a catch-up", () => {
 describe("interest", () => {
   test("what the page shows is posted with the next ask, with each held key's left as its since", () => {
     let state = live([A, B], { thread: A, holds: [B] });
-    state = run(state, [frame(settle(30)), { type: "want", thread: C, under: [A], holds: [] }]).state;
+    state = run(state, [frame(settle(30)), { type: "want", thread: C, under: [A], holds: [] }, { type: "post-interest" }]).state;
     expect(state.interest.ask).toBe(1);
     // B left at the confirm; until then it is still in interest
-    const posted = run(state, [{ type: "want", thread: C, under: [A], holds: [B] }]);
-    expect(posted.effects).toEqual([{ type: "interest-changed", stream: "s1", post: { ask: 2, thread: C, under: [A], holds: [B] } }]);
+    const posted = run(state, [{ type: "want", thread: C, under: [A], holds: [B] }, { type: "post-interest" }]);
+    expect(posted.effects).toEqual([{ type: "interest-due" }, { type: "interest-changed", stream: "s1", post: { ask: 2, thread: C, under: [A], holds: [B] } }]);
   });
 
   test("the confirm moves the cursor to its seq, gives left to the keys that leave, and reads the keys that enter without since", () => {
-    const state = run(live([A, B], { thread: A, holds: [B] }), [frame(settle(30)), { type: "want", thread: C, under: [A], holds: [] }]).state;
+    const state = run(live([A, B], { thread: A, holds: [B] }), [frame(settle(30)), { type: "want", thread: C, under: [A], holds: [] }, { type: "post-interest" }]).state;
     const opened = run(state, [{ type: "open", key: C, at: 10 }]);
     // C's read waits for the confirm: it must start at or after the seq the confirm names
     expect(readOf(opened.effects, C)).toBeUndefined();
@@ -210,8 +210,8 @@ describe("interest", () => {
     expect(readOf(confirmed.effects, C)).toBe(confirmed.state.threads[C]?.hydration);
     expect(confirmed.effects).toContainEqual({ type: "confirmed", ask: 1, entering: 1, stale: 0, reset: 0 });
     // B comes back with its left as since: its catch-up came ahead of the confirm, so it is current with no read
-    const back = run(confirmed.state, [{ type: "want", thread: C, under: [A], holds: [B] }]);
-    expect(back.effects).toEqual([{ type: "interest-changed", stream: "s1", post: { ask: 2, thread: C, under: [A], holds: [B], since: { [B]: 44 } } }]);
+    const back = run(confirmed.state, [{ type: "want", thread: C, under: [A], holds: [B] }, { type: "post-interest" }]);
+    expect(back.effects).toEqual([{ type: "interest-due" }, { type: "interest-changed", stream: "s1", post: { ask: 2, thread: C, under: [A], holds: [B], since: { [B]: 44 } } }]);
     const again = run(back.state, [frame({ type: "interest", ask: 2, thread: C, under: [A], holds: [B], seq: 50 })]);
     expect(readOf(again.effects, B)).toBeUndefined();
     expect(again.state.threads[B]?.left).toBeUndefined();
@@ -221,15 +221,43 @@ describe("interest", () => {
   test("a key the confirm names stale is read with its pages kept; one it names reset drops its messages and is read", () => {
     const held = [message("msg_1", [text("p1", "kept")])];
     let state = live([A, B, C], { thread: A, holds: [B, C] }, held);
-    state = run(state, [frame(settle(30)), { type: "want", thread: A, under: [], holds: [] }]).state;
+    state = run(state, [frame(settle(30)), { type: "want", thread: A, under: [], holds: [] }, { type: "post-interest" }]).state;
     state = run(state, [frame({ type: "interest", ask: 1, thread: A, under: [], holds: [], seq: 31 })]).state;
-    state = run(state, [{ type: "want", thread: A, under: [], holds: [B, C] }]).state;
+    state = run(state, [{ type: "want", thread: A, under: [], holds: [B, C] }, { type: "post-interest" }]).state;
     const { state: after, effects } = run(state, [frame({ type: "interest", ask: 2, thread: A, under: [], holds: [B, C], seq: 40, stale: [B], reset: [C] })]);
     expect(readOf(effects, B)).toBeDefined();
     expect(readOf(effects, C)).toBeDefined();
     expect(after.threads[B]?.messages).toEqual(held);
     expect(after.threads[C]?.messages).toEqual([]);
     expect(effects).toContainEqual({ type: "confirmed", ask: 2, entering: 2, stale: 1, reset: 1 });
+  });
+
+  test("a turn's wants post once, the last of them: one that ends where the server is, or will be, posts nothing", () => {
+    const base = run(live([A, B, C], { thread: A, holds: [B, C] }), [frame(settle(30))]).state;
+    const post = { type: "post-interest" } as const;
+    const posts = (effects: readonly Effect[]) => effects.filter((e) => e.type === "interest-changed");
+    // A to D and back to A in one turn: due once, and nothing to post, nothing waiting
+    const back = run(base, [{ type: "want", thread: D, under: [A], holds: [] }, { type: "want", thread: A, under: [], holds: [B, C] }, post]);
+    expect(back.effects.filter((e) => e.type === "interest-due")).toHaveLength(1);
+    expect(posts(back.effects)).toEqual([]);
+    expect(back.state.interest.posts).toEqual([]);
+    expect(back.state.interest.due).toBe(false);
+    // a child released and held again comes back last: the same set, so no post
+    const again = run(base, [{ type: "want", thread: A, under: [], holds: [C] }, { type: "want", thread: A, under: [], holds: [C, B] }, post]);
+    expect(posts(again.effects)).toEqual([]);
+    // with D out and not yet confirmed: a turn that goes back to A and on to D again posts nothing, D's confirm settles it
+    const out = run(base, [{ type: "want", thread: D, under: [A], holds: [] }, post]);
+    expect(posts(out.effects)).toEqual([{ type: "interest-changed", stream: "s1", post: { ask: 1, thread: D, under: [A], holds: [] } }]);
+    const round = run(out.state, [{ type: "want", thread: A, under: [], holds: [B, C] }, { type: "want", thread: D, under: [A], holds: [] }, post]);
+    expect(posts(round.effects)).toEqual([]);
+    const settled = run(round.state, [frame({ type: "interest", ask: 1, thread: D, under: [A], holds: [], seq: 40 })]).state;
+    expect(settled.interest.posts).toEqual([]);
+    // with D out: a turn that goes back to A posts A under the next ask, and its confirm settles both, whichever lands first
+    const undo = run(out.state, [{ type: "want", thread: A, under: [], holds: [B, C] }, post]);
+    expect(posts(undo.effects)).toEqual([{ type: "interest-changed", stream: "s1", post: { ask: 2, thread: A, under: [], holds: [B, C] } }]);
+    const both = run(undo.state, [frame({ type: "interest", ask: 1, thread: D, under: [A], holds: [], seq: 40 }), frame({ type: "interest", ask: 2, thread: A, under: [], holds: [B, C], seq: 41 })]).state;
+    expect(both.interest.posts).toEqual([]);
+    expect(both.interest.confirmed).toEqual({ thread: A, under: [], holds: [B, C] });
   });
 
   test("the stream dropping gives each current key in interest the cursor as its left, and the next connect sends it", () => {
@@ -270,7 +298,7 @@ describe("interest", () => {
 
 describe("no gap at a switch", () => {
   test("a read that started before the key entered is taken again and counted read-late; one from the entry on lands", () => {
-    let state = run(live([A], { thread: A }), [frame(settle(30)), { type: "want", thread: B, under: [A], holds: [] }, { type: "open", key: B, at: 5 }]).state;
+    let state = run(live([A], { thread: A }), [frame(settle(30)), { type: "want", thread: B, under: [A], holds: [] }, { type: "open", key: B, at: 5 }, { type: "post-interest" }]).state;
     state = run(state, [frame({ type: "interest", ask: 1, thread: B, under: [A], holds: [], seq: 40 })]).state;
     const first = state.threads[B]?.hydration ?? 0;
     const late = run(state, [hydrated(B, first, [message("msg_1")], 39)]);

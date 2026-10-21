@@ -653,6 +653,17 @@ button:disabled {
   justify-self: start;
 }
 
+/* a streamed word, or a count that changes in front of you, settles in: opacity alone, on the settle curve (--settle-t, 0 ms under
+   reduced motion, motion/springs.ts). a css animation and not Element.animate(): webkit keeps every finished web animation alive
+   with its element, and a streaming home started about twenty a second (docs/gotchas.md) */
+.settle-in {
+  animation: settle-in var(--settle-t, 0ms) backwards;
+}
+
+@keyframes settle-in {
+  from { opacity: 0; }
+}
+
 /* reduced motion: the system's, unless this device chose full motion; or
    chosen outright (settings, data-motion on the root). the law: springs
    become instant, content swaps keep a 120 ms fade. so only opacity may

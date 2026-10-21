@@ -43,6 +43,7 @@ export class PageGate {
         return;
       case "reply":
       case "flushed":
+      case "dropped":
         return this.post(message);
       default:
         this.release();

@@ -433,6 +433,10 @@ const importedOnly = (p: WirePart): boolean => IMPORTED_ONLY.has(p.type) || (p.t
 
 /** a said or thought part's words: the store always holds a part's text (sync/reducer.ts), so none is no words */
 const wordsOf = (p: WirePart): string => string((p as { text?: unknown }).text) ?? "";
+/** a text with nothing but white space in it, found without a copy: `trim()` copies a text that ends in a newline, and a running turn is
+    built again at every batch it streams, so trimming each of its texts made a copy of all of them ten times a second (150 mb a minute of
+    garbage with a 300 kb answer streaming, chromium's sampling profiler). `\s` is the white space `trim` takes */
+const blank = (text: string): boolean => !/\S/.test(text);
 
 /** a user message's origin: typed, queued, an agent's report (with who sent it, by name and by session), a runtime notice */
 function originOf(info: MessageInfo, parts: readonly WirePart[]): { by: Origin; text: string; from?: string; fromID?: string; note?: boolean } {
@@ -609,10 +613,10 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
       const streaming = boolean((p as Record<string, unknown>)["streaming"]);
       if (p.type === "text") {
         /* a part announced and still empty is kept while it streams: its row opens at the announcement, with its caret */
-        if (boolean((p as Record<string, unknown>)["synthetic"]) || (!wordsOf(p).trim() && !streaming)) continue;
+        if (boolean((p as Record<string, unknown>)["synthetic"]) || (!streaming && blank(wordsOf(p)))) continue;
         cur.items.push(textItem(memo, seen, { k: "say", id: string(p["id"]) ?? "", text: wordsOf(p), at, streaming }));
       } else if (p.type === "reasoning") {
-        if (!wordsOf(p).trim() && !streaming) continue;
+        if (!streaming && blank(wordsOf(p))) continue;
         cur.items.push(textItem(memo, seen, { k: "think", id: string(p["id"]) ?? "", text: wordsOf(p), ms: spanMs(timeOf((p as { time?: unknown }).time)), at, streaming }));
       } else if (isToolPart(p)) {
         const step = stepIn(p, at, ctx, memo, seen);

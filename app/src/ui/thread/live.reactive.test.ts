@@ -164,6 +164,25 @@ describe.skipIf(!reactive)("the turns kept for later", () => {
     gone.dispose();
     stays.dispose();
   });
+  test("a running turn is not digested at each batch it streams: kept once it has ended, and the turns before it as ever", async () => {
+    const caches = createThreadCaches();
+    const running = neutral({ info: { id: "msg_a3", role: "assistant", time: { created: T0 + 3 * 60_000 + 1000 } }, parts: [{ id: "prt_s3", type: "text", text: "said" }] });
+    const t = open([...thread(3), user(3), running], "desk:stream", caches);
+    expect(t.turns().at(-1)?.status).toBe("working");
+    const key = cacheKey("desk:stream", "msg_u3");
+    for (let i = 0; i < 6; i++) {
+      (t.setStore as (...path: unknown[]) => void)("messages", 7, "parts", 0, "text", `said ${"word ".repeat(i + 1)}`);
+      expect(t.turns().at(-1)?.answer?.text).toBe(`said ${"word ".repeat(i + 1)}`);
+      await idle();
+      expect(caches.turns.get(key)).toBeUndefined();
+    }
+    expect(caches.turns.get(cacheKey("desk:stream", "msg_u0"))).toBeDefined();
+    (t.setStore as (...path: unknown[]) => void)("messages", 7, "info", "completed", T0 + 3 * 60_000 + 9000);
+    expect(t.turns().at(-1)?.status).toBe("done");
+    await idle();
+    expect(caches.turns.get(key)?.turn).toBe(t.turns().at(-1) as never);
+    t.dispose();
+  });
 });
 
 describe.skipIf(!reactive)("a thread whose key is read through an object that is made again", () => {

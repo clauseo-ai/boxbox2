@@ -130,8 +130,10 @@ order.
    changes under it), and a delta posts only the words it adds, as an
    append the ui joins to the text it holds. the ui's store holds only the
    threads it shows (the stage, the layers under it, and the children their
-   lanes held while that layer is drawn, released or not, as before;
-   `showThread` and `hideThread` in `app/src/sync/client.ts`): the worker
+   lanes hold; a child a lane lets go of leaves once it was read, and its
+   layer keeps the numbers its row, the details and the spend read of it,
+   `ui/thread/live.ts`, `kept`; `showThread` and `hideThread` in
+   `app/src/sync/client.ts`): the worker
    posts a thread's patches only while it is shown, the thread as it holds it
    when it is shown again, and a delete when it is not, with which the ui
    drops the thread's turn models and keeps its measured heights. a mouse or
@@ -155,10 +157,14 @@ order.
    ui still shows (bottom first, the nearest 8; a thread a press shows is
    no layer until its click opens it, so a press posts no interest), and the holds from `hold`
    until `release` (the first 16), and the reducer posts the interest
-   (`POST /api/stream/{stream}/interest`) whenever it changes, before the
-   open, hold or show that would read a thread entering it; a read of an
-   entering thread waits for the in-band confirm, so it lines up with the
-   stream. a post the server cannot take (404: the stream ended; any other
+   (`POST /api/stream/{stream}/interest`) when it changes, once a turn:
+   each page message is its own worker task, so a change marks a post due
+   and a `setTimeout(0)` posts the interest as it stands after the
+   messages queued with it (an open with five agent children posts once,
+   where it posted six times), and nothing when the server has it or will
+   once the newest post out applies. the change goes before the open, hold
+   or show that would read a thread entering it; a read of an entering
+   thread waits for the in-band confirm, so it lines up with the stream. a post the server cannot take (404: the stream ended; any other
    failure) is never posted again: the worker dials again with the interest
    in the query. a page hidden for 30 s asks for the overview only, and
    asks for what it shows again, with each thread's `left`, when it is
@@ -304,6 +310,7 @@ owner; every map has an eviction rule. the caps:
 | window tail reads | one per session with a window; 3 open per host, 512 queued, 4 mb a body; 24 tail changes kept while one is out | a full queue leaves the session to ask on its next change; a larger body is read again as the last 3 messages; more changes drop the read and take it again, three times at most |
 | repo icons | 256 entries and 8 mb of icon bytes (an icon is at most 512 kb); 64 lookups in flight, 4 talking to daemons; 256 requests queued; 64 hosts in each per-host memory | expired entries go first, then the least recently used; a lookup past a bound is answered `retry` at once and nothing queues |
 | telemetry batch | 1,000 events or 500 ms | flushed |
+| page telemetry rows (`app/src/sync/telemetry.ts`, the worker's queue and outbox rows; `client.ts`, the page's `unsent` copies) | 500 rows each (`QUEUE_CAP`), what the server takes in one batch | the oldest row is dropped from the queue and the outbox, and the worker tells the page (`dropped`) so it lets its copy go; the page also drops its oldest copy past 500. a dropped row is never sent nor counted as sent |
 | telemetry recent ids | 4,096 ids (under 400 kb) | the oldest id is forgotten; a repeat older than that is written twice, which the query tool tolerates |
 | message photos in flight | 100 mb of memory: two messages at the body limit (25 mb), each counted twice (the bytes read, then the strings parsed from them), taken from the announced size before a byte is read; a body over 25 mb is refused as it passes the limit (413) | a message waits up to 2 minutes for room, holding nothing, then is answered 503 `photos-busy`; words (under 256 kb) never wait. measured in `composer.md`: linux returns to idle (9 mb) after every burst |
 | process | steady rss 64 mb for 3 hosts and 300 sessions (a message with photos is a peak on top of it, bounded by the row above, for the seconds it is in flight); from m9, 80 mb steady for 3 cmx2 connections, 1 openclaw connection and 300 windows, and 211 mb at peak (the arithmetic below); systemd `MemoryMax=256M` as the backstop, never the plan | the soak test fails the build |
@@ -585,9 +592,12 @@ thread's head records `openedAt`, `heldAt`, `bytes`, its pages' count, and the
 in memory for 5 minutes, and the 3 the person closed last stay whatever their
 age, as do threads that are busy and children a lane holds; the rest
 are cooled: their messages leave memory and they are cold, their pages in the
-cache, read back when they are opened again (a lane's children, released or
-not, stay shown while their parent is drawn, so its details read them as
-before; `ui/thread/released.reactive.test.ts`). a thread is cooled only once the cache holds it exactly as
+cache, read back when they are opened again (a child a lane released leaves
+the store and cools like any; its layer keeps what its row, the details and
+the spend read of it, so they read as they did while it was held:
+`ui/thread/released.reactive.test.ts`. a parent drawn for hours under an
+agent that started dozens of helpers held up to 16 dead children's
+transcripts in the page and the worker before). a thread is cooled only once the cache holds it exactly as
 memory does: the worker saves first, and one that changed meanwhile, or is
 being read or fetched again, waits for the next sweep. with no cache nothing
 is cooled. a reset reads again only the threads on screen: every other thread
@@ -794,7 +804,9 @@ few comparisons and never across an await.
 - producers: the ui (through the worker, batched), the board, and the
   server itself (`push.decided`, `perf.stream`, upstream health).
 - nothing is lost to a navigation: the ui keeps its own copy of each row it
-  emitted until the worker reports the server took it; on `pagehide` or
+  emitted until the worker reports the server took it (`flushed`) or
+  that it dropped it at its queue cap (`dropped`), 500 copies at most;
+  rows the worker retries after a 5xx or a network failure stay. on `pagehide` or
   the page going hidden, the worker flushes and the ui beacons what is
   still unreported. a row can arrive twice that way, so the writer drops a
   repeat of an id it wrote recently (the recent ids cap above).

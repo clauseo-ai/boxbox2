@@ -259,6 +259,18 @@ stream ends.
 
   `ask` increases per stream. `since` gives, for a key the client already
   holds, its `left`. a key without `since` is one the client will read.
+- **one post a turn.** the page tells the worker what it shows one
+  message at a time (opening a thread with five agent children is an
+  open, a show and five holds), and each message is its own worker task.
+  the worker does not post per message: a change marks a post due, and a
+  `setTimeout(0)` started by the first one posts the interest as it
+  stands once the messages queued with it have run. it posts nothing when
+  that interest is the one the server applies, or will apply once the
+  newest post out is taken (sets compared, not lists: a child released
+  and held again asks for nothing new). so every ask posted is sent, and
+  a turn that ends where it began (a thread opened and closed again)
+  posts nothing. a read of a key entering interest waits from the
+  change, before the post goes, until its confirm.
 - answers `202`; `404 no-such-stream` when the stream has ended (the
   client reconnects with the interest in its query); `400` for more than
   8 layers or 16 holds or a malformed key; only the signed-in session that
@@ -349,7 +361,7 @@ while the read is out, the thread's entries wait in the hydration buffer
 as today.
 
 the app's order for opening thread B over thread A: post the interest
-(`thread: B`, `under` gains A), open B in the store (it shows its cached
+(`thread: B`, `under` gains A, on the turn's one post), open B in the store (it shows its cached
 pages or the reading state, as today), start B's read when the confirm
 arrives. A stays current underneath. when B closes, the app posts
 `thread: A` with `under` less A: A was never out of interest, so it needs

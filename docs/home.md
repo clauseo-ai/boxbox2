@@ -9,7 +9,7 @@ is binding the same way (AGENTS.md, design law).
 
 | path | what |
 |---|---|
-| `app/src/motion/` | the motion law as code: the two springs sampled into `linear()` curves, the short curves, and `play`/`flip`/`settle`/`sweep`, the only way anything animates |
+| `app/src/motion/` | the motion law as code: the two springs sampled into `linear()` curves, the short curves, and `play`/`flip`/`sweep`, the only way anything animates a transition; what animates per word or per batch is a css animation on a curve's property (`.settle-in` on `--settle-t`), since webkit keeps every finished web animation alive (gotchas.md, home) |
 | `app/src/ui/window/` | one window: the repo colours (`repo.ts`), the tail's grammar (`tail.ts`), the window's view of a session (`view.ts`), the component and its stylesheet |
 | `app/src/ui/home/` | home: membership (`membership.ts`, each thread's standing a memo of its own so a frame or a second costs what changed), each window's view as a memo of its own (`views.ts`), the arrangements, the order and its calm, the stage and its motion (`home.tsx`, `stage.tsx`), the folds at the rail and the strip (the fold and its swatches `fold.tsx`, `swatch.ts`, the windows toggle's words `windows.ts`; the stage card's edge moving `edge.ts`, `glide.ts`; the choice kept on the device `remembered.ts`), the budgets (`perf.ts`), the fixtures and the stories |
 | `app/src/board/` | the board's digits on home (`docs/board.md`, the app): the first load's foothold (`lazy.ts`: the lazy pieces and the words a name carries), and the chunk fetched on the first board frame (`board.tsx`, `board.css`: the key on a window and a swatch, the pairing item and the stage's line; `pin.ts`: arming a pairing), with its stories |

@@ -145,6 +145,8 @@ export class Sync {
   /** interest posts not yet confirmed, by ask, with when each went (`sync.interest`), and the catch-up bytes that came since */
   private readonly asked = new Map<number, number>();
   private interestBytes = 0;
+  /** the turn that sends a due interest post (`interest-due`) */
+  private interestTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** the page is hidden (`visibility`); `away` once it has been for HIDDEN_AFTER_MS, when the stream asks for the overview only */
   private hidden = false;
@@ -219,6 +221,8 @@ export class Sync {
         const cache = this.cache;
         return cache ? { put: (rows) => cache.putRows(rows), forget: (ids) => cache.forgetRows(ids) } : null;
       },
+      undefined,
+      (ids) => post({ type: "dropped", ids }),
     );
     this.sender = new Sender(() => this.cache, { device, deviceClass }, this.telemetry, post, this.life.signal);
   }
@@ -860,6 +864,15 @@ export class Sync {
       case "fault":
         this.telemetry.emit("sync.fault", { what: effect.what });
         return;
+      case "interest-due":
+        // a timer, not a microtask: each page message is its own task, and the open and holds of one thread arrive
+        // together, queued ahead of this timer, so they all land before it posts
+        if (this.interestTimer === undefined)
+          this.interestTimer = setTimeout(() => {
+            this.interestTimer = undefined;
+            this.dispatch({ type: "post-interest" });
+          }, 0);
+        return;
       case "interest-changed":
         void this.postInterest(effect.stream, effect.post);
         return;
@@ -1084,6 +1097,7 @@ export class Sync {
     clearTimeout(this.frameTimer);
     clearTimeout(this.coolTimer);
     clearTimeout(this.hiddenTimer);
+    clearTimeout(this.interestTimer);
     this.saver.stop();
     if (this.frameHandle !== undefined) scope.cancelAnimationFrame?.(this.frameHandle);
     this.telemetry.stop();

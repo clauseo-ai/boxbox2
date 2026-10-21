@@ -8,7 +8,6 @@
    reduced motion) paints in place. */
 
 import { createSignal, For, on, createEffect, onCleanup } from "solid-js";
-import { settle } from "../../motion/animate";
 import { SETTLE } from "../../motion/springs";
 import { growth } from "./tail";
 
@@ -55,7 +54,7 @@ export function LiveText(props: { text: string; live: boolean }) {
   return (
     <>
       {base()}
-      <For each={arrivals()}>{(arrival) => <span class="arriving" ref={(el) => settle(el, true)}>{arrival.text}</span>}</For>
+      <For each={arrivals()}>{(arrival) => <span class="arriving settle-in">{arrival.text}</span>}</For>
     </>
   );
 }
