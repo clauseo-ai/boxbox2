@@ -1863,8 +1863,9 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
 adding `fork` to `Capabilities::cmx2()` changed every protocol 3 golden under
 `server/goldens/protocol3/` (the agent frame carries the capabilities whole),
 the converter's recording `app/src/ui/home/fixtures/journal-p3.ndjson` (its
-`CMX2_CAPABILITIES` mirrors the server's) and the two-wire fixture's recorded
-agent. write the goldens with `BOXBOX_GOLDENS=write cargo test protocol3_goldens`
+`CMX2_CAPABILITIES` mirrors the server's) and the two-wire test, which lays it
+onto the recorded agent (`ADDED_SINCE_RECORDING`, below; the recording itself
+is never edited). write the goldens with `BOXBOX_GOLDENS=write cargo test protocol3_goldens`
 and diff the old and new bytes decompressed before committing: the only
 difference should be the new field. an unknown field in a verb's body (every
 body is `deny_unknown_fields`) answers 422 in axum's plain words, not the json
