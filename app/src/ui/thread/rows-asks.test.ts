@@ -56,7 +56,7 @@ describe("a settled ask keeps every question's words", () => {
     const [turn] = turnsOf([user, m], "/");
     const step = turn?.items.find((x) => x.k === "step");
     if (!step || step.k !== "step") throw new Error("no step");
-    return stepModel(step, { turns: turn ? [turn] : [], children: new Map(), thinking: "rows" });
+    return stepModel(step, { reports: (turn ? [turn] : []).flatMap(mailsOf), children: new Map(), thinking: "rows" });
   };
   const four = [
     question("Newer-version entries", "When the cache holds an entry from a newer version, decode what it can or drop it?"),

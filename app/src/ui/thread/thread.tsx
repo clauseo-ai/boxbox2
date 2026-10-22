@@ -20,14 +20,14 @@ import { type StageWindow, moveTo } from "./stage-window";
 import { COPY_OUTPUT_CAP, DIFF_PREVIEW, DIFF_WHOLE, cleanOutput, wholeLines } from "./evidence";
 import { type Bed, type Body, type DiffLine, type FileLine, type Inline, type Result, type RowCtx, type RowModel, clock, clockDur, clockS, dur, firstSentence, n, pictureNames, plural } from "./rows";
 import { base, dirOf } from "./shell";
-import { AskCard, PermissionCard, PermitRecord } from "../asks/card";
+import { AskCard, PermissionCard } from "../asks/card";
 import { layoutTop } from "./ask-landing";
 import { DiffView, watchOverflow } from "./diff";
 import { ShowAll } from "./show-all";
 import { type Group, type StripMark, currentOf, foldedOf, groupClock, groupLabel, groupLine, groupsOf, lineShown, nearestMark } from "./groups";
 import { StripLane } from "./strip";
 import { reportOf } from "./report";
-import { FileBed, PictureViewer, ReportSheet, Slip, warmOn, whenLoaded } from "../later";
+import { AgentBody, DiffBed, PermitRecord, FileBed, FilesBody, HitsBody, PictureViewer, PlanBody, ReportSheet, Slip, ThoughtsBody, warmOn, whenLoaded } from "../later";
 import { ReportGlyph } from "./report-glyph";
 import { forkLabel } from "./fork";
 import { renameSoon } from "./copy";
@@ -162,7 +162,7 @@ function ResultView(props: { r: Result; now?: number | undefined; clockless?: bo
 /** a bed that has a copy control: the command, or the output. it is dressed as a code block is (a header, the control at the same inset), so the three read as one family; `label` is what its header says it is */
 type BedCopy = { kind: "command" | "output"; label: string; name: string; text: () => string | Copying; refused?: string | undefined };
 
-function BedView(props: { bed: Bed; cls?: string; copy?: BedCopy | undefined; /** under the lines, inside the bed's block: its "show all" */ foot?: JSX.Element }) {
+export function BedView(props: { bed: Bed; cls?: string; copy?: BedCopy | undefined; /** under the lines, inside the bed's block: its "show all" */ foot?: JSX.Element }) {
   let el!: HTMLDivElement;
   onMount(() => watchOverflow(el));
   const bed = () => (
@@ -202,29 +202,8 @@ function OutputBed(props: { bed: Bed; raw: string | undefined; count: number; co
   return <BedView bed={shown()} copy={props.copy} foot={<Show when={more() && !all()}><ShowAll count={props.count} row={props.row} onShow={() => setAll(true)} /></Show>} />;
 }
 
-/** an edit's diff: whole up to DIFF_WHOLE lines; a longer one shows its first DIFF_PREVIEW under a fade, and "show the whole diff"
-    opens it in place, a write's from the content the agent sent (its diff keeps 80 lines) */
-function DiffBed(props: { lines: DiffLine[]; wrote?: string | undefined; row: string }) {
-  const [all, setAll] = createSignal(false);
-  const long = () => props.lines.length > DIFF_WHOLE;
-  const whole = createMemo((): DiffLine[] => {
-    if (props.wrote === undefined) return props.lines;
-    const w = wholeLines(props.wrote);
-    return [...w.lines.map((l): DiffLine => ({ kind: "add", text: `+${l}` })), ...(w.rest ? [{ kind: "tail" as const, text: `and ${plural(w.rest, "more line", "more lines")}, past what a bed opens to` }] : [])];
-  });
-  const count = () => (props.wrote !== undefined ? props.wrote.split("\n").length : props.lines.filter((l) => l.kind === "add" || l.kind === "del" || l.kind === "ctx").length);
-  return (
-    <Show when={long()} fallback={<DiffView lines={props.lines} />}>
-      <div class="bed-wrap plain">
-        <DiffView lines={all() ? whole() : props.lines.slice(0, DIFF_PREVIEW)} faded={!all()} />
-        <Show when={!all()}><ShowAll count={count()} diff row={props.row} onShow={() => setAll(true)} /></Show>
-      </div>
-    </Show>
-  );
-}
 
-
-function FileBar(props: { bar: NonNullable<FileLine["bar"]> }) {
+export function FileBar(props: { bar: NonNullable<FileLine["bar"]> }) {
   const pc = (x: number) => `${Math.max(0, Math.min(100, (x / props.bar.total) * 100)).toFixed(2)}%`;
   return (
     <div class="fb">
@@ -234,7 +213,7 @@ function FileBar(props: { bar: NonNullable<FileLine["bar"]> }) {
   );
 }
 
-function FileName(props: { path: string; created?: boolean | undefined }) {
+export function FileName(props: { path: string; created?: boolean | undefined }) {
   return (
     <span>
       <span class="fn">{nameNodes(base(props.path))}</span>
@@ -244,28 +223,7 @@ function FileName(props: { path: string; created?: boolean | undefined }) {
   );
 }
 
-/** a file in the files row: its counts, and its diff on a tap */
-function FileEntry(props: { f: FileLine; root: () => HTMLElement }) {
-  const [open, setOpen] = createSignal(false);
-  let diffEl: HTMLDivElement | undefined;
-  const follow = useContext(FollowContext);
-  return (
-    <>
-      <button class="fl" aria-expanded={open() ? "true" : "false"} aria-label={`${props.f.path}, ${props.f.note}`} onClick={() => { follow?.hold(); flip(props.root(), () => setOpen(!open()), open() ? null : diffEl); }}>
-        <FileName path={props.f.path} created={props.f.created} />
-        <span class="fv"><span class="add">+{n(props.f.add ?? 0)}</span> <span class="del">-{n(props.f.del ?? 0)}</span></span>
-        <Show when={props.f.bar}>{(b) => <FileBar bar={b()} />}</Show>
-      </button>
-      <Show when={open()}>
-        <div ref={diffEl} class="fdiff">
-          <Show when={props.f.diff} fallback={<div class="none">no diff was recorded</div>}>{(d) => <DiffView lines={d()} />}</Show>
-        </div>
-      </Show>
-    </>
-  );
-}
-
-function Facts(props: { facts: Array<{ text: string; strong?: boolean; bad?: boolean }> }) {
+export function Facts(props: { facts: Array<{ text: string; strong?: boolean; bad?: boolean }> }) {
   return (
     <div class="facts">
       <For each={props.facts}>{(f, i) => <>{i() ? ", " : ""}<Show when={f.strong} fallback={<Show when={f.bad} fallback={f.text}><span class="no">{f.text}</span></Show>}><b>{f.text}</b></Show></>}</For>
@@ -325,24 +283,15 @@ function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | unde
             </>
           );
           case "images": return <Pictures groups={[{ pics: x.images }]} more={x.more} />;
-          case "hits": return (
-            <>
-              <Show when={x.files.length}>
-                <div class="hits"><For each={x.files}>{(f) => <div><div class="hf">{base(f.path)}<span>  {dirOf(f.path)}</span></div><For each={f.hits}>{(h) => <div class="hl"><i>{h.line}</i><span>{h.text}</span></div>}</For></div>}</For></div>
-              </Show>
-              <Show when={x.list.length}><div class="hits"><For each={x.list}>{(h) => <div class="hl"><i /><span>{h}</span></div>}</For></div></Show>
-              <Show when={!x.files.length && !x.list.length && x.spread.length}><Facts facts={x.spread.slice(0, 8).map((s) => ({ text: s.n ? `${s.name} ${s.n}` : s.name }))} /></Show>
-              <Show when={x.error}>{(e) => <BedView bed={{ lines: e().split("\n").slice(0, 12) }} cls="err" />}</Show>
-            </>
-          );
+          case "hits": return <HitsBody b={x} />;
           case "agent": return <AgentBody b={x} />;
           case "message": return <Slip head={<>to <b>{x.to}</b></>} text={x.text} copy={{ kind: "message", name: `copy the message to ${x.to}, ${props.row}` }} />;
           // built above, once
           case "ask":
           case "permission": return null;
-          case "plan": return <div><For each={x.todos}>{(t) => <div class={`todo ${t.status}`}><i /><span>{t.content}</span></div>}</For></div>;
-          case "thoughts": return <div><For each={x.thoughts}>{(t) => <div class="thought-text"><Show when={x.thoughts.length > 1}><small>{clockS(t.at)}{t.ms >= 1000 ? `, ${dur(t.ms)}` : ""}</small></Show><For each={boundedPlain(t.text).shown.split(/\n{2,}/)}>{(p) => <p>{inlineNodes(p)}</p>}</For></div>}</For></div>;
-          case "files": return <div><For each={x.files}>{(f) => <FileEntry f={f} root={props.root} />}</For></div>;
+          case "plan": return <PlanBody b={x} />;
+          case "thoughts": return <ThoughtsBody b={x} />;
+          case "files": return <FilesBody b={x} root={props.root} />;
           case "error": return <BedView bed={{ lines: x.error.split("\n").slice(0, 12) }} cls="err" />;
           case "notice": return (
             <>
@@ -402,20 +351,6 @@ function Pictures(props: { groups: readonly PictureGroup[]; more?: number | unde
 }
 
 /* ---------- an agent's row, open: what it was told, and the door to its own thread ---------- */
-
-function AgentBody(props: { b: Extract<Body, { k: "agent" }> }) {
-  const openAgent = useContext(OpenAgentContext);
-  const door = () => (openAgent && props.b.child ? { open: openAgent, child: props.b.child } : null);
-  return (
-    <>
-      <Facts facts={props.b.facts} />
-      <Show when={props.b.brief}><Slip head={<>brief for <b>{props.b.name}</b></>} text={props.b.brief} copy={{ kind: "brief", name: `copy the brief for ${props.b.name}` }} /></Show>
-      <Show when={door()}>
-        {(d) => <button class="agent-door" aria-label={`open ${props.b.name}'s thread`} onClick={() => d().open(d().child, props.b.name)}>open its thread<i /></button>}
-      </Show>
-    </>
-  );
-}
 
 
 /* ---------- a row ---------- */

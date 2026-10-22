@@ -464,7 +464,11 @@ why solid:
   its verbs, a report's sheet, the file reader, the spend dialog, a
   picture full size), which open through `whenLoaded` so none opens onto
   nothing, an opened row's file bed and slip (`thread/code.tsx`, drawn
-  only in a row someone opened), the model menu's stars, the moves that
+  only in a row someone opened), an opened agent's, search's, plan's,
+  files, edit's or thought row's body (`thread/bodies.tsx`), a settled
+  question's record and a settled permission's line
+  (`asks/ask-record.tsx`; a pending ask's card stays in the first load),
+  the model menu's stars, the moves that
   land a press on a row in a closed group (`thread/land.ts`, read at the
   press), and the stage card's edge in motion
   (`home/edge.ts`), which runs only at a fold and starts in the fold's own

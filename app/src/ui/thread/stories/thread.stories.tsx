@@ -364,7 +364,9 @@ export const GapBetweenRows = story("a gap: minutes later", async () => { const 
 
 /** what a story shows once a finger has pressed a control in it: the first control the selector finds, pressed as it mounts */
 function Pressed(props: { press: string; children: SolidJSX.Element }) {
-  onMount(() => document.querySelector<HTMLButtonElement>(props.press)?.click());
+  /* what it presses may be in a chunk of its own (ui/later.ts: a settled question's record, an opened row's body): pressed once it is
+     there, for up to 3 s */
+  onMount(() => { const until = performance.now() + 3000; const go = () => { const b = document.querySelector<HTMLButtonElement>(props.press); if (b) b.click(); else if (performance.now() < until) requestAnimationFrame(go); }; go(); });
   return props.children;
 }
 /** a ledger whose first group the reader has opened (a press on its line) */

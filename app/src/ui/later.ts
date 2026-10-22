@@ -1,7 +1,7 @@
 /* the surfaces that open only after a person acts, split from the first load (architecture.md, the script budget): the
    new-thread sheet, home's answer sheet, the composer's model menu, effort dial, plus menu, suggestions (a `/`, `@` or
    `!` draft), queue list and queue verbs, an agent's report in its sheet, a file in the reader, the details' spend
-   dialog, a tool's picture full size, and an opened row's file bed or slip. each is a chunk of its own. the shell warms them all once the launch
+   dialog, a tool's picture full size, an opened row's file bed, slip, diff or agent's, search's, plan's, files or thoughts body, and a settled question's record. each is a chunk of its own. the shell warms them all once the launch
    has painted and the page is idle (the machines, history, settings and the terminal load when first asked for), and a trigger warms its own
    at the first touch (pointerdown). a surface never opens onto nothing: its trigger opens it through `whenLoaded`,
    which opens at once when the chunk is in (solid's `lazy` then renders it in the same pass, as when it was in the
@@ -27,9 +27,22 @@ export const PictureViewer = lazy(() => import("./thread/picture-viewer").then((
    row someone opened, so split as the surfaces are and warmed with them; the row's press opens it at once once warmed */
 export const FileBed = lazy(() => import("./thread/code").then((m) => ({ default: m.FileBed })));
 export const Slip = lazy(() => import("./thread/code").then((m) => ({ default: m.Slip })));
+/* an opened agent's, search's, plan's, files, edit's or thought row's body (thread/bodies.tsx): drawn in a row someone opened, or one open on
+   its own that is not a pending ask (a failure, a settled permission, thoughts under "show thinking"), which waits on the warmed chunk */
+export const AgentBody = lazy(() => import("./thread/bodies").then((m) => ({ default: m.AgentBody })));
+export const HitsBody = lazy(() => import("./thread/bodies").then((m) => ({ default: m.HitsBody })));
+export const PlanBody = lazy(() => import("./thread/bodies").then((m) => ({ default: m.PlanBody })));
+export const FilesBody = lazy(() => import("./thread/bodies").then((m) => ({ default: m.FilesBody })));
+export const DiffBed = lazy(() => import("./thread/bodies").then((m) => ({ default: m.DiffBed })));
+export const ThoughtsBody = lazy(() => import("./thread/bodies").then((m) => ({ default: m.ThoughtsBody })));
+/* a settled question's record (asks/ask-record.tsx): drawn only in a settled ask's row, closed until it is opened, or in a card that
+   settles in place; a pending ask's card, words and options stay in the first load */
+export const AskRecord = lazy(() => import("./asks/ask-record").then((m) => ({ default: m.AskRecord })));
+/* the line a settled permission leaves above its tool's body (same chunk): a settled row, open on it, waits on the warmed chunk */
+export const PermitRecord = lazy(() => import("./asks/ask-record").then((m) => ({ default: m.PermitRecord })));
 
 type Surface = Component<never> & { preload: () => Promise<unknown> };
-const surfaces = { NewThreadSheet, AskSheet, ModelMenu, EffortDial, ToolsMenu, Suggestions, QueueList, QueueVerbs, ReportSheet, FileReader, SpendDialog, PictureViewer, FileBed, Slip } satisfies Record<string, Surface>;
+const surfaces = { NewThreadSheet, AskSheet, ModelMenu, EffortDial, ToolsMenu, Suggestions, QueueList, QueueVerbs, ReportSheet, FileReader, SpendDialog, PictureViewer, FileBed, Slip, AskRecord, PermitRecord, AgentBody, HitsBody, PlanBody, FilesBody, DiffBed, ThoughtsBody } satisfies Record<string, Surface>;
 export type SurfaceName = keyof typeof surfaces;
 
 const loaded = new Set<SurfaceName>();
