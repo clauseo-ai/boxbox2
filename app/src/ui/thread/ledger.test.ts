@@ -12,6 +12,7 @@ import { type Child, type RowCtx, clockS } from "./rows";
 import type { WireMessage, WirePart } from "./wire";
 import { neutral } from "./fixtures/wire";
 import { neutralPart } from "../../sync/fixtures/neutral";
+import { mailsOf } from "./rows";
 
 type Recorded = { session: { directory: string }; messages: WireMessage[] };
 type Mutable = { info: WireMessage["info"]; parts: WirePart[] };
@@ -42,7 +43,7 @@ function viewer() {
   const ledger = ledgerOf();
   return (messages: readonly Mutable[], now = NOW) => {
     const turn = turnsOf(messages, ROOT, undefined, parts)[0] as Turn;
-    const ctx: RowCtx = { turns: [turn], children: new Map(), thinking: "rows", now };
+    const ctx: RowCtx = { reports: ([turn]).flatMap(mailsOf), children: new Map(), thinking: "rows", now };
     return { turn, entries: ledger(turn, ctx, true) };
   };
 }
@@ -137,7 +138,7 @@ describe("the running turn, delta by delta", () => {
     const live = viewer()(messages).entries;
     const parts: PartMemo = new Map();
     const turn = turnsOf(messages, ROOT, undefined, parts)[0] as Turn;
-    const settled = ledgerOf()(turn, { turns: [turn], children: new Map(), thinking: "rows" });
+    const settled = ledgerOf()(turn, { reports: ([turn]).flatMap(mailsOf), children: new Map(), thinking: "rows" });
     const gaps = (entries: readonly Entry[]) => entries.flatMap((e) => (e.gap ? [`${e.key}: ${e.gap}`] : []));
     expect(gaps(live)).not.toEqual([]);
     expect(gaps(live)).toEqual(gaps(settled));
@@ -147,7 +148,7 @@ describe("the running turn, delta by delta", () => {
     const { messages } = runningTurn();
     const parts: PartMemo = new Map();
     const turn = turnsOf(messages, ROOT, undefined, parts)[0] as Turn;
-    const ctx: RowCtx = { turns: [turn], children: new Map(), thinking: "rows" };
+    const ctx: RowCtx = { reports: ([turn]).flatMap(mailsOf), children: new Map(), thinking: "rows" };
     const entries = ledgerOf()(turn, ctx);
     expect(entries.some((e) => e.cur)).toBe(false);
     expect(entries.some((e) => e.live)).toBe(false);
@@ -175,10 +176,10 @@ describe("the running turn, delta by delta", () => {
     const parts: PartMemo = new Map();
     const turn = turnsOf(done, ROOT, undefined, parts)[0] as Turn;
     const ledger = ledgerOf();
-    const first = ledger(turn, { turns: [turn], children: new Map(), thinking: "rows" });
+    const first = ledger(turn, { reports: ([turn]).flatMap(mailsOf), children: new Map(), thinking: "rows" });
     // another turn running beside it: the context is a new object with a clock, every second and every delta
     const other = { ...turn, id: "another" };
-    const second = ledger(turn, { turns: [turn, other], children: new Map(), thinking: "rows", now: NOW });
+    const second = ledger(turn, { reports: ([turn, other]).flatMap(mailsOf), children: new Map(), thinking: "rows", now: NOW });
     expect(changed(first, second)).toEqual([]);
     expect(first.some((e) => e.model?.kind === "files")).toBe(true);
   });
@@ -243,12 +244,12 @@ describe("what a turn reads of its context", () => {
   const step = (over: Partial<Step>): Step => ({ k: "step", id: "p1", callID: "call_1", family: "shell", tool: "shell", status: "completed", object: "ls", result: "", add: 0, del: 0, ms: 0, at: NOW, ...over }) as Step;
   const turnOf = (...items: Step[]): Turn => ({ id: "m1", by: "you", prompt: "go", at: NOW, end: NOW, items, status: "done", cost: 0, files: new Map(), compacted: false, unknownParts: 0 });
   const child = (over: Partial<Child> = {}): Child => ({ steps: 3, ms: 1000, items: [], held: true, state: "idle", since: NOW, created: NOW, title: "", ...over });
-  const base: RowCtx = { turns: [], children: new Map(), asks: new Map(), thinking: "rows" };
+  const base: RowCtx = { reports: [], children: new Map(), asks: new Map(), thinking: "rows" };
   const spawn = step({ id: "p2", callID: "call_2", family: "spawn", tool: "spawn", agent: { name: "helper", brief: "do it", child: "ses_c" } });
 
   test("another turn's ask, child or report changing leaves it as it was", () => {
     const turn = turnOf(step({}));
-    const other: RowCtx = { ...base, asks: new Map([["call_9", { id: "ask_1", kind: "question", permission: null, questions: null }]]), children: new Map([["ses_other", child()]]), turns: [turnOf()] };
+    const other: RowCtx = { ...base, asks: new Map([["call_9", { id: "ask_1", kind: "question", permission: null, questions: null }]]), children: new Map([["ses_other", child()]]), reports: [turnOf()].flatMap(mailsOf) };
     expect(sameCtxFor(turn, base, other)).toBe(true);
   });
 
@@ -270,7 +271,15 @@ describe("what a turn reads of its context", () => {
 
   test("a report arriving wakes the turn whose agent sent it, not a turn with no agents", () => {
     const report: Turn = { ...turnOf(), id: "m2", by: "mail", from: "helper", fromID: "ses_c", at: NOW + 5000 };
-    const reported: RowCtx = { ...base, turns: [report] };
+    const reported: RowCtx = { ...base, reports: mailsOf(report) };
+    expect(sameCtxFor(turnOf(spawn), base, reported)).toBe(false);
+    expect(sameCtxFor(turnOf(step({})), base, reported)).toBe(true);
+  });
+
+  test("a report arriving inside a later turn wakes the turn whose agent sent it too", () => {
+    const later: Turn = { ...turnOf(), id: "m3", at: NOW + 1000, items: [{ k: "arrive", id: "m4", kind: "report", text: "ready: done", from: "helper", fromID: "ses_c", at: NOW + 5000 }] };
+    const reported: RowCtx = { ...base, reports: mailsOf(later) };
+    expect(reported.reports).toHaveLength(1);
     expect(sameCtxFor(turnOf(spawn), base, reported)).toBe(false);
     expect(sameCtxFor(turnOf(step({})), base, reported)).toBe(true);
   });

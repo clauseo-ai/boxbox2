@@ -4,7 +4,7 @@
 import { type Accessor, createComputed, createMemo, createRoot, createSignal, getOwner, on, onCleanup, runWithOwner, untrack } from "solid-js";
 import { unwrap } from "solid-js/store";
 import type { Message } from "../../sync/protocol";
-import { type PartMemo, type Turn, shownCount, turnsOf } from "./model";
+import { type PartMemo, type Turn, shownCount, startsTurn, turnsOf } from "./model";
 import { type Built, type ThreadCaches, cacheKey, weighTurn } from "./memo-cache";
 import { isToolPart, string } from "./wire";
 
@@ -155,7 +155,7 @@ export function createTurns(messages: Accessor<readonly Message[]>, root: Access
       const parts: PartMemo = new Map();
       /* the digest of what the turn was built from is read in idle time after its first paint (a thread's whole text hashed in the task that opens
          it was most of the time that task took), and until then it is not known: a turn whose objects change before that is built again */
-      let last: { fast: string; digest: string | undefined; turn: Turn } | undefined;
+      let last: { fast: string; digest: string | undefined; turn: Turn; n: number } | undefined;
       const turn = createMemo<Turn | undefined>(() => {
         const { from, to } = bounds();
         const all = messages();
@@ -173,14 +173,17 @@ export function createTurns(messages: Accessor<readonly Message[]>, root: Access
            it is its stream, which always says something else, and digesting the whole turn at every 100 ms batch (each part's json, every
            message's info) made hundreds of megabytes of garbage a minute in a page with an agent streaming */
         const running = last?.turn.status === "working";
-        if (!running && (last?.digest !== undefined || cached)) {
+        /* nor when a message came into it since it was last built (an arrival in a parked turn, a wake's first message): its digest is not
+           the one before, and digesting a long parked episode whole at each of its arrivals would be work for an answer known already */
+        const grew = last !== undefined && slice.length !== last.n;
+        if (!running && !grew && (last?.digest !== undefined || cached)) {
           const digest = digestOf(slice, dir);
-          if (last?.digest === digest) { last = { fast, digest, turn: last.turn }; return last.turn; }
-          if (cached && cached.digest === digest) { last = { fast, digest, turn: cached.turn }; return cached.turn; }
+          if (last?.digest === digest) { last = { fast, digest, turn: last.turn, n: slice.length }; return last.turn; }
+          if (cached && cached.digest === digest) { last = { fast, digest, turn: cached.turn, n: slice.length }; return cached.turn; }
         }
         const built = turnsOf(slice, dir, undefined, parts)[0];
         if (!built) return undefined;
-        const mine = { fast, digest: undefined as string | undefined, turn: built };
+        const mine = { fast, digest: undefined as string | undefined, turn: built, n: slice.length };
         last = mine;
         /* what is written for later is refused if the thread was let go or everything cleared in between (memo-cache.ts, stamp). a running
            turn is digested and kept once it has ended, not at every batch it streams */
@@ -200,7 +203,9 @@ export function createTurns(messages: Accessor<readonly Message[]>, root: Access
     return made as Entry;
   };
 
-  /* the cut is read from the roles of the messages, which is all it needs of them: a part arriving does not touch it */
+  /* the cut is read from the user messages alone: their roles, and what their text parts say of who sent them (model.ts, startsTurn),
+     which is all it needs. a part arriving on the agent's messages does not touch it. a report, a note or a notice is not a cut: it
+     is a row of the turn it came into, unless no turn has started yet */
   const cuts = createMemo<readonly Segment[]>(() => {
     const all = messages();
     const n = count();
@@ -209,6 +214,7 @@ export function createTurns(messages: Accessor<readonly Message[]>, root: Access
       const m = all[i] as Message;
       if (m.info.role !== "user") continue;
       const last = out[out.length - 1];
+      if (last && !startsTurn(m.info, m.parts)) continue;
       if (last) last.to = i;
       out.push({ id: m.info.id, from: i, to: n });
     }

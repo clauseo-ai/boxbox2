@@ -5,8 +5,9 @@
 import type { Ask } from "../../sync/protocol";
 import type { AskReply } from "../../sync/replies";
 import type { Evidence } from "./evidence";
-import { type Item, type Picture, type Question, type Say, type Step, type Think, type Turn, homeAsTilde } from "./model";
-import { type Token, base, commandTokens, dirOf, firstLine } from "./shell";
+import { type Arrival, type Item, type Picture, type Question, type Say, type Step, type Think, type Turn, homeAsTilde } from "./model";
+import { type Report, jobOf, reportOf } from "./report";
+import { type Token, base, commandTokens, dirOf, firstLine, shortCommand } from "./shell";
 
 /* ---------- folding ---------- */
 
@@ -14,7 +15,9 @@ export type FoldRow = { k: "fold"; family: "read" | "search" | "web"; tool: stri
 export type ThinkRow = { k: "think"; at: number; end: number; ms: number; thoughts: Think[] };
 export type SayRow = { k: "say"; at: number; end: number; say: Say };
 export type StepRow = { k: "step"; at: number; end: number; step: Step };
-export type Row = SayRow | ThinkRow | FoldRow | StepRow;
+/** a report, a note or a notice that came into the turn (model.ts, Arrival): a row of its own at its place in time */
+export type ArriveRow = { k: "arrive"; at: number; end: number; arrival: Arrival };
+export type Row = SayRow | ThinkRow | FoldRow | StepRow | ArriveRow;
 
 const foldable = (s: Step): s is Step & { family: "read" | "search" | "web" } => s.status === "completed" && (s.family === "read" || s.family === "search" || s.family === "web");
 
@@ -25,6 +28,7 @@ export function rowsOf(items: readonly Item[]): Row[] {
   for (const it of items) {
     const prev = rows.at(-1);
     if (it.k === "say") { rows.push({ k: "say", at: it.at, end: it.at, say: it }); continue; }
+    if (it.k === "arrive") { rows.push({ k: "arrive", at: it.at, end: it.at, arrival: it }); continue; }
     if (it.k === "think") {
       if (prev?.k === "think" && !prev.thoughts.at(-1)?.streaming) { prev.thoughts.push(it); prev.ms += it.ms; prev.end = it.at + it.ms; }
       else rows.push({ k: "think", at: it.at, end: it.at + it.ms, ms: it.ms, thoughts: [it] });
@@ -74,7 +78,7 @@ export const isRunning = (s: Step): boolean => s.status === "running" || s.statu
 
 /* ---------- kinds and results ---------- */
 
-export type Kind = "run" | "watch" | "type" | "commit" | "push" | "edit" | "write" | "read" | "grep" | "find" | "recall" | "fetch" | "search" | "agent" | "ask" | "plan" | "skill" | "note" | "wait" | "agents" | "tool" | "thought" | "files" | "stopped" | "failed";
+export type Kind = "run" | "watch" | "type" | "commit" | "push" | "edit" | "write" | "read" | "grep" | "find" | "recall" | "fetch" | "search" | "agent" | "ask" | "plan" | "skill" | "note" | "wait" | "agents" | "tool" | "thought" | "files" | "stopped" | "failed" | "report" | "status" | "job" | "notice";
 
 export function kindOf(s: Step): Kind {
   switch (s.family) {
@@ -178,8 +182,9 @@ export type RowModel = {
   clamps: boolean;
   /** the daemon's part ids this row shows, for links */
   partIDs: string[];
-  /** the result is a link: to the report an agent sent, and the turn that holds it */
-  link?: { report: string; turn: string };
+  /** the result is a link: to the report an agent sent, the turn that holds it, and the part that shows it there (the arrival's
+      message id, or the turn's own for a report that started a turn) */
+  link?: { report: string; turn: string; part: string };
   /** an agent row's name, so a report can link back to it */
   agent?: string;
   /** an agent row's child session, which the stage holds once the row is on screen */
@@ -233,7 +238,11 @@ export type Body =
   | { k: "plan"; todos: Array<{ content: string; status: "done" | "now" | "later" }> }
   | { k: "thoughts"; thoughts: Array<{ at: number; ms: number; text: string; streaming: boolean }> }
   | { k: "files"; files: FileLine[] }
-  | { k: "error"; error: string };
+  | { k: "error"; error: string }
+  /** a report or note that arrived: the row's press raises it in its sheet (report-sheet.tsx), as a report's chip does */
+  | { k: "report"; report: Report }
+  /** a notice whose words have no shape the row reads (a system line, a job's of another shape): its facts and its whole words */
+  | { k: "notice"; facts: Fact[]; text: string };
 
 export type Fact = { text: string; strong?: boolean; bad?: boolean };
 
@@ -288,8 +297,8 @@ export function waitingOn(w: { agents: number; reply: boolean; replyFrom?: strin
 
 /** the context a row is painted in */
 export type RowCtx = {
-  /** the turns of the thread, so an agent row can find its report */
-  turns: readonly Turn[];
+  /** the reports that came into the thread, so an agent row can find its own (`mailsOf`) */
+  reports: readonly Mail[];
   /** the agents' child sessions by id */
   children: ReadonlyMap<string, Child>;
   /** the asks still pending, by the call id of the step that raised them */
@@ -315,12 +324,47 @@ function hitsBody(s: Step): Extract<Body, { k: "hits" }> {
   return { k: "hits", files: [...files].map(([path, hits]) => ({ path, hits })), list: s.tool === "grep" ? [] : (s.hits ?? []), spread: s.spread ?? [], ...(isBad(s) && s.error ? { error: s.error } : {}) };
 }
 
-/** the report an agent row links to: the first turn its agent sent after it started (by its session when the daemon
-    named the sender, else by its name), and by now when the turn runs */
-export function reportFor(ctx: RowCtx, s: Step): Turn | undefined {
+/** a report an agent row can link to: one that arrived inside a turn, or one that started a turn of its own (it came before
+    anything from the person). `part` is what shows it, the arrival's row or the turn's chip, and `status` says it is the
+    daemon's status line alone (report.ts, statusOf) */
+export type Mail = { part: string; turn: string; from?: string; fromID?: string; at: number; status: boolean };
+
+const mailOfArrival = new WeakMap<Arrival, Mail>();
+const mailsOfTurn = new WeakMap<Turn, readonly Mail[]>();
+const NO_MAIL: readonly Mail[] = [];
+const isStatus = (text: string): boolean => reportOf({ prompt: text, at: 0 }).kind === "status";
+
+/** a turn's reports, by turn object and by arrival object: a turn that did not change is read once, and an arrival kept through a
+    rebuild (model.ts, arrivalIn) keeps its object here too, so the list an agent row reads changes only when a report comes */
+export function mailsOf(t: Turn): readonly Mail[] {
+  let found = mailsOfTurn.get(t);
+  if (found) return found;
+  const out: Mail[] = [];
+  if (t.by === "mail" && !t.note) out.push({ part: t.id, turn: t.id, ...(t.from ? { from: t.from } : {}), ...(t.fromID ? { fromID: t.fromID } : {}), at: t.at, status: isStatus(t.prompt) });
+  for (const x of t.items) {
+    if (x.k !== "arrive" || x.kind !== "report") continue;
+    let m = mailOfArrival.get(x);
+    if (!m || m.turn !== t.id) { m = { part: x.id, turn: t.id, ...(x.from ? { from: x.from } : {}), ...(x.fromID ? { fromID: x.fromID } : {}), at: x.at, status: isStatus(x.text) }; mailOfArrival.set(x, m); }
+    out.push(m);
+  }
+  found = out.length ? out : NO_MAIL;
+  mailsOfTurn.set(t, found);
+  return found;
+}
+
+/** the report an agent row links to: the first its agent sent after it started (by its session when the daemon named the sender,
+    else by its name), and by now when the turn runs. a report with words is preferred to a status line alone (a child that parked
+    on agents of its own reports later); the status stands in while it is all that came */
+export function reportFor(ctx: RowCtx, s: Step): Mail | undefined {
   const a = s.agent;
   if (!a?.child) return undefined;
-  return ctx.turns.find((t) => t.by === "mail" && !t.note && (t.fromID ? t.fromID === a.child : t.from === a.name) && t.at >= s.at && (ctx.now === undefined || t.at <= ctx.now));
+  let status: Mail | undefined;
+  for (const m of ctx.reports) {
+    if (!(m.fromID ? m.fromID === a.child : m.from === a.name) || m.at < s.at || (ctx.now !== undefined && m.at > ctx.now)) continue;
+    if (!m.status) return m;
+    status ??= m;
+  }
+  return status;
 }
 
 /** the pending ask on a step, from the step itself (a fixture's join) or from the fleet's list by call id */
@@ -348,6 +392,7 @@ function askOn(s: Step, ctx: RowCtx): { permission?: { id: string; permission: s
 
 export function stepModel(s: Step, ctx: RowCtx): RowModel {
   const bad = isBad(s), running = isRunning(s), kind = kindOf(s);
+  const rep = s.family === "spawn" ? reportFor(ctx, s) : undefined;
   let result = readout(s, ctx.now);
   let content: Inline[] = [], body: Body | undefined, face: RowModel["face"] = "mono", text = "", header = "";
   const error = bad && s.error ? { error: s.error } : {};
@@ -421,7 +466,6 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
     case "spawn": {
       const a = s.agent ?? { name: "agent", brief: "" };
       const child = a.child ? ctx.children.get(a.child) : undefined;
-      const rep = reportFor(ctx, s);
       const clock = ctx.now ?? ctx.tick;
       /* the child's own state decides the row once it exists: a live clock while it works (from when it was started),
          "wants you" while the daemon waits on the person for it, "parked" while it waits on agents of its own, its
@@ -490,7 +534,7 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
     ...(permit ? { permit } : {}),
     ...(s.family === "spawn" && s.agent ? { agent: s.agent.name } : {}),
     ...(s.family === "spawn" && s.agent?.child ? { child: s.agent.child } : {}),
-    ...(s.family === "spawn" && s.agent?.child && reportFor(ctx, s) ? { link: { report: s.agent.name, turn: (reportFor(ctx, s) as Turn).id } } : {}),
+    ...(s.family === "spawn" && s.agent && rep ? { link: { report: s.agent.name, turn: rep.turn, part: rep.part } } : {}),
   };
 }
 
@@ -555,7 +599,44 @@ export function thinkModel(r: ThinkRow, ctx: RowCtx): RowModel {
   };
 }
 
+/** what a result column says of a report's outcome, in the tone its glyph is drawn in */
+const OUTCOME_TONE: Record<Report["outcome"], Result["tone"]> = { ready: "lit", blocked: "lit", failed: "bad", none: "quiet" };
+
+/** a report, a note or a notice that came into the turn, as a row (docs/thread.md, arrivals). a report or a note: the agent's name
+    and the gist its chip says, the outcome its glyph says, and a press raises the whole of it in its sheet. a status (the daemon's
+    "reached status" alone): the agent's name and the status. a job's notice: its command's short form and how it ended, its id and
+    its output inside. anything else: its first line, and its words whole inside */
+export function arrivalModel(a: Arrival, _ctx?: RowCtx): RowModel {
+  const common = { key: `arrive:${a.id}`, open: false, bad: false, stopped: false, running: false, at: a.at, end: a.at, clamps: true, partIDs: [a.id] };
+  if (a.kind === "report" || a.kind === "note") {
+    const r = reportOf({ ...(a.from ? { from: a.from } : {}), prompt: a.text, at: a.at, note: a.kind === "note" });
+    const kind: Kind = r.kind === "status" ? "status" : r.kind === "note" ? "note" : "report";
+    const result: Result = r.kind === "status" ? quiet(r.gist) : r.outcome !== "none" ? { text: r.outcome, tone: OUTCOME_TONE[r.outcome] } : none;
+    const content: Inline[] = [...(r.kind === "note" ? [{ t: "lead", s: "from " } as const] : []), { t: "fn", s: r.name }, ...(r.kind !== "status" && r.gist ? [{ t: "brief", s: r.gist } as const] : [])];
+    /* mono, as the agent rows that started them are: the name in the machine face, the gist under it in sans */
+    return { ...common, kind, face: "mono", content, result, body: { k: "report", report: r }, label: r.spoken };
+  }
+  const job = a.kind === "job" ? jobOf(a.text) : undefined;
+  if (job) {
+    const short = job.command ? shortCommand(job.command) : `job ${job.id}`;
+    const ended = job.signal !== undefined ? `killed by ${job.signal}` : `exit ${job.exit ?? 0}`;
+    const ok = job.signal === undefined && (job.exit ?? 0) === 0;
+    const facts: Fact[] = [{ text: `job ${job.id}`, strong: true }, ok ? { text: ended } : { text: ended, bad: true }, ...(job.who ? [{ text: job.who }] : []), { text: `at ${clockS(a.at)}` }];
+    const output = job.output ? job.output.split("\n") : [];
+    const content: Inline[] = [{ t: "cmd", tokens: commandTokens(short).tokens }, ...(job.output ? [] : [{ t: "lead", s: " no output" } as const])];
+    return {
+      ...common, kind: "job", face: "mono", content, result: ok ? quiet(ended) : { text: job.signal !== undefined ? "killed" : ended, tone: "bad" },
+      body: { k: "shell", facts, ...(job.command ? { command: homeAsTilde(job.command).split("\n"), commandRaw: job.command } : {}), ...(output.length ? { output: { lines: output }, outputLines: output.length, outputRaw: job.output } : {}) },
+      bad: !ok, label: `job ${short}, ${ended}${job.output ? "" : ", no output"}, ${clock(a.at)}`,
+    };
+  }
+  const line = a.text.split("\n").find((l) => l.trim())?.trim() ?? "";
+  const kind: Kind = a.kind === "job" ? "job" : "notice";
+  return { ...common, kind, face: "sans", content: [{ t: "prose", s: line.slice(0, 240) }], result: none, body: { k: "notice", facts: [{ text: `at ${clockS(a.at)}` }], text: a.text }, label: `${kind} ${line.slice(0, 80)}, ${clock(a.at)}` };
+}
+
 export function modelOf(r: Exclude<Row, SayRow>, ctx: RowCtx): RowModel {
+  if (r.k === "arrive") return arrivalModel(r.arrival, ctx);
   if (r.k === "think") return thinkModel(r, ctx);
   if (r.k === "fold") return foldModel(r, ctx);
   return stepModel(r.step, ctx);

@@ -6,10 +6,10 @@
 import { type ReactElement, createElement, useEffect, useRef, useState } from "react";
 import { type JSX as SolidJSX, createComponent, createSignal, onCleanup, onMount } from "solid-js";
 import { render } from "solid-js/web";
-import { type Item, type Say, type Step, type Turn, turnsOf } from "../model";
+import { type Arrival, type Item, type Say, type Step, type Turn, turnsOf } from "../model";
 import type { WireMessage } from "../wire";
 import { neutralMessage } from "../../../sync/fixtures/neutral";
-import { type Child, type FoldRow, type Row, type RowCtx, type RowModel, clock, endRows, foldModel, kindOf, modelOf, rowsOf, stepModel } from "../rows";
+import { type Child, type FoldRow, type Row, type RowCtx, type RowModel, arrivalModel, clock, endRows, foldModel, kindOf, modelOf, rowsOf, stepModel } from "../rows";
 import { watchMeasure } from "../measure";
 import { isChain } from "../shell";
 import { Answer, Ledger, MarkLine, ReportCard, RowView, SayRow, ThreadLog, TurnView, YouBubble } from "../thread";
@@ -25,6 +25,7 @@ import { picture } from "./pictures";
 import { CodeReplay, LiveReplay } from "./replay";
 import { UnitsCheck } from "./units-check";
 import "./stories.css";
+import { mailsOf } from "../rows";
 
 export default { title: "thread" };
 
@@ -81,6 +82,15 @@ const turnAt = (l: Loaded, i: number): Turn => { const t = l.turns[i]; if (!t) t
 const pickStep = (l: Loaded, pred: (s: Step) => boolean, what: string): Step => { const s = stepsOf(l.turns).find(pred); if (!s) throw new Error(`no ${what} in the fixture`); return s; };
 const pickRow = (l: Loaded, pred: (r: Row) => boolean, what: string): Row => { const r = rowsIn(l.turns).find(pred); if (!r) throw new Error(`no ${what} in the fixture`); return r; };
 
+/** the report that arrived in the tvos session's heavy turn, as the turn of its own it heads when it comes before anything from the
+    person (docs/thread.md, arrivals): what the chip stories draw */
+function reportTurnOf(l: Loaded): Turn {
+  const t = turnAt(l, 1);
+  const a = t.items.find((x): x is Arrival => x.k === "arrive");
+  if (!a) throw new Error("no report arrived in the fixture's heavy turn");
+  return { ...t, id: a.id, by: "mail", prompt: a.text, at: a.at, end: a.at, items: [], files: new Map(), ...(a.from ? { from: a.from } : {}), ...(a.fromID ? { fromID: a.fromID } : {}) };
+}
+
 /** one row, as the ledger would paint it */
 type RowOpts = { open?: boolean; now?: number; live?: { text?: string; out?: string[] } };
 function oneRow(l: Loaded, m: RowModel, opts: RowOpts = {}): Built {
@@ -102,15 +112,14 @@ export const WholeThreadCmx = story("a thread: the cmx deploy's excerpt", async 
 export const WholeThreadNotes = story("a thread: the native session, settled", async () => { const l = await notes(); return { tone: l.tone, node: (wide) => createComponent(ThreadLog, { turns: l.turns, ctx: l.ctx, get wide() { return wide(); } }) }; });
 export const TurnHeavyWithAgent = story("turn: heavy, 89 steps, one agent (its runs folded into groups between its words)", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 1)); });
 export const TurnLongPrompt = story("turn: a long prompt, clamped with show all", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 0)); });
-export const TurnReportWithTests = story("turn: an agent's report, then tests", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 2)); });
-export const TurnPush = story("turn: a push", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 3)); });
-export const TurnCompaction = story("turn: compacted here, recorded before the summary was marked (its last words are the summary)", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 4)); });
+export const TurnPush = story("turn: a push", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 2)); });
+export const TurnCompaction = story("turn: compacted here, recorded before the summary was marked (its last words are the summary)", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 3)); });
 /** a turn cmx2 compacted mid-turn: the summary marked, then the turn's own work and answer */
-const compacted = (l: Loaded): Turn => ({ ...turnAt(l, 2), by: "compaction", compacted: true, prompt: "", summary: turnAt(l, 2).prompt });
+const compacted = (l: Loaded): Turn => ({ ...turnAt(l, 2), by: "compaction", compacted: true, prompt: "", summary: reportTurnOf(l).prompt });
 export const TurnCompactionContinues = story("turn: compacted mid-turn, the turn reads as any turn under its mark", async () => { const l = await northstar(); return oneTurn(l, compacted(l)); });
 export const TurnCompactionSummaryOpen = story("turn: compacted mid-turn, the mark opened to its summary in a well under it", async () => { const l = await northstar(); const built = oneTurn(l, compacted(l)); return { ...built, node: (wide) => createComponent(Pressed, { press: ".turn-mark button", get children() { return built.node(wide); } }) }; });
-export const TurnStopped = story("turn: you stopped it", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 5)); });
-export const TurnFailedEditWithAnswer = story("turn: a failed edit, then the answer", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 6)); });
+export const TurnStopped = story("turn: you stopped it", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 4)); });
+export const TurnFailedEditWithAnswer = story("turn: a failed edit, then the answer", async () => { const l = await northstar(); return oneTurn(l, turnAt(l, 5)); });
 export const TurnDeployWithAsks = story("turn: a deploy with a commit, pushes, two asks, stopped", async () => { const l = await cmx(); return oneTurn(l, turnAt(l, 1)); });
 export const TurnTestsMany = story("turn: 109 steps, twelve test runs, one failed", async () => { const l = await cmx(); return oneTurn(l, turnAt(l, 0)); });
 
@@ -121,7 +130,11 @@ export const YouPhotos = story("text and file, user: photos sent above your word
 export const YouFiles = story("text and file, user: a photo, a pdf and a text file sent with your words, the files named above them", async () => { const l = await cmx(); const t: Turn = { ...turnAt(l, 1), prompt: "check the dates against the plan", photos: [picture("ipad-strip.png", 210)], sentFiles: [{ filename: "booking-confirmation-lisbon-final.pdf", mime: "application/pdf" }, { filename: "plan.md", mime: "text/plain" }] }; return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(YouBubble, { turn: t }); } })); });
 export const YouPhotoOpen = story("file, user: a photo opened full size, its name and the one close over it", async () => { const l = await cmx(); const t: Turn = { ...turnAt(l, 1), prompt: "the strip looks off on the ipad, see these", photos: [picture("ipad-strip-dark-from-the-review.png", 250, 400, 640)] }; return inHost(l, () => createComponent(Pressed, { press: ".pv-t", get children() { return createComponent(TurnFrame, { get children() { return createComponent(YouBubble, { turn: t }); } }); } })); });
 export const YouPhotoAlone = story("file, user: a photo sent alone, its bubble keeps its time", async () => { const l = await cmx(); const t: Turn = { ...turnAt(l, 1), prompt: "", photos: [picture("whiteboard.png", 120, 640, 480)] }; return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(YouBubble, { turn: t }); } })); });
-export const ReportFromAgent = story("text, user, mail: an agent's report", async () => { const l = await northstar(); return inHost(l, () => createComponent(ReportCard, { turn: turnAt(l, 2) })); });
+export const ReportFromAgent = story("text, user, mail: a report that came before anything from the person, the chip at its turn's head", async () => { const l = await northstar(); return inHost(l, () => createComponent(ReportCard, { turn: reportTurnOf(l) })); });
+export const StatusChip = story("text, user, mail: a status mail heading its turn reads as the status, with its glyph, never as a report", async () => { const l = await northstar(); return inHost(l, () => createComponent(TurnFrame, { get children() { return [
+  createComponent(ReportCard, { turn: { ...reportTurnOf(l), id: "s1", from: "r2_corpus", prompt: "agent /root/r2_corpus reached status: parked\n\n[child session: ses_r2; transcript kept on disk. to continue: message(\"ses_r2\")]" } }),
+  createComponent(ReportCard, { turn: { ...reportTurnOf(l), id: "s2", from: "deploy_web", prompt: "agent /root/deploy_web reached status: closed (closed by /root)" } }),
+]; } })); });
 export const NoticeFromRuntime = story("text, user, notice: a runtime notice", async () => { const l = await notes(); const t = l.turns.find((x) => x.by === "notice"); if (!t) throw new Error("no notice in the fixture"); return inHost(l, () => createComponent(MarkLine, { turn: t })); });
 export const SaidSettled = story("text, assistant, settled: what it said", async () => { const l = await northstar(); const r = pickRow(l, (x) => x.k === "say", "said row"); if (r.k !== "say") throw new Error(); return inHost(l, () => createComponent(SayRow, { say: r.say, time: clock(r.at) }), true); });
 export const SaidStreaming = story("text, assistant, streaming: with the caret, the newest row of a running turn", async () => { const l = await northstar(); const r = pickRow(l, (x) => x.k === "say", "said row"); if (r.k !== "say") throw new Error(); return inHost(l, () => createComponent(SayRow, { say: { ...r.say, text: r.say.text.slice(0, Math.floor(r.say.text.length * 0.6)), streaming: true }, time: clock(r.at) }), true); });
@@ -133,7 +146,7 @@ const said = (l: Loaded, text: string, streaming = false): Say => ({ k: "say", i
 export const AnswerWithCode = story("the answer with code: a block for every language, highlighted, each with its copy control, and the reply's under it", async () => { const l = await cmx(); return inHost(l, () => createComponent(TurnFrame, { get children() { return createComponent(Answer, { say: said(l, ANSWER_WITH_CODE) }); } })); });
 export const ReportOutcomes = story("text, user, mail: report chips, one line each: ready, blocked, failed, a note, and a first word that says no outcome", async () => {
   const l = await northstar();
-  const t = turnAt(l, 2);
+  const t = reportTurnOf(l);
   const chips: Turn[] = [
     { ...t, id: "r1", from: "stepgroups", prompt: "ready to merge cd16978: the groups replace the tape, tests green" },
     { ...t, id: "r2", from: "zoomshots", prompt: "blocked: the zoom shots wait on the simulator image, which the build machine has not pushed yet" },
@@ -143,8 +156,8 @@ export const ReportOutcomes = story("text, user, mail: report chips, one line ea
   ];
   return inHost(l, () => createComponent(TurnFrame, { get children() { return chips.map((turn) => createComponent(ReportCard, { turn })); } }));
 });
-export const ReportSheetOpen = story("text, user, mail: a press on the chip raises the whole report in its sheet, at half the screen", async () => { const l = await northstar(); return inHost(l, () => createComponent(Pressed, { press: "button.report", get children() { return createComponent(ReportCard, { turn: { ...turnAt(l, 2), prompt: `ready to merge: ${REPORT_WITH_CODE}` } }); } })); });
-export const ReportSheetWhole = story("text, user, mail: the report's sheet taken whole, a report with code", async () => { const l = await northstar(); return inHost(l, () => createComponent(Pressed, { press: ".rep-grab", get children() { return createComponent(Pressed, { press: "button.report", get children() { return createComponent(ReportCard, { turn: { ...turnAt(l, 2), prompt: REPORT_WITH_CODE } }); } }); } })); });
+export const ReportSheetOpen = story("text, user, mail: a press on the chip raises the whole report in its sheet, at half the screen", async () => { const l = await northstar(); return inHost(l, () => createComponent(Pressed, { press: "button.report", get children() { return createComponent(ReportCard, { turn: { ...reportTurnOf(l), prompt: `ready to merge: ${REPORT_WITH_CODE}` } }); } })); });
+export const ReportSheetWhole = story("text, user, mail: the report's sheet taken whole, a report with code", async () => { const l = await northstar(); return inHost(l, () => createComponent(Pressed, { press: ".rep-grab", get children() { return createComponent(Pressed, { press: "button.report", get children() { return createComponent(ReportCard, { turn: { ...reportTurnOf(l), prompt: REPORT_WITH_CODE } }); } }); } })); });
 export const SaidStreamingInAListFence = story("text, assistant, streaming: part-way through a fence inside a list item, the open block holds back its control", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, REPLY_IN_A_LIST, true), time: clock(turnAt(l, 0).at) }), true); });
 export const SaidFencesOfAllShapes = story("text, assistant, settled: a fence in a quote, an unlabelled block of several lines, an unlabelled line", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, FENCES_OF_ALL_SHAPES), time: clock(turnAt(l, 0).at) }), true); });
 export const SaidHostileMarkup = story("text, assistant: html written to look like our controls loses its classes and its button", async () => { const l = await cmx(); return inHost(l, () => createComponent(SayRow, { say: said(l, HOSTILE_MARKUP), time: clock(turnAt(l, 0).at) }), true); });
@@ -284,7 +297,7 @@ function agentIn(l: Loaded, state: Child["state"]): { l: Loaded; s: Step; tick: 
   const children = new Map(l.ctx.children);
   children.set(s.agent?.child ?? "", { ...held, state, since: s.at });
   const turns = l.turns.filter((t) => t.at <= s.at);
-  return { l: { ...l, turns, ctx: { ...l.ctx, turns, children } }, s, tick: s.at + 412_000 };
+  return { l: { ...l, turns, ctx: { ...l.ctx, reports: turns.flatMap(mailsOf), children } }, s, tick: s.at + 412_000 };
 }
 export const AgentWorkingAfterTheTurn = story("tool agent, the turn done, its child still working: the clock runs on, the door opens its thread", async () => { const { l, s, tick } = agentIn(await northstar(), "working"); return oneRow(l, stepModel(s, { ...l.ctx, tick }), { open: true }); });
 export const AgentWantsYou = story("tool agent: its child waits on you", async () => { const { l, s } = agentIn(await northstar(), "wants"); return oneRow(l, stepModel(s, l.ctx), { open: true }); });
@@ -328,8 +341,8 @@ export const Agents = story("tool agents: listing or closing agents", async () =
 
 export const FilesRow = story("files: what the turn changed", async () => { const l = await northstar(); const m = endRows(turnAt(l, 1)).find((x) => x.kind === "files"); if (!m) throw new Error("no files row"); return oneRow(l, m); });
 export const FilesRowOpen = story("files, open: every file with its counts", async () => { const l = await northstar(); const m = endRows(turnAt(l, 1)).find((x) => x.kind === "files"); if (!m) throw new Error("no files row"); return oneRow(l, m, { open: true }); });
-export const StoppedRow = story("stopped: you stopped it", async () => { const l = await northstar(); const m = endRows(turnAt(l, 5)).find((x) => x.kind === "stopped"); if (!m) throw new Error("no stopped row"); return oneRow(l, m); });
-export const FailedRow = story("failed: the turn failed", async () => { const l = await northstar(); const t: Turn = { ...turnAt(l, 6), status: "failed", error: "the provider returned 529: overloaded" }; const m = endRows(t).find((x) => x.kind === "failed"); if (!m) throw new Error("no failed row"); return { ...oneRow(l, m), note: "no failed turn in the fixtures; this is the failed shape on a real turn" }; });
+export const StoppedRow = story("stopped: you stopped it", async () => { const l = await northstar(); const m = endRows(turnAt(l, 4)).find((x) => x.kind === "stopped"); if (!m) throw new Error("no stopped row"); return oneRow(l, m); });
+export const FailedRow = story("failed: the turn failed", async () => { const l = await northstar(); const t: Turn = { ...turnAt(l, 5), status: "failed", error: "the provider returned 529: overloaded" }; const m = endRows(t).find((x) => x.kind === "failed"); if (!m) throw new Error("no failed row"); return { ...oneRow(l, m), note: "no failed turn in the fixtures; this is the failed shape on a real turn" }; });
 export const GapBetweenRows = story("a gap: minutes later", async () => { const l = await northstar(); const t = l.turns.find((x) => { const rows = rowsOf(x.items); let prev = x.at; return rows.some((r) => { const g = r.at - prev > 90_000; prev = Math.max(prev, r.end); return g; }); }); if (!t) throw new Error("no gap in the fixture"); return inHost(l, () => createComponent(Ledger, { turn: t, ctx: l.ctx })); });
 
 /* ---------- the step group ---------- */
@@ -344,8 +357,56 @@ const OpenedLedger = (props: { turn: Turn; ctx: RowCtx }) => createComponent(Pre
 export const GroupSettled = story("step group, settled: each run between the agent's words is one line and its strip", async () => { const l = await northstar(); return inHost(l, () => createComponent(Ledger, { turn: turnAt(l, 1), ctx: l.ctx })); });
 export const GroupOpen = story("step group, open: its strip and every step, the latest one open", async () => { const l = await northstar(); return inHost(l, () => createComponent(OpenedLedger, { turn: turnAt(l, 1), ctx: l.ctx })); });
 export const GroupFailed = story("step group, settled: a run with a failure says how many failed, in red", async () => { const l = await cmx(); return inHost(l, () => createComponent(Ledger, { turn: turnAt(l, 0), ctx: l.ctx })); });
-export const GroupStopped = story("step group, settled: a turn you stopped", async () => { const l = await northstar(); return inHost(l, () => createComponent(Ledger, { turn: turnAt(l, 5), ctx: l.ctx })); });
+export const GroupStopped = story("step group, settled: a turn you stopped", async () => { const l = await northstar(); return inHost(l, () => createComponent(Ledger, { turn: turnAt(l, 4), ctx: l.ctx })); });
 export const StripOrdered = story("strip, in order: a home window's steps known only by their order, the running one lit", async () => { const l = await cmx(); const strip = orderedStrip([{ kind: "read", running: false, bad: false }, { kind: "search", running: false, bad: false }, { kind: "edit", running: false, bad: false }, { kind: "run", running: false, bad: true }, { kind: "edit", running: false, bad: false }, { kind: "spawn", running: false, bad: false }, { kind: "run", running: true, bad: false }], true); return inHost(l, () => createComponent(StripLane, { strip })); });
+
+/* ---------- arrivals: what came into a turn (docs/thread.md, arrivals) ---------- */
+
+const ARRIVED_AT = 1_792_053_000_000;
+const arrival = (kind: Arrival["kind"], text: string, from?: string): Arrival => ({ k: "arrive", id: `msg_arrive_${kind}_${text.length}`, kind, text, at: ARRIVED_AT, ...(from ? { from, fromID: `ses_${from}` } : {}) });
+const arrivalRow = (a: Arrival, opts: RowOpts = {}) => async (): Promise<Built> => oneRow(await northstar(), arrivalModel(a), opts);
+const REPORT_ARRIVED = arrival("report", "agent /root/transport_impl reached status: parked\n\nready to merge cd16978: the transport paces frames by the display link, tests green\n\n[child session: ses_transport_impl; transcript kept on disk. to continue: message(\"ses_transport_impl\")]", "transport_impl");
+export const ArrivalReport = story("arrival, report: the agent's name, its gist and its outcome; a press raises its sheet", arrivalRow(REPORT_ARRIVED));
+export const ArrivalReportSheet = story("arrival, report, pressed: the row raises the same sheet the chip does", async () => { const l = await northstar(); const built = oneRow(l, arrivalModel(REPORT_ARRIVED)); return { ...built, node: (wide) => createComponent(Pressed, { press: ".row.report > button.row-h", get children() { return built.node(wide); } }) }; });
+export const ArrivalNote = story("arrival, note: a note from another agent", arrivalRow(arrival("note", "the fixture has a second steer at 17:21 you may want for the story", "worker_a")));
+export const ArrivalStatus = story("arrival, status: the daemon's status line alone reads as the status, with its glyph", arrivalRow(arrival("report", "agent /root/r2_corpus reached status: parked\n\n[child session: ses_r2_corpus; transcript kept on disk. to continue: message(\"ses_r2_corpus\")]", "r2_corpus")));
+export const ArrivalJobOk = story("arrival, job, exit 0: the command's short form, no output, open to its id and command", arrivalRow(arrival("job", "job job_mvhrc411w0014a: exited with code 0; no output\n(started by you: cd /tmp/one-turn && ./checks.sh > /tmp/one-turn/checks.log 2>&1)"), { open: true }));
+export const ArrivalJobFailed = story("arrival, job, failed: exit 1 in red, open to its last output", arrivalRow(arrival("job", "job job_mvhrd02k1x9: exited with code 1; last output:\nFAIL src/ui/thread/groups.test.ts\n  which rows fold > the person stopping the turn\n1 failed, 556 passed\n(started by you: bun test src/ui/thread)"), { open: true }));
+export const ArrivalNotice = story("arrival, notice: a system line, open to its words", arrivalRow(arrival("system", "you stopped the turn. these agents are still running and will report when they end:\n- /root/r2_corpus (working)\n- /root/transport_impl (parked)"), { open: true }));
+
+/** a parked orchestration in one turn: started by the person, three agents, an afternoon of wakes on their reports and a job's
+    notice, and the agent's words at the end. made in cmx2's shapes and made neutral as every fixture is */
+function parkedEpisode(): Turn {
+  const t0 = ARRIVED_AT - 3_600_000;
+  let n = 0;
+  const msg = (info: Record<string, unknown>, parts: Record<string, unknown>[]): WireMessage => neutralMessage({ info, parts: parts.map((p) => ({ ...p, messageID: info["id"] })) });
+  const tool = (name: string, at: number, input: Record<string, unknown> = {}, metadata: Record<string, unknown> = {}): Record<string, unknown> => { n++; return { id: `prt_ep${n}`, type: "tool", callID: `call_ep${n}`, tool: name, state: { status: "completed", input, output: "", metadata, time: { start: at, end: at + 1500 } } }; };
+  const words = (text: string, at: number): Record<string, unknown> => { n++; return { id: `prt_ep${n}`, type: "text", text, time: { start: at, end: at } }; };
+  const agent = (id: string, at: number, parts: Record<string, unknown>[]): WireMessage => msg({ id, role: "assistant", time: { created: at, completed: at + 4000 }, cost: 0.02 }, parts);
+  const mail = (id: string, at: number, kind: string, text: string, from: string): WireMessage => msg({ id, role: "user", time: { created: at }, mail: { kind, from: `/root/${from}`, fromID: `ses_${from}` } }, [{ id: `${id}_p`, type: "text", text, mail: { kind, from: `/root/${from}`, fromID: `ses_${from}` } }]);
+  const notice = (id: string, at: number, text: string): WireMessage => msg({ id, role: "user", time: { created: at }, notice: true }, [{ id: `${id}_p`, type: "text", text, notice: true }]);
+  const spawn = (name: string, at: number) => tool("spawn", at, { name, message: `build the ${name.replace(/_/g, " ")} and report when it is green` }, { child_session_id: `ses_${name}`, path: `/root/${name}` });
+  const min = 60_000;
+  const [turn] = turnsOf([
+    msg({ id: "msg_ep_you", role: "user", time: { created: t0 } }, [{ id: "msg_ep_you_p", type: "text", text: "split the corpus work across three agents and land it when all three are green" }]),
+    agent("msg_ep_a1", t0 + 2000, [words("starting three agents: the corpus, the transport and the docs.", t0 + 3000), spawn("r2_corpus", t0 + 4000), spawn("transport_impl", t0 + 5000), spawn("docs_pass", t0 + 6000), tool("wait", t0 + 7000)]),
+    mail("msg_ep_m1", t0 + 9 * min, "report", "agent /root/r2_corpus reached status: parked\n\n[child session: ses_r2_corpus; transcript kept on disk.]", "r2_corpus"),
+    agent("msg_ep_a2", t0 + 9 * min + 2000, [tool("agents", t0 + 9 * min + 3000), tool("wait", t0 + 9 * min + 5000)]),
+    mail("msg_ep_m2", t0 + 21 * min, "report", "agent /root/transport_impl reached status: parked\n\nready to merge cd16978: frames paced by the display link, tests green", "transport_impl"),
+    agent("msg_ep_a3", t0 + 21 * min + 2000, [tool("shell", t0 + 21 * min + 3000, { command: "cd /tmp/one-turn && ./checks.sh > /tmp/one-turn/checks.log 2>&1", background: true }), tool("wait", t0 + 21 * min + 6000)]),
+    notice("msg_ep_n1", t0 + 29 * min, "job job_mvhrc411w0014a: exited with code 0; no output\n(started by you: cd /tmp/one-turn && ./checks.sh > /tmp/one-turn/checks.log 2>&1)"),
+    mail("msg_ep_m3", t0 + 30 * min, "message", "the corpus needs one more fixture; i will report once it is in", "r2_corpus"),
+    agent("msg_ep_a4", t0 + 30 * min + 2000, [tool("wait", t0 + 30 * min + 3000)]),
+    mail("msg_ep_m4", t0 + 41 * min, "report", "agent /root/docs_pass reached status: parked\n\ndone: thread.md and decisions.md updated", "docs_pass"),
+    mail("msg_ep_m5", t0 + 42 * min, "report", "agent /root/r2_corpus reached status: parked\n\nready: the corpus is in, 412 fixtures", "r2_corpus"),
+    agent("msg_ep_a5", t0 + 42 * min + 2000, [tool("shell", t0 + 42 * min + 3000, { command: "git merge r2_corpus" }, { exit_code: 0 }), tool("shell", t0 + 42 * min + 6000, { command: "git merge transport_impl" }, { exit_code: 0 }), tool("shell", t0 + 42 * min + 9000, { command: "bun test" }, { exit_code: 0 }), words("all three reported green and are merged: the corpus (412 fixtures), the transport and the docs. the checks passed.", t0 + 43 * min)]),
+  ], "/tmp/one-turn");
+  if (!turn) throw new Error("the episode made no turn");
+  return turn;
+}
+const episodeCtx = (t: Turn, l: Loaded): RowCtx => ({ ...l.ctx, reports: mailsOf(t) });
+export const TurnParkedEpisode = story("turn: a parked orchestration, its wakes, reports and a job folded into one group between the agent's words", async () => { const l = await northstar(); const t = parkedEpisode(); return { tone: l.tone, node: (wide) => createComponent(Host, { get wide() { return wide(); }, ledger: false, get children() { return createComponent(TurnView, { turn: t, ctx: episodeCtx(t, l) }); } }) }; });
+export const TurnParkedEpisodeOpen = story("turn: a parked orchestration, its group opened: every wait, report, status, note and the job as rows", async () => { const l = await northstar(); const t = parkedEpisode(); return inHost(l, () => createComponent(OpenedLedger, { turn: t, ctx: episodeCtx(t, l) })); });
 
 /* ---------- live ---------- */
 
@@ -455,7 +516,7 @@ function scriptTurn(shape: "running" | "settled" | "several" | "one-line"): { tu
   const turns = turnsOf(messages, "/w/boxbox2");
   const turn = turns[0];
   if (!turn) throw new Error("no turn");
-  return { turn, ctx: { turns, children: new Map(), thinking: "rows" }, now: S0 + said + 309_000 };
+  return { turn, ctx: { reports: turns.flatMap(mailsOf), children: new Map(), thinking: "rows" }, now: S0 + said + 309_000 };
 }
 /** a running turn with its clock going, a second at a time from `from` */
 function Ticking(props: { turn: Turn; ctx: RowCtx; from: number }) {
@@ -490,7 +551,7 @@ export const Coverage: Story = () => {
     void Promise.all([northstar(), cmx(), notes()]).then((all) => {
       const counts = new Map<string, number>();
       for (const l of all) for (const s of stepsOf(l.turns)) { const k = `${kindOf(s)}\u0000${s.status}${s.interrupted ? " (interrupted)" : ""}${s.permission ? " (permission)" : ""}`; counts.set(k, (counts.get(k) ?? 0) + 1); }
-      for (const l of all) for (const t of l.turns) { for (const it of t.items) if (it.k !== "step") { const k = `${it.k === "say" ? "said" : "thought"}\u0000${it.streaming ? "streaming" : "settled"}`; counts.set(k, (counts.get(k) ?? 0) + 1); } counts.set(`turn\u0000${t.status}, ${t.by}`, (counts.get(`turn\u0000${t.status}, ${t.by}`) ?? 0) + 1); }
+      for (const l of all) for (const t of l.turns) { for (const it of t.items) if (it.k === "say" || it.k === "think") { const k = `${it.k === "say" ? "said" : "thought"}\u0000${it.streaming ? "streaming" : "settled"}`; counts.set(k, (counts.get(k) ?? 0) + 1); } counts.set(`turn\u0000${t.status}, ${t.by}`, (counts.get(`turn\u0000${t.status}, ${t.by}`) ?? 0) + 1); }
       setRows([...counts].map(([k, v]) => { const [a, b] = k.split("\u0000"); return [a ?? "", b ?? "", v] as [string, string, number]; }).sort((x, y) => x[0].localeCompare(y[0]) || x[1].localeCompare(y[1])));
     });
   }, []);

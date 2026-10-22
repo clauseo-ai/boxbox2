@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { forkBoundary, forkLabel, lineageOf, turnBeforeCut } from "./fork";
 import { boundaryWords, forkHeld, lineageWords } from "./fork-words";
 import { cutAfter } from "./fork-cut";
-import type { Turn } from "./model";
+import { type Turn, turnsOf } from "./model";
+import { neutralMessage } from "../../sync/fixtures/neutral";
 
 type T = Pick<Turn, "id" | "by" | "status" | "items" | "answer">;
 const turn = (id: string, over: Partial<T> = {}): T => ({ id, by: "you", status: "done", items: [], answer: { k: "say", id: `${id}_a`, text: "done", at: 1, streaming: false }, ...over });
@@ -15,6 +16,22 @@ describe("where a fork from a turn is cut", () => {
   test("before the first message of the turn after it, so the fork holds the turn through its end", () => {
     expect(cutAfter(turns, "msg_1")).toEqual({ before: "msg_4" });
     expect(cutAfter(turns, "msg_4")).toEqual({ before: "msg_9" });
+  });
+
+  test("a turn's reports and notices are its own: a fork through its end is cut before the person's next message, so it holds them", () => {
+    const at = 1_790_000_000_000;
+    const msg = (info: Record<string, unknown>, parts: Record<string, unknown>[]) => neutralMessage({ info, parts: parts.map((p) => ({ ...p, messageID: info["id"] })) });
+    const built = turnsOf([
+      msg({ id: "msg_1", role: "user", time: { created: at } }, [{ id: "p1", type: "text", text: "go" }]),
+      msg({ id: "msg_2", role: "assistant", time: { created: at + 1, completed: at + 2 } }, [{ id: "p2", type: "text", text: "waiting." }]),
+      msg({ id: "msg_3", role: "user", time: { created: at + 3 }, mail: { kind: "report", from: "/root/a" } }, [{ id: "p3", type: "text", text: "ready", mail: { kind: "report", from: "/root/a" } }]),
+      msg({ id: "msg_4", role: "user", time: { created: at + 4 }, notice: true }, [{ id: "p4", type: "text", text: "job j: exited with code 0; no output", notice: true }]),
+      msg({ id: "msg_5", role: "assistant", time: { created: at + 5, completed: at + 6 } }, [{ id: "p5", type: "text", text: "done." }]),
+      msg({ id: "msg_7", role: "user", time: { created: at + 7 } }, [{ id: "p7", type: "text", text: "next" }]),
+    ], "/");
+    expect(built.map((t) => t.id)).toEqual(["msg_1", "msg_7"]);
+    expect(cutAfter(built, "msg_1")).toEqual({ before: "msg_7" });
+    expect(cutAfter(built, "msg_7")).toEqual({});
   });
 
   test("the last turn forks the whole thread", () => {
@@ -117,11 +134,16 @@ describe("the lineage line", () => {
   });
 
   test("its link lands on the turn just above the cut, which is the turn the fork was made from", () => {
-    const turns = [{ id: "msg_1" }, { id: "msg_4" }, { id: "msg_9" }];
+    const turns = [{ id: "msg_1", items: [] }, { id: "msg_4", items: [] }, { id: "msg_9", items: [] }];
     expect(turnBeforeCut(turns, "msg_9")).toBe("msg_4");
     expect(turnBeforeCut(turns, "msg_4")).toBe("msg_1");
     // a cut at the first turn has nothing above it: that turn
     expect(turnBeforeCut(turns, "msg_1")).toBe("msg_1");
     expect(turnBeforeCut(turns, "msg_7")).toBeNull();
+  });
+
+  test("a cut before a report that arrived inside a turn (a fork made when reports were turns) lands on the turn it arrived in", () => {
+    const turns = [{ id: "msg_1", items: [] }, { id: "msg_4", items: [{ k: "arrive" as const, id: "msg_6", kind: "report" as const, text: "ready", at: 6 }] }, { id: "msg_9", items: [] }];
+    expect(turnBeforeCut(turns, "msg_6")).toBe("msg_4");
   });
 });

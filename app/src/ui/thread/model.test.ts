@@ -7,6 +7,7 @@ import { liveItemsOf, shownMessages, turnsOf } from "./model";
 import type { RowCtx } from "./rows";
 import type { WireMessage, WirePart } from "./wire";
 import { neutralMessage } from "../../sync/fixtures/neutral";
+import { mailsOf } from "./rows";
 
 /** a message written in cmx2's shapes, as the server's translate makes it neutral */
 const wire = (info: Record<string, unknown>, parts: readonly WirePart[]): WireMessage => neutralMessage({ info, parts: parts as unknown as Record<string, unknown>[] });
@@ -16,7 +17,7 @@ const user = (id: string, parts: WirePart[] = [{ id: `${id}_p`, type: "text", te
 const assistant = (id: string, parts: WirePart[], completed = false): WireMessage => wire({ id, role: "assistant", time: { created: T0 + 100, ...(completed ? { completed: T0 + 5000 } : {}) } }, parts);
 const text = (id: string, body: string, extra: Record<string, unknown> = {}): WirePart => ({ id, type: "text", text: body, ...extra }) as WirePart;
 const reasoning = (id: string, body: string, extra: Record<string, unknown> = {}): WirePart => ({ id, type: "reasoning", text: body, ...extra }) as WirePart;
-const ctx = (turn: ReturnType<typeof turnsOf>[number]): RowCtx => ({ turns: [turn], children: new Map(), thinking: "rows", now: T0 + 3000 });
+const ctx = (turn: ReturnType<typeof turnsOf>[number]): RowCtx => ({ reports: ([turn]).flatMap(mailsOf), children: new Map(), thinking: "rows", now: T0 + 3000 });
 
 describe("a part announced and still empty", () => {
   test("a streaming reply with no words yet is an item, so its row opens at the announcement", () => {

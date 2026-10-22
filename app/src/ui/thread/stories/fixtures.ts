@@ -5,7 +5,7 @@
    context. */
 
 import { type Item, type Step, type Turn, joinAsks, projectRoot, turnsOf } from "../model";
-import type { Child, RowCtx } from "../rows";
+import { type Child, type RowCtx, mailsOf } from "../rows";
 import type { WireMessage } from "../wire";
 import { neutralMessage } from "../../../sync/fixtures/neutral";
 import cmxUrl from "../fixtures/cmx-deploy.json?url";
@@ -57,7 +57,7 @@ export async function loadImported(which: "northstar" | "cmx"): Promise<Loaded> 
   const root = projectRoot(file.session.directory, file.messages);
   const turns = turnsOf(file.messages, root);
   const children = childrenOf(file, root);
-  return { title: file.session.title, repo: which, tone: which === "northstar" ? TONES.cobalt : TONES.violet, turns, ctx: { turns, children, thinking: "rows" } };
+  return { title: file.session.title, repo: which, tone: which === "northstar" ? TONES.cobalt : TONES.violet, turns, ctx: { reports: turns.flatMap(mailsOf), children, thinking: "rows" } };
 }
 
 /** the native session at one of its recorded moments, its pending asks joined onto their rows */
@@ -66,7 +66,7 @@ export async function loadNative(label?: string): Promise<Loaded & { snapshot: S
   const snapshot = (label ? file.snapshots.find((s) => s.label === label) : file.snapshots.at(-1)) ?? (file.snapshots.at(-1) as Snapshot);
   const turns = turnsOf(snapshot.messages, file.session.directory);
   joinAsks(turns, snapshot.permissions, snapshot.questions);
-  return { title: file.session.title, repo: "notes", tone: TONES.green, turns, ctx: { turns, children: new Map(), thinking: "rows" }, snapshots: file.snapshots, snapshot };
+  return { title: file.session.title, repo: "notes", tone: TONES.green, turns, ctx: { reports: turns.flatMap(mailsOf), children: new Map(), thinking: "rows" }, snapshots: file.snapshots, snapshot };
 }
 
 /** every step of every turn, for picking examples */

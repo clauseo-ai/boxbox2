@@ -32,6 +32,7 @@
 .thread :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
 .thread .ok { color: var(--accent); }
 .thread .no { color: var(--red); }
+.thread .group-stopped { color: var(--text-3); }
 .thread .add { color: var(--add); }
 .thread .del { color: var(--del); }
 
@@ -64,13 +65,14 @@
 /* an agent's report or note: one chip, a capsule of glass in the flood's own colour (the stage's scroller is masked, so a
    backdrop-filter in it sees nothing: the chip's tint stands in for the glass, as the stuck tape's did), one line whatever the report
    holds. the sheet a press raises is glass for real: it lives in the top layer */
-.report { --gold: color-mix(in srgb, rgb(168 115 5) calc(var(--L) * 100%), rgb(245 194 84)); align-self: flex-start; display: inline-flex; align-items: center; gap: 9px; max-width: 100%; min-height: 38px; padding: 7px 14px 7px 7px; border-radius: 999px; background: color-mix(in srgb, #fff calc(6% + var(--L) * 49%), var(--flood-3)); box-shadow: var(--glass-edge), 0 8px 18px -12px rgb(0 0 0 / 0.6); }
+/* the chip of a report that started a turn; a report's row in a group (`.row.report`) is a row like the others */
+.report:not(.row) { --gold: color-mix(in srgb, rgb(168 115 5) calc(var(--L) * 100%), rgb(245 194 84)); align-self: flex-start; display: inline-flex; align-items: center; gap: 9px; max-width: 100%; min-height: 38px; padding: 7px 14px 7px 7px; border-radius: 999px; background: color-mix(in srgb, #fff calc(6% + var(--L) * 49%), var(--flood-3)); box-shadow: var(--glass-edge), 0 8px 18px -12px rgb(0 0 0 / 0.6); }
 @media (hover: hover) { .thread button.report:hover { background: linear-gradient(var(--hover), var(--hover)), color-mix(in srgb, #fff calc(6% + var(--L) * 49%), var(--flood-3)); } }
 .thread button.report:focus-visible { border-radius: 999px; }
 .rep-line { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; line-height: 18px; color: var(--text-2); }
 .rep-line b { font-size: 14px; font-weight: 600; color: var(--text); }
 .rep-chev { flex: none; width: 6px; height: 6px; margin-left: 1px; border-right: 1.5px solid var(--text-2); border-top: 1.5px solid var(--text-2); transform: rotate(45deg); }
-.report.lit { box-shadow: inset 0 0 0 1.5px var(--accent), var(--glass-edge); }
+.report:not(.row).lit { box-shadow: inset 0 0 0 1.5px var(--accent), var(--glass-edge); }
 /* the outcome's glyph on a disc of its colour at 18%: ready in the add green, blocked in gold, failed in red; any other first word
    is the agent's letter in the light tone */
 .rep-glyph { --tint: var(--accent); flex: none; display: grid; place-items: center; border-radius: 50%; color: var(--tint); background: color-mix(in srgb, var(--tint) 18%, transparent); }
@@ -85,6 +87,13 @@
 .rep-glyph.sheet b { font-size: 18px; }
 .rep-glyph.tag { width: auto; height: auto; background: none; color: inherit; }
 .rep-glyph.tag svg { width: 10px; height: 10px; }
+/* a report's row in a group: the glyph at the head of its words, the size of a line of them */
+.rep-glyph.row { --gold: color-mix(in srgb, rgb(168 115 5) calc(var(--L) * 100%), rgb(245 194 84)); display: inline-grid; width: 14px; height: 14px; margin-right: 7px; vertical-align: -2px; }
+.rep-glyph.row svg { width: 9px; height: 9px; }
+.rep-glyph.row b { font-family: var(--sans); font-size: 8.5px; line-height: 1; }
+/* a status (the daemon's "reached status" alone) is no outcome: its glyph is in the quiet ink, a failure's in red */
+.rep-glyph[data-status] { --tint: var(--text-2); }
+.rep-glyph[data-status="failed"] { --tint: var(--red); }
 /* the sheet: from the screen's foot, at most 720 px wide, half the screen tall, or nearly all of it. its grabber is a control: a press
    takes it whole or half, a drag up or down too, and down from half closes it */
 .rep-sheet { --gold: color-mix(in srgb, rgb(168 115 5) calc(var(--L) * 100%), rgb(245 194 84)); position: fixed; inset: auto 0 0; margin: 0 auto; width: min(720px, 100vw); max-width: none; height: 55dvh; max-height: none; padding: 0 0 env(safe-area-inset-bottom); border: none; border-radius: 26px 26px 0 0; background: var(--glass-deep); -webkit-backdrop-filter: blur(30px) saturate(1.5); backdrop-filter: blur(30px) saturate(1.5); box-shadow: var(--glass-edge), var(--lift); color: var(--text); font-family: var(--sans); }
@@ -157,6 +166,9 @@
 .strip-mk.mk-edit { top: 7px; height: 8px; background: var(--add); }
 .strip-mk.mk-spawn { top: 6px; height: 10px; background: color-mix(in srgb, var(--text) 90%, transparent); }
 .strip-mk.mk-ask { top: 8.5px; width: 5px; height: 5px; margin-left: -2.5px; background: var(--text); }
+/* what arrived (a report, a note, a notice) is not a step: a ring on the bed, so a stretch of waiting reads by where its arrivals fell */
+.strip-mk.mk-arrival { top: 8px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: none; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--text) 70%, transparent); }
+.strip-mk.mk-arrival.mk-bad { background: none; box-shadow: inset 0 0 0 1.5px var(--red); }
 .strip-mk.mk-running { top: 6px; height: 10px; background: var(--accent); }
 .strip-mk.mk-bar { top: 8px; height: 6px; min-width: 1.5px; margin-left: 0; border-radius: 2px; background: var(--accent); }
 .strip-mk.mk-bad { background: var(--red); }

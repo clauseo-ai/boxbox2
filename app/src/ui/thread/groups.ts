@@ -1,11 +1,12 @@
 /* a turn read as text (docs/thread.md, the step group): the agent's words
-   stay in the thread, and every run of steps between two of them (tool calls
-   and the thinking that led to the next call) folds into one group, which is
-   that run's timeline. thinking that led to words sits above them as its own
+   stay in the thread, and everything between two of them folds into one
+   group, which is that stretch's timeline: tool calls, waits, thinking, and
+   what arrived meanwhile (reports, notes, job and runtime notices), and the
+   row that says the person stopped it. a stretch of thinking alone keeps its
    "thought for" row; asks and permission prompts never fold. while a run is
    live its newest row shows under its group, open. the strip is the run's
-   steps and thinking in time, drawn the same in a group and on a home window
-   (which knows its steps only by their order). pure; no dom. */
+   steps, arrivals and thinking in time, drawn the same in a group and on a
+   home window (which knows its steps only by their order). pure; no dom. */
 
 import type { Family, Say, Step } from "./model";
 import type { Entry } from "./ledger";
@@ -15,7 +16,7 @@ import { base, shortCommand } from "./shell";
 
 /* ---------- the strip ---------- */
 
-export type StripKind = "read" | "search" | "edit" | "run" | "web" | "spawn" | "ask" | "other";
+export type StripKind = "read" | "search" | "edit" | "run" | "web" | "spawn" | "ask" | "arrival" | "other";
 const KIND: Partial<Record<Family, StripKind>> = { read: "read", search: "search", edit: "edit", shell: "run", web: "web", spawn: "spawn", ask: "ask" };
 export const stripKind = (s: Pick<Step, "family" | "script">): StripKind => KIND[s.family] ?? (s.script ? "run" : "other");
 
@@ -137,11 +138,15 @@ export type Group = {
   time: string;
   /** a quiet stretch before the run (its first row's "3 min later") */
   gap?: string;
-  /** tool calls in the run: a folded read of three files is three */
+  /** tool calls in the run: a folded read of three files is three. what arrived is not a step (`arrivals`) */
   steps: number;
   failed: number;
   /** how many of each verb, most first, ties in the order they came */
   tally: readonly Tally[];
+  /** what arrived during the run, by its noun ("report", "job"), most first, ties in the order they came */
+  arrivals: readonly Tally[];
+  /** the person stopped the turn at the end of this run: its "stopped" row is the group's last */
+  stopped?: boolean;
   /** while live, what the newest row is doing ("running bun test"); settled, none */
   doing?: string;
   strip: Strip;
@@ -153,7 +158,7 @@ export type Segment = { k: "entry"; entry: Entry } | { k: "group"; group: Group 
 export const foldedOf = (g: Group): readonly Entry[] => (g.live ? g.entries.slice(0, -1) : g.entries);
 /** the live row under the group */
 export const currentOf = (g: Group): Entry | undefined => (g.live ? g.entries.at(-1) : undefined);
-/** a ledger place that is a tool's step: not words, not a thought */
+/** a ledger place that is a tool's step or an arrival: not words, not a thought */
 const isStep = (e: Entry): boolean => e.say === undefined && e.model !== undefined && e.model.kind !== "thought";
 /** the line shows once something folded into it, or from the start of a live run whose live row is a step. a lone live thought has
     none: it may lead to words and stand alone, and a line that came and went would move the row the reader watches */
@@ -184,6 +189,10 @@ const short = (s: string): string => (s.length > 40 ? `${s.slice(0, 39)}…` : s
 export function doingOf(row: Row): string {
   if (row.k === "say") return "writing";
   if (row.k === "think") return "thinking";
+  if (row.k === "arrive") {
+    const a = row.arrival;
+    return a.kind === "job" ? "a job ended" : a.kind === "system" ? "a notice came" : `${a.kind} from ${short(a.from || "an agent")}`;
+  }
   if (row.k === "fold") return row.family === "read" ? `read ${plural(row.steps.length, "file")}` : `${verbOf(row.family)} ${row.steps.length}`;
   const s = row.step;
   /* a script is named by what it does (script.ts): its own words stand as the doing, else "running a script" */
@@ -196,19 +205,33 @@ export function doingOf(row: Row): string {
   return object ? `${verb} ${object}` : verb;
 }
 
-/** a group's line in its parts: what the live row is doing (full ink), the counts, the failures (red). `text` is the whole line,
-    "6 steps · read 3, ran 2, edited 1", live "running bun test · 4 steps" */
-export function groupLine(g: Group): { doing?: string; rest: string; failed?: string; text: string } {
-  const parts: string[] = [plural(g.steps, "step")];
+/** the plural of an arrival's noun */
+const NOUNS: Record<string, string> = { report: "reports", note: "notes", status: "statuses", job: "jobs", notice: "notices" };
+
+/** a group's line in its parts: what the live row is doing (full ink), the counts, what arrived, the failures (red), and that the
+    person stopped it (faint). `text` is the whole line, "6 steps · read 3, ran 2, edited 1", "9 steps · waited 4, ran 3, checked 2 ·
+    3 reports, 1 job", live "running bun test · 4 steps" */
+export function groupLine(g: Group): { doing?: string; rest: string; failed?: string; stopped?: string; text: string } {
+  const parts: string[] = [];
+  if (g.steps > 0 || !g.arrivals.length) parts.push(plural(g.steps, "step"));
+  /* what arrived shares the line with the verbs, so each says its top two when both are there and the rest as more: the line stays
+     one line a phone can mostly show, and the name and the rows say all of it */
+  const top = g.arrivals.length ? 2 : 3;
   if (g.doing === undefined && g.tally.length) {
-    const shown = g.tally.slice(0, 3).map((t) => `${t.verb} ${t.n}`);
-    const more = g.tally.slice(3).reduce((a, t) => a + t.n, 0);
+    const shown = g.tally.slice(0, top).map((t) => `${t.verb} ${t.n}`);
+    const more = g.tally.slice(top).reduce((a, t) => a + t.n, 0);
+    parts.push([...shown, ...(more > 0 ? [`${more} more`] : [])].join(", "));
+  }
+  if (g.arrivals.length) {
+    const shown = g.arrivals.slice(0, 2).map((t) => plural(t.n, t.verb, NOUNS[t.verb]));
+    const more = g.arrivals.slice(2).reduce((a, t) => a + t.n, 0);
     parts.push([...shown, ...(more > 0 ? [`${more} more`] : [])].join(", "));
   }
   const rest = parts.join(" · ");
   const failed = g.failed > 0 ? `${g.failed} failed` : undefined;
-  const text = [g.doing, rest, failed].filter((x): x is string => x !== undefined).join(" · ");
-  return { ...(g.doing !== undefined ? { doing: g.doing } : {}), rest, ...(failed ? { failed } : {}), text };
+  const stopped = g.stopped ? "stopped" : undefined;
+  const text = [g.doing, rest, failed, stopped].filter((x): x is string => x !== undefined).join(" · ");
+  return { ...(g.doing !== undefined ? { doing: g.doing } : {}), rest, ...(failed ? { failed } : {}), ...(stopped ? { stopped } : {}), text };
 }
 
 /** a settled group's clock: how long the run took, "1 min"; nothing under a second */
@@ -224,18 +247,13 @@ export const groupLabel = (g: Group): string => { const words = groupLine(g).tex
 /** a step a group never hides: a question, or a call that waits on the person's permission */
 export const standsAlone = (s: Step, ctx: Pick<RowCtx, "asks">): boolean => s.family === "ask" || s.permission !== undefined || s.question !== undefined || ctx.asks?.get(s.callID) !== undefined;
 
-/** a row folds into a run unless it stands on its own: the agent's words; a thought that led to words, to an ask or to the end of a
-    settled turn; an ask or a permission. the thinking a running turn is doing now folds: what it leads to is not known yet */
-export function inRun(row: Row, next: Row | undefined, last: boolean, running: boolean, ctx: Pick<RowCtx, "asks">): boolean {
+/** a row folds into a run unless it stands on its own: the agent's words, an ask or a permission. thinking folds too, the thought
+    that led to words included (a settled run of thinking alone stands as its thought row: segmentsOf), and so does what arrived */
+export function inRun(row: Row, ctx: Pick<RowCtx, "asks">): boolean {
   switch (row.k) {
     case "say": return false;
-    case "fold": return true;
     case "step": return !standsAlone(row.step, ctx);
-    case "think":
-      if (!next) return last && running;
-      if (next.k === "say" || next.k === "think") return false;
-      if (next.k === "fold") return true;
-      return !standsAlone(next.step, ctx);
+    case "fold": case "think": case "arrive": return true;
   }
 }
 
@@ -260,6 +278,8 @@ export function groupOf(run: ReadonlyArray<{ row: Row; entry: Entry }>, live: bo
   const counts = new Map<string, number>();
   const thoughts: StripThought[] = [];
   const marks: StripMark[] = [];
+  const nouns: string[] = [];
+  const arrived = new Map<string, number>();
   const count = (s: Step, row: string) => {
     steps++;
     const bad = isBad(s);
@@ -273,6 +293,13 @@ export function groupOf(run: ReadonlyArray<{ row: Row; entry: Entry }>, live: bo
     if (row.k === "think") for (const t of row.thoughts) thoughts.push({ at: t.at, ms: t.ms, streaming: t.streaming });
     else if (row.k === "fold") for (const s of row.steps) count(s, entry.key);
     else if (row.k === "step") count(row.step, entry.key);
+    else if (row.k === "arrive") {
+      /* its noun is its row's kind: a report, a note, a status, a job, a notice */
+      const noun = entry.model?.kind ?? row.arrival.kind;
+      if (!arrived.has(noun)) nouns.push(noun);
+      arrived.set(noun, (arrived.get(noun) ?? 0) + 1);
+      marks.push({ kind: "arrival", at: row.at, ms: 0, running: false, bad: entry.model?.bad === true, row: entry.key, part: row.arrival.id });
+    }
   }
   const tally = order.map((verb, i) => ({ i, t: { verb, n: counts.get(verb) ?? 0 } })).sort((a, b) => (a.t.n !== b.t.n ? b.t.n - a.t.n : a.i - b.i)).map((x) => x.t);
   const last = run.at(-1);
@@ -280,33 +307,42 @@ export function groupOf(run: ReadonlyArray<{ row: Row; entry: Entry }>, live: bo
   const firstKey = first?.entry.key ?? "";
   return {
     key: `group:${firstKey}`, entries: run.map((p) => p.entry), live, at, end, time: first?.entry.time ?? "",
-    ...(first?.entry.gap ? { gap: first.entry.gap } : {}), steps, failed, tally, ...(doing !== undefined ? { doing } : {}),
+    ...(first?.entry.gap ? { gap: first.entry.gap } : {}), steps, failed, tally, arrivals: nouns.map((verb, i) => ({ i, t: { verb, n: arrived.get(verb) ?? 0 } })).sort((a, b) => (a.t.n !== b.t.n ? b.t.n - a.t.n : a.i - b.i)).map((x) => x.t), ...(doing !== undefined ? { doing } : {}),
     strip: { start: at, end: Math.max(end, at + 1000), live, ordered: false, gaps: gapsOf(run.map((p) => p.row), at), thoughts, marks },
   };
 }
 
 /** a turn's places, in order: entries that stand alone and groups of the runs between them. `entries` are the ledger's (ledger.ts):
     the rows it made, each with the row it was made from, then the turn's last rows (its files, how it ended), which have none. a
-    settled turn's answer is not among them (the turn paints it), but a thought before it is a thought that led to words, so it is
-    told: and the last rows go above that thought, which stays directly above the words it led to */
+    settled run of thinking alone is not a group: its thought row stands, and when it is the last before the answer the last rows go
+    above it, so it stays directly above the words it led to. the row that says the person stopped the turn goes into the turn's
+    last group when the turn's rows end with one, as the group's last row; the files row and a failure stand on their own */
 export function segmentsOf(entries: readonly Entry[], opts: { running: boolean; ctx: Pick<RowCtx, "asks">; answer?: Say | undefined }): Segment[] {
   const placed = entries.filter((e): e is Entry & { row: Row } => e.row !== undefined);
   const ends = entries.filter((e) => e.row === undefined);
-  const after: Row | undefined = opts.answer && !opts.running ? { k: "say", at: opts.answer.at, end: opts.answer.at, say: opts.answer } : undefined;
   const out: Segment[] = [];
   let run: Array<{ row: Row; entry: Entry }> = [];
-  const close = (live: boolean) => { if (run.length) out.push({ k: "group", group: groupOf(run, live) }); run = []; };
-  placed.forEach((e, i) => {
-    const last = i === placed.length - 1;
-    const next = last ? after : placed[i + 1]?.row;
-    if (inRun(e.row, next, last, opts.running, opts.ctx)) run.push({ row: e.row, entry: e });
+  const close = (live: boolean) => {
+    if (!run.length) return;
+    if (!live && run.every((p) => p.row.k === "think")) for (const p of run) out.push({ k: "entry", entry: p.entry });
+    else out.push({ k: "group", group: groupOf(run, live) });
+    run = [];
+  };
+  for (const e of placed) {
+    if (inRun(e.row, opts.ctx)) run.push({ row: e.row, entry: e });
     else { close(false); out.push({ k: "entry", entry: e }); }
-  });
+  }
   close(opts.running);
   if (!opts.running && ends.length) {
+    let rest = ends;
     const tail = out.at(-1);
-    const thoughtLast = after !== undefined && tail?.k === "entry" && tail.entry.model?.kind === "thought";
-    out.splice(thoughtLast ? out.length - 1 : out.length, 0, ...ends.map((entry): Segment => ({ k: "entry", entry })));
+    const stop = ends.find((e) => e.model?.kind === "stopped");
+    if (stop && tail?.k === "group") {
+      out[out.length - 1] = { k: "group", group: { ...tail.group, entries: [...tail.group.entries, stop], end: Math.max(tail.group.end, stop.model?.end ?? 0), stopped: true } };
+      rest = ends.filter((e) => e !== stop);
+    }
+    const thoughtLast = opts.answer !== undefined && tail?.k === "entry" && tail.entry.model?.kind === "thought";
+    out.splice(thoughtLast ? out.length - 1 : out.length, 0, ...rest.map((entry): Segment => ({ k: "entry", entry })));
   }
   return out;
 }
@@ -322,7 +358,7 @@ export function groupsOf(): (entries: readonly Entry[], opts: Parameters<typeof 
     const out = segmentsOf(entries, opts).map((seg) => {
       if (seg.k === "entry") return seg;
       const was = held.get(seg.group.key);
-      const keep = was?.k === "group" && was.group.live === seg.group.live && was.group.gap === seg.group.gap && was.group.time === seg.group.time && sameList(was.group.entries, seg.group.entries) ? was : seg;
+      const keep = was?.k === "group" && was.group.live === seg.group.live && was.group.stopped === seg.group.stopped && was.group.gap === seg.group.gap && was.group.time === seg.group.time && sameList(was.group.entries, seg.group.entries) ? was : seg;
       next.set(seg.group.key, keep);
       return keep;
     });

@@ -7,6 +7,7 @@ import { type RowCtx, stepModel } from "./rows";
 import type { AskReply } from "../../sync/replies";
 import type { WireMessage, WirePart } from "./wire";
 import { neutral } from "./fixtures/wire";
+import { mailsOf } from "./rows";
 
 const T0 = 1_790_000_000_000;
 const user: WireMessage = neutral({ info: { id: "u", role: "user", time: { created: T0 } }, parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] });
@@ -19,7 +20,7 @@ const rowOf = (questions: unknown[]) => {
   const [turn] = turnsOf([user, asked(questions)], "/");
   const step = turn?.items.find((x) => x.k === "step");
   if (!step || step.k !== "step") throw new Error("no step");
-  const ctx: RowCtx = { turns: turn ? [turn] : [], children: new Map(), thinking: "rows", now: T0 + 3000 };
+  const ctx: RowCtx = { reports: (turn ? [turn] : []).flatMap(mailsOf), children: new Map(), thinking: "rows", now: T0 + 3000 };
   return stepModel(step, ctx);
 };
 
@@ -53,7 +54,7 @@ describe("a settled ask's record", () => {
     const [turn] = turnsOf([user, m], "/");
     const step = turn?.items.find((x) => x.k === "step");
     if (!step || step.k !== "step") throw new Error("no step");
-    return stepModel(step, { turns: turn ? [turn] : [], children: new Map(), thinking: "rows", replies });
+    return stepModel(step, { reports: (turn ? [turn] : []).flatMap(mailsOf), children: new Map(), thinking: "rows", replies });
   };
 
   test("a permission this device answered carries its record, and the row opens on it", () => {

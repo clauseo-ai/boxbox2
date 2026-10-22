@@ -1,4 +1,4 @@
-/* an agent's report, opened (docs/thread.md, what started the turn; the
+/* an agent's report, opened (docs/thread.md, arrivals; the
    native client's decision 26): the transcript's chip raises the whole report
    in a sheet of glass from the foot of the screen, at half its height and
    whole at a press on its grabber (or a drag up), with the agent, when it
@@ -39,9 +39,11 @@ export function ReportSheet(props: { report: Report; onClose: () => void; /** th
   /* the sheet itself takes focus, not its grabber: a ring on the grabber reads as a selection nobody made */
   onMount(() => { dialog.showModal(); dialog.focus(); });
   onCleanup(() => { if (dialog.open) dialog.close(); });
-  const kind = () => (props.report.note ? "note" : "report");
+  const kind = () => props.report.kind;
+  /* a status is not a report: its sheet is the status of the agent, not something from it */
+  const title = () => (kind() === "status" ? `status of ${props.report.name}` : `${kind()} from ${props.report.name}`);
   return (
-    <dialog ref={dialog} class="rep-sheet" tabIndex={-1} data-detent={detent()} aria-label={`${kind()} from ${props.report.name}`} style={pull() ? { transform: `translateY(${pull()}px)` } : undefined}
+    <dialog ref={dialog} class="rep-sheet" tabIndex={-1} data-detent={detent()} aria-label={title()} style={pull() ? { transform: `translateY(${pull()}px)` } : undefined}
       on:keydown={(e) => e.key === "Escape" && e.stopPropagation()} on:close={() => props.onClose()} onClick={(e) => e.target === dialog && dialog.close()}>
       <button class="rep-grab" aria-label={detent() === "medium" ? `show the whole ${kind()}` : `show half of the ${kind()}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel}><i /></button>
       <header class="rep-sheet-h">
@@ -56,7 +58,7 @@ export function ReportSheet(props: { report: Report; onClose: () => void; /** th
         <Close label="close" onClick={() => dialog.close()} />
       </header>
       <div class="rep-sheet-body">
-        <Show when={props.report.outcome !== "none"}><span class="rep-tag" data-outcome={props.report.outcome}><ReportGlyph report={props.report} size="tag" />{props.report.outcome}</span></Show>
+        <Show when={props.report.outcome !== "none" && kind() !== "status"}><span class="rep-tag" data-outcome={props.report.outcome}><ReportGlyph report={props.report} size="tag" />{props.report.outcome}</span></Show>
         {props.children}
       </div>
     </dialog>

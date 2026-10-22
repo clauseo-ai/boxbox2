@@ -45,7 +45,7 @@ export function LiveReplay(props: { turn: Turn; ctx: RowCtx; speed?: number; onS
           await wait(40);
         }
         setItems((xs) => xs.map((x) => (x.k === it.k && x.id === it.id ? { ...it } : x)));
-      } else if (it.family === "shell" && it.ms >= 1500 && it.polls === undefined) {
+      } else if (it.k === "step" && it.family === "shell" && it.ms >= 1500 && it.polls === undefined) {
         const lines = it.output?.lines ?? [];
         const running: Step = { ...it, status: "running", output: { lines: [" "], cut: 0, cutAt: -1 } };
         delete (running as { evidence?: unknown }).evidence;

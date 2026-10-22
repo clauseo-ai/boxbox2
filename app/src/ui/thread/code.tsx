@@ -2,13 +2,15 @@
    in a bed with their numbers, its copy control and a door to the reader, the file full screen with its numbers, a wrap toggle and
    copy (reader.tsx, a chunk of its own: ui/later.ts); a long file's bed shows its opening lines under a fade and "show all 300 lines" opens it to every line; and the slip that
    holds words an agent wrote to another (a brief, a message), its copy control in its header, a long one faded under 44 px with
-   "read all 30 lines". */
+   "read all 30 lines". a chunk of its own (ui/later.ts): it draws only in a row someone opened, and the shell warms it once the
+   launch has painted (architecture.md, the script budget). */
 
 import { For, type JSX, Show, createMemo, createSignal, onMount } from "solid-js";
 import { CopyButton } from "./copy-button";
 import type { CopyKind } from "./copy-names";
 import { FileReader as LazyReader, warmOn, whenLoaded } from "../later";
-import { type FileText, fileFacts, showAllWords, wholeFile } from "./code-text";
+import { type FileText, fileFacts, wholeFile } from "./code-text";
+import { ShowAll } from "./show-all";
 import { watchOverflow } from "./diff";
 import { CODE_PREVIEW, CODE_WHOLE } from "./evidence";
 import { plural } from "./rows";
@@ -28,12 +30,6 @@ export function Numbered(props: { file: FileText; wrap?: boolean; /** the bed sh
   );
 }
 
-/** "show all 300 lines": the control at the foot of a bed that shows its opening lines, which opens it in place to every line. it
-    goes one way: the row's head closes the row, and the row opens again with the bed short */
-export function ShowAll(props: { count: number; diff?: boolean; /** the row it is in, which its name is told apart by */ row: string; onShow: () => void }) {
-  const words = () => showAllWords(props.count, props.diff === true);
-  return <button class="bed-all" aria-label={`${words()}, ${props.row}`} onClick={() => props.onShow()}>{words()}<i aria-hidden="true" /></button>;
-}
 
 /** a read's lines in a bed with their numbers, headed by the file's lines and its copy control, and a door to the reader. the bed
     holds every line the read returned when the row has them; a long file shows its first lines and opens to the rest */

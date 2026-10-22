@@ -1,7 +1,9 @@
 /* the turn models of every recorded transcript (fixtures/*.json, cmx2's shapes as recorded) built from their protocol 3 form,
    which the sync fixtures make as the server's translate.rs does (sync/fixtures/neutral.ts), digest for digest equal to the
    ones the model built from the cmx2 shapes before the port (fixtures/turn-digests.json, recorded by the model as it was then
-   with RECORD=1). a turn is told by its whole json, its maps as their entries */
+   with RECORD=1). a turn is told by its whole json, its maps as their entries. the model reads protocol 3 alone since the port,
+   so a change to what a turn is (decision 92: reports and notices are rows of the turn they came into) is recorded again from
+   the neutral form, RECORD=1, and the digests then hold that model to what it built */
 
 import { expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -45,7 +47,7 @@ const RECORDED = join(dir, "turn-digests.json");
 
 if (process.env["RECORD"] === "1") {
   test("records the turn digests of the cmx2 transcripts", () => {
-    writeFileSync(RECORDED, `${JSON.stringify(digests((m) => m as unknown as Message), null, 1)}\n`);
+    writeFileSync(RECORDED, `${JSON.stringify(digests(neutralMessage), null, 1)}\n`);
   });
 } else {
   test("every fixture transcript's turns, built from its neutral form, digest as they did from cmx2's", () => {

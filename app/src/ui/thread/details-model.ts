@@ -6,7 +6,7 @@
 import type { Thread } from "../../sync/protocol";
 import { modelName } from "../model-name";
 import type { Turn } from "./model";
-import { agentTitle, type Child, plural } from "./rows";
+import { agentTitle, type Child, mailsOf, plural } from "./rows";
 
 /* ---------- the agents this thread started ---------- */
 
@@ -43,7 +43,7 @@ export function rosterOf(turns: readonly Turn[], children: ReadonlyMap<string, C
     const name = s?.name ?? (titled.name || id);
     const type = s?.type ?? titled.seat;
     const at = s?.at ?? child.created;
-    const reported = turns.some((r) => r.by === "mail" && !r.note && (r.fromID ? r.fromID === id : r.from === name) && r.at >= at);
+    const reported = turns.some((t) => mailsOf(t).some((r) => (r.fromID ? r.fromID === id : r.from === name) && r.at >= at));
     return { id, child, name, ...(type ? { type } : {}), at, reported };
   });
   const seen = new Map<string, number>();

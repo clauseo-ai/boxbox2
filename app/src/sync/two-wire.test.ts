@@ -67,6 +67,12 @@ const MAIN = JSON.parse(gunzipSync(readFileSync(join(import.meta.dir, "fixtures/
     neutral by the table as it stood then, so these are laid onto its agents rather than editing the recording by hand */
 const ADDED_SINCE_RECORDING: Json = { fork: true, btw: true };
 MAIN.fleet.agents = MAIN.fleet.agents.map((agent) => ({ ...agent, capabilities: { ...(agent["capabilities"] as Json), ...ADDED_SINCE_RECORDING } }));
+/** threads main cut differently from this build since the recording (decision 92, 2026-10-22): main made a turn of every report,
+    note and notice, and this build makes each one a row of the turn it came into, so a thread whose recording holds such a turn
+    after its first has other turns (and the spend, the ruler and the panel that read them). those are held to main's turns from the
+    person instead (the turns main started at a report or a notice gone), and every other thread to main's whole */
+const recordedTurns = (key: string): Array<{ id: string; by: string }> => ((MAIN.threads as Record<string, { turns?: Array<{ id: string; by: string }> }>)[key]?.turns ?? []);
+const RECUT_SINCE_RECORDING = new Set(Object.keys(MAIN.threads).filter((key) => recordedTurns(key).some((t, i) => i > 0 && (t.by === "mail" || t.by === "notice"))));
 const EPOCH = "EPOCH";
 const TRANSCRIPT = new Set(["message", "part", "delta", "message.removed"]);
 
@@ -250,5 +256,10 @@ test.skipIf(!reactive)("every thread's turns, ruler, turns panel and details equ
   }
   expect(Object.keys(threads).sort()).toEqual(Object.keys(MAIN.threads).sort());
   expect(turnCount).toBeGreaterThan(Object.keys(threads).length);
-  expect(differences(threads, MAIN.threads)).toEqual([]);
+  const untouched = (all: Json): Json => Object.fromEntries(Object.entries(all).filter(([key]) => !RECUT_SINCE_RECORDING.has(key)));
+  expect(differences(untouched(threads), untouched(MAIN.threads as Json))).toEqual([]);
+  for (const key of RECUT_SINCE_RECORDING) {
+    const ours = ((threads[key] as { turns: Array<{ id: string }> }).turns).map((t) => t.id);
+    expect(ours).toEqual(recordedTurns(key).filter((t, i) => i === 0 || (t.by !== "mail" && t.by !== "notice")).map((t) => t.id));
+  }
 });

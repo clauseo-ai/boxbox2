@@ -10,13 +10,13 @@ under `app/.ladle`.
 
 ## the direction: the ledger
 
-a turn reads as text. what the agent said to you is the page, in sans;
-every run of steps between two of its texts (the tool calls, and the
-thinking that led to the next call) folds into one **step group**: a line
-that says what the run did ("6 steps · read 3, ran 2, edited 1 · 1 min")
-over a slim strip of its steps in time, the run's timeline. thinking that
-led to words sits directly above them as its own quiet "thought for" row;
-asks and permission prompts never fold. a group opens in place to the
+a turn reads as text. what you said and what the agent said to you is the
+page, in sans; everything between two of its texts (the tool calls, the
+waits, the thinking, what arrived meanwhile) folds into one **step
+group**: a line that says what the run did ("6 steps · read 3, ran 2,
+edited 1 · 1 min") over a slim strip of its steps in time, the run's
+timeline. a stretch of thinking alone keeps its quiet "thought for" row;
+asks and permission prompts never fold (decision 92). a group opens in place to the
 ledger of its run: one row for each thing the agent did, in the order it
 happened, the kind on the left, the thing itself, what came of it on the
 right, the clock in the margin where the minute changes. every row opens
@@ -41,19 +41,20 @@ reader.
                          │ okay now go ahead and       │  your message, right
                          │ implement everything   17:17│
                          └─────────────────────────────┘
-  17:17 │thought  Implementing everything is a big   20 s   the thought that led
-        │         scope, so I need to plan this               to the words under it
+  17:17 │thought  Implementing everything is a big   20 s   a stretch of thinking
+        │         scope, so I need to plan this               alone keeps its row
   17:18 │Starting implementation. First I need to know what   prose runs the measure
         │I can build and verify here.
-        │›        11 steps · ran 6, read 4, loaded 1  2 min   a run of steps: its
-        │         ▬  ▬▬ ▬  ▬▬▬    ▬▬  ▬                       line and its strip,
-        │         | ▮▮▮| |▮ ▮▮▮▮▮▮▮▮▮ | ▮▮                    opening to its rows
-  17:19 │thought  Good, the retry succeeded and the    4 s
-        │         baseline builds fine
+        │›        11 steps · ran 6, read 4, loaded 1  2 min   everything between two
+        │         ▬  ▬▬ ▬  ▬▬▬    ▬▬  ▬                       texts, the thought that
+        │         | ▮▮▮| |▮ ▮▮▮▮▮▮▮▮▮ | ▮▮                    led to the next words too
         │Baseline builds clean. Now reading the rest of the
         │files I'll be changing.
+        │›        9 steps · waited 4, ran 3 · 2 reports     what arrived is a row of
+        │         · stopped                         11 min   the group (a ring on the
+        │         ▬   ▬    ▬▬                                strip); a stopped turn's
+        │         | ▮ ○ |▮▮  ○ ▮▮                            row is its last group's
   17:49 │files    changed 19 files            +4,391 -25
-        │stopped  you stopped it after 11 min                 only if it was
         │Everything is already on origin. Both repos are     the answer
         │clean.
 ```
@@ -66,7 +67,14 @@ in order:
    step in flight) is the composer's queue's and draws no bubble until it
    lands as a turn (`composer.md`); in an agent's own thread, the brief its parent
    sent is the same bubble, "brief, 17:17" ("brief from worker_a," when a
-   nested agent sent it). an agent's report is one chip, one line
+   nested agent sent it). only these start a turn: a message from the
+   person (typed, queued, a steer), the brief, and a compaction (decision
+   92). a report, a note or a notice that comes after one of them starts
+   nothing: it is a row of the turn it came into, at its place in time,
+   folded into that turn's groups (see "arrivals"). one that came before
+   any of them, with no turn to join, still heads a turn of its own, as
+   follows, and what arrives after it joins that turn. an agent's report
+   heading a turn is one chip, one line
    whatever it holds (the native client's decision 26; the card clamped to
    eight lines "looked strange"): a capsule in the flood's own colour lifted
    toward the light with the glass edge (the stage's scroller is masked, so
@@ -81,31 +89,45 @@ in order:
    (12.5 px) without its markdown marks and without an outcome word that
    only labels it ("blocked: the zoom shots wait" reads "the zoom shots
    wait"; "ready to merge cd16978" stays whole), cut at its end, and a
-   chevron. a note is the same chip. its name says it whole: "report from
-   transport_impl, ready, 17:49, ready to merge cd16978" ("note from").
+   chevron. a note is the same chip, and so is a status (the daemon's
+   "reached status" line alone, read as the status: see "arrivals"). its
+   name says it whole: "report from
+   transport_impl, ready, 17:49, ready to merge cd16978" ("note from";
+   "status of r2_corpus, parked, 17:49").
    a press raises the **report's sheet**: glass in the top layer from the
    screen's foot, at most 720 px wide, 55% of the screen tall, or all but
    40 px at a press or a drag up on its grabber (a drag down halves it, or
    closes it from half); on top the glyph on a 36 px disc, the name (17 px,
    600; a press goes to the row that started the agent), "reported at 17:49"
-   ("wrote at" for a note; 12 px, second ink), "copy" (the whole report) and
-   a round close; under them the outcome as a tag and the report's markdown
+   ("wrote at" for a note, the status word for a status, "parked at"; 12 px, second ink),
+   "copy" (the whole mail) and
+   a round close; under them the outcome as a tag (none for a status) and
+   the report's markdown
    at the answer's size. escape, close, a press outside it and a drag down
-   close it, and focus goes back to the chip. a report arriving moves the
-   page by one line and opening it moves nothing. a runtime
-   notice (a job finished, a wake) is one mark line. a compaction is a
+   close it, and focus goes back to the chip (or the row that raised it).
+   opening it moves nothing. a runtime
+   notice heading a turn (a job finished, a wake) is one mark line. a
+   compaction is a
    mark line, "compacted here. show the summary", opening the summary card;
    the turn under it reads as any turn (see "every state", compacted).
-2. **the ledger**: the agent's words, the thoughts that led to them, its
-   asks, and each run of steps between them as one step group that opens
-   to its rows (see "the step group").
+2. **the ledger**: the agent's words, its asks, and everything between
+   two of its texts (steps, waits, thoughts, arrivals) as one step group
+   that opens to its rows (see "the step group"). at a turn's top level
+   only the person's words and the agent's texts show.
 3. **the files row**, when the turn edited anything: "changed 19 files,
    +4,391 -25", opening to every file with its counts and its diff.
 4. **how it ended**, when it did not end well: "stopped: you stopped it
-   after 11 min" or a red "failed" row with the daemon's reason.
-5. **the answer** is the prose after the last step, markdown at reading
+   after 11 min" or a red "failed" row with the daemon's reason. the
+   stopped row is the last row of the turn's last group when the turn's
+   rows end with one (its line then ends "· stopped"), and stands alone
+   otherwise (after words, say). the failed row always stands alone. a turn that
+   spans several wakes ends as its last wake ended: an arrival that wakes
+   the agent after a stop or a failure clears it.
+5. **the answer** is the agent's last text after its last step or
+   arrival across the whole turn, markdown at reading
    measure, flush with the rows' kind column and the title: it runs the
-   whole measure. once it has settled, one quiet line under it holds
+   whole measure. text followed by an arrival is a said row, and the
+   arrival goes into a group under it. once it has settled, one quiet line under it holds
    "copy", which copies the answer's markdown as the agent wrote it (see
    "code and copying").
 
@@ -140,7 +162,9 @@ turns are separated by 32 px; inside a turn everything is 16 px apart.
 - **the kind** is one word, mono 10.5 px, dim: `run`, `watch`, `type`,
   `commit`, `push`, `edit`, `write`, `read`, `grep`, `find`, `recall`,
   `fetch`, `search`, `agent`, `ask`, `plan`, `skill`, `note`, `wait`,
-  `agents`, `thought`, `files`, `stopped`, `failed`. `agent`, `ask`,
+  `agents`, `thought`, `files`, `stopped`, `failed`, and for what arrived
+  `report`, `status`, `job`, `notice` (a note from another agent is
+  `note`). `agent`, `ask`,
   `commit` and `push` are in the repo's light tone because they are rare
   and matter; a failed row's kind and result are red.
 - **the thing**, mono 12.5 px at 20 px line height for anything the
@@ -180,18 +204,87 @@ what each kind shows, and what opens beneath it:
 | permission (an edit, run or read row that is waiting) | the row it belongs to | `wants you` | "wants your permission to edit notes.md", the diff, allow once / always allow / deny, "or deny and say why" |
 | plan | the current item | `2 of 5` | every item with its state |
 | skill | its name | | |
-| note | `to parent` | | what it said, in a slip: "to transport_impl" and "copy" on top, the words under them |
+| note | `to parent`; a note from another agent: "from worker_a" and its gist (see "arrivals") | | what it said, in a slip: "to transport_impl" and "copy" on top, the words under them; a note from another agent raises its sheet instead |
 | wait | running: what it waits on, `for 2 agents` (the agents at work under it), `for a reply` (a correlation id) or `for a job or a message`; done: who it heard from, `from helper`, `from a background job`, `from root`, or `nothing came` | a duration; `timed out` | |
 | thought | the first sentence, sans 13.5 px at 60%; "8 thoughts: " leads a fold | the time spent | every thought in full, each with its clock and duration |
 | (said) | the prose, sans 15.5 px (16 at strip and rail), spanning the whole row, as markdown | | nothing; it is not a button |
 | files | `changed 19 files` | `+4,391 -25` | every file with its counts and file line; each opens its combined diff |
-| stopped | `you stopped it after 11 min` | | |
+| stopped | `you stopped it after 11 min`; the last row of the turn's last group when there is one | | |
 | failed | the daemon's reason | | |
+| report | the outcome's glyph, the agent's name in mono and the report's gist under it in sans, as an agent row's brief | the outcome word (`ready`, `blocked` lit, `failed` red), or nothing | nothing in place: a press raises the report's sheet |
+| status | the status glyph and the agent's name, in mono | the status, quiet: `parked`, `closed, closed by root` (`failed` red) | the report's sheet, titled "status of r2_corpus" |
+| job | the command's short form, mono, "no output" after it when there was none | `exit 0` quiet, `exit 1` or `killed` red | the command in its bed, facts (`job <id>`, `exit 0` or `killed by SIGTERM`, `started by you`, `at 17:49:03`), the last output in its bed or "no output" |
+| notice (or a job of a shape the row cannot read) | the first line, in sans | | the whole words in a bed, then the facts (`at 17:49:03`) |
 
 a **gap** of more than 90 s between one row ending and the next starting
 is a dotted line labelled "3 min later", starting at the kind column.
 a gap before a run of steps sits above its group; inside a group the gaps
 between its rows show when it is open.
+
+### arrivals
+
+decided 2026-10-22 (decision 92). an **arrival** is a message into the
+thread that is not the person's: another agent's report or note, a
+background job's notice, a line from the runtime. it starts no turn (see
+"anatomy of a turn"): it is a row of the turn it came into, at its place
+in time, and folds into the group of the stretch it came in with the
+steps around it (`model.ts`, `Arrival`, `startsTurn`; `rows.ts`,
+`arrivalModel`; `report.ts`). its row's key is `arrive:<message id>`,
+and its `data-part` is the message id.
+
+- **a report, a note.** the outcome's glyph (the chip's) on a 14 px
+  disc, the glyph 9 px, then the agent's name in mono, the machine's
+  face, as on the agent row that started it, and the gist the chip says
+  under it in sans, as that row's brief (a note reads "from worker_a" and
+  its gist); the result is the outcome word,
+  `ready` or `blocked` in the light tone, `failed` in red, or nothing. a
+  press raises the same report's sheet the chip opens (anatomy of a
+  turn), never a body under the row (`aria-haspopup="dialog"`). its name
+  is the chip's: "report from transport_impl, ready, 17:49, ready to merge
+  cd16978".
+- **a status.** cmx2 heads a child's report with its own line, "agent
+  /root/x reached status: parked" (a reason in brackets after a
+  failure), and closes it with "[child session: …]". a mail that is only
+  those lines is a status: kind `status`, the agent's name, the status as
+  its quiet result ("parked", "closed, closed by root"), and a glyph of
+  its own, never the letter disc: two bars for parked or paused, a square
+  for closed, shutdown or stopped, the cross for failed, a bar for
+  anything else, in the second ink (red for failed). named "status of
+  r2_corpus, parked, 17:49"; its sheet is titled "status of r2_corpus",
+  says "parked at 17:49" and has no outcome tag. a mail with the agent's
+  words after the line is a report read from those words: the daemon's
+  line is left out of the gist, and a "failed" status stands in as the
+  outcome when the words open with no outcome word. the sheet shows and
+  copies the whole mail either way.
+- **a job.** cmx2's notice reads "job <id>: exited with code N; no
+  output" or "; last output:" and its last lines, then "(started by you:
+  <command>)" (or "killed by SIGTERM"). the row is kind `job`, mono: the
+  command's short form (`shell.ts`, `shortCommand`) and " no output" when
+  there was none; the result `exit 0` quiet, any other code `exit N` in
+  red, a kill `killed` in red. it opens to the shell's body: the command
+  in its bed, the facts `job <id>` (strong), `exit N` or `killed by X`,
+  `started by you`, `at 17:49:03`, and the last output in its bed or "no
+  output". the job's id is only in the open body. named "job ./checks.sh,
+  exit 0, no output, 17:49".
+- **a notice**, or a job's words of another shape: kind `notice` (or
+  `job`), its first line as the thing, opening to its whole words in a
+  bed and then its facts ("at 17:49:03"), as a command's bed comes before
+  its facts.
+- **links.** an agent row's `reported` lands on the arrival row of its
+  report, opening the group it is folded into and lighting the row
+  (`thread.tsx`, `goToPart`, the same landing a url's `part=` has for a
+  folded part). it links the first report with words its agent sent
+  after it started; a status alone stands in while it is all that came.
+  the sheet's name press goes to the row that started the agent (the last
+  spawn row of its name at or before the turn the report came into),
+  opening its group when it is folded.
+- **live.** while the agent is parked, its last group is settled and its
+  last row is the wait, or the arrival that came. when an arrival wakes
+  the agent and no text comes in between, the same group (the same key)
+  takes the new rows and goes live again: no turn is inserted, and
+  nothing above the end moves. an arrival keeps its object across
+  rebuilds (the part memo, `<message id>:arrive`), so its row and its
+  entry are reused.
 
 ## folding
 
@@ -200,7 +293,9 @@ between its rows show when it is open.
 - consecutive **reads**, consecutive **searches** of one tool, and
   consecutive **web lookups** of one tool fold into one row.
 - **commands, edits, writes, agents, asks, plans and failures never
-  fold.** a failed read stands alone.
+  fold.** a failed read stands alone. each arrival is a row of its own.
+- these fold rows into one row. what folds into a step group (everything
+  between two of the agent's texts) is under "the step group".
 - a thought, a sentence or any other kind between two reads keeps them
   apart: the ledger never reorders.
 - reads of one file inside a fold merge (two spans, "2 reads").
@@ -233,7 +328,8 @@ these decide how a thing is shown, never whether it is shown.
   with `~` for home.
 - **an agent's brief** shows its first sentence; the whole brief opens.
 - **your message** clamps at six lines with "show all 423 characters";
-  a report is one line, its chip, and the whole of it is its sheet. the
+  a report heading a turn is one line, its chip, and a report that
+  arrived one row, and the whole of either is its sheet. the
   answer never clamps.
 - numbers are tabular everywhere; counts carry thousands separators.
 
@@ -265,14 +361,14 @@ row, and a story:
 | text, user, typed | | the bubble |
 | text, user, waiting (`info.queued`, or a steer waiting for the step in flight) | | no bubble: the composer's queue shows it (`composer.md`); the turn takes no room until it lands |
 | text, user, `mail` kind `task` (the brief that started this agent) | | the bubble, "brief," before its time |
-| text, user, `mail` kind `report` (an agent's report) | | the report chip; its sheet on a press |
-| text, user, `mail` kind `message` (a note from another agent) | | the report chip, "note from worker_a"; its sheet says "wrote at" |
-| text, user, `mail` kind `job` or `system`, or `notice` | | the mark line |
+| text, user, `mail` kind `report` (an agent's report) | | a row of the turn it came into, folded into its group: `report`, or `status` when it is the daemon's status line alone; its sheet on a press (see "arrivals"). before any message from the person, the report chip heading a turn of its own |
+| text, user, `mail` kind `message` (a note from another agent) | | the `note` row, "from worker_a", in the turn it came into; its sheet says "wrote at". before any message from the person, the chip, "note from worker_a" |
+| text, user, `mail` kind `job` or `system`, or `notice` | | the `job` row (a job's notice: mail kind `job`, or a notice whose source or words say "job <id>:") or the `notice` row, in the turn it came into. before any message from the person, the mark line heading a turn of its own |
 | text, user, `synthetic` | | not shown (context the daemon added) |
 | text, assistant | streaming | the said row with a caret at the end; words arrive unanimated (the thinking box fades its words in); in a running turn it is the window's newest row, from the announcement of the part |
-| text, assistant | settled | the said row; the last one after the last step is the answer, as markdown |
+| text, assistant | settled | the said row; the last one after the last step or arrival of the turn is the answer, as markdown |
 | reasoning | streaming | live: "thinking" with a running clock, its text in a 112 px box that follows the newest line; a tap on the box shows the whole thought, growing as it is written, and a second takes it back to the box |
-| reasoning | settled | the thought row, folded with its neighbours |
+| reasoning | settled | folded into the group of its stretch, the thought that led to words included; a stretch of thinking alone is the thought row, folded with its neighbours |
 | tool | pending | the row with `waiting` in the light tone; a permission ask on it opens the permission card |
 | tool | running | the row with a live clock; a shell's last 2 kb of output in the open body, following the newest line; on its group's strip a running step grows to the head |
 | tool | completed | the row with its result |
@@ -285,12 +381,12 @@ the turn's own states, from `MessageInfo` (`time.completed`, `error`,
 
 | state | the turn |
 |---|---|
-| working | live layout below; the header's line says "working 3:40, 12 steps" with a stop control |
+| working (any of the turn's assistant messages runs) | live layout below; the header's line says "working 3:40, 12 steps" with a stop control, both counted from the turn's latest wake (its last arrival, `model.ts`, `wakeOf`), not from the person's message |
 | done | the ledger, then the answer |
-| aborted (`MessageAbortedError`, or `finish: aborted`) | the ledger, then the stopped row |
+| aborted (`MessageAbortedError`, or `finish: aborted`) | the ledger, the stopped row as its last group's last row ("· stopped" on the line), or standing alone after words; how the turn's last wake ended is how it ended, so an arrival after a stop clears it |
 | failed (any other error) | the ledger, then the red failed row with the reason |
 | retrying (`SessionStatusRetry`) | the header's line says "retrying in 20 s, attempt 2: rate limited"; the ledger keeps its shape |
-| parked (`SessionStatusIdle.parked`) | with agents at work the thread is working: the header's line says "working 0:41, 2 agents" (a live clock from when its own turn handed over; a door to the agents panel) and the window is "working"; parked on jobs alone, "parked, waiting on 2 jobs". the last row is the wait or the agent |
+| parked (`SessionStatusIdle.parked`) | with agents at work the thread is working: the header's line says "working 0:41, 2 agents" (a live clock from when its own turn handed over; a door to the agents panel) and the window is "working"; parked on jobs alone, "parked, waiting on 2 jobs". the last group is settled and its last row is the wait, or the arrival that came; an arrival that wakes the agent continues that group (see "arrivals") |
 | queued behind (`info.queued`) | no bubble: the provisional message is the composer's queue's card; it draws as the turn's bubble under its transcript id when it lands (`message.removed` retires the provisional one) |
 | compacted | the mark line, "compacted here. show the summary", and under it the turn read as any turn: its rows, its groups and its answer with copy (cmx2 compacts mid-turn and at the first request after an idle spell, so what follows the summary is the turn's own work; the native client's decision 27). the summary is the text of the assistant message marked `summary: true`, never a row or the answer: only the card the mark opens, a well right under it (16 px of padding, radius 18, the report's prose); closed, it is nothing. a compaction recorded with no message marked summary keeps the old reading: its last words are the summary and the turn shows only its mark |
 
@@ -325,7 +421,7 @@ after the parent's turn ended too):
 | started, working (the child's status is busy or retrying) | `agent name`, a live clock from when it was started; the facts say "working for 7 min". a settled turn whose agent still works keeps the row's clock running |
 | wants you (an ask is pending on the child) | `wants you` in the light tone |
 | parked (the child's status is idle with `parked`) | `parked`; "parked on agents of its own" |
-| reported | `reported`; the report chip appears where it arrived, and links back |
+| reported | `reported`; the report's row appears where it arrived (the chip, when it came before any message from the person), and the link lands on it, opening its group |
 | never started (no child session) | no result; the facts say "did not start" |
 | idle without a report | `128 steps` once its thread is held (nothing until then); "its turn ended, no report" |
 | not in the fleet (the fleet knows the parent and not the child: it holds only each host's newest 300 threads, so an agent's session is often older, or it was archived; which is not known) | idle: "its turn ended, no report" (or reported, when its report is in the thread), and a door that opens it by its key; a thread the server cannot find says so (reading, below). the agents panel's row says "no report" or "reported" and is a door, as the ios app has it. the spend sheet still calls it archived and leaves its cost out, since the fleet's cost is what it lacks |
@@ -847,7 +943,8 @@ state classes are the existing ones (`on`, `bad`, `lit`) and
 
 decided 2026-10-16, porting the native client's decision 25: every run of
 steps between two of the agent's texts is one group, and the group is that
-run's timeline. the turn tape that sat under a heavy turn is gone; its
+run's timeline. since 2026-10-22 (decision 92) the group holds everything
+between two texts: steps, waits, thoughts, arrivals and the stopped row. the turn tape that sat under a heavy turn is gone; its
 lanes live on, scaled down, as each group's strip. the model is
 `groups.ts` (pure, exported for home's windows), the view `GroupView` and
 `strip.tsx`. live, the strip's shapes are new every second, so its marks,
@@ -860,22 +957,42 @@ moves their elements in place and makes none again.
     | |  ▮▮▮▮  ▮  |  ▮▮                                       tools
 ```
 
-- **what folds.** the rows of a turn fold into a run unless they stand on
-  their own: the agent's words; a thought that led to words, to an ask or to
-  the end of a settled turn (the "thought for" row, its usual thought row,
-  directly above the words it led to); an ask, or a step that waits on the
-  person's permission (pending, from the step or the fleet's list). a
-  thought that led to a tool call is in the run, and so is the thought a
-  running turn is having now (what it leads to is not known yet). the
-  turn's last rows (its files, how it ended) come after the runs, above a
-  thought that stands over the answer.
+- **what folds.** at a turn's top level only the person's words and the
+  agent's texts (its said rows and the answer) show; everything between
+  two texts folds into one run (decision 92): tool steps, waits, thoughts
+  (the thought that led to words included: it goes into the run before
+  them) and arrivals (see "arrivals"). standing on their own, never
+  folded: an ask, a step that waits on the person's permission (pending,
+  from the step or the fleet's list), the files row and the red failed
+  row. a settled run that is only thoughts (no steps, no arrivals) is not
+  a group of one: it stays the thought row ("thought for", or "8
+  thoughts: "), and when it is the last before the answer, the turn's
+  last rows go above it, so it stays directly above the words it led to.
+  a live run of only a thought is a live group with no line. the
+  **stopped** row folds into the turn's last group as its last row when
+  the turn's rows end with a group: the line ends "· stopped" in the
+  third ink, its name too ("2 steps, read 1, ran 1, stopped, 10 min"),
+  and its clock runs to the stop; otherwise it stands alone. the files
+  row comes after the runs.
 - **the line.** a chevron in the kind column (9 px, the third ink, the light
   tone while live; it turns down when open, with no animation), then the
   line, sans 13.5 px at 20 px, one line cut at its end: settled "6 steps ·
   read 3, ran 2, edited 1" (the three verbs that came most, ties in the
   order they came, the rest as "2 more"), live "running bun test · 4 steps"
   (what the newest row is doing, in the full ink, then the count), and "1
-  failed" after either in red. the verbs: read, searched, edited, ran,
+  failed" after either in red. steps are tool calls; what arrived is
+  counted apart after the verbs, by its noun, the most first, ties in the
+  order the first of each came (report, note, status, job, notice;
+  "statuses" for several). a group with arrivals names its two verbs that
+  came most and its two nouns, each with the rest as "N more": "12 steps
+  · waited 4, ran 4, 4 more · 3 reports, 1 status, 2 more", "5 steps ·
+  ran 3, waited 2 · 1 report, 1 job". so the line stays one line a phone
+  can mostly show; its name and its rows say all of it. a run of
+  arrivals alone says only them, "1 note, 1 notice", never "0 steps";
+  live, "waiting · 4 steps · 2 reports". an arrival as the newest row is
+  doing "report from helper", "note from helper", "a job ended" or "a
+  notice came". the group's name is the line with " · " read as ", "
+  and the settled clock after it. the verbs: read, searched, edited, ran,
   fetched, started, messaged, waited, checked, asked, planned, loaded,
   used; live reading, searching, editing, running, fetching, starting,
   messaging, waiting, writing, thinking. the line is the second ink closed
@@ -904,8 +1021,12 @@ moves their elements in place and makes none again.
   thought; the tools' bed (from 6 px to the foot, ink at 4%, radius 3)
   with a mark for each step: an edit a tall tick in the add green, a
   command of 1.2 s or more a bar in the light tone as long as it ran, an
-  agent a full-height ink line, a question a 5 px ink square, the rest a
-  short tick of ink at 42%, a failure red over any. settled, its span is
+  agent a full-height ink line, a question a 5 px ink square, an arrival
+  a small ring (6 px, a 1.5 px stroke in the ink at 70%, red for a failed
+  job; `mk-arrival`), the rest a
+  short tick of ink at 42%, a failure red over any. a press on a ring
+  lands on its row as any mark does, and its keyboard value says
+  "arrived" when the row has no name of its own. settled, its span is
   the run's own with quiet stretches over three minutes folded to 20 s each
   side and a 3 px break in the tracks; live, the span runs ahead to the next
   of 30 s, 1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180 or 240 minutes past
@@ -1234,7 +1355,9 @@ growing at its end, and the run going on now is at the live edge:
   result of the current row; a row's html is rebuilt only when what it
   reads changed.
 - the header's line and the bar's line say "working 1:34, 5 steps" with a
-  stop control, and "done just now, worked 1 min" for a minute after a
+  stop control (the clock and the steps from the turn's latest wake, its
+  last arrival, so a turn that spans a parked afternoon says what this
+  wake has done), and "done just now, worked 1 min" for a minute after a
   turn the reader watched ends.
 - **the settle changes as little as it can.** the run folds whole into its
   group and the trailing reply becomes the answer.
@@ -1264,6 +1387,14 @@ decided here, where the law was silent:
   running turn is the newest turn that is not a queued one still waiting,
   while the session is working. the shape does not flip between the steps
   of a turn, each of which is its own message.
+- **a wake is not a turn** (decision 92). a report, a note or a notice
+  that comes while the agent is parked is a row of the turn going on, and
+  the agent's work after it carries on in that turn: when no text came in
+  between, in the same group, which goes live again under the same key.
+  no turn is inserted, the page does not jump, and the person's message
+  keeps its place at the head of the turn. a turn spans every wake until
+  the person's next message, and it is working while any of its messages
+  runs.
 - **a turn appears whole.** a user message that has no part yet (the
   daemon announces the message before its text) is not shown: painted
   alone it is an empty bubble that grows by its first line and pushes the
@@ -1489,10 +1620,12 @@ touching those (`big-text.ts`):
     "forking" while it runs.
   - **from a turn**, "fork from here" (a branch glyph, 12.5 px, the second
     ink) sits after the reply's copy on the line under every settled turn's
-    answer, or on a line of its own for a turn with no answer (a report, a
-    stopped turn). it forks the history through that turn's end: the cut
-    is before the next turn's first message, and the last turn forks the
-    whole thread. so forking the last turn copies whatever the thread
+    answer, or on a line of its own for a turn with no answer (a stopped
+    turn, a report heading the thread). it is there once per turn, so once
+    per message from the person, never once per wake (decision 92). it
+    forks the history through that turn's end: the cut is before the
+    person's next message, so the fork holds every report and notice that
+    arrived in the turn, and the last turn forks the whole thread. so forking the last turn copies whatever the thread
     holds when the agent makes the fork, a turn another device started in
     the meantime included: cmx2 cuts only before a message, and the
     message after the last turn does not exist yet to cut before (decided:
@@ -1542,6 +1675,9 @@ touching those (`big-text.ts`):
     turn it was forked from (`/?thread=<key>&cut=<message>`: the stage
     lands on the turn just above the cut message, `fork.ts`,
     `turnBeforeCut`; a whole-thread fork has no cut and opens at the end).
+    a cut before a report or a notice (a fork made when those were turns
+    of their own, or cut inside a turn by another client) lands on the turn
+    it arrived in, which the fork holds up to there.
     a thread the fleet does not hold is named "forked from another
     thread"; a tap asks for it through the agent's adopt (`POST
     /api/agents/:agent/threads/:id/adopt`) and opens it once
@@ -1609,9 +1745,12 @@ touching those (`big-text.ts`):
   system swipe). the pretty form, `/t/<host>/<session>`, waits for the
   server to serve the app shell under any path (m7).
 - **copy link** in the menu copies the url of the turn in view (m7).
-- an agent row's `reported` links to its report chip, the nearest one
-  after it; the report's agent name links back to the row that started
-  it. a step on a group's strip links to its row. the turns panel and the ruler link to
+- an agent row's `reported` links to its report's row, the first one
+  with words after it started, opening the group it is folded into (or to
+  the chip of a report heading a turn); the report's agent name links back
+  to the row that started it, opening its group (see "arrivals"). a
+  `part=` that names a row folded into a closed group opens the group and
+  lights the row inside. a step on a group's strip links to its row. the turns panel and the ruler link to
   turns.
 - links in prose open in a new tab with no referrer (the sanitiser sets
   `target` and `rel`). a link goes to `http`, `https` or `mailto` and nowhere
@@ -1772,9 +1911,9 @@ report", "read the whole note", "show all N characters", "allow once",
 every class is scoped to its element and nothing reuses a generic word:
 `row`, `row-h`, `row-t`, `row-k`, `row-c`, `row-r`, `row-b`; `group`
 (a row that is a step group, `shown` while open), `group-chev`,
-`group-doing`, `group-band`, `group-gutter`, `strip`, `strip-lane`,
+`group-doing`, `group-stopped` (the line's "stopped"), `group-band`, `group-gutter`, `strip`, `strip-lane`,
 `strip-track`, `strip-bed`, `strip-wash`, `strip-think`, `strip-mk` (its
-kind and state as `mk-run`, `mk-bar`, `mk-running`, `mk-bad`: a bare `bar`
+kind and state as `mk-run`, `mk-bar`, `mk-running`, `mk-bad`, `mk-arrival` (an arrival's ring): a bare `bar`
 once took home's `.home .bar`), `strip-head`;
 `tail`; `bar`, `bar-title`, `title-block`, `tb-repo` (the place line: the
 repo's name beside its mark; a thread in the disk's root says the machine's
@@ -1804,7 +1943,7 @@ and `.strip` meaning two things; that does not happen again.
 ## from the wire
 
 the view model (`app/src/ui/thread/model.ts`) turns the daemon's
-messages into turns of items (said, thought, step) and the rows fold
+messages into turns of items (said, thought, step, arrival) and the rows fold
 from the items. what it reads:
 
 | the row needs | from |
@@ -1822,7 +1961,7 @@ from the items. what it reads:
 | a permission | the fleet's asks (the daemon's `/permission`) by `tool.callID` |
 | a step's moment | `state.time.start`, else `end`, else the message's `time.created`: native tool parts carry `start: null` (`gotchas.md`) |
 | a thought's duration | `ReasoningPart.time` |
-| a report, a note, a brief, a notice | the user message's `mail {kind, from, fromID}` (cmx2's mail kinds: `task`, `report`, `message`, `job`, `system`), `from` without `/root/`; a report is joined to the row that started its agent by `fromID`, by name when the daemon gave none; imported history marks reports as `[from /root/name]:` |
+| a report, a note, a brief, a notice | whether it starts a turn (`model.ts`, `startsTurn`: the person's message, the brief and a compaction do; a report, a note or a notice is an arrival in the turn it came into, unless no turn has started) and the user message's `mail {kind, from, fromID}` (cmx2's mail kinds: `task`, `report`, `message`, `job`, `system`), `from` without `/root/`; a report is joined to the row that started its agent by `fromID`, by name when the daemon gave none; imported history marks reports as `[from /root/name]:` |
 | the turn's end state | `MessageInfo.error.name`, `finish`, `time.completed` |
 | a compaction | the user message with a compaction part, then the assistant message with `summary: true` |
 
@@ -1867,8 +2006,12 @@ copying; `stories/code-sample.ts` is the markdown their stories paint.
 
 **from the store.** the worker holds `state.threads[key]` (m2: hydrated
 at a seq with the in-flight message, deltas applied by offset) and the
-stage reads it. `createTurns` (`turns.ts`) cuts the messages at each user
-message (it reads only their roles) and gives each turn a memo of its own,
+stage reads it. `createTurns` (`turns.ts`) cuts the messages at each
+message from the person, the brief or a compaction (it reads only the user
+messages: their roles and their text parts' flags, mail, notice, the
+imported `[from /root/x]:`, through `startsTurn`, never joining their
+words), so a turn spans the agent's messages across wakes and the
+arrivals among them (decision 92), and gives each turn a memo of its own,
 which reads only its own messages by index: a delta to the running turn
 wakes the running turn and nothing else, so the cost of a patch is the
 cost of what changed, not of the thread. a turn is rebuilt only when what
@@ -1886,7 +2029,9 @@ turn is not digested at all until it ends: what changes in it is its stream,
 which always says something else, and digesting the whole turn at every
 100 ms batch was most of the page's garbage with an agent streaming (about
 200 of 400 mb a minute allocated, chromium's sampling profiler, a lead
-thread open over children of 300 kb). a part sent again with the same
+thread open over children of 300 kb). nor is a settled turn that gained a
+message since it was last built (an arrival into a parked turn): its
+digest cannot match the one before. a part sent again with the same
 words is the same turn and keeps its dom; any change to a field a turn
 shows is a different digest, and the turn is built again. untouched turns keep
 their objects and their dom. the turn that is rebuilt is not
@@ -1918,7 +2063,9 @@ ticks each second only then, or while any of the turn's agents still
 works, and never while the page is hidden (`ui/clock.ts`) (`ctx.tick`, the agent rows' clock; `ctx.now`
 stays the sign that the turn itself runs). the clock is not part of the
 context the stage shares (`data.ctx`: the children, the asks by call id,
-the thinking setting, and the mail turns an agent row finds its report in):
+the thinking setting, and the reports an agent row finds its own in,
+`RowCtx.reports`: one per report that arrived or that heads a turn, read
+once per turn object, `rows.ts`, `mailsOf`):
 each turn is handed `now` (the running turn) or `tick` (a settled turn
 whose agents work) by its own memo, whose equality is what that turn reads
 of the context (`sameCtxFor`, `ledger.ts`: the asks on its own steps, its

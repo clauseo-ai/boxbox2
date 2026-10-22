@@ -8,7 +8,7 @@ import { For, type JSX, Show, createMemo, createUniqueId } from "solid-js";
 import type { Thread } from "../../sync/protocol";
 import { type AgentRow, type FactLine, type Spend, agentState, cachedShare, contextOf, figure, type FileChange, type filesChanged, kept, type ModelUse, modelsOf, percentWords, ranOf, spend, switches, tokensIn } from "./details-model";
 import type { Turn } from "./model";
-import { clock, clockDur, dur, isBad, n, plural } from "./rows";
+import { clock, clockDur, dur, isBad, mailsOf, n, plural } from "./rows";
 import { Close } from "../close";
 import { SpendDialog, warmEdgeOn, warmOn, whenLoaded } from "../later";
 import "./details.css";
@@ -59,11 +59,12 @@ export type PanelProps = {
 };
 
 const isPrompt = (t: Turn): boolean => t.by === "you" || t.by === "queued" || t.by === "steer" || t.by === "brief";
-const isReport = (t: Turn): boolean => t.by === "mail" && !t.note;
+/** the reports a turn holds: the ones that arrived in it, or the one that started it (rows.ts, mailsOf) */
+const reportsIn = (turns: readonly Turn[]): number => turns.reduce((n, t) => n + mailsOf(t).length, 0);
 const counted = (k: number, one: string): string => (k ? plural(k, one) : "");
 
 export function Panel(props: PanelProps) {
-  const turnsSaid = () => [counted(props.turns.listed.filter(isPrompt).length, "prompt"), counted(props.turns.listed.filter(isReport).length, "report")].filter(Boolean).join(", ");
+  const turnsSaid = () => [counted(props.turns.listed.filter(isPrompt).length, "prompt"), counted(reportsIn(props.turns.listed), "report")].filter(Boolean).join(", ");
   const sheetTitle = () => (props.which === "details" && props.place === "sheet" ? props.heading : undefined);
   /* the line under the title: the sheet says where the thread runs, the turns say how many they are; docked, the title
      stands alone */

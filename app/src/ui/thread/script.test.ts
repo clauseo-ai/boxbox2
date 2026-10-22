@@ -12,6 +12,7 @@ import { type RowCtx, kindOf } from "./rows";
 import { A_SCRIPT, leadingComment, scriptName, scriptTitle } from "./script";
 import type { WireMessage, WirePart } from "./wire";
 import { neutral } from "./fixtures/wire";
+import { mailsOf } from "./rows";
 
 const T0 = 1_790_000_000_000;
 const SCRIPT = "const cmds = {\n  a: 'git status',\n};\nfor (const c of Object.values(cmds)) await shell.exec({ command: c });";
@@ -63,7 +64,7 @@ describe("a script's name", () => {
     const msgs = [user(), assistant([{ id: "w1", type: "text", text: "a quick look first.", time: { start: T0 + 60_000, end: T0 + 61_000 } } as unknown as WirePart, runPart({ code: SCRIPT })])];
     const turn = turnsOf(msgs, "/w")[0];
     if (!turn) throw new Error("no turn");
-    const ctx: RowCtx = { turns: [turn], children: new Map(), thinking: "rows", now: T0 + 400_000 };
+    const ctx: RowCtx = { reports: ([turn]).flatMap(mailsOf), children: new Map(), thinking: "rows", now: T0 + 400_000 };
     const segs = segmentsOf(ledgerOf()(turn, ctx, true), { running: true, ctx });
     const g = segs.find((x) => x.k === "group");
     if (g?.k !== "group") throw new Error("no group");
@@ -87,7 +88,7 @@ describe("a part's moment, in the order the rows read", () => {
     expect(s.at).toBe(T0 + 61_000);
     const turn = turnsOf([user(), assistant([words, runPart({ code: SCRIPT })])], "/w")[0];
     if (!turn) throw new Error("no turn");
-    const ctx: RowCtx = { turns: [turn], children: new Map(), thinking: "rows", now: T0 + 300_000 };
+    const ctx: RowCtx = { reports: ([turn]).flatMap(mailsOf), children: new Map(), thinking: "rows", now: T0 + 300_000 };
     const segs = segmentsOf(ledgerOf()(turn, ctx, true), { running: true, ctx });
     const g = segs.find((x) => x.k === "group");
     if (g?.k !== "group") throw new Error("no group");

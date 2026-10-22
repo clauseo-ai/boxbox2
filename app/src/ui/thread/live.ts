@@ -16,7 +16,7 @@ import type { Btw } from "../btw/types";
 import { NO_MESSAGES, type TurnsOptions, createTurns } from "./turns";
 import { type Wanted, createHolds, isRead } from "./holds";
 import type { ThreadCaches } from "./memo-cache";
-import type { Child, ChildState, PendingAsk, RowCtx } from "./rows";
+import { type Child, type ChildState, type PendingAsk, type RowCtx, mailsOf } from "./rows";
 import { number } from "./wire";
 import type { Kin } from "./details-model";
 import { repoColour } from "../window/colours";
@@ -158,8 +158,10 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
     return toneOfColour(repoColour({ host: host(), root: s ? (s.place?.root ?? "") : directory() || key() }));
   });
 
-  /* the agents' reports, which an agent row links to: the mail turns alone, which a delta to the running turn never changes */
-  const reports = createMemo(() => turns().filter((t) => t.by === "mail" && !t.note), [], { equals: (a, b) => a.length === b.length && a.every((t, i) => t === b[i]) });
+  /* the agents' reports, which an agent row links to: the reports that arrived in the turns (and a turn a report started), each read
+     once per turn object (rows.ts, mailsOf), so a delta to the running turn walks its items alone and hands out a new list only when
+     a report came or went */
+  const reports = createMemo(() => turns().flatMap(mailsOf), [], { equals: (a, b) => a.length === b.length && a.every((m, i) => m === b[i]) });
 
   /* the agents this thread started: every session the fleet holds with this one as its parent (however it was started:
      the spawn tool, or `agents.spawn` inside a run script, which leaves no spawn part), plus the children the spawn
@@ -328,7 +330,7 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
 
   /* the context a row is painted in, without the clock: it changes when a child, an ask, a report or the thinking setting does,
      never for a delta to the running turn nor for a second passing (the clock is `now`, handed to the turns that show it) */
-  const ctx = createMemo<RowCtx>(() => ({ turns: reports(), children: children(), asks: asksByCall(), replies: replies(), thinking: thinking() }));
+  const ctx = createMemo<RowCtx>(() => ({ reports: reports(), children: children(), asks: asksByCall(), replies: replies(), thinking: thinking() }));
 
   /* the btws (the store's `threads[key].btws`, by id): listed when one comes or goes or is replaced whole, never for an answer's
      delta (that writes inside a record, which placement does not read); placed by the shown messages' ids and roles alone,

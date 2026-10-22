@@ -36,7 +36,7 @@ import { type Boxes, FootRoom, MOST_OF_VIEW, type Seen, roseSince, seenAt } from
 import { CLEAR_OF_BAR, askLanding, layoutTop } from "./ask-landing";
 import { createLapse } from "./focus-lapse";
 import { createCaughtUp } from "../caught-up";
-import type { Turn } from "./model";
+import { type Turn, wakeOf } from "./model";
 import { flip, installMotion, reducedMotion } from "./motion";
 import { clock, clockDur, dur, plural, waitingOn } from "./rows";
 import { AskContext, CachesContext, ChildWatchContext, FollowContext, ForkContext, type ForkHere, LandingContext, MeasureContext, NamesContext, OpenAgentContext, READING, type Settle, SettleContext, ThreadKeyContext, TurnView, WindowContext, bring, light } from "./thread";
@@ -189,7 +189,9 @@ export function Stage(props: StageProps) {
   const parentKey = () => { const p = session()?.parent; return p ? `${data.host()}:${p}` : (props.parent ?? null); };
   const parentTitle = () => { const k = parentKey(); return k ? state.fleet.threads[k]?.title || k.slice(data.host().length + 1) : ""; };
   const lastTurn = () => data.turns().at(-1);
-  const stepsOfLast = () => lastTurn()?.items.filter((x) => x.k === "step").length ?? 0;
+  /* the steps of the newest turn's current stretch of work: since what last woke it (model.ts, wakeOf), so a turn that spans a parked
+     afternoon of wakes says what this wake has done */
+  const stepsOfLast = () => { const t = lastTurn(); if (!t) return 0; const from = wakeOf(t); return t.items.filter((x) => x.k === "step" && x.at >= from).length; };
   /* the agents this thread started: the fleet's children, named by the rows that started them where a spawn row did,
      else by the daemon's title "name (seat)" (an agent started from a run script leaves no spawn row, cmx2 ask a27)
      (details-model.ts, rosterOf; docs/thread.md, agents) */
@@ -252,7 +254,7 @@ export function Stage(props: StageProps) {
         const on = waitingOn({ agents: n, reply: !!cur.reply, ...(replyFrom ? { replyFrom } : {}) });
         return { text: `waiting on ${on} for ${clockDur(Math.max(0, data.now() - cur.at))}`, live: true, agents: n > 0 };
       }
-      return { text: `working ${clockDur(Math.max(0, data.now() - last.at))}, ${plural(stepsOfLast(), "step")}`, live: true, agents: false };
+      return { text: `working ${clockDur(Math.max(0, data.now() - wakeOf(last)))}, ${plural(stepsOfLast(), "step")}`, live: true, agents: false };
     }
     if (s?.state === "parked") {
       /* a thread whose agents are at work is working, whatever the daemon calls its own turn (design.md, the window) */
@@ -752,6 +754,8 @@ export function Stage(props: StageProps) {
       const row = scroller.querySelector<HTMLElement>(`.row[data-part~="${CSS.escape(place.part)}"]`);
       if (row) {
         landed = true;
+        /* a part folded into a closed group: the group opens and the row in it is the one lit */
+        if (row.classList.contains("group")) { const part = place.part; void import("./land").then((m) => m.goToPart(scroller, part, scroller)); return; }
         const button = row.querySelector<HTMLButtonElement>(":scope > button.row-h");
         if (button && !row.classList.contains("open")) button.click();
         light(row, scroller);

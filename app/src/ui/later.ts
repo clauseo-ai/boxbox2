@@ -1,7 +1,7 @@
 /* the surfaces that open only after a person acts, split from the first load (architecture.md, the script budget): the
    new-thread sheet, home's answer sheet, the composer's model menu, effort dial, plus menu, suggestions (a `/`, `@` or
    `!` draft), queue list and queue verbs, an agent's report in its sheet, a file in the reader, the details' spend
-   dialog and a tool's picture full size. each is a chunk of its own. the shell warms them all once the launch
+   dialog, a tool's picture full size, and an opened row's file bed or slip. each is a chunk of its own. the shell warms them all once the launch
    has painted and the page is idle (the machines, history, settings and the terminal load when first asked for), and a trigger warms its own
    at the first touch (pointerdown). a surface never opens onto nothing: its trigger opens it through `whenLoaded`,
    which opens at once when the chunk is in (solid's `lazy` then renders it in the same pass, as when it was in the
@@ -23,9 +23,13 @@ export const ReportSheet = lazy(() => import("./thread/report-sheet").then((m) =
 export const FileReader = lazy(() => import("./thread/reader").then((m) => ({ default: m.FileReader })));
 export const SpendDialog = lazy(() => import("./thread/spend-dialog").then((m) => ({ default: m.SpendDialog })));
 export const PictureViewer = lazy(() => import("./thread/picture-viewer").then((m) => ({ default: m.PictureViewer })));
+/* what an opened row holds when it is a file's lines or an agent's words (a read's bed, a brief's or a message's slip): drawn only in a
+   row someone opened, so split as the surfaces are and warmed with them; the row's press opens it at once once warmed */
+export const FileBed = lazy(() => import("./thread/code").then((m) => ({ default: m.FileBed })));
+export const Slip = lazy(() => import("./thread/code").then((m) => ({ default: m.Slip })));
 
 type Surface = Component<never> & { preload: () => Promise<unknown> };
-const surfaces = { NewThreadSheet, AskSheet, ModelMenu, EffortDial, ToolsMenu, Suggestions, QueueList, QueueVerbs, ReportSheet, FileReader, SpendDialog, PictureViewer } satisfies Record<string, Surface>;
+const surfaces = { NewThreadSheet, AskSheet, ModelMenu, EffortDial, ToolsMenu, Suggestions, QueueList, QueueVerbs, ReportSheet, FileReader, SpendDialog, PictureViewer, FileBed, Slip } satisfies Record<string, Surface>;
 export type SurfaceName = keyof typeof surfaces;
 
 const loaded = new Set<SurfaceName>();

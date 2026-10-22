@@ -25,6 +25,7 @@ type Modelled = Exclude<Row, { k: "say" }>;
 function rowKey(r: Modelled): string {
   if (r.k === "step") return `step:${r.step.id}`;
   if (r.k === "fold") return `fold:${r.steps[0]?.id ?? r.at}`;
+  if (r.k === "arrive") return `arrive:${r.arrival.id}`;
   return `think:${r.thoughts[0]?.id ?? r.at}`;
 }
 
@@ -32,6 +33,8 @@ function rowKey(r: Modelled): string {
     as last pass, the model would come out the same */
 function inputsOf(r: Modelled, ctx: RowCtx): unknown[] {
   if (r.k === "fold") return r.steps;
+  /* an arrival's row reads its item alone, which a rebuild keeps while its message says the same (model.ts, arrivalIn) */
+  if (r.k === "arrive") return [r.arrival];
   if (r.k === "think") return [...r.thoughts, ctx.thinking, r.thoughts.at(-1)?.streaming ? ctx.now : undefined];
   const s: Step = r.step;
   const spawn = s.family === "spawn";
@@ -137,7 +140,7 @@ export function ledgerOf(): Ledgerer {
 }
 
 /** whether a turn would paint the same under `b` as under `a`: the turn reads the clock, the thinking setting, the asks on
-    its own steps and this device's replies to them, and for each of its agents the child and its report, and nothing else of the context. the stage hands every
+    its own steps and this device's replies to them, and for each of its agents the child and its report (rows.ts, reportFor), and nothing else of the context. the stage hands every
     turn one context memo with this as its equality, so a delta, an ask or a child changing elsewhere wakes only the turns
     that read it (docs/thread.md, the stage as built) */
 export function sameCtxFor(turn: Turn, a: RowCtx, b: RowCtx): boolean {
@@ -154,7 +157,7 @@ export function sameCtxFor(turn: Turn, a: RowCtx, b: RowCtx): boolean {
     for (const [call, r] of a.replies ?? []) if (calls.has(call) && b.replies?.get(call) !== r) return false;
     for (const [call, r] of b.replies ?? []) if (calls.has(call) && a.replies?.get(call) !== r) return false;
   }
-  const kids = a.children !== b.children, reports = a.turns !== b.turns;
+  const kids = a.children !== b.children, reports = a.reports !== b.reports;
   if (kids || reports) {
     for (const s of spawnsOf(turn)) {
       const child = s.agent?.child;

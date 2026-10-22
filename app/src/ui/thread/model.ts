@@ -87,15 +87,21 @@ export interface Step {
 }
 export interface Say { k: "say"; id: string; text: string; at: number; streaming: boolean }
 export interface Think { k: "think"; id: string; text: string; ms: number; at: number; streaming: boolean }
-export type Item = Step | Say | Think;
+/** what arrived while a turn was going, at its place in time (docs/thread.md, arrivals): another agent's report or note, a job's
+    notice, a line from the runtime. a user message that is not the person's: it starts no turn, it is a row of the turn it came
+    into. `id` is its message's id */
+export interface Arrival { k: "arrive"; id: string; kind: ArrivalKind; text: string; at: number; from?: string; fromID?: string }
+export type ArrivalKind = "report" | "note" | "job" | "system";
+export type Item = Step | Say | Think | Arrival;
 
 export type Origin = "you" | "queued" | "steer" | "brief" | "mail" | "notice" | "compaction";
 export type TurnStatus = "done" | "working" | "aborted" | "failed";
 
 export interface Turn {
   id: string;
-  /** what started it: you typed it, it was queued, a steer, the brief that started this agent, an agent's report or
-      note, a runtime notice, a compaction */
+  /** what started it: you typed it, it was queued, a steer, the brief that started this agent, a compaction. an agent's report
+      or note, or a runtime notice, starts a turn only when it came before any of those (`startsTurn`); after one it is an
+      arrival among the turn's items */
   by: Origin;
   prompt: string;
   /** a report's sender: the agent's name, and its session when the daemon said (`mail.fromID`) */
@@ -441,20 +447,25 @@ const wordsOf = (p: WirePart): string => string((p as { text?: unknown }).text) 
     garbage with a 300 kb answer streaming, chromium's sampling profiler). `\s` is the white space `trim` takes */
 const blank = (text: string): boolean => !/\S/.test(text);
 
-/** a user message's origin: typed, queued, an agent's report (with who sent it, by name and by session), a runtime notice */
-function originOf(info: MessageInfo, parts: readonly WirePart[]): { by: Origin; text: string; from?: string; fromID?: string; note?: boolean } {
+/** a user message's origin: typed, queued, an agent's report (with who sent it, by name and by session), a runtime notice (a
+    job's, when its source or its words say so) */
+function originOf(info: MessageInfo, parts: readonly WirePart[]): { by: Origin; text: string; from?: string; fromID?: string; note?: boolean; job?: boolean } {
   const texts = parts.filter((p) => p.type === "text");
   const marked = (k: string) => texts.some((p) => boolean((p as Record<string, unknown>)[k]));
   const typed = texts.filter((p) => !boolean((p as Record<string, unknown>)["synthetic"]) && !boolean((p as Record<string, unknown>)["mail"]) && !boolean((p as Record<string, unknown>)["notice"]));
   const extra = info as Record<string, unknown>;
-  if (boolean(extra["notice"]) || marked("notice")) return { by: "notice", text: texts.map(wordsOf).join("\n") };
+  /* a notice names its source on the message (`notice.source`, "job <id>" for a job's) */
+  const source = string(record(extra["notice"])?.["source"]) ?? "";
+  const notice = (text: string) => ({ by: "notice" as const, text, ...(/^job\b/.test(source) || /^job \S+:/.test(text) ? { job: true } : {}) });
+  if (boolean(extra["notice"]) || record(extra["notice"]) !== undefined || marked("notice")) return notice(texts.map(wordsOf).join("\n"));
   const mail = record(extra["mail"]) ?? texts.map((p) => record((p as Record<string, unknown>)["mail"])).find((m) => m !== undefined);
   const mailFrom = string(mail?.["from"])?.replace(/^\/root(?:\/|$)/, "") || (mail ? "root" : undefined), mailFromID = string(mail?.["fromID"]);
   const kind = string(mail?.["kind"]);
   /* the daemon's mail kinds (cmx2's MailKind): a task is the brief that started an agent, a report and a message come
      from another agent, a job's notice and a system line are runtime notices */
   if (kind === "task") return { by: "brief", text: texts.filter((p) => !boolean((p as Record<string, unknown>)["synthetic"])).map(wordsOf).join("\n"), ...(mailFrom !== undefined ? { from: mailFrom } : {}), ...(mailFromID !== undefined ? { fromID: mailFromID } : {}) };
-  if (kind === "job" || kind === "system") return { by: "notice", text: texts.map(wordsOf).join("\n") };
+  if (kind === "job") return { by: "notice", text: texts.map(wordsOf).join("\n"), job: true };
+  if (kind === "system") return notice(texts.map(wordsOf).join("\n"));
   if (mail !== undefined || marked("mail")) return { by: "mail", text: texts.map(wordsOf).join("\n"), ...(kind === "message" ? { note: true } : {}), ...(mailFrom !== undefined ? { from: mailFrom } : {}), ...(mailFromID !== undefined ? { fromID: mailFromID } : {}) };
   /* imported history marks a report as a synthetic text that starts with [from /root/name]: */
   const imported = texts.find((p) => boolean((p as Record<string, unknown>)["synthetic"]) && /^\[from \/root[^\]]*\]:/.test(wordsOf(p)));
@@ -466,6 +477,36 @@ function originOf(info: MessageInfo, parts: readonly WirePart[]): { by: Origin; 
   return { by: boolean(extra["queued"]) ? "queued" : "you", text: typed.map(wordsOf).join("\n") };
 }
 
+/** imported history marks a report as a synthetic text that starts with [from /root/name]: */
+const IMPORTED_MAIL = /^\[from \/root[^\]]*\]:/;
+
+/** whether a user message starts a turn (docs/thread.md, the anatomy of a turn): the person's message (typed, queued, a steer), the
+    brief that started this agent, a compaction. an agent's report or note and a runtime notice do not: they arrive in the turn they
+    came into. the same reading as `originOf`, made without joining any words, since the cut (turns.ts) asks it of every user message
+    whenever a message comes */
+export function startsTurn(info: MessageInfo, parts: readonly WirePart[]): boolean {
+  const extra = info as Record<string, unknown>;
+  if (parts.some((p) => p.type === "compaction")) return true;
+  if (boolean(extra["notice"]) || record(extra["notice"]) !== undefined) return false;
+  let mail = record(extra["mail"]), typed = false, imported = false;
+  for (const p of parts) {
+    if (p.type !== "text") continue;
+    const r = p as Record<string, unknown>;
+    if (boolean(r["notice"])) return false;
+    mail ??= record(r["mail"]);
+    if (boolean(r["mail"])) return false;
+    if (boolean(r["synthetic"])) { if (!imported && IMPORTED_MAIL.test(wordsOf(p))) imported = true; } else typed = true;
+  }
+  if (mail !== undefined) return string(mail["kind"]) === "task";
+  return typed || !imported;
+}
+
+/** when the turn's newest stretch of work began: its last arrival (what woke the agent), else the turn's start */
+export function wakeOf(t: Pick<Turn, "at" | "items">): number {
+  for (let i = t.items.length - 1; i >= 0; i--) { const x = t.items[i]; if (x?.k === "arrive") return x.at; }
+  return t.at;
+}
+
 /* ---------- remembering parts between passes ---------- */
 
 /** what each part became last pass, by part id, so a delta to one part rebuilds that part's item alone and every
@@ -474,6 +515,7 @@ function originOf(info: MessageInfo, parts: readonly WirePart[]): { by: Origin; 
 export type PartMemo = Map<string, Remembered>;
 type Remembered =
   | { k: "text"; item: Say | Think }
+  | { k: "arrive"; item: Arrival }
   | { k: "photos"; photos: Picture[] }
   | { k: "sent"; files: SentFile[] }
   | { k: "tool"; state: object; messageAt: number; root: string; base: Base; context: string; item: Step };
@@ -515,6 +557,21 @@ function sentFilesIn(memo: PartMemo, seen: Set<string>, id: string, fresh: SentF
   if (held?.k === "sent" && held.files.length === fresh.length && held.files.every((x, i) => x.filename === fresh[i]?.filename && x.mime === fresh[i]?.mime)) return held.files;
   memo.set(key, { k: "sent", files: fresh });
   return fresh;
+}
+
+/** an arrival's item, the one from last pass when nothing it shows changed: a long parked episode is one turn built again at every
+    delta of its newest wake, and its arrivals keep their objects (and so their rows) through it. remembered under the message's id
+    with `:arrive` after it */
+function arrivalIn(memo: PartMemo, seen: Set<string>, info: MessageInfo, parts: readonly WirePart[]): Arrival {
+  const key = `${info.id}:arrive`;
+  seen.add(key);
+  const o = originOf(info, parts);
+  const kind: ArrivalKind = o.by === "notice" ? (o.job ? "job" : "system") : o.note ? "note" : "report";
+  const held = memo.get(key);
+  if (held?.k === "arrive" && held.item.kind === kind && held.item.text === o.text && held.item.at === info.created && held.item.from === o.from && held.item.fromID === o.fromID) return held.item;
+  const item: Arrival = { k: "arrive", id: info.id, kind, text: o.text, at: info.created, ...(o.from ? { from: o.from } : {}), ...(o.fromID ? { fromID: o.fromID } : {}) };
+  memo.set(key, { k: "arrive", item });
+  return item;
 }
 
 /** a said or thought part's item, the one from last pass when nothing it shows changed */
@@ -567,8 +624,9 @@ function stepIn(part: ToolPart, messageAt: number, ctx: Ctx, memo: PartMemo, see
   return item;
 }
 
-/** the turns of a session: each user message and the assistant messages that follow it. given the memo of an earlier
-    pass over the same messages, an item whose part did not change is the same object as before */
+/** the turns of a session: each message from the person (or a compaction) and what follows it up to the next, the agent's
+    messages and what arrived among them (`startsTurn`). given the memo of an earlier pass over the same messages, an item whose
+    part did not change is the same object as before */
 export function turnsOf(messages: readonly WireMessage[], root: string, steered: ReadonlySet<string> = new Set(), memo: PartMemo = new Map()): Turn[] {
   const turns: Turn[] = [];
   const ctx: Ctx = { root, commands: new Map(), lengths: new Map() };
@@ -576,6 +634,14 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
   let cur: Turn | undefined;
   for (const { info, parts } of messages) {
     const extra = info as Record<string, unknown>;
+    if (info.role === "user" && cur && !steered.has(info.id) && !startsTurn(info, parts)) {
+      /* a report, a note or a notice into a turn already going is a row of it. it may wake the agent again: how that wake ends is
+         the turn's end, so a wake that was stopped or failed before it is not how the turn came out */
+      cur.items.push(arrivalIn(memo, seen, info, parts));
+      cur.end = Math.max(cur.end, info.created);
+      if (cur.status !== "working") { cur.status = "done"; delete cur.error; }
+      continue;
+    }
     if (info.role === "user") {
       const o = originOf(info, parts);
       const compacted = parts.some((p) => p.type === "compaction");

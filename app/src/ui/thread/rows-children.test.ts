@@ -9,7 +9,7 @@ import { type Child, type RowCtx, stepModel } from "./rows";
 const T0 = 1_790_000_000_000;
 const spawn = { k: "step", id: "p1", callID: "c1", family: "spawn", tool: "spawn", status: "completed", object: "helper", result: "", add: 0, del: 0, ms: 0, at: T0, agent: { name: "helper", brief: "read the logs", child: "ses_c" } } as Step;
 const child = (over: Partial<Child>): Child => ({ steps: 0, ms: 60_000, items: [], held: false, state: "idle", since: T0, created: T0, title: "helper (worker)", ...over });
-const ctx = (c: Child): RowCtx => ({ turns: [], children: new Map([["ses_c", c]]), thinking: "rows" });
+const ctx = (c: Child): RowCtx => ({ reports: [], children: new Map([["ses_c", c]]), thinking: "rows" });
 
 describe("an agent whose thread is not held", () => {
   test("its row says nothing of steps, and its facts leave the count off", () => {

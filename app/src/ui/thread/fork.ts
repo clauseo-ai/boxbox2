@@ -45,10 +45,12 @@ export function forkBoundary(turns: readonly Pick<Turn, "id" | "at">[], created:
   return null;
 }
 
-/** the turn a link to a fork's cut lands on: the one just above the message it was cut before. a cut that is not a turn
-    of the thread (cut by another client inside a turn, or gone since) lands nowhere, and the thread opens at its end */
-export function turnBeforeCut(turns: readonly Pick<Turn, "id">[], cut: string): string | null {
+/** the turn a link to a fork's cut lands on: the one just above the message it was cut before. a cut before a report or a
+    notice (a fork made when those started turns of their own, or cut inside a turn by another client) lands on the turn it
+    arrived in, which the fork holds up to there. a cut that is no message the thread shows (gone since) lands nowhere, and the
+    thread opens at its end */
+export function turnBeforeCut(turns: readonly Pick<Turn, "id" | "items">[], cut: string): string | null {
   const at = turns.findIndex((t) => t.id === cut);
-  if (at < 0) return null;
+  if (at < 0) return turns.find((t) => t.items.some((x) => x.k === "arrive" && x.id === cut))?.id ?? null;
   return (turns[at - 1] ?? turns[at])?.id ?? null;
 }

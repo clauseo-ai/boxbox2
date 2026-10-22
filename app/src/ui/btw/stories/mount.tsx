@@ -50,7 +50,7 @@ const SETUPS: Record<BtwStory, () => { btws: Btw[]; promoted?: boolean; expand?:
   streaming: () => ({ btws: [btw({ status: "running", answer: "" })] }),
 };
 
-const CTX: RowCtx = { turns: [], children: new Map(), thinking: "rows" };
+const CTX: RowCtx = { reports: [], children: new Map(), thinking: "rows" };
 const fake = (): Promise<BtwDone> => new Promise((done) => setTimeout(() => done({ ok: true }), 300));
 
 export function mountBtw(el: HTMLElement, story: BtwStory): () => void {

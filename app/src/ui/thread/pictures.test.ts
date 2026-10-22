@@ -20,7 +20,7 @@ const messages = (parts: WirePart[]): WireMessage[] => [
   neutral({ info: { id: "a", role: "assistant", time: { created: T0 + 100, completed: T0 + 5000 } }, parts }),
 ];
 const stepsOf = (parts: WirePart[], memo?: PartMemo): Step[] => turnsOf(messages(parts), "/p", new Set(), memo).flatMap((t) => t.items.filter((x): x is Step => x.k === "step"));
-const ctx = (): RowCtx => ({ turns: [], children: new Map(), thinking: "rows", now: T0 + 3000 });
+const ctx = (): RowCtx => ({ reports: [], children: new Map(), thinking: "rows", now: T0 + 3000 });
 const read = (id: string, file: string, attachments: unknown[], extra: Record<string, unknown> = {}) => tool(id, "read", { filePath: `/p/${file}` }, { attachments, ...extra });
 
 describe("a step's images, read off the part's state", () => {

@@ -463,7 +463,10 @@ why solid:
   the plus menu's rows, the composer's suggestions, the queue's list and
   its verbs, a report's sheet, the file reader, the spend dialog, a
   picture full size), which open through `whenLoaded` so none opens onto
-  nothing, the model menu's stars, and the stage card's edge in motion
+  nothing, an opened row's file bed and slip (`thread/code.tsx`, drawn
+  only in a row someone opened), the model menu's stars, the moves that
+  land a press on a row in a closed group (`thread/land.ts`, read at the
+  press), and the stage card's edge in motion
   (`home/edge.ts`), which runs only at a fold and starts in the fold's own
   task once warmed.
 

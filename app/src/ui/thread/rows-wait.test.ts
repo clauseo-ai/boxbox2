@@ -11,7 +11,7 @@ import { neutral } from "./fixtures/wire";
 const T0 = 1_790_000_000_000;
 const wait = (over: Partial<Step>): Step => ({ k: "step", id: "w1", callID: "c1", family: "wait", tool: "wait", status: "completed", object: "", result: "", add: 0, del: 0, ms: 60_000, at: T0, ...over }) as Step;
 const child = (state: Child["state"]): Child => ({ steps: 0, ms: 0, items: [], held: false, state, since: T0, created: T0, title: "helper (worker)" });
-const ctx = (children: Child[] = []): RowCtx => ({ turns: [], children: new Map(children.map((c, i) => [`ses_${i}`, c])), thinking: "rows", now: T0 + 5000 });
+const ctx = (children: Child[] = []): RowCtx => ({ reports: [], children: new Map(children.map((c, i) => [`ses_${i}`, c])), thinking: "rows", now: T0 + 5000 });
 const text = (s: Step, c: RowCtx = ctx()) => stepModel(s, c).content.map((x) => ("s" in x ? x.s : "")).join("");
 
 describe("who a finished wait heard from", () => {

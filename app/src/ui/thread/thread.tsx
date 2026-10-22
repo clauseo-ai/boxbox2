@@ -23,11 +23,11 @@ import { base, dirOf } from "./shell";
 import { AskCard, PermissionCard, PermitRecord } from "../asks/card";
 import { layoutTop } from "./ask-landing";
 import { DiffView, watchOverflow } from "./diff";
-import { FileBed, ShowAll, Slip } from "./code";
+import { ShowAll } from "./show-all";
 import { type Group, type StripMark, currentOf, foldedOf, groupClock, groupLabel, groupLine, groupsOf, lineShown, nearestMark } from "./groups";
 import { StripLane } from "./strip";
 import { reportOf } from "./report";
-import { PictureViewer, ReportSheet, warmOn, whenLoaded } from "../later";
+import { FileBed, PictureViewer, ReportSheet, Slip, warmOn, whenLoaded } from "../later";
 import { ReportGlyph } from "./report-glyph";
 import { forkLabel } from "./fork";
 import { renameSoon } from "./copy";
@@ -273,6 +273,9 @@ function Facts(props: { facts: Array<{ text: string; strong?: boolean; bad?: boo
   );
 }
 
+/** a notice's words are the runtime's, a few lines as a rule: its bed shows this many and says how many more */
+const NOTICE_LINES = 200;
+
 function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | undefined; /** the name of the row this is the body of: what its copy controls are named after */ row: string }) {
   const b = () => props.b;
   /* a card that asks holds what you chose or typed and the focus a tap gave it, and a running row's body is handed over
@@ -341,6 +344,15 @@ function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | unde
           case "thoughts": return <div><For each={x.thoughts}>{(t) => <div class="thought-text"><Show when={x.thoughts.length > 1}><small>{clockS(t.at)}{t.ms >= 1000 ? `, ${dur(t.ms)}` : ""}</small></Show><For each={boundedPlain(t.text).shown.split(/\n{2,}/)}>{(p) => <p>{inlineNodes(p)}</p>}</For></div>}</For></div>;
           case "files": return <div><For each={x.files}>{(f) => <FileEntry f={f} root={props.root} />}</For></div>;
           case "error": return <BedView bed={{ lines: x.error.split("\n").slice(0, 12) }} cls="err" />;
+          case "notice": return (
+            <>
+              {/* the words in their bed, then when they came: as a command's bed comes before its facts */}
+              <BedView bed={{ lines: x.text.split("\n").slice(0, NOTICE_LINES), ...(x.text.split("\n").length > NOTICE_LINES ? { rest: x.text.split("\n").length - NOTICE_LINES } : {}) }} cls="wrap" />
+              <Facts facts={x.facts} />
+            </>
+          );
+          // raised in its sheet by the row's press (RowView), never opened under it
+          case "report": return null;
         }
       })()}
     </>
@@ -408,7 +420,7 @@ function AgentBody(props: { b: Extract<Body, { k: "agent" }> }) {
 
 /* ---------- a row ---------- */
 
-const flipRoot = (el: HTMLElement): HTMLElement => el.closest<HTMLElement>("[data-flip-root]") ?? document.body;
+export const flipRoot = (el: HTMLElement): HTMLElement => el.closest<HTMLElement>("[data-flip-root]") ?? document.body;
 
 /** what an element tells the stage's scroller, up the tree, before it scrolls the view for the reader: the scroll that follows is theirs
     and lets go of the end (pin.ts), however long after their tap it runs */
@@ -451,7 +463,10 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
   const follow = useContext(FollowContext);
   const landing = useContext(LandingContext);
   const hasBody = () => props.m.body !== undefined || props.live !== undefined || props.m.permit !== undefined;
-  const isOpen = () => !shut() && (open() || (props.cur === true && hasBody()));
+  /* a report or a note that arrived opens in its sheet, as its chip does (report-sheet.tsx): the row's press raises it, never a body */
+  const sheet = createMemo(() => (props.m.body?.k === "report" ? props.m.body.report : undefined));
+  const [reading, setReading] = createSignal(false);
+  const isOpen = () => !shut() && sheet() === undefined && (open() || (props.cur === true && hasBody()));
   const measure = () => setOver(!isOpen() && contentEl.scrollHeight > contentEl.clientHeight + 1);
   onMount(() => {
     installMotion();
@@ -504,18 +519,15 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
     e.stopPropagation();
     const link = props.m.link;
     if (!link) return;
-    /* the report's turn is filled before the move, so there is a card to land on (stage-window.ts, reveal) */
-    win?.reveal(link.turn);
-    const root = flipRoot(rowEl);
-    const cards = [...root.querySelectorAll<HTMLElement>(`.report[data-report="${CSS.escape(link.report)}"]`)];
-    const after = root.querySelector<HTMLElement>(`.report[data-turn="${CSS.escape(link.turn)}"]`) ?? cards.find((c) => c.compareDocumentPosition(rowEl) & Node.DOCUMENT_POSITION_PRECEDING) ?? cards[cards.length - 1];
-    if (after) light(after, root.closest<HTMLElement>(".stage-scroll") ?? undefined);
+    /* where it lands, its group opened for it, is a chunk of its own (land.ts): it runs only after a press */
+    void import("./land").then((m) => m.goToReport(rowEl, link, win));
   };
   const head = () => (
     <>
       <span class="row-t">{props.time}</span>
       <span class="row-k">{props.m.kind}</span>
       <span ref={contentEl} class={`row-c ${over() ? "over" : ""}`}>
+        <Show when={sheet()}>{(r) => <ReportGlyph report={r()} size="row" />}</Show>
         <Show when={props.m.header}>{(header) => <span class="row-hd">{header()}</span>}</Show>
         <span class="teaser"><For each={props.m.content}>{(p) => <InlineView piece={p} />}</For></span>
         <Show when={props.m.opened}><span class="opened lead">{props.m.opened}</span></Show>
@@ -528,7 +540,18 @@ export function RowView(props: { m: RowModel; time: string; now?: number | undef
   return (
     <div ref={rowEl} class={cls()} data-key={props.m.key} data-from={props.m.at} data-to={props.m.end} data-part={props.m.partIDs.join(" ")} data-agent={props.m.agent} data-ask={props.m.body?.k === "ask" || props.m.body?.k === "permission" ? props.m.body.askID : undefined}>
       <Show when={hasBody()} fallback={<div class="row-h">{head()}</div>}>
-        <button class="row-h" aria-expanded={isOpen() ? "true" : "false"} aria-label={props.name ?? props.m.label} onClick={toggle}>{head()}</button>
+        <Show when={sheet()} fallback={<button class="row-h" aria-expanded={isOpen() ? "true" : "false"} aria-label={props.name ?? props.m.label} onClick={toggle}>{head()}</button>}>
+          {(r) => (
+            <>
+              <button class="row-h" aria-haspopup="dialog" aria-label={props.name ?? props.m.label} title={`opens the ${r().kind}`} onPointerDown={warmOn("ReportSheet")} onClick={() => whenLoaded("ReportSheet", () => setReading(true))}>{head()}</button>
+              <Show when={reading()}>
+                <ReportSheet report={r()} onClose={() => { setReading(false); rowEl.querySelector<HTMLElement>(":scope > button.row-h")?.focus({ preventScroll: true }); }} onAgent={() => void import("./land").then((m) => m.goToAgent(rowEl, r().name, rowEl.closest<HTMLElement>("section.turn")?.dataset["turn"] ?? "", win))}>
+                  <Markdown class="rep-b" text={r().text} />
+                </ReportSheet>
+              </Show>
+            </>
+          )}
+        </Show>
         <Show when={isOpen()}>
           <div ref={bodyEl} class="row-b">
             {/* the line a settled permission leaves: what this device replied, where and when (sync/replies.ts) */}
@@ -624,7 +647,7 @@ export function SayRow(props: { say: Say; time: string; enter?: boolean }) {
 type Place = { k: "entry"; entry: Entry; opened?: boolean; gapless?: boolean; /** the live row under a line that already dates and clocks it */ twin?: boolean } | { k: "group"; group: Group; open: boolean };
 
 /** what a step on the strip is, in a word, where its row has no label */
-const KIND_WORD: Record<StripMark["kind"], string> = { read: "read", search: "searched", edit: "edited", run: "ran", web: "fetched", spawn: "started an agent", ask: "asked", other: "step" };
+const KIND_WORD: Record<StripMark["kind"], string> = { read: "read", search: "searched", edit: "edited", run: "ran", web: "fetched", spawn: "started an agent", ask: "asked", arrival: "arrived", other: "step" };
 
 /** a run of steps folded into one row (docs/thread.md, the step group): what the run did in a line, how long it took, and the run's
     strip under it. it sits between the agent's paragraphs and reads quieter than them: the line in the second ink, no surface, a
@@ -675,6 +698,7 @@ export function GroupView(props: { group: Group; open: boolean; now?: number | u
           <Show when={line().doing}>{(d) => <><span class="group-doing">{d()}</span> · </>}</Show>
           {line().rest}
           <Show when={line().failed}>{(f) => <> · <span class="no">{f()}</span></>}</Show>
+          <Show when={line().stopped}>{(s) => <> · <span class="group-stopped">{s()}</span></>}</Show>
         </span>
         <span class={`row-r ${g().live ? "lit" : ""}`}>{groupClock(g(), props.now) ?? ""}</span>
       </button>
@@ -867,17 +891,7 @@ export function ReportCard(props: { turn: Turn }) {
   let el!: HTMLButtonElement;
   const win = useContext(WindowContext);
   const ordinal = useOrdinal(() => props.turn.id);
-  const toAgent = () => {
-    const name = props.turn.from;
-    if (!name) return;
-    /* the turn that started the agent is filled before the move, so its row is there to land on */
-    const started = win?.agentRow(name, props.turn.id);
-    if (started) win?.reveal(started.turn);
-    const root = flipRoot(el);
-    const rows = [...root.querySelectorAll<HTMLElement>(`.row[data-agent="${CSS.escape(name)}"]`)];
-    const before = (started ? root.querySelector<HTMLElement>(`.row[data-part~="${CSS.escape(started.part)}"]`) : null) ?? rows.filter((r) => r.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING).at(-1) ?? rows[0];
-    if (before) light(before, root.closest<HTMLElement>(".stage-scroll") ?? undefined);
-  };
+  const toAgent = () => { const name = props.turn.from; if (name) void import("./land").then((m) => m.goToAgent(el, name, props.turn.id, win)); };
   return (
     <>
       <button ref={el} class="report" data-report={props.turn.from} data-turn={props.turn.id} aria-haspopup="dialog" aria-label={`${report().spoken}${ordinal()}`} title={`opens the ${report().note ? "note" : "report"}`} onPointerDown={warmOn("ReportSheet")} onClick={() => whenLoaded("ReportSheet", () => setReading(true))}>

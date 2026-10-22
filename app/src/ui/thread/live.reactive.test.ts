@@ -101,6 +101,38 @@ describe.skipIf(!reactive)("turns", () => {
     t.dispose();
   });
 
+  test("a report into a parked turn is a row of it, not a turn: the turns before keep their objects, and the wake it starts keeps the report's", () => {
+    const report = (n: number): Message => neutral({ info: { id: `msg_r${n}`, role: "user", time: { created: T0 + n * 60_000 + 30_000 }, mail: { kind: "report", from: "/root/helper", fromID: "ses_h" } }, parts: [{ id: `prt_r${n}`, type: "text", text: "ready: done", mail: { kind: "report", from: "/root/helper", fromID: "ses_h" } }] });
+    const t = open(thread(10), "desk:report");
+    const before = t.turns();
+    const ran = t.reads();
+    t.setStore("messages", 20, report(9));
+    const parked = t.turns();
+    expect(parked).toHaveLength(10);
+    expect(parked.slice(0, 9).every((x, i) => x === before[i])).toBe(true);
+    expect(t.reads() - ran).toBe(1);
+    const arrived = parked[9]?.items.at(-1);
+    expect(arrived).toMatchObject({ k: "arrive", kind: "report", id: "msg_r9" });
+    /* the wake: the agent's message after it, then a delta to its words */
+    t.setStore("messages", 21, assistant(10, "merged"));
+    setText(t.setStore, 21, "merged, all green");
+    const woke = t.turns();
+    expect(woke).toHaveLength(10);
+    expect(woke[9]?.answer?.text).toBe("merged, all green");
+    expect(woke[9]?.items.find((x) => x.k === "arrive") as unknown).toBe(arrived);
+    /* the person's next message is the next turn */
+    t.setStore("messages", 22, user(11));
+    expect(t.turns()).toHaveLength(11);
+    t.dispose();
+  });
+
+  test("a report before anything from the person starts a turn of its own", () => {
+    const first = neutral({ info: { id: "msg_r0", role: "user", time: { created: T0 - 1000 }, mail: { kind: "report", from: "/root/helper" } }, parts: [{ id: "prt_r0", type: "text", text: "ready", mail: { kind: "report", from: "/root/helper" } }] });
+    const t = open([first, ...thread(2)], "desk:first-report");
+    expect(t.turns().map((x) => [x.id, x.by])).toEqual([["msg_r0", "mail"], ["msg_u0", "you"], ["msg_u1", "you"]]);
+    t.dispose();
+  });
+
   test("a user message with no part yet is not shown, and neither is it counted", () => {
     const t = open([...thread(3), user(3, false)], "desk:hidden");
     expect(t.turns()).toHaveLength(3);

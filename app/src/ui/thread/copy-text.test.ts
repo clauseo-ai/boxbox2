@@ -7,6 +7,7 @@ import { homeAsTilde, shortPath, turnsOf } from "./model";
 import { type RowCtx, plural, stepModel } from "./rows";
 import type { WireMessage, WirePart } from "./wire";
 import { neutral } from "./fixtures/wire";
+import { mailsOf } from "./rows";
 
 const T0 = 1_790_000_000_000;
 const user: WireMessage = neutral({ info: { id: "u", role: "user", time: { created: T0 } }, parts: [{ id: "u_p", type: "text", text: "go" } as WirePart] });
@@ -18,7 +19,7 @@ const stepOf = (command: string, output: string, input: Record<string, unknown> 
   const [turn] = turnsOf([user, shell(command, output, Object.keys(input).length ? { input: { command, ...input } } : {})], "/");
   const step = turn?.items.find((x) => x.k === "step");
   if (!step || step.k !== "step") throw new Error("no step");
-  const ctx: RowCtx = { turns: turn ? [turn] : [], children: new Map(), thinking: "rows", now: T0 + 3000 };
+  const ctx: RowCtx = { reports: (turn ? [turn] : []).flatMap(mailsOf), children: new Map(), thinking: "rows", now: T0 + 3000 };
   return { step, model: stepModel(step, ctx) };
 };
 

@@ -1887,3 +1887,12 @@ merged, the first load was 122.2 kb. the only place it showed was the release bu
 branches that add first-load code, run the build and the compress line on the merge. the fix moved what is not needed
 for the first paint into chunks (the btw card, marker and placement, the fork lineage line, divider and menu item, the
 fork verb, the btw send checks, the queue's strip), down to 118.5 kb.
+
+## one turn per prompt took the first load to 120.4 kb (thread-one-turn-per-prompt)
+
+arrivals (their rows, the report and job parsing, the group's tally) added about 1.9 kb of brotli to the first load, from 118.5 kb
+to 120.4 kb, and nothing in `just check` says so: only `cd app && bunx vite build` and `bun scripts/compress.ts` do. lazy-loading
+the report chip made it worse (120.7 kb: the wrapper and the chunk's shared imports cost more than the chip), so it stayed. what
+moved to chunks instead is what draws only after a press: the moves that land on a row inside a closed group (`land.ts`) and an
+opened row's file bed and slip (`code.tsx`, warmed with ui/later.ts's surfaces), down to 119.8 kb. the headroom is small: the next
+change to the thread's first load should look for the next such piece first.

@@ -4,8 +4,9 @@
 import { describe, expect, test } from "bun:test";
 import { type Group, type Segment, currentOf, foldedOf, groupLabel, groupLine, groupOf, groupTook, groupsOf, lineShown, nearestMark, orderedStrip, segmentsOf, stripMap, stripShapes } from "./groups";
 import { ledgerOf } from "./ledger";
-import type { Family, Item, Say, Step, Think, Turn } from "./model";
+import type { Arrival, ArrivalKind, Family, Item, Say, Step, Think, Turn } from "./model";
 import type { RowCtx } from "./rows";
+import { mailsOf } from "./rows";
 
 const T0 = 1_790_000_000_000;
 let next = 0;
@@ -15,8 +16,9 @@ const step = (family: Family, extra: Partial<Step> = {}): Step => {
 };
 const think = (text = "the plan is to read the file first.", extra: Partial<Think> = {}): Think => { next++; return { k: "think", id: `prt_t${next}`, text, ms: 2000, at: T0 + next * 1000, streaming: false, ...extra }; };
 const say = (text = "here is what i found.", extra: Partial<Say> = {}): Say => { next++; return { k: "say", id: `prt_w${next}`, text, at: T0 + next * 1000, streaming: false, ...extra }; };
+const arrive = (kind: ArrivalKind, text: string, extra: Partial<Arrival> = {}): Arrival => { next++; return { k: "arrive", id: `msg_a${next}`, kind, text, at: T0 + next * 1000, ...(kind === "report" || kind === "note" ? { from: "r2", fromID: "ses_r2" } : {}), ...extra }; };
 const turn = (items: Item[], extra: Partial<Turn> = {}): Turn => ({ id: "msg_1", by: "you", prompt: "go", at: T0, end: T0 + 600_000, items, status: "done", cost: 0, files: new Map(), compacted: false, unknownParts: 0, ...extra });
-const ctxOf = (t: Turn, now?: number): RowCtx => ({ turns: [t], children: new Map(), thinking: "rows", ...(now !== undefined ? { now } : {}) });
+const ctxOf = (t: Turn, now?: number): RowCtx => ({ reports: ([t]).flatMap(mailsOf), children: new Map(), thinking: "rows", ...(now !== undefined ? { now } : {}) });
 
 /** a settled turn's places, as its view reads them: the ledger's entries grouped, the answer told */
 function places(t: Turn, running = false, now?: number): Segment[] {
@@ -32,15 +34,62 @@ describe("which rows fold", () => {
     expect(shape(places(t))).toEqual(["group(2)", "say", "group(2)", "files"]);
   });
 
-  test("thinking that led to a tool call is in the group; thinking that led to words stands above them", () => {
+  test("thinking folds into the group, the thought that led to words included", () => {
     const t = turn([think(), step("read"), think(), say()]);
-    expect(shape(places(t))).toEqual(["group(2)", "thought", "say"]);
+    expect(shape(places(t))).toEqual(["group(3)", "say"]);
   });
 
-  test("a thought before the settled answer is a thought that led to words: it stands above the answer, and the turn's last rows go above it", () => {
+  test("a stretch of thinking alone between two texts keeps its thought row, not a group of one", () => {
+    const t = turn([say("first."), think(), think("then this."), say()]);
+    expect(shape(places(t))).toEqual(["say", "thought", "say"]);
+  });
+
+  test("a thought before the settled answer folds into the run before it; the turn's last rows come after the group", () => {
     const edit = step("edit", { diff: "+a", add: 1, tool: "edit" });
     const t = { ...turn([step("read"), edit, think()]), answer: say("done.") };
-    expect(shape(places(t))).toEqual(["group(2)", "files", "thought"]);
+    expect(shape(places(t))).toEqual(["group(3)", "files"]);
+  });
+
+  test("a lone thought before the settled answer stands above it, and the turn's last rows go above that thought", () => {
+    const edit = step("edit", { diff: "+a", add: 1, tool: "edit" });
+    const t = { ...turn([step("read"), edit, say("so."), think()]), answer: say("done.") };
+    expect(shape(places(t))).toEqual(["group(2)", "say", "files", "thought"]);
+  });
+
+  test("what arrived folds into the stretch it came in: a wake, a wait, a report, a wait, a job and three commands are one group", () => {
+    const t = turn([
+      step("wait"),
+      arrive("report", "agent /root/r2 reached status: parked\n\nready: the corpus is in"),
+      step("wait"),
+      arrive("job", "job job_1: exited with code 0; no output\n(started by you: bun test)"),
+      step("shell"), step("shell"), step("shell"),
+      say("all three passed."),
+    ]);
+    const segs = places(t);
+    expect(shape(segs)).toEqual(["group(7)", "say"]);
+    const g = groupIn(segs);
+    expect(g.steps).toBe(5);
+    expect(g.arrivals).toEqual([{ verb: "report", n: 1 }, { verb: "job", n: 1 }]);
+    expect(groupLine(g).text).toBe("5 steps · ran 3, waited 2 · 1 report, 1 job");
+  });
+
+  test("the person stopping the turn folds into its last group as that group's last row, and the line says so", () => {
+    const t = turn([step("read"), step("shell")], { status: "aborted", end: T0 + 600_000 + next * 1000 });
+    const segs = places(t);
+    expect(shape(segs)).toEqual(["group(3)"]);
+    const g = groupIn(segs);
+    expect(g.stopped).toBe(true);
+    expect(g.entries.at(-1)?.model?.kind).toBe("stopped");
+    expect(foldedOf(g).at(-1)?.model?.kind).toBe("stopped");
+    expect(groupLine(g)).toMatchObject({ rest: "2 steps · read 1, ran 1", stopped: "stopped", text: "2 steps · read 1, ran 1 · stopped" });
+    // the run lasted until the person stopped it: its clock runs to the turn's end
+    expect(g.end).toBe(t.end);
+    expect(groupLabel(g)).toBe("2 steps, read 1, ran 1, stopped, 10 min");
+  });
+
+  test("a stop after the agent's words has no group to go into: it stands, and a failure always stands", () => {
+    expect(shape(places(turn([step("read"), say("so.")], { status: "aborted" })))).toEqual(["group(1)", "say", "stopped"]);
+    expect(shape(places(turn([step("read")], { status: "failed", error: "boom" })))).toEqual(["group(1)", "failed"]);
   });
 
   test("asks and permission prompts never fold, so a run breaks around them", () => {
@@ -63,6 +112,31 @@ describe("a group's words", () => {
     expect(groupLine(g).text).toBe("8 steps · read 3, ran 2, edited 1, 2 more");
     expect(groupTook(g)).toBe("8 s");
     expect(groupLabel(g)).toBe("8 steps, read 3, ran 2, edited 1, 2 more, 8 s");
+  });
+
+  test("what arrived is counted apart from the steps, after the verbs, each the top two and the rest as more", () => {
+    const g = groupIn(places(turn([
+      step("wait"), arrive("report", "ready: one"), step("wait"), arrive("report", "ready: two"), step("wait"),
+      arrive("report", "agent /root/r2 reached status: parked"), arrive("job", "job job_1: exited with code 0; no output\n(started by you: ls)"),
+      step("shell"), step("agents"),
+    ])));
+    expect(g.arrivals).toEqual([{ verb: "report", n: 2 }, { verb: "status", n: 1 }, { verb: "job", n: 1 }]);
+    expect(groupLine(g).text).toBe("5 steps · waited 3, ran 1, 1 more · 2 reports, 1 status, 1 more");
+    expect(groupLabel(g)).toMatch(/^5 steps, waited 3, ran 1, 1 more, 2 reports, 1 status, 1 more, \d+ s$/);
+    expect(g.strip.marks.filter((m) => m.kind === "arrival")).toHaveLength(4);
+  });
+
+  test("a run that is only arrivals says them alone, with no steps counted", () => {
+    const g = groupIn(places(turn([arrive("note", "see the fixture"), arrive("system", "you stopped the turn.")])));
+    expect(groupLine(g).text).toBe("1 note, 1 notice");
+  });
+
+  test("an arrival's strip mark lands on its row", () => {
+    const a = arrive("job", "job job_9: exited with code 2; no output\n(started by you: false)");
+    const g = groupIn(places(turn([step("wait"), a])));
+    const mark = g.strip.marks.find((m) => m.kind === "arrival");
+    expect(mark).toMatchObject({ row: `arrive:${a.id}`, part: a.id, bad: true });
+    expect(g.entries.some((e) => e.key === mark?.row)).toBe(true);
   });
 
   test("a failure is counted and said last", () => {
