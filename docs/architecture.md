@@ -290,7 +290,9 @@ owner; every map has an eviction rule. the caps:
 | confirm block (`fleet/catchup.rs`) | 1 mb of catch-up frames (each at most 256 kb) per stream, one in flight, outside the 512 kb outbound cap, drained through the stream's `pending` | a key past it goes `thread.stale`; a post meeting an unread block waits for it to drain, until the block is 30 s old (counted from when it was handed to the stream), then the stream is closed and the post answers 404; a block drained by then closes nothing |
 | tombstones (`fleet/keys.rs`) | 10,000 rows or 7 days of removals and settlements | oldest dropped, the floor rises; a cursor below it gets `reset` with reason `expired` |
 | patch bases (`fleet/encode.rs`) | one `Thread` per kept thread (at most 1000), plus the order | evicted with the session |
-| pending deltas (`fleet/encode.rs`) | 100 ms per part, 1 mb in all | past it, all are journaled at once |
+| pending deltas (`fleet/encode.rs`) | 100 ms per part or btw, 1 mb in all | past it, all are journaled at once |
+| btw answer counts (`fleet/encode.rs`, `TRACKED_BTWS`) | the utf-16 length of each running btw's answer, 1,024 btws (8 kb) | oldest dropped; its next deltas go without an offset and the client rereads the thread's btws (`protocol.md`, section 8, btws) |
+| btws in the worker (`app/src/sync/btw.ts`) | 64 per thread, inside the thread's byte cap, one `#btw` record each | oldest settled first, then oldest running |
 | settled-text tracking and remembered digests (`fleet/encode.rs`) | 4,096 streaming parts (length and hash of their built text), each dropped once a part with `time.end` is journaled; 4,096 parts and 4,096 messages (a digest of the last state journaled, which still drops the step-end re-send) | oldest dropped; a dropped part's next update goes whole, a forgotten digest lets one unchanged re-send through |
 | newest-turn message ids (`fleet/keys.rs`, for `rv`) | 1,000 per thread and 16,384 over every thread (`TURN_IDS`, `ALL_TURN_IDS`): about 1.3 mb at the cap, counting some 80 bytes an id with its set's overhead | past either, every entry of the thread whose set would grow counts toward `rv` until its next turn starts; a removed thread or a reset frees its ids |
 | client outbound channel | 512 kb of plain frames queued in the actor for one stream; what the stream already handed on is on top: hyper's write buffer (16 writes or about 408 kb, each write at most 64 kb of frames before compression) and the kernel's socket buffers, compressed bytes for a client that takes gzip. measured once with a client that never reads (`http/stream.rs`, `a_stalled_client_holds_a_bounded_amount_with_gzip_and_without`, loopback on a mac): 155 kb handed on with gzip (4.3 mb of frames), 1.6 mb without | the stream is closed; the client resumes from its cursor. a slow phone can never grow the server past these |
@@ -524,7 +526,8 @@ model as a record per thread, ask and agent, one per other field, and an
 index of the fields and of each map's keys in order, so a thread that
 changes writes that thread alone and the fleet read back keeps its key
 order), `thread:<agent:thread>` a head (with the thread's `left` and
-`etag` when it has them), a baseline, pages and chunks:
+`etag` when it has them), its btws whole in `<agent:thread>#btw`
+(`protocol.md`, section 8, btws), a baseline, pages and chunks:
 the last message, the one a stream grows, alone in the last page, before
 it pages of 50, and what is left in pages of 32, 16, 8, 4, 2 and 1, so a
 change to a message rewrites that message and a new message rewrites a few

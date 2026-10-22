@@ -146,11 +146,17 @@ async fn paged(
             return Ok(unchanged(versions, &tag, NO_CACHE));
         }
     }
-    let mut reading = found
-        .source
-        .read(target)
-        .await
-        .map_err(|e| found.refusal(Some(&target.id), e))?;
+    // the newest page carries the btws: their list is read beside the
+    // thread; a page anchored at a message learns it is the newest only at
+    // its end, and reads them then
+    let newest = anchor == Anchor::Newest;
+    let (reading, mut btws) = if newest {
+        let (reading, btws) = tokio::join!(found.source.read(target), btws_member(found, target));
+        (reading, Some(btws))
+    } else {
+        (found.source.read(target).await, None)
+    };
+    let mut reading = reading.map_err(|e| found.refusal(Some(&target.id), e))?;
     let mut pager = Pager::new(anchor, query.turns.unwrap_or(DEFAULT_TURNS));
     while let Some(message) = reading.messages.next().await {
         let message = message.map_err(|e| found.refusal(Some(&target.id), e))?;
@@ -176,9 +182,19 @@ async fn paged(
         Err(Refused::TooLarge) => return Err(ApiError::PageTooLarge),
     };
     let (cache, tag) = cache_of(versions, query.rv.as_deref(), &page, &q);
+    if page.newest && btws.is_none() {
+        btws = Some(btws_member(found, target).await);
+    }
+    let btws = if page.newest {
+        btws.unwrap_or_default()
+    } else {
+        Btws::default()
+    };
+    let (cache, tag) = whole_btws(cache, tag, &btws);
+    let btws = btws.member;
     let older = serde_json::to_string(&page.older).unwrap_or_else(|_| "null".to_owned());
     let tail = Bytes::from(format!(
-        "],\"older\":{older},\"total\":{},\"turns\":{}}}",
+        "],\"older\":{older},\"total\":{},\"turns\":{}{btws}}}",
         page.total, page.turns
     ));
     // the page's messages go out as they are held, never copied into one
@@ -236,6 +252,66 @@ pub fn cache_of(
 pub fn rv_value(versions: &Versions, rv: u64) -> String {
     let epoch = &versions.at.epoch;
     format!("{epoch}.{rv}")
+}
+
+/// a read's btws: the last member of its body, and whether it is whole.
+#[derive(Debug, Default)]
+struct Btws {
+    /// `,"btws":[...]`, oldest first; empty when there are none to give.
+    member: String,
+    /// the list could not be read: the body lacks btws the thread has, so it
+    /// goes without an etag, and a revalidation reads them again instead of
+    /// a 304 keeping the read without them until the thread's version moves.
+    failed: bool,
+}
+
+/// a read's cache headers once its btws are known: one whose btws could not
+/// be read is `no-cache` with no etag, so the next look reads it again.
+fn whole_btws(
+    cache: &'static str,
+    tag: Option<String>,
+    btws: &Btws,
+) -> (&'static str, Option<String>) {
+    if btws.failed {
+        (NO_CACHE, None)
+    } else {
+        (cache, tag)
+    }
+}
+
+/// the thread's btws for a read; none for an agent without btw (or a
+/// daemon that has said it has none), and none, marked failed, when the
+/// list could not be read (logged): a thread read never fails for its btws,
+/// and a client that gets none keeps the ones it holds.
+async fn btws_member(found: &super::Found, target: &ThreadRef) -> Btws {
+    if !found.facts.capabilities.btw {
+        return Btws::default();
+    }
+    match found.source.btws(target).await {
+        Ok(btws) => match serde_json::to_string(&btws) {
+            Ok(list) => Btws {
+                member: format!(",\"btws\":{list}"),
+                failed: false,
+            },
+            Err(_) => Btws {
+                member: String::new(),
+                failed: true,
+            },
+        },
+        Err(VerbError::Unsupported(_)) => Btws::default(),
+        Err(error) => {
+            tracing::warn!(
+                agent = found.key(),
+                thread = %target.id,
+                %error,
+                "a thread's btws could not be read; the read goes without them"
+            );
+            Btws {
+                member: String::new(),
+                failed: true,
+            }
+        }
+    }
 }
 
 /// one message as a read answers it.
@@ -324,13 +400,11 @@ pub async fn messages(
     if let Some(unchanged) = whole_unchanged(&versions, tag.as_deref(), &headers) {
         return Ok(unchanged);
     }
-    let reading = found
-        .source
-        .read(&target)
-        .await
-        .map_err(|e| found.refusal(Some(&thread), e))?;
+    let (reading, btws) = tokio::join!(found.source.read(&target), btws_member(&found, &target));
+    let reading = reading.map_err(|e| found.refusal(Some(&thread), e))?;
     let upstream = reading.upstream.clone();
-    let body = whole(reading.messages);
+    let (_, tag) = whole_btws(NO_CACHE, tag, &btws);
+    let body = whole(reading.messages, btws.member);
     let mut response = Body::from_stream(body).into_response();
     let headers = response.headers_mut();
     headers.insert(
@@ -372,11 +446,12 @@ fn whole_unchanged(
 /// cut thread for a whole one.
 fn whole(
     messages: futures_util::stream::BoxStream<'static, Result<MessageWithParts, VerbError>>,
+    btws: String,
 ) -> impl futures_util::Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static {
     let state = (messages, Turns::default(), false, false);
-    futures_util::stream::unfold(
-        state,
-        |(mut messages, mut turns, opened, ended)| async move {
+    futures_util::stream::unfold(state, move |(mut messages, mut turns, opened, ended)| {
+        let btws = btws.clone();
+        async move {
             if ended {
                 return None;
             }
@@ -404,14 +479,14 @@ fn whole(
                 )),
                 None => Some((
                     Ok(Bytes::from(format!(
-                        "],\"older\":null,\"total\":{},\"turns\":{}}}",
+                        "],\"older\":null,\"total\":{},\"turns\":{}{btws}}}",
                         turns.messages, turns.turns
                     ))),
                     (messages, turns, true, true),
                 )),
             }
-        },
-    )
+        }
+    })
     // fused: a body layer (gzip) polls again after the end, which an
     // unfold alone answers with a panic.
     .fuse()
@@ -484,7 +559,7 @@ pub(crate) mod tests {
     async fn body_of(messages: Vec<MessageWithParts>) -> Vec<u8> {
         let stream = futures_util::stream::iter(messages.into_iter().map(Ok)).boxed();
         let mut out = Vec::new();
-        let mut body = std::pin::pin!(whole(stream));
+        let mut body = std::pin::pin!(whole(stream, String::new()));
         while let Some(chunk) = body.next().await {
             out.extend_from_slice(&chunk.unwrap());
         }
@@ -514,8 +589,54 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
+    async fn a_whole_read_ends_with_the_thread_s_btws_when_it_has_them() {
+        let btws = r#","btws":[{"id":"btw_1"}]"#.to_owned();
+        let stream = futures_util::stream::iter(fixture("cmx-deploy").into_iter().map(Ok)).boxed();
+        let mut body = std::pin::pin!(whole(stream, btws));
+        let mut out = Vec::new();
+        while let Some(chunk) = body.next().await {
+            out.extend_from_slice(&chunk.unwrap());
+        }
+        let read: serde_json::Value = serde_json::from_slice(&out).unwrap();
+        assert_eq!(read["btws"], serde_json::json!([{"id": "btw_1"}]));
+        assert!(read["messages"].as_array().is_some_and(|m| !m.is_empty()));
+        // without them the member is absent, not empty
+        let empty: serde_json::Value = serde_json::from_slice(&body_of(Vec::new()).await).unwrap();
+        assert!(empty.get("btws").is_none());
+    }
+
+    #[test]
+    fn a_read_whose_btws_failed_goes_without_an_etag_so_it_is_read_again() {
+        let tag = Some("\"1.x.5.whole\"".to_owned());
+        let failed = Btws {
+            member: String::new(),
+            failed: true,
+        };
+        assert_eq!(
+            whole_btws(IMMUTABLE, tag.clone(), &failed),
+            (NO_CACHE, None)
+        );
+        let whole = Btws {
+            member: ",\"btws\":[]".into(),
+            failed: false,
+        };
+        assert_eq!(
+            whole_btws(IMMUTABLE, tag.clone(), &whole),
+            (IMMUTABLE, tag.clone())
+        );
+        // no btw at all is whole too: nothing is missing
+        assert_eq!(
+            whole_btws(NO_CACHE, tag.clone(), &Btws::default()),
+            (NO_CACHE, tag)
+        );
+    }
+
+    #[tokio::test]
     async fn a_whole_read_polled_past_its_end_stays_ended() {
-        let mut body = std::pin::pin!(whole(futures_util::stream::iter(Vec::new()).boxed()));
+        let mut body = std::pin::pin!(whole(
+            futures_util::stream::iter(Vec::new()).boxed(),
+            String::new()
+        ));
         while body.next().await.is_some() {}
         assert!(body.next().await.is_none());
         assert!(body.next().await.is_none());
@@ -537,7 +658,10 @@ pub(crate) mod tests {
         items.push(Err(VerbError::Unreachable {
             reason: "cut".into(),
         }));
-        let mut body = std::pin::pin!(whole(futures_util::stream::iter(items).boxed()));
+        let mut body = std::pin::pin!(whole(
+            futures_util::stream::iter(items).boxed(),
+            String::new()
+        ));
         let mut failed = false;
         while let Some(chunk) = body.next().await {
             failed |= chunk.is_err();

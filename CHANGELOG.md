@@ -6,6 +6,26 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **btw: ask on the side.** type `/btw ` in a thread's composer (or pick
+  btw from the slash or plus menu) and the composer turns citron, shows a
+  btw chip and sends with "ask": the question goes to the thread's model
+  with the session's context and no tools, idle or mid-turn, without
+  steering or queueing, and the agent never sees it. the answer streams
+  into an aside card on a dashed rail at the end of the turn it was asked
+  in. dismiss folds it to a one-line chip on every device; add to thread
+  puts the question and answer in as your message, marked "from a btw".
+  the server carries btws for any source that declares
+  `capabilities.btw`: `AgentBtw` records, `btw` and `btw.delta` stream
+  entries, `btws` on the thread read, and `POST`/`GET
+  /api/agents/{agent}/threads/{thread}/btw` with `/dismiss` and
+  `/promote`; telemetry `btw.asked`, `btw.dismissed`, `btw.promoted`
+  (decision 91; `docs/thread.md`, btw; `docs/composer.md`, btw mode).
+  the cmx2 pin moves to 6b39992, which adds the `Btw` schema, the
+  four `/session/{id}/btw` routes, the `btw.updated` and `btw.delta`
+  events and `btw` on a promoted user message (it also brings cmx2's fork
+  lineage, report-file and fork clientID fields, which boxbox does not
+  read yet).
+
 - **the home-screen icon is the ios app's.** the fleet (three fanned
   windows in violet, gold and teal on the deep violet ground) replaces the
   single window with its tail, in the svg favicon, the manifest icons and

@@ -2,6 +2,67 @@
 /* source: boxbox openapi (server/src/http) */
 
 export type paths = {
+    "/api/agents/{agent}/threads/{thread}/btw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * the thread's btws, oldest first: what a client reads again when it
+         *     cannot place an answer's text.
+         */
+        get: operations["btw_list"];
+        put?: never;
+        /**
+         * asks a side question about the thread; it works mid-turn and changes
+         *     neither the thread's status nor its queue.
+         */
+        post: operations["btw_ask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{agent}/threads/{thread}/btw/{btw}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** dismisses a btw on every device. */
+        post: operations["btw_dismiss"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{agent}/threads/{thread}/btw/{btw}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * adds a btw's question and answer to the thread as a user message: it
+         *     joins the running turn, or starts one, so the turn is armed for done.
+         */
+        post: operations["btw_promote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/board/pin": {
         parameters: {
             query?: never;
@@ -1164,6 +1225,63 @@ export type components = {
         };
         /** @enum {string} */
         AgentAskKind: "permission" | "question";
+        /** @description one btw, whole. its times are flattened as a message's are. */
+        AgentBtw: {
+            /**
+             * @description the newest message of the thread when it was asked: the card sits
+             *     in the turn that holds it.
+             */
+            afterMessageID?: string | null;
+            /** @description the answer so far; whole once `status` settles. */
+            answer: string;
+            /** Format: double */
+            completed?: number | null;
+            /** Format: double */
+            cost?: number | null;
+            /**
+             * Format: double
+             * @description ms on the agent's clock.
+             */
+            created: number;
+            /**
+             * Format: double
+             * @description when a person dismissed it; it stays dismissed on every device.
+             */
+            dismissed?: number | null;
+            /** @description why it failed, in the agent's words, when `status` is `error`. */
+            error?: string | null;
+            id: string;
+            model?: string | null;
+            /** @description the user message it was added to the thread as. */
+            promotedMessageID?: string | null;
+            /** @description what was asked, in the person's words. */
+            question: string;
+            status: components["schemas"]["AgentBtwStatus"];
+            tokens?: components["schemas"]["ThreadTokens"] | null;
+        };
+        /** @description a side question, from a device. */
+        AgentBtwAsk: {
+            /** @description the client's id for the question; a retry carries the same one. */
+            clientID: string;
+            device: string;
+            deviceClass: string;
+            /** @description at most 32 KiB, and not empty. */
+            question: string;
+        };
+        /**
+         * @description what `POST .../btw/{btw}/promote` answers: the user message the btw
+         *     became.
+         */
+        AgentBtwPromoted: {
+            messageID: string;
+        };
+        /** @enum {string} */
+        AgentBtwStatus: "running" | "done" | "error";
+        /** @description dismissing a btw or adding it to the thread, from a device. */
+        AgentBtwVerb: {
+            device: string;
+            deviceClass: string;
+        };
         /**
          * @description a change, discriminated on `type`. a client advances its cursor past a
          *     type it does not know and ignores it.
@@ -1250,6 +1368,26 @@ export type components = {
             reactions: components["schemas"]["Reaction"][];
             /** @enum {string} */
             type: "reactions";
+        } | {
+            btw: components["schemas"]["AgentBtw"];
+            key: string;
+            /** @enum {string} */
+            type: "btw";
+            /** Format: int64 */
+            upstream?: number | null;
+        } | {
+            btwID: string;
+            delta: string;
+            key: string;
+            /**
+             * Format: int64
+             * @description utf-16 units of the answer before this delta; absent when boxbox
+             *     does not know the answer's length, so the client reads the btws
+             *     again instead of guessing.
+             */
+            offset?: number | null;
+            /** @enum {string} */
+            type: "btw.delta";
         };
         AgentConnection: {
             /** Format: int64 */
@@ -1357,6 +1495,8 @@ export type components = {
         /** @enum {string} */
         AgentKind: "coding" | "assistant" | "other";
         AgentMessage: {
+            /** @description on a user message a btw was added to the thread as: the btw's id. */
+            btw?: string | null;
             /** @description on a user message boxbox sent: the send's client id. */
             clientID?: string | null;
             /** Format: double */
@@ -1548,6 +1688,12 @@ export type components = {
             approvals: boolean;
             archive: boolean;
             attachments?: components["schemas"]["Attachments"] | null;
+            /**
+             * @description side questions answered from the thread's context, kept out of it.
+             *     absent means false, and false is left out, so an agent row persisted
+             *     before btw existed reads and writes the same bytes.
+             */
+            btw?: boolean;
             /** @description slash commands. */
             commands: boolean;
             compact: boolean;
@@ -3121,6 +3267,229 @@ export type components = {
 };
 export type $defs = Record<string, never>;
 export interface operations {
+    btw_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description every btw of the thread, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBtw"][];
+                };
+            };
+            /** @description no such agent or thread */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent has no btw */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent did not answer */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    btw_ask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentBtwAsk"];
+            };
+        };
+        responses: {
+            /** @description the btw, running; its answer streams as `btw.delta` entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBtw"];
+                };
+            };
+            /** @description not a question: empty, or past 32 KiB */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description no such agent or thread */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent has no btw (`unsupported`), or refused it (`host-said`) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent did not answer */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    btw_dismiss: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+                thread: string;
+                btw: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentBtwVerb"];
+            };
+        };
+        responses: {
+            /** @description the btw, dismissed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBtw"];
+                };
+            };
+            /** @description no such agent or thread, or the btw is gone (`gone`) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent has no btw, or refused */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent did not answer */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    btw_promote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+                thread: string;
+                btw: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentBtwVerb"];
+            };
+        };
+        responses: {
+            /** @description the user message the btw became */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBtwPromoted"];
+                };
+            };
+            /** @description no such agent or thread, or the btw is gone (`gone`) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent has no btw, or refused (a btw still running, or added already) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent did not answer */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     pin: {
         parameters: {
             query?: never;

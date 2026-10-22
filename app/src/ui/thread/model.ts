@@ -127,6 +127,9 @@ export interface Turn {
   photos?: Picture[];
   /** the files the person sent with the message that are not photos (`sentFilesOf`), named above its words */
   sentFiles?: SentFile[];
+  /** the btw this message was added to the thread from (`AgentMessage.btw`, a promoted btw's id): its bubble carries the
+      "from a btw" marker that goes to the card (docs/thread.md, btw) */
+  btw?: string;
 }
 
 /** a file a person sent with a message that is not a photo: its name and its kind */
@@ -579,6 +582,8 @@ export function turnsOf(messages: readonly WireMessage[], root: string, steered:
       const photos = photosIn(memo, seen, info.id, photosOf(parts));
       const sentFiles = sentFilesIn(memo, seen, info.id, sentFilesOf(parts, o.text));
       cur = { id: info.id, by: compacted ? "compaction" : steered.has(info.id) ? "steer" : o.by, prompt: o.text, ...(o.from ? { from: o.from } : {}), ...(o.fromID ? { fromID: o.fromID } : {}), ...(o.note ? { note: true } : {}), at: info.created, end: info.created, items: [], status: "done", cost: 0, files: new Map(), compacted, unknownParts: 0, ...(photos.length ? { photos } : {}), ...(sentFiles.length ? { sentFiles } : {}) };
+      const fromBtw = string(extra["btw"]);
+      if (fromBtw) cur.btw = fromBtw;
       turns.push(cur);
       continue;
     }

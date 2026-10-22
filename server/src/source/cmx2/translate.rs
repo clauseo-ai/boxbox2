@@ -1,5 +1,5 @@
 //! the cmx2 translation table: one row per domain event boxbox consumes
-//! (19: the session, status, transcript, ask and need events), each
+//! (21: the session, status, transcript, btw, ask and need events), each
 //! turning a decoded cmx2 event into exactly one `SourceEvent`
 //! (`docs/agents.md`, section 4). every other type the contract declares
 //! stays decoded and ignored, as it always was. no payload rides beside
@@ -42,11 +42,13 @@ const IMAGE_KINDS: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/w
 /// a kind outside this list never reaches the translation, so a stream
 /// filtered to it loses nothing the reducer reads. `translate/tests.rs` holds
 /// the list to a frame per kind, and a kind added to the match goes here too.
-pub const CONSUMED: [&str; 19] = [
+pub const CONSUMED: [&str; 21] = [
     "message.updated",
     "message.part.updated",
     "message.part.delta",
     "message.removed",
+    "btw.updated",
+    "btw.delta",
     "session.created",
     "session.updated",
     "session.deleted",
@@ -80,6 +82,12 @@ struct InfoField<'a> {
 struct PartField<'a> {
     #[serde(borrow)]
     part: &'a RawValue,
+}
+
+#[derive(Deserialize)]
+struct BtwField<'a> {
+    #[serde(borrow)]
+    btw: &'a RawValue,
 }
 
 #[derive(Deserialize)]
@@ -142,6 +150,18 @@ pub fn event(
             thread: e.properties.session_id.clone(),
             message: e.properties.message_id.clone(),
             rev: revision(e.properties.rev),
+        },
+        Event::BtwUpdated(e) => {
+            let raw = property::<BtwField<'_>>(payload)?.btw;
+            SourceEvent::Btw {
+                thread: e.properties.session_id.clone(),
+                btw: Box::new(btw(raw)?),
+            }
+        }
+        Event::BtwDelta(e) => SourceEvent::BtwDelta {
+            thread: e.properties.session_id.clone(),
+            btw: e.properties.btw_id.clone(),
+            delta: e.properties.delta.clone(),
         },
         Event::SessionCreated(_)
         | Event::SessionUpdated(_)
@@ -547,6 +567,10 @@ struct MessageJson {
     notice: serde_json::Value,
     #[serde(default)]
     mail: serde_json::Value,
+    /// the btw a promoted user message came from; read as a value, so one
+    /// that is not a string is dropped rather than refusing the message.
+    #[serde(default)]
+    btw: serde_json::Value,
 }
 
 #[derive(Deserialize)]
@@ -611,6 +635,105 @@ pub fn message(info: &RawValue) -> Result<Message, serde_json::Error> {
         quote: None,
         reactions: None,
         mail: mail(&m.mail),
+        btw: text(&m.btw),
+    })
+}
+
+/// a btw, read as loosely as a message: its id, question, answer, status
+/// and creation time are its facts; everything else is read without the
+/// power to refuse it.
+#[derive(Deserialize)]
+struct BtwJson {
+    id: String,
+    text: String,
+    #[serde(default)]
+    answer: String,
+    status: String,
+    time: BtwTime,
+    #[serde(default)]
+    error: serde_json::Value,
+    #[serde(default, rename = "afterMessageID")]
+    after_message_id: serde_json::Value,
+    #[serde(default, rename = "promotedMessageID")]
+    promoted_message_id: serde_json::Value,
+    #[serde(default)]
+    model: serde_json::Value,
+    #[serde(default)]
+    tokens: serde_json::Value,
+    #[serde(default)]
+    cost: serde_json::Value,
+}
+
+#[derive(Deserialize)]
+struct BtwTime {
+    created: f64,
+    #[serde(default)]
+    completed: serde_json::Value,
+    #[serde(default)]
+    dismissed: serde_json::Value,
+}
+
+/// a btw as cmx2 writes it (`GET /session/{id}/btw`, `btw.updated`), as
+/// the neutral btw.
+///
+/// # Errors
+/// it lacks an id, a question, a status boxbox knows or a creation time.
+pub fn btw(raw: &RawValue) -> Result<crate::wire::Btw, serde_json::Error> {
+    use serde::de::Error as _;
+    let b: BtwJson = serde_json::from_str(raw.get())?;
+    let text = |v: &serde_json::Value| v.as_str().map(str::to_owned);
+    let status = match b.status.as_str() {
+        "running" => crate::wire::BtwStatus::Running,
+        "done" => crate::wire::BtwStatus::Done,
+        "error" => crate::wire::BtwStatus::Error,
+        other => {
+            return Err(serde_json::Error::custom(format!(
+                "a btw is running, done or error, not {other}"
+            )));
+        }
+    };
+    let model = match (
+        b.model
+            .get("providerID")
+            .and_then(serde_json::Value::as_str),
+        b.model.get("modelID").and_then(serde_json::Value::as_str),
+    ) {
+        (Some(provider), Some(id)) => Some(format!("{provider}/{id}")),
+        _ => None,
+    };
+    let count = |v: Option<&serde_json::Value>| {
+        v.and_then(serde_json::Value::as_f64)
+            .filter(|n| n.is_finite() && *n >= 0.0)
+            .map(|n| {
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "a finite, non-negative token count; past u64 it saturates"
+                )]
+                let whole = n as u64;
+                whole
+            })
+    };
+    let tokens = b.tokens.is_object().then(|| crate::wire::Tokens {
+        input: count(b.tokens.get("input")).unwrap_or(0),
+        output: count(b.tokens.get("output")).unwrap_or(0),
+        cache_read: count(b.tokens.pointer("/cache/read")).unwrap_or(0),
+        cache_write: count(b.tokens.pointer("/cache/write")).unwrap_or(0),
+    });
+    Ok(crate::wire::Btw {
+        id: b.id,
+        question: b.text,
+        answer: b.answer,
+        status,
+        error: text(&b.error),
+        after_message_id: text(&b.after_message_id),
+        created: b.time.created,
+        completed: b.time.completed.as_f64(),
+        dismissed: b.time.dismissed.as_f64(),
+        promoted_message_id: text(&b.promoted_message_id),
+        model,
+        tokens,
+        cost: b.cost.as_f64(),
     })
 }
 

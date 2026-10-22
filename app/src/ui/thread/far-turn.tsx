@@ -11,6 +11,7 @@ import { settledHtml } from "./markdown";
 import { type HtmlMemo, cacheKey } from "./memo-cache";
 import type { Turn } from "./model";
 import { reportOf } from "./report";
+import { shownPrompt } from "../btw/words";
 import { type RowCtx, type RowModel, firstSentence } from "./rows";
 import { CLAMPED_CHARS, CachesContext, ThreadKeyContext, useOrdinal } from "./thread";
 
@@ -52,7 +53,7 @@ export function StandIn(props: { turn: Turn; ctx: RowCtx; far: FarTurn; refill: 
         <Show when={t().sentFiles?.length ? t().sentFiles : undefined}>
           {(files) => <ul aria-label={`files sent${ordinal()}`}><For each={files()}>{(file) => <li aria-label={file.filename} />}</For></ul>}
         </Show>
-        <Show when={t().prompt}><p>{longPrompt(t().prompt) ? t().prompt.slice(0, CLAMPED_CHARS) : boundedPlain(t().prompt).shown}</p></Show>
+        <Show when={shownPrompt(t())}>{(said) => <p>{longPrompt(said()) ? said().slice(0, CLAMPED_CHARS) : boundedPlain(said()).shown}</p>}</Show>
       </Show>
       <Show when={t().by === "mail"}><p>{(() => { const r = reportOf(t()); return r.gist ? `${r.name} · ${r.gist}` : r.name; })()}</p></Show>
       <Show when={t().by === "notice"}><p>{firstSentence(t().prompt).slice(0, 120)}</p></Show>

@@ -53,6 +53,15 @@ export const SessionInfo = Type.Object(
 		projectID: Type.String({ description: "the project root (git top level, or the directory)" }),
 		directory: Type.String(),
 		parentID: Type.Optional(Type.String()),
+		forkedFrom: Type.Optional(
+			Type.Object(
+				{
+					sessionID: Type.String(),
+					messageID: Type.Optional(Type.String({ description: "the parent's message the fork was cut before: the fork holds the parent's history up to, not including, this message. absent when the whole history was forked" })),
+				},
+				{ description: "set on a session made by fork: where it came from" },
+			),
+		),
 		title: Type.String(),
 		version: Type.String({ description: "daemon version that created the session" }),
 		time: Type.Object({ created: Type.Number(), updated: Type.Number(), archived: Type.Optional(Type.Number({ description: "when the session was archived (deleted from view); its history stays" })) }),
@@ -120,6 +129,7 @@ export const MessageInfo = Type.Object(
 		agent: Type.Optional(Type.String({ description: "on a user message: the agent it was sent for" })),
 		model: Type.Optional(Type.Object({ providerID: Type.String(), modelID: Type.String() }, { description: "on a queued or steered user message: the model it asked for, applied when it runs" })),
 		variant: Type.Optional(Type.String({ description: "on a queued or steered user message: the effort it asked for, applied when it runs (a steer's from the next turn)" })),
+		btw: Type.Optional(Type.String({ description: "on a user message made by promoting a btw: the btw's id. its text is the question and the answer, framed as a btw the user asked" })),
 	},
 	{ additionalProperties: true, description: "opencode-shaped message info; assistant messages add modelID, providerID, cost, tokens, finish, variant (effort)" },
 );
@@ -420,6 +430,33 @@ const ProjectRow = Type.Object({
 	worktrees: Type.Optional(Type.Array(WorktreeInfo, { description: "with worktrees=true: the checkouts, from git's own list" })),
 });
 
+export const Btw = Type.Object(
+	{
+		id: Type.String(),
+		sessionID: Type.String(),
+		text: Type.String({ description: "the question" }),
+		answer: Type.String({ description: "the answer so far: empty when asked, grown by btw.delta while running, final when done. an error keeps the text that came before it" }),
+		status: Type.Union([Type.Literal("running"), Type.Literal("done"), Type.Literal("error")]),
+		error: Type.Optional(Type.String({ description: "on status error: what went wrong, short and lowercase, to show as is" })),
+		afterMessageID: Type.Optional(Type.String({ description: "the session's last message when the btw was asked; a client places the card after it" })),
+		time: Type.Object({
+			created: Type.Number(),
+			completed: Type.Optional(Type.Number({ description: "when it finished, done or error" })),
+			dismissed: Type.Optional(Type.Number({ description: "when it was dismissed; a dismissed btw stays readable, clients hide it" })),
+		}),
+		promotedMessageID: Type.Optional(Type.String({ description: "the user message it was promoted into" })),
+		model: Type.Optional(Type.Object({ providerID: Type.String(), modelID: Type.String() }, { description: "the model that answers: the session's" })),
+		tokens: Type.Optional(
+			Type.Object({ input: Type.Number(), output: Type.Number(), cache: Type.Object({ read: Type.Number(), write: Type.Number() }) }, { description: "once finished: what its requests used; added to the session's totals, not to its context fill" }),
+		),
+		cost: Type.Optional(Type.Number({ description: "once finished: what it cost, added to the session's cost" })),
+	},
+	{
+		description:
+			"a side question about a session, answered by the session's model from the session's context in a request that reads the session's prompt cache. it is never part of the transcript: not in message reads, forks or compaction, and the model does not see it later unless it is promoted",
+	},
+);
+
 // ---------- events ----------
 
 export interface EventDef {
@@ -530,6 +567,13 @@ export const EVENTS = {
 		offset: Type.Integer({ description: "utf-16 units of the part's text before this delta; deltas are not logged, so a consumer checks contiguity with this" }),
 	}),
 
+	"btw.updated": event("a btw was asked, finished (done or error), dismissed or promoted; it carries the whole btw. on a resume a running btw is sent again with its answer so far where the stream goes live", { ...sid, btw: Btw }),
+	"btw.delta": event("streamed answer text for a running btw, appended to its answer in order. not logged and not numbered, like message.part.delta; coalesce=100 merges a btw's deltas into one per batch", {
+		...sid,
+		btwID: Type.String(),
+		delta: Type.String(),
+	}),
+
 	"file.edited": event("a session's write or edit changed a file (after the formatter ran)", {
 		...sid,
 		file: Type.String({ description: "absolute path" }),
@@ -581,6 +625,7 @@ export const EVENTS = {
 		childID: Type.String(),
 		label: Type.String({ description: "parked, failed, partial" }),
 		body_length: Type.Integer(),
+		file: Type.Optional(Type.String({ description: "the file holding the whole report body, under the daemon's data dir; absent when the body was empty" })),
 		abort_reason: Type.Optional(Type.Object({ reason: Type.String(), details: Type.String() })),
 		behavior_violation: Type.Optional(Type.Unknown()),
 	}),
@@ -956,7 +1001,7 @@ export const ROUTES: RouteDef[] = [
 		path: "/session/:sessionID/agents/message",
 		operationId: "messageAgent",
 		summary: "send a note as this session to an agent in its tree",
-		body: Type.Object({ to: Type.String({ description: "id, path, name or parent" }), body: Type.String(), wake: Type.Optional(Type.Boolean()), correlation_id: Type.Optional(Type.String()) }),
+		body: Type.Object({ to: Type.String({ description: "id, path, name or parent" }), body: Type.String(), wake: Type.Optional(Type.Boolean()), correlation_id: Type.Optional(Type.String()), files: Type.Optional(Type.Array(Type.String(), { description: "files whose contents ride along with the note, cut like a spawn's (relative paths resolve against the sender's directory); a report's file can be passed on this way" })) }),
 		response: Type.Object({ to: Type.String(), id: Type.String(), state: Type.String(), woke: Type.Boolean(), pending: Type.Integer() }),
 		status: 202,
 		errors: [409],
@@ -1093,8 +1138,9 @@ export const ROUTES: RouteDef[] = [
 		method: "POST",
 		path: "/session/:sessionID/fork",
 		operationId: "fork",
-		summary: "a new session with this one's history up to (not including) a message, or all of it; titled (fork #n)",
-		body: Type.Object({ messageID: Type.Optional(Type.String()) }),
+		summary:
+			"a new session with this one's history up to (not including) a message, or all of it; titled (fork #n), with forkedFrom naming this session and the message. its copied messages get new ids under the fork's own id. a repeat with the same clientID answers the first fork, as it was answered, and makes no other",
+		body: Type.Object({ messageID: Type.Optional(Type.String()), clientID: ClientID }),
 		response: SessionInfo,
 	},
 	{
@@ -1142,6 +1188,32 @@ export const ROUTES: RouteDef[] = [
 		response: Type.Object({ result: Type.Union([Type.Literal("queued"), Type.Literal("started")]), messageID: Type.String(), ...KeptChoice }),
 		status: 202,
 		errors: Busy,
+	},
+	{
+		method: "POST",
+		path: "/session/:sessionID/btw",
+		operationId: "askBtw",
+		summary:
+			"ask a side question about the session. it runs at once, idle or mid-turn, on the session's model with the session's context (mid-turn, the context of the request already sent), and never touches the session's status, queue, steers or transcript. the answer streams as btw.delta and lands in btw.updated; its spend adds to the session's totals",
+		body: Type.Object({ text: Type.String({ minLength: 1 }), clientID: ClientID }),
+		response: Btw,
+	},
+	{ method: "GET", path: "/session/:sessionID/btw", operationId: "btws", summary: "the session's btws, oldest first, dismissed ones included (time.dismissed set)", response: Type.Array(Btw), headers: Seq },
+	{
+		method: "POST",
+		path: "/session/:sessionID/btw/:btwID/dismiss",
+		operationId: "dismissBtw",
+		summary: "hide a btw: sets time.dismissed (a flag; the btw stays readable). a running btw stops and ends as an error. a second call changes nothing and answers the same btw",
+		response: Btw,
+	},
+	{
+		method: "POST",
+		path: "/session/:sessionID/btw/:btwID/promote",
+		operationId: "promoteBtw",
+		summary:
+			"put a done btw into the thread: a user message (marked btw: <id>) holding the question and the answer, framed as a btw the user asked, sent as a steer when a turn runs and as a prompt otherwise. 409 when the btw is not done or was promoted already",
+		response: Type.Object({ messageID: Type.String({ description: "the user message's id: provisional when it was steered into a running turn, as a steer's is" }) }),
+		errors: [409],
 	},
 	{ method: "POST", path: "/session/:sessionID/effort", operationId: "setEffort", summary: "move the effort dial; applies from the next turn", body: Type.Object({ effort: Effort }), response: Type.Object({ result: Type.Union([Type.Literal("applied"), Type.Literal("pending")]), effort: Type.String() }), errors: [409] },
 	{ method: "POST", path: "/session/:sessionID/abort", operationId: "abort", summary: "stop the running turn", response: Ok },

@@ -20,7 +20,26 @@ use super::{
     Verb, VerbError,
 };
 use crate::config::Origin;
-use crate::wire::{Accepted, AcceptedState, Born, Capabilities, Kind, Place};
+use crate::wire::{Accepted, AcceptedState, Born, Btw, Capabilities, Kind, Place};
+
+/// a running btw, as the scripted source answers one.
+fn scripted_btw(id: &str, question: &str) -> Btw {
+    Btw {
+        id: id.into(),
+        question: question.into(),
+        answer: String::new(),
+        status: crate::wire::BtwStatus::Running,
+        error: None,
+        after_message_id: None,
+        created: 1.0,
+        completed: None,
+        dismissed: None,
+        promoted_message_id: None,
+        model: None,
+        tokens: None,
+        cost: None,
+    }
+}
 
 /// how the source answers the next send.
 #[derive(Debug, Clone)]
@@ -253,6 +272,32 @@ impl AgentSource for ScriptedSource {
 
     fn run_now(&self, thread: &ThreadRef) -> Verb<'_, ()> {
         self.ok("run_now", &thread.key(), ())
+    }
+
+    fn btw_ask(&self, thread: &ThreadRef, client_id: &str, question: &str) -> Verb<'_, Btw> {
+        self.ok(
+            "btw_ask",
+            &format!("{} {client_id}", thread.key()),
+            scripted_btw("btw_1", question),
+        )
+    }
+
+    fn btws(&self, thread: &ThreadRef) -> Verb<'_, Vec<Btw>> {
+        self.ok("btws", &thread.key(), vec![scripted_btw("btw_1", "why")])
+    }
+
+    fn btw_dismiss(&self, thread: &ThreadRef, btw: &str) -> Verb<'_, Btw> {
+        let mut dismissed = scripted_btw(btw, "why");
+        dismissed.dismissed = Some(2.0);
+        self.ok("btw_dismiss", &format!("{} {btw}", thread.key()), dismissed)
+    }
+
+    fn btw_promote(&self, thread: &ThreadRef, btw: &str) -> Verb<'_, String> {
+        self.ok(
+            "btw_promote",
+            &format!("{} {btw}", thread.key()),
+            "msg_promoted".to_owned(),
+        )
     }
 
     fn unsend(&self, thread: &ThreadRef, message: &str) -> Verb<'_, ()> {

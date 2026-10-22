@@ -405,6 +405,11 @@
   --window-top: #34298a;
   --window-bottom: #171240;
   --tone: #b7abff;
+  /* the btw tint, citron (design.md, colour: the btw exception): the one hue that is not a repo's and not a state, worn
+     only by a btw (its card, and the composer window in btw mode). the same values as ui/btw/tint.ts, held equal there */
+  --btw-top: #4b4100;
+  --btw-bottom: #201b00;
+  --btw-tone: #ffe680;
   --sans: "Boxbox Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --read: "Lexend", ui-sans-serif, system-ui, -apple-system, sans-serif;

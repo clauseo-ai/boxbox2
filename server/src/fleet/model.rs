@@ -1197,7 +1197,9 @@ impl Model {
             SourceEvent::Message { .. }
             | SourceEvent::Part { .. }
             | SourceEvent::Delta { .. }
-            | SourceEvent::MessageRemoved { .. } => {
+            | SourceEvent::MessageRemoved { .. }
+            | SourceEvent::Btw { .. }
+            | SourceEvent::BtwDelta { .. } => {
                 self.transcript(host, seq, event, &mut changes);
             }
             SourceEvent::Fault { .. }
@@ -1407,6 +1409,19 @@ impl Model {
                     }
                 }
             }
+            // a btw is never the thread's tail or state: the model holds none
+            // of it and only journals it (the agent is the system of record)
+            SourceEvent::Btw { thread, btw } => changes.push(Change::Btw {
+                key: session_key(host, &thread),
+                upstream: seq,
+                btw: *btw,
+            }),
+            SourceEvent::BtwDelta { thread, btw, delta } => changes.push(Change::BtwDelta {
+                key: session_key(host, &thread),
+                btw_id: btw,
+                delta,
+                offset: None,
+            }),
             _ => {}
         }
     }

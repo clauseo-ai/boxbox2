@@ -13,7 +13,7 @@
 
 import { placeBefore } from "../order";
 import type { Agent, Ask, Entry, FleetSnapshot, Interest, InterestPost, Message, MessageInfo, Part, Thread, ThreadEntry } from "../protocol";
-import { isTranscript, parseCursor, textOf } from "../protocol";
+import { isBtwEntry, isTranscript, parseCursor, textOf } from "../protocol";
 
 export type Dial = { url: string; headers: Record<string, string>; signal: AbortSignal; at: number; push(frame: unknown, id?: string): void; raw(text: string): void };
 
@@ -390,7 +390,9 @@ export class JournalServer {
       const up = field(entry, "upstream");
       if (typeof up === "number") upstream = Math.max(upstream, up);
       this.upstreams[entry.seq] = upstream;
-      if (isTranscript(entry)) {
+      // btw entries go to the streams whose interest shows them, and are not replayed: the fixture's catch-ups and reads model
+      // the messages alone
+      if (isTranscript(entry) && !isBtwEntry(entry)) {
         const list = this.transcripts.get(entry.key) ?? [];
         list.push(entry);
         this.transcripts.set(entry.key, list);

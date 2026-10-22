@@ -62,6 +62,10 @@ type Recorded = {
 
 const root = join(import.meta.dir, "../../..");
 const MAIN = JSON.parse(gunzipSync(readFileSync(join(import.meta.dir, "fixtures/two-wire-main.json.gz"))).toString("utf8")) as Recorded;
+/** capabilities translate::agent gained after the recording, with what it says for a cmx2 daemon now: main's fleet was made
+    neutral by the table as it stood then, so these are laid onto its agents rather than editing the recording by hand */
+const ADDED_SINCE_RECORDING: Json = { btw: true };
+MAIN.fleet.agents = MAIN.fleet.agents.map((agent) => ({ ...agent, capabilities: { ...(agent["capabilities"] as Json), ...ADDED_SINCE_RECORDING } }));
 const EPOCH = "EPOCH";
 const TRANSCRIPT = new Set(["message", "part", "delta", "message.removed"]);
 

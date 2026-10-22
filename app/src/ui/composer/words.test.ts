@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { type Agent, type Card, cardVerbs, cardWhen, cardWords, leadOf, stripName, swipeUnsends, UNSEND_AT, compactionWords, compactMeta, contextFill, DRAFTS_FULL, fateLine, matchModels, liveLine, menuOf, menuQuery, modelsNote, placeholder, proseOf, refusedStart, effortChoices, sendWord, tailPrint, tokensWords, typedAnswers, waitedWords, withFile } from "./words";
+import { type Agent, type Card, cardVerbs, cardWhen, cardWords, leadOf, stripName, swipeUnsends, UNSEND_AT, compactionWords, compactMeta, contextFill, DRAFTS_FULL, fateLine, matchModels, liveLine, menuOf, menuQuery, modelsNote, placeholder, proseOf, refusedStart, effortChoices, sendWord, slashShowsFill, tailPrint, tokensWords, typedAnswers, waitedWords, withFile } from "./words";
 
 describe("send says what it will do", () => {
   test("an idle thread sends, a working one queues, a held send steers, a question is answered", () => {
@@ -361,5 +361,13 @@ describe("the queue's strip", () => {
     expect(swipeUnsends(-60, -1)).toBe(true);
     expect(swipeUnsends(-60, 0.2)).toBe(false);
     expect(swipeUnsends(30, -0.1)).toBe(false);
+  });
+});
+
+describe("the slash menu's context fill", () => {
+  test("is drawn on compact alone: the btw row, and the daemon's commands, draw no ring and no percent", () => {
+    expect(slashShowsFill({ name: "compact", local: true })).toBe(true);
+    expect(slashShowsFill({ name: "btw", local: true })).toBe(false);
+    expect(slashShowsFill({ name: "compact" })).toBe(false);
   });
 });

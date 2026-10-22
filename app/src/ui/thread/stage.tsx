@@ -46,6 +46,9 @@ import { createNames } from "./names";
 import { copyText } from "./clipboard";
 import { COPIED_MS, REFUSED_MS } from "./copy";
 import { READING_PATIENCE_MS, freshnessOf, readingOf, readingWords } from "./reading";
+import { BtwContext, type BtwThread } from "../btw/types";
+import { answersBtw, btwActions } from "../btw/actions";
+import { shownPrompt } from "../btw/words";
 import "./stage.css";
 
 /* the review is a chunk of its own: most threads never have one, so its card, controller and words stay out of the first
@@ -715,6 +718,10 @@ export function Stage(props: StageProps) {
 
   /* ---------- asks: the actions the cards call, and the settle that stamps the perf row ---------- */
   const actions = askActions(data.host);
+  /* the thread's btws for its turns and its composer (docs/thread.md, btw): offered only where the agent answers them */
+  const btw: BtwThread = { key, actions: btwActions, of: data.btwsOf, turnOf: data.btwTurn, nameOf: data.btwName };
+  // and only once the thread has a turn: a thread with no message has nothing to ask about, and no turn for a card (mode.ts)
+  const btwOffered = () => answersBtw(state.fleet.agents[data.host()]?.capabilities) && data.ids().length > 0;
   /* ---------- the review card: an agent in a checkout asked to be merged (docs/design.md, the needs table) ---------- */
   const reviewNeed = createMemo(() => openReview(session()));
   /* a merge or a discard serves its need as it acts, and the card stays to say what happened: the layer says when it is done */
@@ -902,7 +909,7 @@ export function Stage(props: StageProps) {
   });
   /** the first line with words in it, to 300 characters: the turns list and the ruler's card show two lines of it, and a prompt of megabytes must not be the text they hold */
   const firstLineOf = (text: string): string => { for (const line of text.slice(0, 20_000).split("\n")) if (line.trim()) return line.slice(0, 300); return ""; };
-  const turnLabel = (t: Turn) => (t.by === "compaction" ? "compacted" : t.by === "mail" ? `${t.from ?? "an agent"} ${t.note ? "wrote" : "reported"}` : firstLineOf(t.prompt) || "(an image)");
+  const turnLabel = (t: Turn) => (t.by === "compaction" ? "compacted" : t.by === "mail" ? `${t.from ?? "an agent"} ${t.note ? "wrote" : "reported"}` : firstLineOf(shownPrompt(t)) || "(an image)");
   /* the turn that is live: the newest one that has started, from the moment the session works until it is idle. it is
      the session's state, not the last message's, that decides: between two steps the last message is complete and the
      next not yet begun, and the turn must not settle and run again. a prompt queued behind it has not started and is
@@ -1141,6 +1148,7 @@ export function Stage(props: StageProps) {
                 )}</Show>
               </Show>
               <Show when={data.held() && !data.hydrating() && !data.turns().length}><p class="stage-empty">nothing here yet.</p></Show>
+              <BtwContext.Provider value={btw}>
               <AskContext.Provider value={actions}>
                 <MeasureContext.Provider value={measure}>
                   <NamesContext.Provider value={names}>
@@ -1153,6 +1161,7 @@ export function Stage(props: StageProps) {
                   </NamesContext.Provider>
                 </MeasureContext.Provider>
               </AskContext.Provider>
+              </BtwContext.Provider>
               {/* a review waits at the live edge, where an ask would, and folds into its line when it is done */}
               <Show when={reviewNeed() || reviewHeld()}>
                 <ReviewSlot Layer={ReviewLayer} box={setReviewBox} layer={{ client: api, motion: { play, fade: FADE, tick: TICK_DRAW }, host: data.host, session: () => key().slice(data.host().length + 1), need: reviewNeed, holding: setReviewHeld }} />
@@ -1192,7 +1201,7 @@ export function Stage(props: StageProps) {
             <Show when={pinned()}>{(p) => <button class="pinned" aria-label={`wants you: ${p().text}. go to it`} onClick={() => toAsk(p().id)}><i /><span><b>wants you</b> {p().text}</span></button>}</Show>
             <Show when={reviewPinned()}>{(r) => <button class="pinned" data-kind="review" aria-label={r().name} onClick={toReview}><i /><span><b>ready to merge</b> {r().note}</span></button>}</Show>
             <Show when={splitKey(key())}>
-              {(place) => <Composer target={{ kind: "session", host: place().agent, session: place().thread, directory: data.directory() }} mount="bar" title={title()} onScreen={() => transcriptEnd} onSent={sent} agents={{ count: agents().length, open: () => enter("details") }} colour={colour()} dropZone={() => stageEl} />}
+              {(place) => <Composer target={{ kind: "session", host: place().agent, session: place().thread, directory: data.directory() }} mount="bar" title={title()} onScreen={() => transcriptEnd} onSent={sent} agents={{ count: agents().length, open: () => enter("details") }} colour={colour()} dropZone={() => stageEl} btw={btwOffered() ? btwActions : undefined} />}
             </Show>
           </div>
         </div>

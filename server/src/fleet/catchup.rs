@@ -10,7 +10,9 @@
 //!   deltas after that merged; a part with no text-carrying `part` keeps
 //!   its deltas merged ahead of its last `part`;
 //! - `message.removed` drops every earlier entry of its message;
-//! - `reactions`, the last per message.
+//! - `reactions`, the last per message;
+//! - per btw, its last `btw` (a whole btw replaces what came before it),
+//!   then the `btw.delta`s after it merged.
 //!
 //! deltas merge only while they chain (`offset` equal to the run's offset
 //! plus its utf-16 length), so applying a merged run is exactly applying
@@ -40,6 +42,7 @@ enum Group {
     Reactions(String),
     Part(String),
     Removed(String),
+    Btw(String),
 }
 
 #[derive(Debug)]
@@ -75,18 +78,23 @@ pub fn compact(entries: Vec<JournalEntry>) -> Vec<JournalEntry> {
             Change::MessageRemoved { message_id, .. } => {
                 // every earlier entry of the message goes, an earlier removal too
                 for slot in &mut slots {
-                    if let Some(s) = slot.take_if(|s| s.message == *message_id) {
+                    if let Some(s) = slot
+                        .take_if(|s| s.message == *message_id && !matches!(s.group, Group::Btw(_)))
+                    {
                         open.remove(&s.group);
                     }
                 }
                 (Group::Removed(message_id.clone()), message_id.clone())
             }
+            // a btw belongs to no message: a removal never takes it
+            Change::Btw { btw, .. } => (Group::Btw(btw.id.clone()), String::new()),
+            Change::BtwDelta { btw_id, .. } => (Group::Btw(btw_id.clone()), String::new()),
             // a catch-up carries transcript entries only
             _ => continue,
         };
         if let Some(slot) = open.get(&group).and_then(|&at| slots[at].as_mut()) {
             match group {
-                Group::Part(_) => slot.entries.push(entry),
+                Group::Part(_) | Group::Btw(_) => slot.entries.push(entry),
                 // a message keeps its first entry beside its last, for below
                 Group::Message(_) => {
                     slot.entries.truncate(1);
@@ -108,6 +116,7 @@ pub fn compact(entries: Vec<JournalEntry>) -> Vec<JournalEntry> {
     for slot in slots.into_iter().flatten() {
         match slot.group {
             Group::Part(_) => out.extend(part(slot.entries)),
+            Group::Btw(_) => out.extend(btw(slot.entries)),
             Group::Message(_) => {
                 let mut entries = slot.entries;
                 if entries.len() > 1 {
@@ -212,6 +221,50 @@ fn part(entries: Vec<JournalEntry>) -> Vec<JournalEntry> {
             out.extend(entries[last].take());
             out.extend(deltas(&mut entries, last + 1, end));
         }
+    }
+    out
+}
+
+/// one btw's entries, compacted: its last whole `btw`, then the deltas
+/// after it merged while they chain. deltas with no whole one before them
+/// are merged alone.
+fn btw(entries: Vec<JournalEntry>) -> Vec<JournalEntry> {
+    let last = entries
+        .iter()
+        .rposition(|e| matches!(e.change, Change::Btw { .. }));
+    let after = match last {
+        Some(at) => entries.into_iter().skip(at).collect(),
+        None => entries,
+    };
+    let mut out: Vec<JournalEntry> = Vec::new();
+    for entry in after {
+        if let (
+            Some(JournalEntry {
+                seq,
+                change:
+                    Change::BtwDelta {
+                        delta: run_text,
+                        offset: run_offset,
+                        ..
+                    },
+            }),
+            Change::BtwDelta { delta, offset, .. },
+        ) = (out.last_mut(), &entry.change)
+        {
+            // a run with an offset chains onto the next at its end; two without
+            // one both mean "read the btws again", once is enough
+            let chains = match (*run_offset, *offset) {
+                (Some(run), Some(next)) => next == run + utf16_len(run_text),
+                (None, None) => true,
+                _ => false,
+            };
+            if chains {
+                run_text.push_str(delta);
+                *seq = entry.seq;
+                continue;
+            }
+        }
+        out.push(entry);
     }
     out
 }
@@ -415,6 +468,86 @@ mod tests {
             at(4, message("n")),
         ];
         assert_eq!(shape(&compact(entries)), ["3:message.removed", "4:message"]);
+    }
+
+    fn btw(answer: &str) -> Change {
+        Change::Btw {
+            key: "k".into(),
+            upstream: None,
+            btw: serde_json::from_value(serde_json::json!({
+                "id": "b", "question": "why", "answer": answer, "status": "running", "created": 1.0
+            }))
+            .unwrap(),
+        }
+    }
+
+    fn btw_delta(text: &str, offset: Option<u64>) -> Change {
+        Change::BtwDelta {
+            key: "k".into(),
+            btw_id: "b".into(),
+            delta: text.into(),
+            offset,
+        }
+    }
+
+    fn btw_shape(entries: &[JournalEntry]) -> Vec<String> {
+        entries
+            .iter()
+            .map(|e| match &e.change {
+                Change::BtwDelta { delta, offset, .. } => {
+                    format!("{}:btw.delta {offset:?} {delta}", e.seq)
+                }
+                other => format!("{}:{}", e.seq, other.kind()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_btw_keeps_its_last_whole_record_and_the_deltas_after_it_merged() {
+        let entries = vec![
+            at(1, btw("")),
+            at(2, btw_delta("he", Some(0))),
+            at(3, message("m")),
+            at(4, btw("he")),
+            at(5, btw_delta("llo", Some(2))),
+            at(6, btw_delta(" you", Some(5))),
+            // a gap: stays apart
+            at(7, btw_delta("!", Some(40))),
+        ];
+        assert_eq!(
+            btw_shape(&compact(entries)),
+            [
+                "3:message",
+                "4:btw",
+                "6:btw.delta Some(2) llo you",
+                "7:btw.delta Some(40) !"
+            ]
+        );
+    }
+
+    #[test]
+    fn btw_deltas_without_an_offset_merge_into_one_reread_and_a_removal_leaves_btws_alone() {
+        let entries = vec![
+            at(1, btw_delta("a", None)),
+            at(2, btw_delta("b", None)),
+            at(3, btw_delta("c", Some(9))),
+            at(
+                4,
+                Change::MessageRemoved {
+                    key: "k".into(),
+                    upstream: None,
+                    message_id: String::new(),
+                },
+            ),
+        ];
+        assert_eq!(
+            btw_shape(&compact(entries)),
+            [
+                "2:btw.delta None ab",
+                "3:btw.delta Some(9) c",
+                "4:message.removed"
+            ]
+        );
     }
 
     #[test]

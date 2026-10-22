@@ -23,7 +23,7 @@ use crate::source::{
     Exit, MediaBody, MediaSource, MessageWithParts, Page, Reading, Send, SourceSender, Stamped,
     Start, TerminalSource, ThreadFacts, ThreadRef, Transcript, Verb, VerbError,
 };
-use crate::wire::{Accepted, Born};
+use crate::wire::{Accepted, Born, Btw};
 
 /// one cmx2 daemon, for one `[[cmx2]]` (or `[[host]]`) connection.
 #[derive(Debug)]
@@ -45,6 +45,11 @@ pub struct Cmx2Source {
     /// the cursors `boxbox.db` kept (`docs/protocol.md`, section 10): the
     /// first watcher of a connection starts from its own and takes it out.
     resume: Resume,
+    /// the connection count (plus one) at which the daemon answered a btw
+    /// route with no-route; 0 while it has not. a daemon older than btw
+    /// stays so until it reconnects (an upgrade is a restart), so its btw
+    /// verbs and reads are refused here without a call until then.
+    btw_missing: std::sync::atomic::AtomicU64,
 }
 
 impl Cmx2Source {
@@ -67,7 +72,21 @@ impl Cmx2Source {
             photos: Arc::clone(&shared.photos),
             refs: crate::source::cmx2::verbs::refs::Refs::new(shared.media.clone()),
             resume: Arc::clone(&shared.resume),
+            btw_missing: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// whether this connection's daemon has said it has no btw routes.
+    pub(crate) fn btw_missing(&self) -> bool {
+        let at = self.btw_missing.load(std::sync::atomic::Ordering::Relaxed);
+        at != 0 && at - 1 == self.status.borrow().connects
+    }
+
+    /// the daemon answered a btw route with no-route: remembered until it reconnects.
+    pub(crate) fn mark_btw_missing(&self) {
+        let connects = self.status.borrow().connects;
+        self.btw_missing
+            .store(connects + 1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// the daemon as configured, credential included; it never leaves the server.
@@ -247,6 +266,27 @@ impl AgentSource for Cmx2Source {
 
     fn catalog(&self, _agent: &str, _directory: Option<&str>) -> Verb<'_, Catalog> {
         Box::pin(self.typed_catalog())
+    }
+
+    fn btw_ask(&self, thread: &ThreadRef, client_id: &str, question: &str) -> Verb<'_, Btw> {
+        let (thread, client_id, question) =
+            (thread.clone(), client_id.to_owned(), question.to_owned());
+        Box::pin(async move { self.typed_btw_ask(&thread, &client_id, &question).await })
+    }
+
+    fn btws(&self, thread: &ThreadRef) -> Verb<'_, Vec<Btw>> {
+        let thread = thread.clone();
+        Box::pin(async move { self.typed_btws(&thread).await })
+    }
+
+    fn btw_dismiss(&self, thread: &ThreadRef, btw: &str) -> Verb<'_, Btw> {
+        let (thread, btw) = (thread.clone(), btw.to_owned());
+        Box::pin(async move { self.typed_btw_dismiss(&thread, &btw).await })
+    }
+
+    fn btw_promote(&self, thread: &ThreadRef, btw: &str) -> Verb<'_, String> {
+        let (thread, btw) = (thread.clone(), btw.to_owned());
+        Box::pin(async move { self.typed_btw_promote(&thread, &btw).await })
     }
 
     fn adopt(&self, thread: &ThreadRef) -> Verb<'_, ThreadFacts> {

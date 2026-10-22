@@ -6,7 +6,7 @@
 import { For, Show } from "solid-js";
 import type { CommandChoice } from "./reads";
 import { ContextRing } from "./context";
-import type { ContextFill } from "./words";
+import { type ContextFill, slashShowsFill } from "./words";
 
 export type SlashChoice = CommandChoice & { local?: boolean };
 
@@ -43,7 +43,7 @@ export function Suggestions(props: SuggestionsProps) {
               <b>/{choice.name}</b>
               <span>{choice.description ?? ""}</span>
               <em class="cz-ctx">
-                <Show when={choice.local ? props.fill : null}>{(f) => <><ContextRing fill={f()} />{f().percent}%</>}</Show>
+                <Show when={slashShowsFill(choice) ? props.fill : null}>{(f) => <><ContextRing fill={f()} />{f().percent}%</>}</Show>
                 {choice.hints.join(" ")}
               </em>
             </button>

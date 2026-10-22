@@ -5,9 +5,10 @@
    this is the io around them. */
 
 import { Backoff } from "./backoff";
-import type { FromWorker, Outgoing, StreamState } from "./messages";
+import type { BtwDone, BtwOp, FromWorker, Outgoing, StreamState } from "./messages";
 import { type Answer, answered, DRAFT_TROUBLE_AFTER, type Draft, type DraftMessage, draftRetryMs, echoed, entryOf, type HeldPhotos, nextWaiting, OUTBOX_CAP, OUTBOX_PHOTO_BYTES, isPhotoKind, type OutboxEntry, orphaned, overdue, type Photo, perfVerb, photoBytes, postBudgetMs, REISSUE_MS, removed, splitDraft, viewOfEntry, wasQueued } from "./outbox";
-import type { Frame, Message } from "./protocol";
+import type { Btw, Frame, Message } from "./protocol";
+import { splitKey } from "./protocol";
 import type { Telemetry } from "./telemetry";
 
 /** how often a send that is waiting for its echo is looked at */
@@ -43,6 +44,32 @@ function unsendRefusal(answer: Answer): string {
   if (answer.kind === "refused" && answer.status === 404) return "it is not waiting anymore: it went, or another device took it back";
   return answer.kind === "taken" ? "" : answer.message;
 }
+
+/** what did not happen when a btw verb did not take, and what to do about it, by verb */
+const BTW_MISSED = {
+  ask: { what: "the question was not asked", todo: "ask again" },
+  dismiss: { what: "the btw is still here", todo: "dismiss it again" },
+  promote: { what: "nothing was added to the thread", todo: "try again" },
+} as const;
+
+/** why a btw verb did not take, in the card's and the composer's words: what happened and what to do. a refusal the server
+    put in words (an agent without btw, a question too long or empty) is said as it said it */
+export function btwRefusal(verb: BtwOp["verb"], answer: Answer): string {
+  const missed = BTW_MISSED[verb];
+  if (answer.kind === "taken") return "";
+  // the server's own words when it gave them (a host that did not answer), its absence otherwise
+  if (answer.kind === "unreachable") return `${answer.message.trim().replace(/[.\s]+$/, "")}, so ${missed.what}. check the connection and ${missed.todo}`;
+  if (answer.status === 404) {
+    return verb === "ask" ? "this thread is not on the agent anymore, so the question was not asked. ask in another thread" : "this btw is not on the agent anymore. another device may have removed it, so there is nothing to do";
+  }
+  if (answer.message.startsWith("the server answered")) return `${answer.message}, so ${missed.what}. ${missed.todo}`;
+  return answer.message;
+}
+
+const isBtw = (value: unknown): value is Btw => {
+  const btw = value as Partial<Btw> | null;
+  return typeof btw === "object" && btw !== null && typeof btw.id === "string" && typeof btw.question === "string" && typeof btw.answer === "string" && typeof btw.status === "string" && typeof btw.created === "number";
+};
 
 /** a send's `perf.send` props: what it was and how it went, never its words */
 function sendProps(entry: OutboxEntry) {
@@ -281,6 +308,29 @@ export class Sender {
     this.post({ type: "unsent", key, messageID, ok, message: ok ? null : unsendRefusal(res), returned });
   }
 
+  /* —— btws —— */
+
+  /** one btw verb. a post that got no answer (no network, a timeout, a host that did not answer) goes once more, an ask with
+      the same client id, so one the agent took before its answer was lost is not made twice; past that the person asks again.
+      never aborted by a stream drop: it is not waiting for an echo */
+  async btw(op: BtwOp): Promise<BtwDone> {
+    const place = splitKey(op.key);
+    if (!place) return { ok: false, message: `this is not a thread an agent holds, so ${BTW_MISSED[op.verb].what}. open the thread and ${BTW_MISSED[op.verb].todo}` };
+    const at = `/api/agents/${encodeURIComponent(place.agent)}/threads/${encodeURIComponent(place.thread)}/btw`;
+    const [path, body] = op.verb === "ask" ? [at, { clientID: op.clientID, question: op.question }] : [`${at}/${encodeURIComponent(op.btwID)}/${op.verb}`, {}];
+    let json: unknown = null;
+    const post = () => this.call(path, body, { ms: POST_MS, took: (value) => (json = value) });
+    let answer = await post();
+    if (answer.kind === "unreachable" && !this.signal.aborted) answer = await post();
+    if (answer.kind !== "taken") return { ok: false, message: btwRefusal(op.verb, answer) };
+    if (op.verb === "promote") {
+      const messageID = (json as { messageID?: unknown } | null)?.messageID;
+      return typeof messageID === "string" ? { ok: true, messageID } : { ok: true };
+    }
+    // a body that is not a btw still says the verb took: the stream's echo brings the record
+    return isBtw(json) ? { ok: true, btw: json } : { ok: true };
+  }
+
   /* —— the stream —— */
 
   stream(state: StreamState): void {
@@ -431,7 +481,11 @@ export class Sender {
 
   /** one post to boxbox's api, its answer read into what it means for the send. it ends when the worker stops,
       when its time is up, or, for a send, when the stream drops */
-  private async call(path: string, body: Record<string, unknown> | null, bound: { clientID?: string; ms: number; method?: "POST" | "DELETE" } = { ms: POST_MS }): Promise<Answer> {
+  private async call(
+    path: string,
+    body: Record<string, unknown> | null,
+    bound: { clientID?: string; ms: number; method?: "POST" | "DELETE"; /** a taken answer's json body, for a verb that reads it */ took?: (json: unknown) => void } = { ms: POST_MS },
+  ): Promise<Answer> {
     const controller = new AbortController();
     const stop = () => controller.abort();
     this.signal.addEventListener("abort", stop, { once: true });
@@ -453,7 +507,7 @@ export class Sender {
         return { kind: "unreachable", message: "the boxbox server is not answering" };
       }
       // the status is the answer; a body that never finishes is ended by the same abort and read as empty
-      return await this.answerOf(res, path);
+      return await this.answerOf(res, path, bound.took);
     } finally {
       clearTimeout(timer);
       this.signal.removeEventListener("abort", stop);
@@ -461,9 +515,10 @@ export class Sender {
     }
   }
 
-  private async answerOf(res: Response, path: string): Promise<Answer> {
+  private async answerOf(res: Response, path: string, took?: (json: unknown) => void): Promise<Answer> {
     // boxbox refuses as `{error: {message}}`; a passthrough route carries the daemon's own `{name, data: {message}}`
     const json = (await res.json().catch(() => null)) as { session?: string; error?: { message?: string; code?: string }; name?: string; data?: { message?: string } } | null;
+    if (res.ok) took?.(json);
     if (res.ok) return { kind: "taken", ...(typeof json?.session === "string" ? { session: json.session } : {}), landed: path.endsWith("/shell") };
     const message = json?.error?.message ?? json?.data?.message ?? `the server answered ${res.status}`;
     // a server that waited for room for a message's photos and had none has given its answer: it waited two minutes, and

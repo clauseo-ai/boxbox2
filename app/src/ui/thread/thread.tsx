@@ -29,6 +29,8 @@ import { StripLane } from "./strip";
 import { reportOf } from "./report";
 import { PictureViewer, ReportSheet, warmOn, whenLoaded } from "../later";
 import { ReportGlyph } from "./report-glyph";
+import { BtwCards, BtwMarker } from "../btw/card";
+import { shownPrompt } from "../btw/words";
 import "./thread.css";
 
 /* ---------- answering in place ---------- */
@@ -805,7 +807,10 @@ export const CLAMPED_CHARS = 1200;
 export function YouBubble(props: { turn: Turn }) {
   /* ten messages of one length have ten controls with the same words: the turn tells them apart (AGENTS.md, accessibility: unique names) */
   const ordinal = useOrdinal(() => props.turn.id);
-  const long = () => longPrompt(props.turn.prompt);
+  /* a message added from a btw shows its question; cmx2's framing and the answer's markdown are the agent's to read, and
+     the answer is on the card the marker goes to (docs/thread.md, btw) */
+  const said = () => shownPrompt(props.turn);
+  const long = () => longPrompt(said());
   const [all, setAll] = createSignal(false);
   let el!: HTMLDivElement;
   const follow = useContext(FollowContext);
@@ -832,10 +837,12 @@ export function YouBubble(props: { turn: Turn }) {
       )}
     </Show>
     <div ref={el} class="you">
-      <Show when={long() && !all()} fallback={boundedPlain(props.turn.prompt).shown}>
-        <span class="clamp">{props.turn.prompt.slice(0, CLAMPED_CHARS)}</span>
-        <button class="all" onClick={() => { follow?.hold(); flip(flipRoot(el), () => setAll(true)); }} aria-label={`${openLabel(props.turn.prompt.length)}${ordinal()}`}>{openLabel(props.turn.prompt.length)}</button>
+      <Show when={long() && !all()} fallback={boundedPlain(said()).shown}>
+        <span class="clamp">{said().slice(0, CLAMPED_CHARS)}</span>
+        <button class="all" onClick={() => { follow?.hold(); flip(flipRoot(el), () => setAll(true)); }} aria-label={`${openLabel(said().length)}${ordinal()}`}>{openLabel(said().length)}</button>
       </Show>
+      {/* a message added to the thread from a btw says so in its own meta, and goes back to its card (docs/thread.md, btw) */}
+      <Show when={props.turn.btw}>{(id) => <BtwMarker btwID={id()} />}</Show>
       <time>{label()}{clock(props.turn.at)}</time>
     </div>
     </>
@@ -995,7 +1002,7 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
   /* a message that waits and has nothing of its own yet takes no room: the composer's queue shows it */
   const waits = () => (t().by === "queued" || t().by === "steer") && !t().items.length && !t().answer;
   return (
-    <section ref={el} class="turn" data-turn={t().id} data-waits={waits() ? "" : undefined} data-pending={filled() ? undefined : ""} data-gist={filled() ? undefined : firstSentence(t().prompt).slice(0, 90)} data-far={far() ? "" : undefined} style={filled() ? undefined : { height: `${far()?.height ?? boxHeight()}px` }}>
+    <section ref={el} class="turn" data-turn={t().id} data-waits={waits() ? "" : undefined} data-pending={filled() ? undefined : ""} data-gist={filled() ? undefined : firstSentence(shownPrompt(t())).slice(0, 90)} data-far={far() ? "" : undefined} style={filled() ? undefined : { height: `${far()?.height ?? boxHeight()}px` }}>
       <Show when={filled()} fallback={<Show when={far()}>{(f) => <StandIn turn={t()} ctx={ctx()} far={f()} refill={() => win?.refill(t().id)} />}</Show>}>
         <Show when={t().by === "mail"}><ReportCard turn={t()} /></Show>
         <Show when={t().by === "compaction" || t().by === "notice"}><MarkLine turn={t()} /></Show>
@@ -1006,8 +1013,10 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
             message keeps the old reading, its last words the summary */}
         <Show when={t().by !== "compaction" || t().summary !== undefined}>
           <Ledger turn={t()} ctx={ctx()} live={live()} enter={watched()} />
-          <Show when={!live() && t().answer}>{(a) => <Answer say={a()} name={replyLabel(clock(t().at), t().prompt)} />}</Show>
+          <Show when={!live() && t().answer}>{(a) => <Answer say={a()} name={replyLabel(clock(t().at), shownPrompt(t()))} />}</Show>
         </Show>
+        {/* the btws asked after this turn's messages, after its content (docs/thread.md, btw: placement) */}
+        <BtwCards turnID={t().id} />
       </Show>
     </section>
   );

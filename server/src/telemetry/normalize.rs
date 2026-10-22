@@ -28,8 +28,17 @@ const SERVER_COLUMNS: [&str; 6] = ["id", "at", "kind", "device", "device_class",
 
 /// kinds whose truth the server owns (`scars.md`, line 1717): v1 sent them
 /// from clients to a needs tracker; v2 derives needs itself (m4), and only
-/// the server's own rows of these kinds are kept.
-const SERVER_OWNED_KINDS: [&str; 4] = ["need.raised", "need.cleared", "need.served", "push.acted"];
+/// the server's own rows of these kinds are kept. the btw kinds are
+/// recorded from the daemon's answer, which only the server hears.
+const SERVER_OWNED_KINDS: [&str; 7] = [
+    "need.raised",
+    "need.cleared",
+    "need.served",
+    "push.acted",
+    "btw.asked",
+    "btw.dismissed",
+    "btw.promoted",
+];
 
 /// one stored event: its stamp (which picks the day file) and its line.
 #[derive(Debug, Clone, PartialEq)]

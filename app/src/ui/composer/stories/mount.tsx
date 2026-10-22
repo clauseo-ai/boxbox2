@@ -17,6 +17,7 @@ import { EMPTY_FLEET } from "../../../sync/reducer";
 import type { Ask, Thread } from "../../../sync/protocol";
 import { colourStyle, hashColour, REPO_COLOURS } from "../../window/repo";
 import { Composer } from "../composer";
+import type { BtwActions, BtwDone } from "../../btw/types";
 import { NewThreadDock } from "../dock";
 import { NewThreadSheet } from "../sheet";
 import { AT, browse, COMMANDS, DIRECTORY, DROPPED, draft, FAVORITES, FILES, fileOf, HOST, IDLE, IDLE_NEARLY_FULL, IDLE_ON_OPUS, IDLE_WITH_CONTEXT, KEY, MODELS, MODELS_MANY, OTHER, PROMPTS, photoUrl, QUESTION, SESSION, sent, TARGET, WORKING, WORKING_MARKDOWN, WORKING_WITH_CONTEXT } from "./fixtures";
@@ -100,7 +101,13 @@ export type ComposerStory =
   | "sheet-model"
   | "sheet-dial"
   | "sheet-place"
-  | "sheet-away";
+  | "sheet-away"
+  | "btw"
+  | "btw-working"
+  | "btw-empty"
+  | "btw-failed"
+  | "btw-slash"
+  | "btw-tools";
 
 const HOME_STORIES = ["dock", "dock-nowhere", "sheet", "sheet-hosts", "sheet-finder", "sheet-browse", "sheet-starting", "sheet-failed", "sheet-fresh", "sheet-model", "sheet-dial", "sheet-place", "sheet-away"] as const;
 type HomeStory = (typeof HOME_STORIES)[number];
@@ -154,6 +161,14 @@ type Setup = {
   under?: boolean;
   /** the repo palette by its name (repo.ts), where the story is about how the glass sits on one hue; the fixture's own otherwise */
   palette?: string;
+  /** the thread's agent answers btws (docs/composer.md, btw): the composer is handed these verbs; "refuse" answers every ask with a refusal */
+  btw?: "ok" | "refuse";
+};
+
+/** the btw verbs a story hands the composer: an ask that lands, or one the server refused, in the words the worker would use */
+const fakeBtw = (how: "ok" | "refuse"): BtwActions => {
+  const done = (): Promise<BtwDone> => Promise.resolve(how === "ok" ? { ok: true } : { ok: false, message: "the btw was not asked: the desk host did not answer. try again" });
+  return { ask: done, dismiss: done, promote: done };
 };
 
 const LIVE: StreamStatus = { state: "live", since: AT - 600_000, lastEventAt: AT };
@@ -278,6 +293,18 @@ const SETUPS: Record<Exclude<ComposerStory, HomeStory>, () => Setup> = {
   "slash-compact": () => ({ entry: IDLE_WITH_CONTEXT, draft: draft(""), type: "/c" }),
   at: () => ({ entry: WORKING, draft: draft(""), type: "look at @dep" }),
   keyboard: () => ({ entry: WORKING, draft: draft("add logging instead of speculating"), focus: true, keyboard: true }),
+  // btw mode (docs/composer.md, btw): typed in with /btw, the prefix eaten; the chip, the citron window, "ask"
+  btw: () => ({ entry: IDLE, draft: draft(""), type: "/btw why does the deploy wait for the health check?", btw: "ok" }),
+  // mid-turn: the same, never queued and never a steer; the live line says what an ask does
+  "btw-working": () => ({ entry: WORKING, draft: draft(""), type: "/btw is the retry loop bounded?", btw: "ok" }),
+  // just entered, nothing asked yet: the placeholder says what a btw is
+  "btw-empty": () => ({ entry: IDLE, draft: draft(""), type: "/btw ", btw: "ok" }),
+  // a refusal keeps the draft and says why in the problem line
+  "btw-failed": () => ({ entry: IDLE, draft: draft(""), type: "/btw why is the deploy slow?", btw: "refuse", drive: (go) => go.later(80, () => go.press("ask")) }),
+  // the slash menu offers btw first, where the agent answers btws
+  "btw-slash": () => ({ entry: IDLE, draft: draft(""), type: "/b", btw: "ok" }),
+  // the plus menu's btw row
+  "btw-tools": () => ({ entry: IDLE, btw: "ok", drive: (go) => go.press("add to the message") }),
 };
 
 /** the menus' reads, answered as boxbox's routes answer them. the api client holds the fetch it was made with,
@@ -382,7 +409,7 @@ export function mountComposer(el: HTMLElement, story: ComposerStory): () => void
             {setup.under ? <p class="cz-story-say">the rollback keeps the last two builds on each machine, and the health check reads the same endpoint the load balancer does, so a build that passes here passes there. the logs for the run are in the deploy folder, one file per machine, and the summary at the top says which steps were skipped and why.</p> : null}
             {setup.under ? <p class="cz-story-say"><b>what changed:</b> the deploy waits for <code>/healthz</code> on every machine, <b>retries twice</b> with a backoff, and stops the rollout at the first machine that never answers.</p> : null}
           </div>
-          <Composer target={TARGET} mount="bar" title="deploy across the machines" agents={{ count: 2, open: () => undefined }} dropZone={() => el.querySelector<HTMLElement>(".cz-story-stage")} />
+          <Composer target={TARGET} mount="bar" title="deploy across the machines" agents={{ count: 2, open: () => undefined }} dropZone={() => el.querySelector<HTMLElement>(".cz-story-stage")} btw={setup.btw ? fakeBtw(setup.btw) : undefined} />
         </div>
         {setup.keyboard ? <div class="cz-story-keyboard" aria-hidden="true" /> : null}
       </div>

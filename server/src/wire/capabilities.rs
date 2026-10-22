@@ -77,6 +77,11 @@ pub struct Capabilities {
     pub origins: bool,
     /// reload, restart and memory for the runtime.
     pub admin: bool,
+    /// side questions answered from the thread's context, kept out of it.
+    /// absent means false, and false is left out, so an agent row persisted
+    /// before btw existed reads and writes the same bytes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub btw: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -140,6 +145,7 @@ pub enum Capability {
     Spend,
     Origins,
     Admin,
+    Btw,
 }
 
 impl Capability {
@@ -171,6 +177,7 @@ impl Capability {
             Self::Spend => "spend",
             Self::Origins => "origins",
             Self::Admin => "admin",
+            Self::Btw => "btw",
         }
     }
 
@@ -203,6 +210,7 @@ impl Capability {
             Self::Spend => "no spend",
             Self::Origins => "no origins",
             Self::Admin => "no admin verbs",
+            Self::Btw => "no btw",
         }
     }
 }
@@ -247,6 +255,7 @@ impl Capabilities {
             spend: true,
             origins: false,
             admin: true,
+            btw: true,
         }
     }
 
@@ -279,6 +288,7 @@ impl Capabilities {
             Capability::Spend => self.spend,
             Capability::Origins => self.origins,
             Capability::Admin => self.admin,
+            Capability::Btw => self.btw,
         }
     }
 }

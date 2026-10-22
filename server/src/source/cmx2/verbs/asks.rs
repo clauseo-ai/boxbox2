@@ -23,6 +23,9 @@ pub const BODY_MAX: usize = 16 * 1024 * 1024;
 /// how long the daemon may take to compact a thread: it answers once the summary is in, and a long thread's summary
 /// is a model call of its own.
 pub const COMPACT_TIMEOUT: Duration = Duration::from_secs(300);
+/// how a daemon's 404 begins when it has no such route at all (cmx2's
+/// `notFound` fallback), as against a thing on a route it has being gone.
+pub const NO_ROUTE: &str = "no route for ";
 
 impl Cmx2Source {
     /// answers a permission (`POST /permission/:id/reply`); `ask` is already one segment.
@@ -121,6 +124,7 @@ impl Cmx2Source {
             None,
             limit,
             BODY_MAX,
+            NoRoute::Gone,
         )
         .await
     }
@@ -166,9 +170,47 @@ impl Cmx2Source {
             directory,
             limit,
             cap,
+            NoRoute::Gone,
         )
         .await
     }
+
+    /// `upstream_within` for the verbs of a route the pin added (btw): a
+    /// daemon without the route answers `HostSaid {404}` with cmx2's
+    /// no-route words, so the verb can say the daemon lacks it, where every
+    /// other verb reads a 404 as gone.
+    ///
+    /// # Errors
+    /// as `upstream_within`, or the daemon has no such route.
+    pub async fn upstream_new_route(
+        &self,
+        method: reqwest::Method,
+        route: &str,
+        sent: Option<&Value>,
+        cap: usize,
+    ) -> Result<Done, ApiError> {
+        call_host_text(
+            &self.client,
+            self.host(),
+            method,
+            route,
+            sent.map(|sent| sent.to_string().into_bytes()),
+            None,
+            ANSWER_TIMEOUT,
+            cap,
+            NoRoute::Said,
+        )
+        .await
+    }
+}
+
+/// how a 404 that says the daemon has no such route is read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NoRoute {
+    /// as any 404: gone. a route of the pin's every daemon boxbox talks to.
+    Gone,
+    /// as the daemon's words, `HostSaid {404}`: a route newer than some daemons.
+    Said,
 }
 
 /// one compaction on one host. the daemon takes the thread's own model when the body names none, but holds the body
@@ -192,6 +234,7 @@ pub async fn summarize(
         None,
         limit,
         BODY_MAX,
+        NoRoute::Gone,
     )
     .await;
     compaction_refusal(done, &host.name, session)
@@ -261,7 +304,7 @@ fn body_bytes(sent: &Value) -> Vec<u8> {
 /// `upstream_within` once the host is found: the call itself, apart from the state that holds the hosts.
 #[allow(
     clippy::too_many_arguments,
-    reason = "upstream's own arguments and the cap"
+    reason = "upstream's own arguments, the cap and how a missing route reads"
 )]
 async fn call_host_text(
     client: &reqwest::Client,
@@ -272,6 +315,7 @@ async fn call_host_text(
     directory: Option<&str>,
     limit: Duration,
     cap: usize,
+    no_route: NoRoute,
 ) -> Result<Done, ApiError> {
     let host = config.name.as_str();
     let started = Instant::now();
@@ -317,6 +361,21 @@ async fn call_host_text(
     let data = error.and_then(|e| e.data);
     match (status, name.as_str()) {
         (401, _) => Err(ApiError::HostRefused(host.to_owned())),
+        // a route this daemon does not have (older than the pin): for a verb
+        // that asks, not a thing that is gone, so it can say the daemon lacks it
+        (404, _)
+            if no_route == NoRoute::Said
+                && data
+                    .as_ref()
+                    .and_then(|d| d.message.as_deref())
+                    .is_some_and(|m| m.starts_with(NO_ROUTE)) =>
+        {
+            Err(ApiError::HostSaid {
+                host: host.to_owned(),
+                status,
+                message: data.and_then(|d| d.message).unwrap_or_default(),
+            })
+        }
         (404, _) => Err(ApiError::Gone),
         (409, "BusyError") => Err(ApiError::AlreadySent),
         (409, "ConflictError") => {

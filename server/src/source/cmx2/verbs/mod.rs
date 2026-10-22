@@ -4,6 +4,7 @@
 //! `http::agents::cmx2`, which checks the capability first.
 
 pub mod asks;
+pub mod btw;
 pub mod compose;
 pub mod history;
 pub mod hosts;

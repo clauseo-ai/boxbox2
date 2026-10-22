@@ -1622,6 +1622,8 @@ impl Actor {
             | SourceEvent::Delta { thread, .. }
             | SourceEvent::MessageRemoved { thread, .. }
             | SourceEvent::Reactions { thread, .. }
+            | SourceEvent::Btw { thread, .. }
+            | SourceEvent::BtwDelta { thread, .. }
             | SourceEvent::Fault { thread, .. }
             | SourceEvent::Notice { thread, .. }
             | SourceEvent::TailUnread { thread, .. }
@@ -1858,6 +1860,11 @@ impl Actor {
                 delta,
                 offset,
             } => encoder.delta(now, &key, &message_id, &part_id, &field, &delta, offset),
+            Change::Btw { key, upstream, btw } => encoder.btw(&key, upstream, btw),
+            // the model leaves the offset to the encoder, which counts it
+            Change::BtwDelta {
+                key, btw_id, delta, ..
+            } => encoder.btw_delta(now, &key, &btw_id, &delta),
             other => encoder.other(other),
         }
     }

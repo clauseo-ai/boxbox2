@@ -9,6 +9,339 @@
     "version": "1"
   },
   "paths": {
+    "/api/agents/{agent}/threads/{thread}/btw": {
+      "get": {
+        "tags": [
+          "super::agents::btw"
+        ],
+        "summary": "the thread's btws, oldest first: what a client reads again when it\ncannot place an answer's text.",
+        "operationId": "btw_list",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "every btw of the thread, oldest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentBtw"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such agent or thread",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the agent has no btw",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the agent did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "super::agents::btw"
+        ],
+        "summary": "asks a side question about the thread; it works mid-turn and changes\nneither the thread's status nor its queue.",
+        "operationId": "btw_ask",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentBtwAsk"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "the btw, running; its answer streams as `btw.delta` entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBtw"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a question: empty, or past 32 KiB",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such agent or thread",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the agent has no btw (`unsupported`), or refused it (`host-said`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the agent did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{agent}/threads/{thread}/btw/{btw}/dismiss": {
+      "post": {
+        "tags": [
+          "super::agents::btw"
+        ],
+        "summary": "dismisses a btw on every device.",
+        "operationId": "btw_dismiss",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "btw",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentBtwVerb"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "the btw, dismissed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBtw"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such agent or thread, or the btw is gone (`gone`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the agent has no btw, or refused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the agent did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{agent}/threads/{thread}/btw/{btw}/promote": {
+      "post": {
+        "tags": [
+          "super::agents::btw"
+        ],
+        "summary": "adds a btw's question and answer to the thread as a user message: it\njoins the running turn, or starts one, so the turn is armed for done.",
+        "operationId": "btw_promote",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "btw",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentBtwVerb"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "the user message the btw became",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBtwPromoted"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such agent or thread, or the btw is gone (`gone`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the agent has no btw, or refused (a btw still running, or added already)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the agent did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/board/pin": {
       "post": {
         "tags": [
@@ -4707,6 +5040,161 @@
           "question"
         ]
       },
+      "AgentBtw": {
+        "type": "object",
+        "description": "one btw, whole. its times are flattened as a message's are.",
+        "required": [
+          "id",
+          "question",
+          "answer",
+          "status",
+          "created"
+        ],
+        "properties": {
+          "afterMessageID": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the newest message of the thread when it was asked: the card sits\nin the turn that holds it."
+          },
+          "answer": {
+            "type": "string",
+            "description": "the answer so far; whole once `status` settles."
+          },
+          "completed": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "created": {
+            "type": "number",
+            "format": "double",
+            "description": "ms on the agent's clock."
+          },
+          "dismissed": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "when a person dismissed it; it stays dismissed on every device."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "why it failed, in the agent's words, when `status` is `error`."
+          },
+          "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "promotedMessageID": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the user message it was added to the thread as."
+          },
+          "question": {
+            "type": "string",
+            "description": "what was asked, in the person's words."
+          },
+          "status": {
+            "$ref": "#/components/schemas/AgentBtwStatus"
+          },
+          "tokens": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThreadTokens"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "AgentBtwAsk": {
+        "type": "object",
+        "description": "a side question, from a device.",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID",
+          "question"
+        ],
+        "properties": {
+          "clientID": {
+            "type": "string",
+            "description": "the client's id for the question; a retry carries the same one."
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string",
+            "description": "at most 32 KiB, and not empty."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AgentBtwPromoted": {
+        "type": "object",
+        "description": "what `POST .../btw/{btw}/promote` answers: the user message the btw\nbecame.",
+        "required": [
+          "messageID"
+        ],
+        "properties": {
+          "messageID": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentBtwStatus": {
+        "type": "string",
+        "enum": [
+          "running",
+          "done",
+          "error"
+        ]
+      },
+      "AgentBtwVerb": {
+        "type": "object",
+        "description": "dismissing a btw or adding it to the thread, from a device.",
+        "required": [
+          "device",
+          "deviceClass"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "AgentChange": {
         "oneOf": [
           {
@@ -5069,6 +5557,73 @@
                 "type": "string",
                 "enum": [
                   "reactions"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a btw, created or replaced whole.",
+            "required": [
+              "key",
+              "btw",
+              "type"
+            ],
+            "properties": {
+              "btw": {
+                "$ref": "#/components/schemas/AgentBtw"
+              },
+              "key": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "btw"
+                ]
+              },
+              "upstream": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "streamed text for a btw's answer, merged into batches of up to 100 ms.",
+            "required": [
+              "key",
+              "btwID",
+              "delta",
+              "type"
+            ],
+            "properties": {
+              "btwID": {
+                "type": "string"
+              },
+              "delta": {
+                "type": "string"
+              },
+              "key": {
+                "type": "string"
+              },
+              "offset": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "description": "utf-16 units of the answer before this delta; absent when boxbox\ndoes not know the answer's length, so the client reads the btws\nagain instead of guessing.",
+                "minimum": 0
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "btw.delta"
                 ]
               }
             }
@@ -5453,6 +6008,13 @@
           "created"
         ],
         "properties": {
+          "btw": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "on a user message a btw was added to the thread as: the btw's id."
+          },
           "clientID": {
             "type": [
               "string",
@@ -6225,6 +6787,10 @@
                 "type": "null"
               }
             ]
+          },
+          "btw": {
+            "type": "boolean",
+            "description": "side questions answered from the thread's context, kept out of it.\nabsent means false, and false is left out, so an agent row persisted\nbefore btw existed reads and writes the same bytes."
           },
           "commands": {
             "type": "boolean",
