@@ -930,6 +930,128 @@ moves their elements in place and makes none again.
 - **height.** one line and a fixed strip: a group never changes height as
   steps fold into it.
 
+## btw (2026-10-22)
+
+a btw is a side question about the thread, asked from the composer
+(`composer.md`, btw mode), answered by the agent's model from the session's
+context with no tools, and never put into the agent's context. it is kept
+and synced: every device shows the same cards, dismissals included. the
+thread shows each one as a card that is visibly not part of the
+conversation. built in `app/src/ui/btw/` (`card.tsx`, `words.ts`,
+`place.ts`, `card.css`); the store holds the records
+(`state.threads[key].btws`, the sync side's).
+
+### placement
+
+- a card sits **inside the turn that holds the message it was asked after**
+  (`afterMessageID`), after that turn's own content: after the answer of a
+  settled turn, at the end of the running turn while it is live. a turn is
+  its prompt and the replies that follow it, so the id is looked up among
+  both.
+- a btw with **no `afterMessageID`, or one naming a message the thread does
+  not show** (not read yet, before the first prompt) goes in the last turn.
+- within a turn, **in the order they were asked** (`created`, the id breaking
+  a tie).
+- **a thread with no turn yet offers no btw**: the composer's entry points
+  (the `/btw ` prefix, the slash and plus rows) appear once the thread has
+  its first turn (`btw/mode.ts`, `btwOffered`). an empty thread has no
+  context to ask about and no turn for a card to sit in, so the card is
+  never placed nowhere. (decided 2026-10-22 over placing cards at the
+  thread's end, which would be a second placement rule for a case with
+  nothing to ask about.)
+- **a promoted turn reads as its question everywhere it is shown or
+  named** (`shownPrompt`): its bubble, its reply's copy name, the turns list
+  and the ruler's card, a far turn's stand-in and its height estimate.
+  cmx2's framing for the agent never reaches a label.
+- placement reads only the shown messages' ids and roles (`live.ts`,
+  `btwsOf`): a part streaming moves nothing, and a thread without btws walks
+  nothing. the turn draws its cards in a `<BtwCards>` of its own after the
+  ledger and the answer, so nothing else in `TurnView` changes.
+
+### the card
+
+- **anatomy**, top to bottom: the label "btw" in the citron ink beside the
+  caption "not in the agent's context · no tools" (sans 12, the quiet ink);
+  the question; the answer; a note line when there is one; the verbs.
+- **the question reads as yours, the answer as the reply** (revised
+  2026-10-22 after the first shots, where the two read as one block): the
+  question in your words (the reading face) at 14 px in the card's quiet
+  ink, behind a short 2 px rule of its own, a quote of what you asked and
+  not a bubble (a bubble is a message in the thread); the answer in the
+  agent's prose (`--prose`) at the said size, markdown in the said rows'
+  rules, the loudest words on the card. both inks hold 4.5:1 on the wash
+  (`btw/tint.test.ts`).
+- **form.** indented 24 px off the measure, on a 2 px dashed rail in the
+  citron ink at 70%, over a citron wash, corners 0 16 16 0
+  (`design.md`, colour: the btw exception). dashed is otherwise rare in the
+  thread (the gap line is dotted), so the rail alone says "aside".
+- **running.** the answer streams in the said rows' painter, one paint per
+  frame; the caret, in the citron ink, is the sign it is on its way (no
+  spinner, no pulse, design law). before the first word, where the answer
+  will be, "answering" in the quiet ink with the caret after it, held still
+  (no blink), so the card is never an empty gap in any frame; the first word
+  takes its place. verbs: dismiss.
+- **done.** the answer whole. verbs: "add to thread", dismiss. an answer
+  that came back empty says "the answer came back empty."
+- **error.** the note says what happened and what to do, in red: "no
+  answer: <the agent's words>. retry asks it again." ("no answer came. retry
+  asks it again." when it said nothing). verbs: retry (asks the same
+  question again, then dismisses the failed one, so the thread does not
+  keep both), dismiss.
+- **add to thread** promotes it: the daemon puts the question and the
+  answer into the thread as a user message (a steer while a turn runs, a
+  prompt otherwise). the verb then reads "added to thread" and goes to that
+  message (its turn is filled first, then the bubble is brought into view
+  and lit for 1.6 s, as every in-thread link is).
+- **dismiss** folds the card to one line, a button "btw: <the question's
+  first line>", cut with an ellipsis, in the same rail and wash. a tap opens
+  it again on this device only (the dismiss is synced, the look back is
+  local), with "hide" in place of dismiss. **a dismissed btw that errored
+  renders nothing**: there is nothing in it worth keeping.
+- a verb that fails says the worker's words in a red line on the card; the
+  pressed verb dims (aria-busy) while it is on its way.
+- **the promoted message.** cmx2 puts a btw into the thread as a user
+  message framed for the agent ("btw, i asked this on the side while you
+  worked, and it was answered from this conversation." then "my question:"
+  and "the answer:", the answer's markdown as it was; cmx2
+  `packages/server/src/btw.ts`, `promotedText`). its bubble shows the
+  question alone (`btw/words.ts`, `promotedParts`): the framing is the
+  agent's, and raw markdown in a plain bubble read as noise. words not in
+  that framing show whole, as any message.
+- **the marker.** that bubble carries "from a btw, with its answer" in its
+  own meta line, above its time, in the bubble's quiet ink (74%, as its
+  "show all"; the citron would not hold on the bubble), "btw" bold with a
+  dashed underline, the card's rail in small. inside the bubble it is in
+  view wherever the bubble is. a tap fills the card's turn, brings the card
+  into view and lights it (an inset ring in the rail's colour, 1.6 s).
+
+### motion
+
+- a card asked while the reader watches fades up over 360 ms, opacity
+  alone (the streamed words' curve); one painted as a thread lands just
+  shows. under reduced motion the fade is 120 ms. folding and opening change
+  the content in place, with the stage's follow held so the view does not
+  jump. nothing loops but the caret, which stops under reduced motion as
+  everywhere.
+
+### accessibility
+
+- the card is a **region named "btw: <question>"**, so a screen reader
+  announces it as a btw and says which; while it streams it is aria-busy,
+  so the answer is read once whole rather than word by word (no live
+  region, as every streamed text). an error's note is role alert.
+- **every control names its btw**: "add the btw "<q>" to the thread",
+  "dismiss the btw "<q>"", "ask the btw "<q>" again", "hide the btw
+  "<q>"", "added to thread: go to the message from the btw "<q>"", the
+  folded line "btw "<q>", dismissed. show it" (aria-expanded false; the
+  open card's hide is aria-expanded true), the marker "from a btw, with its
+  answer: go to the btw "<q>"". the question is one line, at most 60 characters, cut at a
+  word with an ellipsis; a namesake asked later in the thread reads "again",
+  then "third time" (`place.ts`, `btwNames`), as the ledger's rows do, so
+  no two controls on the page share a name.
+- focus stays with the btw when it folds or opens: a keyboard on dismiss
+  lands on the folded line, a keyboard on the line lands in the card.
+
 ## live
 
 2026-10-02: a person checking on a running turn could not see or scroll

@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 
 use super::agent::Agent;
 use super::ask::{Ask, AskSettled};
+use super::btw::Btw;
 use super::message::{Message, Reaction};
 use super::part::Part;
 use super::thread::{Activity, Changes, Context, Place, SendState, TailItem, Thread, Tokens, Vcs};
@@ -114,11 +115,31 @@ pub enum Change {
         message_id: String,
         reactions: Vec<Reaction>,
     },
+    /// a btw, created or replaced whole.
+    #[serde(rename = "btw")]
+    Btw {
+        key: String,
+        upstream: Option<u64>,
+        btw: Btw,
+    },
+    /// streamed text for a btw's answer, merged into batches of up to 100 ms.
+    #[serde(rename = "btw.delta")]
+    BtwDelta {
+        key: String,
+        #[serde(rename = "btwID")]
+        btw_id: String,
+        delta: String,
+        /// utf-16 units of the answer before this delta; absent when boxbox
+        /// does not know the answer's length, so the client reads the btws
+        /// again instead of guessing.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<u64>,
+    },
 }
 
 impl Change {
     /// the thread key of a transcript entry (`message`, `part`, `delta`,
-    /// `message.removed`, `reactions`); none for an overview entry.
+    /// `message.removed`, `reactions`, `btw`, `btw.delta`); none for an overview entry.
     #[must_use]
     pub fn transcript_key(&self) -> Option<&str> {
         match self {
@@ -126,7 +147,9 @@ impl Change {
             | Self::Part { key, .. }
             | Self::Delta { key, .. }
             | Self::MessageRemoved { key, .. }
-            | Self::Reactions { key, .. } => Some(key),
+            | Self::Reactions { key, .. }
+            | Self::Btw { key, .. }
+            | Self::BtwDelta { key, .. } => Some(key),
             _ => None,
         }
     }
@@ -150,6 +173,8 @@ impl Change {
             Self::Delta { .. } => "delta",
             Self::MessageRemoved { .. } => "message.removed",
             Self::Reactions { .. } => "reactions",
+            Self::Btw { .. } => "btw",
+            Self::BtwDelta { .. } => "btw.delta",
         }
     }
 }

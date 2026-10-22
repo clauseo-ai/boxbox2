@@ -4,7 +4,8 @@
    index of their keys in order, `fleetRecords`), `threads` (per thread a
    head record with its `left` and `etag`, its baseline in a record of its
    own, its pages (`layout`) and the words streamed onto them since they
-   were written, as chunks (`Chunk`)),
+   were written, as chunks (`Chunk`), and its btws whole in `${key}#btw`,
+   rewritten when any of them changes),
    `drafts` (the composer's words, one per target), `draftPhotos` (the same
    targets' photos, written only when the set changes), `outbox` (sends
    the daemon has not echoed yet, by client id; telemetry rows under
@@ -49,7 +50,7 @@ import type { Cold, Counters, Fleet, Patch, SyncState, Thread } from "./reducer"
 import { type Draft, joinDraft, type OutboxEntry, type Photo } from "./outbox";
 import type { RawEvent } from "./telemetry";
 import type { AskReply } from "./replies";
-import type { Cursor, Message } from "./protocol";
+import type { Btw, Cursor, Message } from "./protocol";
 
 const NAME = "boxbox";
 /** v6 holds protocol 3's shapes (the neutral fleet, heads with `left` and `etag`) and a `media` store. a build before it
@@ -92,6 +93,8 @@ export type Dirty = {
   fields: Set<string>;
   threads: Map<string, number>;
   appends: Map<string, Map<string, Append>>;
+  /** the threads whose btws changed: their `#btw` record is written whole (it is at most 64 records, BTW_CAP) */
+  btws: Set<string>;
 };
 
 export const cleanDirty = (): Dirty => ({
@@ -100,10 +103,11 @@ export const cleanDirty = (): Dirty => ({
   fields: new Set(),
   threads: new Map(),
   appends: new Map(),
+  btws: new Set(),
 });
 
 const isClean = (dirty: Dirty): boolean =>
-  !dirty.fleet && dirty.fields.size === 0 && dirty.threads.size === 0 && dirty.appends.size === 0 && ENTRIES.every((field) => dirty.entries[field].size === 0);
+  !dirty.fleet && dirty.fields.size === 0 && dirty.threads.size === 0 && dirty.appends.size === 0 && dirty.btws.size === 0 && ENTRIES.every((field) => dirty.entries[field].size === 0);
 
 /** a thread's records are to be written from message `from` on (0: all of them; Infinity: the head alone) */
 export function markThread(dirty: Dirty, key: string, from: number): void {
@@ -138,6 +142,8 @@ export function markPatches(dirty: Dirty, patches: readonly Patch[]): void {
         markAppend(dirty, field, { at, part: index, field: name, from: patch.from });
         continue;
       }
+      // its btws are a record of their own, and their bytes are the head's
+      if (part === "btws") dirty.btws.add(field);
       // the head's own fields (status, trouble) leave every page as it was
       const from = part === undefined ? 0 : part !== "messages" ? Number.POSITIVE_INFINITY : typeof at === "number" ? at : 0;
       markThread(dirty, field, from);
@@ -152,6 +158,7 @@ function mergeDirty(into: Dirty, from: Dirty): void {
   for (const field of from.fields) into.fields.add(field);
   for (const [key, at] of from.threads) markThread(into, key, at);
   for (const [key, texts] of from.appends) for (const append of texts.values()) markAppend(into, key, append);
+  for (const key of from.btws) into.btws.add(key);
 }
 
 /** about how many bytes a value takes to store: its strings by their length (read, never copied), 8 a number, and the names
@@ -288,6 +295,8 @@ export type Booted = { cursor: Cursor | null; counters: Counters | null; fleet: 
 const HEAD = "#head";
 const headKey = (key: string) => `${key}${HEAD}`;
 const baseKey = (key: string) => `${key}#base`;
+/** a thread's btws, oldest first (reducer.ts, `Thread.btws`) */
+const btwKey = (key: string) => `${key}#btw`;
 const pageKey = (key: string, page: number) => `${key}#${page}`;
 /** a chunk's key sorts by its number, so a read of the range gets them in the order they were written */
 const chunkKey = (key: string, seq: number) => `${key}#+${String(seq).padStart(6, "0")}`;
@@ -524,13 +533,20 @@ export class Cache {
       this cache does not own since another writer was seen, or any while the meta, read in the same transaction, names a
       save this cache has not seen, as when a page reloads over the last save of the one before */
   async loadPages(head: Pick<Cold, "key" | "pages">): Promise<Message[] | null> {
+    return (await this.loadThread(head, false))?.messages ?? null;
+  }
+
+  /** `loadPages`, with the thread's btws read in the same transaction (none when it has no record; `withBtws` false reads
+      the pages alone) */
+  async loadThread(head: Pick<Cold, "key" | "pages">, withBtws = true): Promise<{ messages: Message[]; btws: Btw[] } | null> {
     if (!this.mine.has(head.key)) return null;
     const tx = this.db.transaction(["meta", "threads"], "readonly");
     const store = tx.objectStore("threads");
-    const [meta, pages, chunks] = await Promise.all([
+    const [meta, pages, chunks, btws] = await Promise.all([
       done(tx.objectStore("meta").get("sync")) as Promise<SyncMeta | undefined>,
       Promise.all(Array.from({ length: head.pages }, (_, page) => done(store.get(pageKey(head.key, page))) as Promise<Message[] | undefined>)),
       done(store.getAll(chunkRange(head.key))) as Promise<Chunk[]>,
+      withBtws ? (done(store.get(btwKey(head.key))) as Promise<Btw[] | undefined>) : undefined,
     ]);
     if (meta?.writer !== this.seen.writer || meta?.generation !== this.seen.generation || !this.mine.has(head.key)) return null;
     const messages: Message[] = [];
@@ -544,7 +560,7 @@ export class Cache {
     if (!fold(messages, chunks)) return null;
     // the pages and chunks as they lie, whichever layout wrote them: the next save of this thread rewrites only what changes
     this.known.set(head.key, onDiskOf(starts, chunks));
-    return messages;
+    return { messages, btws: Array.isArray(btws) ? btws : [] };
   }
 
   /** writes the cursor with everything `dirty` names, from one state, in one transaction. the meta is read first, in the same
@@ -633,7 +649,14 @@ export class Cache {
         continue;
       }
       owned.set(key, true);
-      known.set(key, this.saveThread(threads, put, thread, from, dirty.appends.get(key), foreign ? undefined : this.known.get(key)));
+      const old = foreign ? undefined : this.known.get(key);
+      known.set(key, this.saveThread(threads, put, thread, from, dirty.appends.get(key), old));
+      // a thread written whole lost its btws record with the rest (`saveThread` clears the range first)
+      if (dirty.btws.has(key) || !old) {
+        const btws = thread.btws ? Object.values(thread.btws).sort((a, b) => a.created - b.created) : [];
+        if (btws.length > 0) put(threads, btws, btwKey(key));
+        else if (old) threads.delete(btwKey(key));
+      }
       // a thread written whole lost its baseline record with the rest
       if (foreign || !this.known.get(key) || !sameBaseline(this.bases.get(key), thread.baseline)) put(threads, thread.baseline, baseKey(key));
       bases.set(key, thread.baseline);

@@ -16,6 +16,7 @@
 
 pub mod agent;
 pub mod ask;
+pub mod btw;
 pub mod capabilities;
 pub mod message;
 pub mod part;
@@ -33,6 +34,7 @@ pub use ask::{
     Ask, AskKind, AskSettled, Outcome, Permission, PermissionOption, PermissionReply, Question,
     QuestionOption, Risk, SettledBy, SettlerKind, ToolRef,
 };
+pub use btw::{Btw, BtwPromoted, BtwStatus, MAX_BTW_TEXT};
 pub use capabilities::{Attachments, Capabilities, Capability, Reasoning, ReasoningWord, Voice};
 pub use message::{Glyph, Message, MessageError, Origin, Quote, Reaction, Role};
 pub use part::{

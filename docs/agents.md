@@ -587,6 +587,8 @@ pub enum SourceEvent {
     Delta { thread: String, message: String, part: String, field: String, delta: String, offset: u64 },
     MessageRemoved { thread: String, message: String },
     Reactions { thread: String, message: String, reactions: Vec<Reaction> },
+    Btw { thread: String, btw: Box<Btw> },                       // a btw, whole
+    BtwDelta { thread: String, btw: String, delta: String },     // its answer text; the encoder counts the offset
     AskRaised { ask: Ask },
     /// `kind` picks the floor (permissions or questions, `model.rs:1202-1208`).
     AskSettled { ask: String, kind: AskKind, settled: Settled },
@@ -671,6 +673,7 @@ pub trait AgentSource: Send + Sync + 'static {
     fn queue(..), fn run_now(..), fn unsend(..)                       // queue
     fn steer(..)                                                       // steer
     fn compact(..)                                                     // compact
+    fn btw_ask(..), fn btws(..), fn btw_dismiss(..), fn btw_promote(..) // btw
     fn catalog(..)                                                     // model, reasoning
     fn projects(..), fn folders(..)                                    // places
     fn find_file(..)                                                   // files
@@ -742,6 +745,8 @@ numbers per connection agree with `openclaw.md`, load limits.
 | transcript cache | `[cache] transcript_bytes` on disk, 256 MiB unless set; 2 MiB of sqlite page cache per connection in memory | the source | least recently opened threads go first (below) |
 | uploads | 4 at once, 1 MiB buffered each | the media task | a fifth answers 503 `media-busy` with `retry-after` (section 6) |
 | kept births | 64 (`BIRTHS_KEPT`, `http/compose.rs:82`) | the source registry | the oldest is forgotten |
+| a btw's question | 32 KiB (`MAX_BTW_TEXT`, `wire/btw.rs`) | the route | 400 before the source is called |
+| a btw list read (cmx2) | 4 MiB (`BTW_LIST_BYTES`, `source/cmx2/verbs/btw.rs`) | the source | the read fails; a thread read goes without `btws` and logs it |
 | store writer (today's) | 256 jobs (`store/mod.rs:19`) | the store | the sender awaits |
 
 ### what a source persists
@@ -895,6 +900,7 @@ first (below).
 | shell | `POST T/shell` | `.../shell` | shell |
 | commands | `GET /api/agents/{agent}/commands`, `POST T/command` | `/api/hosts/{host}/commands`, `.../command` | commands |
 | react | `PUT T/messages/{message}/reactions` with `{emoji, on}` | none | reactions |
+| btw | `POST T/btw` with `{device, deviceClass, clientID, question}` answers the btw running; `GET T/btw` the thread's btws; `POST T/btw/{btw}/dismiss` and `POST T/btw/{btw}/promote` with `{device, deviceClass}` answer the btw and `{messageID}` | none | btw |
 | archive | `POST T/archive` | `.../archive` | archive |
 | fork | `POST T/fork` with `{before?}`, the first message the fork leaves out, and the `clientID` a retry repeats; answers 201 `{key, thread}` | none (a new verb; the app calls this route) | fork |
 | adopt | `POST T/adopt` | `.../adopt` | history |
@@ -937,6 +943,30 @@ and `GET /api/history` answer as they did, with no `?protocol`.
   `not-built` 501, `attachment-too-large` 413, `attachment-kind` 415,
   `name-reserved` 409.
 
+### the btw
+
+a btw is a side question about a thread: the agent's model answers it
+from the thread's context with no tools, and it never enters that
+context. the agent keeps it (cmx2's own table), so every device sees the
+same cards, dismissals included; boxbox holds no copy. the routes are in
+the table above (`http/agents/btw.rs`), checked for the btw capability
+before the source is called; the question is at most 32 KiB and not
+empty. ask works idle or mid-turn and changes neither the thread's status
+nor its queue; a retry with the same `clientID` is deduped by cmx2.
+promote puts the question and answer into the thread as a user message
+(a steer while a turn runs, its id provisional until it lands; a prompt
+otherwise) that carries `btw: <id>` (`AgentMessage.btw`), so the route arms
+the thread's done push as a send does. refusals: a btw that is gone is 404
+`gone`; promoting one still running or already added is 422 `host-said`
+in btw words; a daemon older than btw answers 404 no-route, which reads as
+422 `unsupported`, and the source remembers it for that connection until
+it reconnects, refusing the verbs and leaving `btws` out of reads without
+calling. a read whose btw list failed goes without an etag, so the next
+look reads it again. each verb records `btw.asked` (with `chars`, never the
+question), `btw.dismissed` or `btw.promoted` from the daemon's answer, its
+`outcome` one of done, gone, refused, unsupported, failed. the stream and
+the reads that carry btws are `protocol.md`, section 8 (btws) and 11.
+
 ### a verb an agent cannot do
 
 the http layer checks the capability before it calls, so a client that
@@ -969,6 +999,7 @@ true, and the server refuses the verb when it is not (section 4).
 | `voice` | `{notes, replies}`: `notes`, you can record a voice note and the agent hears it; `replies`, the agent may answer with audio | `notes` gates the mic key and recording; `replies` gates nothing (an audio part is drawn whenever one arrives) and is there so a client can say the agent speaks | `{no, no}` | `{yes, yes}` | `{no, no}` |
 | `quotes` | a message can quote another | swipe to reply, the reply strip, quote rows | no | yes | no |
 | `reactions` | emoji reactions on messages | the reaction picker and row | no | yes | no |
+| `btw` | side questions answered from the thread's context with no tools, kept out of it (the btw, below) | the composer's btw mode, btw cards and their verbs | yes (from the pin with btw; an older daemon's routes answer 404 no-route, refused as `unsupported`) | no | no |
 | `threads` | more than one thread; start one with no place | "start something" for this agent | yes | yes | yes |
 | `archive` | archive a thread | the archive item | yes | yes | yes |
 | `fork` | a new thread from this one's history, whole or up to a message | the menu's fork, each turn's fork from here | yes | no (not built) | no |

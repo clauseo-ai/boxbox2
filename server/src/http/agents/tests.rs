@@ -17,7 +17,7 @@ use crate::source::sends::Sends;
 use crate::source::testing::{Scripted, ScriptedSource};
 use crate::source::{AgentSource, SendOutcome, SourceEvent};
 use crate::upstream::{Reserved, Upstreams};
-use crate::wire::{Attachments, Capabilities, SendStateKind, Voice};
+use crate::wire::{Attachments, Capabilities, MAX_BTW_TEXT, SendStateKind, Voice};
 
 /// an openclaw assistant's capabilities (`agents.md`, section 5).
 fn assistant() -> Capabilities {
@@ -343,6 +343,25 @@ async fn an_agent_with_none_of_the_gated_capabilities_refuses_every_gated_verb_f
             Some(send("b-1")),
             "threads",
         ),
+        (
+            "POST",
+            format!("{T}/btw"),
+            Some(with(&json!({"clientID": "w", "question": "why"}))),
+            "btw",
+        ),
+        ("GET", format!("{T}/btw"), None, "btw"),
+        (
+            "POST",
+            format!("{T}/btw/btw_1/dismiss"),
+            Some(device()),
+            "btw",
+        ),
+        (
+            "POST",
+            format!("{T}/btw/btw_1/promote"),
+            Some(device()),
+            "btw",
+        ),
     ];
     for (method, path, body, capability) in routes {
         let (status, answer) = world.call(method, &path, body).await;
@@ -353,6 +372,71 @@ async fn an_agent_with_none_of_the_gated_capabilities_refuses_every_gated_verb_f
         );
     }
     assert_eq!(world.source.calls(), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn the_btw_verbs_reach_the_source_through_the_trait_and_a_bad_question_never_does() {
+    let world = World::new(Capabilities {
+        btw: true,
+        ..assistant()
+    })
+    .await;
+    let (status, asked) = world
+        .call(
+            "POST",
+            &format!("{T}/btw"),
+            Some(with(
+                &json!({"clientID": "w-1", "question": "why this way?"}),
+            )),
+        )
+        .await;
+    assert_eq!(status, 200, "{asked}");
+    assert_eq!(asked["question"], "why this way?");
+    assert_eq!(asked["status"], "running");
+    assert!(
+        asked.get("dismissed").is_none(),
+        "absent fields are omitted: {asked}"
+    );
+    let (status, listed) = world.call("GET", &format!("{T}/btw"), None).await;
+    assert_eq!(status, 200);
+    assert_eq!(listed.as_array().map(Vec::len), Some(1));
+    let (status, dismissed) = world
+        .call("POST", &format!("{T}/btw/btw_1/dismiss"), Some(device()))
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(dismissed["dismissed"], 2.0);
+    let (status, promoted) = world
+        .call("POST", &format!("{T}/btw/btw_1/promote"), Some(device()))
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(promoted, json!({"messageID": "msg_promoted"}));
+    // refused before the source: empty, too long, a body with a stray field, a bad btw id
+    let refused: Vec<(String, Value)> = vec![
+        (
+            format!("{T}/btw"),
+            with(&json!({"clientID": "w-2", "question": "  "})),
+        ),
+        (
+            format!("{T}/btw"),
+            with(&json!({"clientID": "w-3", "question": "x".repeat(MAX_BTW_TEXT + 1)})),
+        ),
+        (format!("{T}/btw/btw_1/dismiss"), verb()),
+        (format!("{T}/btw/no.such/promote"), device()),
+    ];
+    for (path, body) in refused {
+        let (status, answer) = world.call("POST", &path, Some(body)).await;
+        assert!(status == 400 || status == 422, "{path}: {status} {answer}");
+    }
+    let key = "assistant:oc_aaaaaaaaaaaaaaaaaaaaaaaa";
+    assert_eq!(
+        world.source.calls(),
+        vec![
+            format!("btw_ask {key} w-1"),
+            format!("btws {key}"),
+            format!("btw_dismiss {key} btw_1"),
+            format!("btw_promote {key} btw_1"),
+        ]
+    );
 }
 
 #[tokio::test]

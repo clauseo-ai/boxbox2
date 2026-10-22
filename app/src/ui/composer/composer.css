@@ -805,3 +805,15 @@
 .cz-sheet[data-sent] :is(.cz-place-card, .cz-where) { opacity: 0.5; pointer-events: none; }
 /* the sheet let go of the screen while its thread is being made (sheet.tsx, away): kept, with its send, and not drawn */
 .cz-sheet[data-away], .cz-scrim[data-away] { visibility: hidden; }
+
+/* ---------- btw mode (docs/composer.md, btw) ---------- */
+/* the window wears the btw tint while the draft is a btw: its palette is the citron (btw/tint.ts, set on the window by
+   the composer), so its material, its accent and send are the same recipes in that hue (btw/tint.test.ts holds them),
+   and a dashed inner rule, the btw's rail, says it is not a message. the chip sits before the first word: the words'
+   first line is indented for it, so a long question wraps under the chip as text would */
+.cz-window[data-btw] { outline: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: -5px; }
+.cz-window[data-btw] :is(.cz-body textarea, .cz-ruler) { text-indent: 50px; }
+.cz-btw { grid-row: 1; grid-column: 1 / -1; justify-self: start; align-self: start; z-index: 1; margin: 9px 0 0 var(--cz-plus-room); height: 26px; min-height: 0; padding: 0 9px; border: 0; border-radius: 999px; background: var(--accent); color: var(--on-accent); box-shadow: var(--cz-raise-chip); font-family: var(--sans); font-size: var(--chip); font-weight: 680; letter-spacing: 0.01em; line-height: 26px; cursor: pointer; transition: transform var(--press-t, 90ms ease-out); }
+.cz-btw:active { transform: scale(0.96); }
+.cz-btw:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.cz-body[data-stacked] > .cz-btw { margin-left: 10px; }

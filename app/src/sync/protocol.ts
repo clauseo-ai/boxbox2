@@ -37,6 +37,10 @@ export type Part = KnownPart | UnknownPart;
 
 export type MessageInfo = Schemas["AgentMessage"];
 
+/** a btw: a side question about a thread, answered from its context with no tools and never put into it (docs/protocol.md,
+    btw). the agent keeps it, so every device holds the same record */
+export type Btw = Schemas["AgentBtw"];
+
 /** one message as the thread reads answer it: its info and its parts */
 export type Message = { info: MessageInfo; parts: Part[] };
 
@@ -101,9 +105,13 @@ export type Entry = Narrow<Schemas["AgentChange"]> & { seq: number };
 
 export type EntryType = Entry["type"];
 
-/** the entries that belong to one thread's transcript */
+/** the entries that change one thread's messages */
 export type ThreadEntry = Extract<Entry, { type: "message" | "part" | "delta" | "message.removed" | "reactions" }>;
 export type DeltaEntry = Extract<Entry, { type: "delta" }>;
+/** the entries that change one thread's btws: a record whole, or words streamed onto its answer */
+export type BtwEntry = Extract<Entry, { type: "btw" | "btw.delta" }>;
+/** every entry keyed by a thread, interest-filtered and carried in catch-ups */
+export type TranscriptEntry = ThreadEntry | BtwEntry;
 
 /** what a data line decodes to */
 export type Frame = Hello | Reset | Caught | Catchup | InterestFrame | ThreadStale | Entry;
@@ -152,7 +160,7 @@ export function textOf(text: string): TextOf {
 
 const CONTROL_TYPES: ReadonlySet<string> = new Set<Frame["type"]>(["hello", "reset", "caught", "catchup", "interest", "thread.stale"]);
 
-const TRANSCRIPT_TYPES: ReadonlySet<string> = new Set<ThreadEntry["type"]>(["message", "part", "delta", "message.removed", "reactions"]);
+const TRANSCRIPT_TYPES: ReadonlySet<string> = new Set<TranscriptEntry["type"]>(["message", "part", "delta", "message.removed", "reactions", "btw", "btw.delta"]);
 
 const ENTRY_TYPES: ReadonlySet<string> = new Set<EntryType>([
   "agent",
@@ -170,6 +178,8 @@ const ENTRY_TYPES: ReadonlySet<string> = new Set<EntryType>([
   "delta",
   "message.removed",
   "reactions",
+  "btw",
+  "btw.delta",
 ]);
 
 const BOARD_TYPES: ReadonlySet<string> = new Set<BoardFrame["type"]>(["board.here", "board.gone", "board.focus", "board.compose"]);
@@ -239,4 +249,6 @@ export function routeFrame(data: string, board: boolean): Routed | null {
   return { to: "journal", frame: value as Entry };
 }
 
-export const isTranscript = (entry: Entry): entry is ThreadEntry => TRANSCRIPT_TYPES.has(entry.type);
+export const isTranscript = (entry: Entry): entry is TranscriptEntry => TRANSCRIPT_TYPES.has(entry.type);
+
+export const isBtwEntry = (entry: TranscriptEntry): entry is BtwEntry => entry.type === "btw" || entry.type === "btw.delta";

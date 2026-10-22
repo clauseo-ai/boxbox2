@@ -1051,6 +1051,48 @@ colour holds 4.5:1 on the light tone (`app/src/ui/window/repo.test.ts`).
 - **red** (`#ff6b6b` on dark, `#ad2323` on light) means failure and
   nothing else. diff lines use `#9ff0b3` and `#ffa3a3` on dark, `#0d6329`
   and `#a8233b` on light.
+- **citron** (`#ffe680` light tone, `#4b4100` / `#201b00` deep pair) means
+  a btw and nothing else. see the btw exception below.
+
+#### the btw exception (2026-10-22)
+
+colour means which repo, and a btw is the one thing on a stage that is not
+the thread: a side question answered from the session's context with no
+tools, never in the agent's context (`docs/thread.md`, btw). the owner asked
+that it be unmistakable, with a tint of its own from the design system, so
+it is the one place a hue says what something *is* rather than whose it is.
+
+- **the hue.** citron, a lemon yellow: the only gap left in the hue wheel.
+  every other hue is a repo's (the ten above and the five assistant hues in
+  `repo.ts`), red is failure and recording, violet is focus and the app's
+  own accent, and the amber next to it is already a state (a blocked
+  report's gold, a machine's strain), so the yellow is taken clear of the
+  amber, toward lemon. gold left the repo palette as muddy (above); citron
+  is worn as a wash and an ink, never a window's flood, so that reading does
+  not arise on the stage.
+- **one palette, the repo palette's shape.** `app/src/ui/btw/tint.ts`
+  (`BTW_COLOUR`) and `styles.css` (`--btw-top`, `--btw-bottom`,
+  `--btw-tone` on the root) hold the same three values; the test holds them
+  equal. the pair keeps the palette's three contrasts (white on both ends,
+  the light tone on the top, the bottom on the light tone).
+- **where it is worn.** the btw card (a citron wash over the flood, the
+  label, the dashed rail and the caret in its ink, `btw/card.css`), the
+  "from a btw" marker's word, and the composer window while the draft is a
+  btw (the window recipe with the citron palette in place of the repo's, so
+  its material, its accent and send are the same tokens in that hue).
+  nothing else takes it: not a state, not a repo, not a chip.
+- **the proofs.** `app/src/ui/btw/tint.test.ts` reads the recipes from the
+  css and evaluates them as `stage-flood.test.ts` and `plane.test.ts` do:
+  on every repo's flood, top to foot, in both appearances, the label's ink,
+  the question (`--text`), the quiet words and the answer hold 4.5:1 on the
+  wash; red holds 4.5:1 on light and 3:1 on dark (the standing exception,
+  `open.md`, red on a dark window); the marker's ink holds 4.5:1 on the bare
+  flood; on the composer window in btw mode the ink, the line, the
+  placeholder's ink, the second ink and the accent hold 4.5:1 on its
+  material, and send's ink holds 4.5:1 on the accent.
+- **the quiet words on the wash** are a step brighter than the stage's
+  second ink on dark (white at 72%, `--btw-quiet`): the wash lifts the
+  ground, and 62% white fell to 4.1:1 at the top of the bluest floods.
 
 ### the colour sheet (2026-10-19)
 

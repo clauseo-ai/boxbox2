@@ -1,0 +1,69 @@
+/* a btw card (docs/thread.md, btw: the card; docs/design.md, colour: the btw exception). visibly not part of the
+   conversation: indented off the measure on a dashed rail, a "btw" label and a wash in the citron tint, which no repo
+   wears. every colour is written once, light side first, as the rest of the stage's are; the words on the wash hold
+   4.5:1 over every stop of every repo's flood in both appearances (btw/tint.test.ts reads this file). only opacity
+   and transform move. */
+
+.btw {
+  /* the label, the rail and the caret: the deep citron on light, the light tone on dark */
+  --btw-ink: color-mix(in srgb, var(--btw-top) calc(var(--L) * 100%), var(--btw-tone));
+  /* the wash laid over the stage's flood */
+  --btw-wash: color-mix(in srgb, color-mix(in srgb, var(--btw-tone) 42%, transparent) calc(var(--L) * 100%), color-mix(in srgb, var(--btw-tone) 7%, transparent));
+  --btw-rail: color-mix(in srgb, var(--btw-ink) 70%, transparent);
+  /* the quiet words (the caption, a note, the verbs): the stage's second ink on light; on dark a step brighter than it,
+     since the wash lifts the ground under them (62% white fell to 4.1:1 at the top of the bluest floods) */
+  --btw-quiet: color-mix(in srgb, var(--text-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.72));
+  position: relative;
+  margin-left: var(--s5, 24px);
+  padding: 12px 16px 12px 18px;
+  border-left: 2px dashed var(--btw-rail);
+  border-radius: 0 16px 16px 0;
+  background: var(--btw-wash);
+  color: var(--text);
+  scroll-margin-top: 96px;
+}
+.btw.lit { box-shadow: inset 0 0 0 1.5px var(--btw-rail); }
+
+.btw-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.btw-label { font-family: var(--sans); font-size: var(--chip, 12.5px); font-weight: 680; font-stretch: 106%; letter-spacing: 0.01em; color: var(--btw-ink); }
+.btw-caption { font-family: var(--sans); font-size: 12px; color: var(--btw-quiet); }
+
+
+/* the question is yours and the answer is the reply, told apart the way the thread tells them apart: the question in
+   your words, smaller and in the quiet ink behind a short rule of its own (a quote of what you asked, not a bubble: a
+   bubble is a message in the thread); the answer in the agent's prose at the reading size, the loudest words on the card */
+.btw-q { margin: 0; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--btw-quiet) 45%, transparent); font-family: var(--read); font-size: 14px; line-height: 1.42; color: var(--btw-quiet); white-space: pre-wrap; overflow-wrap: anywhere; }
+.btw-a { margin-top: 10px; font-family: var(--read); font-size: var(--thread-said, 15.5px); line-height: 1.55; color: var(--prose); overflow-wrap: anywhere; }
+.btw-a:empty { display: none; }
+.btw .caret::after, .btw .caret-end { background: var(--btw-ink); }
+/* a running btw before its first word: where the answer will be, "answering" in the quiet ink and the caret after it,
+   held still (no blink, no pulse) so no frame shows an empty card; the first word takes its place */
+.btw-wait { margin: 10px 0 0; font-family: var(--sans); font-size: 13px; line-height: 1.4; color: var(--btw-quiet); }
+.btw .btw-wait.caret::after { animation: none; }
+
+.btw-note { margin: 8px 0 0; font-family: var(--sans); font-size: 13px; line-height: 1.4; color: var(--btw-quiet); }
+.btw[data-state="error"] .btw-note { color: var(--red); }
+.btw-problem { margin: 8px 0 0; font-family: var(--sans); font-size: 13px; line-height: 1.4; color: var(--red); }
+
+.btw-acts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; }
+.thread .btw-acts button, .btw-acts button, .btw-acts a { font-family: var(--sans); font-size: 13px; font-weight: 620; color: var(--btw-quiet); padding: 6px 0; min-height: 32px; text-decoration: none; cursor: pointer; transition: opacity var(--press-t, 90ms ease-out); }
+.btw-acts :is(button, a):hover { color: var(--text); }
+.btw-acts :is(button, a)[data-verb="promote"], .btw-acts :is(button, a)[data-verb="retry"] { color: var(--btw-ink); }
+.btw-acts button[aria-busy="true"] { opacity: 0.55; cursor: default; }
+
+/* dismissed: one line that expands on tap, in the tint so it still reads as a btw */
+.btw-chip { display: block; max-width: calc(100% - var(--s5, 24px)); margin-left: var(--s5, 24px); padding: 6px 12px 6px 14px; border-left: 2px dashed var(--btw-rail); border-radius: 0 10px 10px 0; background: var(--btw-wash); font-family: var(--sans); font-size: 13px; color: var(--btw-quiet); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; --btw-ink: color-mix(in srgb, var(--btw-top) calc(var(--L) * 100%), var(--btw-tone)); --btw-wash: color-mix(in srgb, color-mix(in srgb, var(--btw-tone) 42%, transparent) calc(var(--L) * 100%), color-mix(in srgb, var(--btw-tone) 7%, transparent)); --btw-rail: color-mix(in srgb, var(--btw-ink) 70%, transparent); --btw-quiet: color-mix(in srgb, var(--text-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.72)); }
+.thread button.btw-chip { padding: 6px 12px 6px 14px; border-radius: 0 10px 10px 0; }
+.btw-chip b { font-weight: 680; color: var(--btw-ink); }
+
+/* a card arriving while the reader watches fades up (the streamed words' 360 ms, opacity alone) */
+.btw[data-enter] { animation: btw-in 360ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes btw-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion="full"]) .btw[data-enter] { animation-duration: 120ms; } }
+:root[data-motion="reduced"] .btw[data-enter] { animation-duration: 120ms; }
+
+/* the marker on a message that came from a btw: in the bubble's own meta line, above its time, in the bubble's quiet ink
+   (the citron would not hold on the bubble), "btw" bold with a dashed underline, the card's rail in small */
+.you .btw-from { display: block; margin: 6px 0 0 auto; font-family: var(--sans); font-size: 12px; font-weight: 560; color: color-mix(in srgb, var(--you-ink) 74%, transparent); text-align: right; }
+.thread .you button.btw-from { padding: 2px 0; min-height: 24px; }
+.btw-from b { font-weight: 700; color: var(--you-ink); text-decoration: underline dashed; text-decoration-thickness: 1px; text-underline-offset: 3px; }

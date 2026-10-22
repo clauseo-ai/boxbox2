@@ -224,7 +224,10 @@ impl Projection {
             | Change::Message { .. }
             | Change::Part { .. }
             | Change::MessageRemoved { .. }
-            | Change::Reactions { .. } => {}
+            | Change::Reactions { .. }
+            // a btw is a side answer, not the agent at work: no light moves
+            | Change::Btw { .. }
+            | Change::BtwDelta { .. } => {}
         }
     }
 

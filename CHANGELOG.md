@@ -12,26 +12,44 @@ workflow publishes the section whose heading matches the version in
   forked thread says "forked from <title>" beside its repo line, and the
   line opens the thread it came from at the turn it was forked from. the
   server's new verb is `POST /api/agents/{agent}/threads/{thread}/fork`
-  (`before`, the first message the fork leaves out), behind a new `fork`
-  capability, with the telemetry kind `thread.forked`; threads carry
-  `forkedFrom: {thread, message?}` on the wire, apart from `parent`.
-  **the cmx2 pin moves from 7c22522 (0.9.0) to 6b39992**: the contract adds
-  `SessionInfo.forkedFrom?: {sessionID, messageID?}` on session infos and
-  on `session.created` and `session.updated`, set on a session made by
-  `POST /session/:id/fork` (the parent's message the fork was cut before,
-  absent for a whole fork), and `clientID` on the fork body, under the
-  once rule prompts have (a repeat answers the first fork; the same id on
-  another session is 409). the pin also brings what boxbox does not use
-  yet: the btw routes (`/session/:id/btw` and its dismiss and promote),
-  the `Btw` schema, `btw.updated` and `btw.delta` events and `btw` on a
-  promoted message, `files` on `POST /session/:id/agents/message`, and
-  `file` on `agent.report`. all additive and optional: an older daemon's
-  sessions carry no lineage and fork as before, and a retried fork there
-  makes a second one (`docs/thread.md`, fork; decisions 89 and 90). a
-  refused fork of imported history answers 409 `browse-only`, a fork taken
-  and not answered 502 `agent-uncertain`, and `thread.forked` and
+  (`before`, the first message the fork leaves out; `clientID`, so a
+  retried fork is the same fork), behind a new `fork` capability, with the
+  telemetry kind `thread.forked`; threads carry
+  `forkedFrom: {thread, message?}` on the wire, apart from `parent`
+  (`docs/thread.md`, fork; decisions 89 and 90). a refused fork of
+  imported history answers 409 `browse-only`, a fork taken and not
+  answered 502 `agent-uncertain`, and `thread.forked` and
   `thread.archived` record a lost answer as unknown (`ok` null), not a
   failure.
+- **btw: ask on the side.** type `/btw ` in a thread's composer (or pick
+  btw from the slash or plus menu) and the composer turns citron, shows a
+  btw chip and sends with "ask": the question goes to the thread's model
+  with the session's context and no tools, idle or mid-turn, without
+  steering or queueing, and the agent never sees it. the answer streams
+  into an aside card on a dashed rail at the end of the turn it was asked
+  in. dismiss folds it to a one-line chip on every device; add to thread
+  puts the question and answer in as your message, marked "from a btw".
+  the server carries btws for any source that declares
+  `capabilities.btw`: `AgentBtw` records, `btw` and `btw.delta` stream
+  entries, `btws` on the thread read, and `POST`/`GET
+  /api/agents/{agent}/threads/{thread}/btw` with `/dismiss` and
+  `/promote`; telemetry `btw.asked`, `btw.dismissed`, `btw.promoted`
+  (decision 91; `docs/thread.md`, btw; `docs/composer.md`, btw mode).
+- **the cmx2 pin moves from 7c22522 (0.9.0) to 6b39992**, for fork and
+  btw. the contract adds fork lineage: `SessionInfo.forkedFrom?:
+  {sessionID, messageID?}` on session infos and on `session.created` and
+  `session.updated`, set on a session made by `POST /session/:id/fork`
+  (the parent's message the fork was cut before, absent for a whole fork),
+  and `clientID` on the fork body, under the once rule prompts have (a
+  repeat answers the first fork; the same id on another session is 409).
+  it adds btw: the `Btw` schema, the four `/session/:id/btw` routes (ask,
+  list, dismiss, promote), the `btw.updated` and `btw.delta` events and
+  `btw` on a promoted user message. it adds report files, which boxbox
+  does not read yet: `files` on `POST /session/:id/agents/message` and
+  `file` on `agent.report`. all additive and optional: an older daemon's
+  sessions carry no lineage and fork as before (a retried fork there
+  makes a second one), and its missing btw route is refused as
+  unsupported.
 
 - **the home-screen icon is the ios app's.** the fleet (three fanned
   windows in violet, gold and teal on the deep violet ground) replaces the

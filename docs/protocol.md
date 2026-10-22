@@ -133,6 +133,8 @@ board says so on its keys, the ios app stops until it is updated
 | `delta` | `key`, `messageID`, `partID`, `field`, `delta`, `offset` | transcript |
 | `message.removed` | `key`, `upstream`, `messageID` | transcript |
 | `reactions` | `key`, `messageID`, `reactions` | transcript |
+| `btw` | `key`, `upstream`, `btw: AgentBtw`, whole, replacing the last (section 8, btws) | transcript |
+| `btw.delta` | `key`, `btwID`, `delta`, `offset?` (utf-16 units into the answer; absent when the server does not know it) | transcript |
 
 `host`, `host.removed`, `host.reset`, `session`, `session.removed` and
 `agent.reset` do not exist in protocol 3. a reconnect to a source is
@@ -516,6 +518,50 @@ sent whole). the last journaled `Message` per message, for the
 unchanged rule, is kept for messages of the newest turn of each thread
 (the same set as `rv`'s, section 11) and dropped with it.
 
+### btws
+
+a btw is a side question about a thread, answered by the agent's model
+from the thread's context with no tools and never put into that context
+(`agents.md`, the btw). the agent keeps it; boxbox holds no copy and only
+journals what the source says, as transcript entries of the thread, so
+they follow interest like messages.
+
+- **`btw`** carries the whole `AgentBtw` `{id, question, answer, status:
+  running|done|error, error?, afterMessageID?, created, completed?,
+  dismissed?, promotedMessageID?, model?, tokens?, cost?}` and replaces
+  the one held. cmx2 sends one when a btw is asked (answer empty), when it
+  settles, is dismissed or promoted, when a promoted steer's provisional
+  message id moves to the landed one, and again for every running btw
+  where a resumed stream goes live.
+- **`btw.delta`** is answer text, in order, batched with the part deltas
+  (100 ms, the 1 MiB pending cap, flushed before any other entry; section
+  8). cmx2's `btw.delta` has no offset, so the encoder counts one: per
+  running btw the utf-16 length of the answer as journaled, set by each
+  whole `btw` and grown by each delta, at most 1,024 btws (the oldest go
+  first). a settled btw is no longer counted. a btw the encoder does not
+  count (first seen by its deltas, past the cap, after a restart or a
+  `thread.reset`) gets its deltas with `offset` absent.
+- **catch-up** (section 9) keeps per btw its last `btw` and the deltas
+  after it, merged while they chain; deltas without an offset merge into
+  one.
+- **versions:** a btw entry moves the thread's `v` and never `rv`: the
+  whole read and the newest page carry the btws, older pages do not
+  (section 11).
+- **the client** (`app/src/sync/btw.ts`, `reducer.ts`) keeps
+  `threads[key].btws`, a map by id, and merges every record by one
+  monotonic rule, whoever sent it (the stream, a thread read, a reread, a
+  verb's own answer): running moves to done or error and never back (a
+  running record after a settled one changes only what sticks); while
+  both run the longer answer stands; `dismissed` and `promotedMessageID`
+  stick once any record carried them. a delta appends to a running btw's
+  answer when its offset is the answer's length; a delta on a settled btw
+  is ignored; a delta whose offset is absent, or does not meet the answer
+  (a gap), rereads `GET T/btw` once per thread at a time, deltas met while
+  it runs waiting for its answer. at most 64 btws a thread, evicting the
+  oldest settled first, then the oldest running; their bytes count toward
+  the thread's byte cap, and they persist as the thread's `<key>#btw`
+  record (section 15a).
+
 as D4 is written, a device with a thread open also gets every busy
 thread's tail puts in the overview (about 400 B per 500 ms per busy
 thread before gzip): home needs them, and every stream gets the same
@@ -794,7 +840,8 @@ heartbeat) and compares with the revision the replay's events reached.
 
 | route | answers |
 |---|---|
-| `GET /api/agents/{agent}/threads/{thread}/messages` | a page of the thread (below) |
+| `GET /api/agents/{agent}/threads/{thread}/messages` | a page of the thread (below); the whole read and the newest page end with `btws: AgentBtw[]`, oldest first, read beside the thread, absent when the agent has no btw or the list could not be read |
+| `GET /api/agents/{agent}/threads/{thread}/btw` | the thread's btws, `AgentBtw[]`, oldest first: the reread after a gap (section 8, btws) |
 | `GET /api/agents/{agent}/threads/{thread}/messages/{message}` | one message, `{info: Message, parts: Part[]}` |
 | `GET /api/agents/{agent}/threads/{thread}/summary` | the thread summary (section 12) |
 
@@ -1142,7 +1189,9 @@ coordinator writes it). each package rewrites the `agents.md` and
   now from `x-boxbox-upstream`. pages are keyed by the id of their first
   turn, `<key>#p:<turn id>`, so prepending an older page renames nothing
   (today's `floor(index / 50)` keys renumber). `<key>#summary` holds the
-  summary and its etag. chunk records stay.
+  summary and its etag. chunk records stay. `<key>#btw` holds the
+  thread's btws whole, oldest first (at most 64), written whole when any
+  changes and gone with the thread.
 - **the cap** is 50 MB for threads and media together (was 150 MiB),
   counted by the bytes of each record (a thread's json estimate as today,
   a blob's `size`). **eviction:** first media blobs that no thread in
@@ -1274,7 +1323,11 @@ changing tail text and deltas.
 | persist batch | one in flight, 16 MiB of rows | dirty marks stay; past 16 MiB or 10 s unacknowledged, source intake stops until the acknowledgement |
 | deflate state | 256 KiB per gzip stream, 64 gzip streams | past 64, identity |
 | outbound queue | 512 KiB raw per stream (as today) | closed, the client resumes |
-| pending deltas | 100 ms per part; 1 MiB in all | past it, all flushed |
+| pending deltas | 100 ms per part or btw; 1 MiB in all | past it, all flushed |
+| btw answer counts (`fleet/encode.rs`, `TRACKED_BTWS`) | 8 B per running btw, 1,024 btws | oldest dropped, its next deltas go without an offset |
+| btw question | 32 KiB (`MAX_BTW_TEXT`) | the ask answers 400 |
+| btw list read (`source/cmx2/verbs/btw.rs`, `BTW_LIST_BYTES`) | 4 MiB per read | past it the read fails; a thread read goes without `btws` |
+| btws (client) | 64 per thread, in the thread's byte cap, one `<key>#btw` record | oldest settled first, then oldest running |
 | settled-text tracking | 16 B per streaming part, 4,096 parts | oldest dropped, its next update whole |
 | last journaled state per key (patch bases) | one `Thread` per kept thread, 1,000 | evicted with the session |
 | newest-turn message ids | 1,000 per thread, 16,384 over every thread | past either, every entry of the thread whose set would grow counts toward `rv` until its next turn |

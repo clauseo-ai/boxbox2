@@ -257,7 +257,9 @@ impl Client {
             | Change::Part { .. }
             | Change::Delta { .. }
             | Change::MessageRemoved { .. }
-            | Change::Reactions { .. } => {}
+            | Change::Reactions { .. }
+            | Change::Btw { .. }
+            | Change::BtwDelta { .. } => {}
         }
         Ok(())
     }

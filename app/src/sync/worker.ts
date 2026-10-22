@@ -19,10 +19,11 @@
 
 import { Backoff } from "./backoff";
 import { Cache, type SaveStats, Saver, weight } from "./cache";
+import { Cooldown } from "./cooldown";
 import { PageGate } from "./gate";
-import type { Emit, FromWorker, StreamStatus, SyncCounters, ToWorker, UiSync } from "./messages";
+import type { BtwDone, BtwOp, Emit, FromWorker, StreamStatus, SyncCounters, ToWorker, UiSync } from "./messages";
 import { inDaemonOrderAll } from "./order";
-import { type Cursor, formatCursor, type Frame, type InterestPost, type Message, parseCursor, PROTOCOL, type Reset, routeFrame, splitKey } from "./protocol";
+import { type Btw, type Cursor, formatCursor, type Frame, type InterestPost, type Message, parseCursor, PROTOCOL, type Reset, routeFrame, splitKey } from "./protocol";
 import {
   type Action,
   type Cold,
@@ -55,6 +56,9 @@ const scope = globalThis as unknown as WorkerScope;
 
 /** a reader aborts after this long without a byte; the server writes a heartbeat every 15 s */
 const STALL_MS = 45_000;
+/** the least time between two rereads of one thread's btws: a server that lost a btw's length sends each 100 ms batch
+    without an offset, and every one would read the btws whole (up to 4 mib) */
+const BTW_REREAD_MS = 1500;
 const SAVE_DEBOUNCE_MS = 200;
 /** the save's wait while a part streams (`Saver`): a second's words, ticks and cursor in one write instead of five */
 const STREAMING_SAVE_MS = 1000;
@@ -187,6 +191,8 @@ export class Sync {
 
   /** hydrations and refetches in flight, so an effect repeated before its answer does not fetch twice */
   private readonly fetching = new Set<string>();
+  /** the btws' rereads after a hole, at most one per thread per BTW_REREAD_MS, a hole found meanwhile read once after it */
+  private readonly btwRereads = new Cooldown(BTW_REREAD_MS, (key) => this.rereadBtws(key));
   /** cold threads whose pages are being read, so two asks for one thread read it once */
   private readonly restoring = new Map<string, Promise<void>>();
   private clock = 0;
@@ -489,8 +495,9 @@ export class Sync {
 
   private async readPages(head: Cold, quiet: boolean): Promise<void> {
     const started = performance.now();
-    let messages = (await this.cache?.loadPages(head).catch(() => null)) ?? null;
+    const loaded = (await this.cache?.loadThread(head).catch(() => null)) ?? null;
     if (!this.state.cold[head.key]) return; // evicted, or restored by another read, while the pages were coming
+    let messages = loaded?.messages ?? null;
     if (messages) {
       // a cache written before parts were held in the daemon's order: shown right now, and written right
       const ordered = inDaemonOrderAll(messages);
@@ -504,7 +511,7 @@ export class Sync {
     const bytes = messages && !head.sized ? JSON.stringify(messages).length : head.bytes;
     // and its head is written with it, so the next restore finds a size and measures nothing
     if (messages && !head.sized) this.saver.markThread(head.key, Number.POSITIVE_INFINITY);
-    this.dispatch({ type: "restored", key: head.key, messages, ...(messages && !head.sized ? { bytes } : {}) }, quiet);
+    this.dispatch({ type: "restored", key: head.key, messages, ...(messages && !head.sized ? { bytes } : {}), ...(loaded?.btws.length ? { btws: loaded.btws } : {}) }, quiet);
     // a thread back in memory that nobody shows is cooled in time like any (its open may have come and gone meanwhile)
     if (!this.shown.has(head.key)) void this.sweep();
     this.telemetry.emit("perf.cache", { what: "restore", threads: 1, messages: messages?.length ?? 0, bytes }, { ms: Math.round(performance.now() - started), ok: messages !== null });
@@ -876,6 +883,9 @@ export class Sync {
       case "interest-changed":
         void this.postInterest(effect.stream, effect.post);
         return;
+      case "btws-reread":
+        this.btwRereads.ask(effect.key);
+        return;
       case "confirmed": {
         const at = this.asked.get(effect.ask);
         for (const ask of this.asked.keys()) if (ask <= effect.ask) this.asked.delete(ask);
@@ -940,14 +950,44 @@ export class Sync {
       if (!held) return;
       const stamps = { type: "hydrated", key, hydration, upstreamEpoch: read.at.epoch, at: read.at.seq, seq: read.seq.seq, seqEpoch: read.seq.epoch, ...(read.etag ? { etag: read.etag } : {}) } as const;
       if (read.messages === null) {
-        this.dispatch({ ...stamps, messages: held.messages, bytes: held.bytes });
+        // what it holds stands as the read, its btws with it (their bytes are in the held size)
+        this.dispatch({ ...stamps, messages: held.messages, bytes: held.bytes, ...(held.btws ? { btws: Object.values(held.btws) } : {}) });
         return;
       }
-      this.dispatch({ ...stamps, messages: read.messages, bytes: read.bytes });
+      this.dispatch({ ...stamps, messages: read.messages, bytes: read.bytes, ...(read.btws ? { btws: read.btws } : {}) });
       this.sender.read(key, read.messages);
     } finally {
       this.fetching.delete(job);
     }
+  }
+
+  /** reads a thread's btws again after a hole in an answer (`GET .../btw`), paced by `btwRereads`: a hole found while one is
+      out or cooling down is read once after it. a failed read is not tried again on its own: the next hole, the next whole
+      read of the thread or the record that settles the btw brings the words */
+  private async rereadBtws(key: string): Promise<void> {
+    const place = splitKey(key);
+    if (!place || this.life.signal.aborted) return;
+    const res = await this.get(`/api/agents/${encodeURIComponent(place.agent)}/threads/${encodeURIComponent(place.thread)}/btw`);
+    if (!res?.ok) {
+      void res?.body?.cancel().catch(() => undefined);
+      return;
+    }
+    const btws: unknown = await res.json().catch(() => null);
+    if (this.life.signal.aborted || !Array.isArray(btws)) return;
+    this.dispatch({ type: "btws", key, btws: btws as Btw[] });
+  }
+
+  /** a btw verb: posted by the sender, and a record it answered with merged at once, so the card shows (or settles) before
+      the stream's echo; a promote marks the btw it made a message of the same way */
+  async btw(op: BtwOp): Promise<BtwDone> {
+    const done = await this.sender.btw(op);
+    if (!done.ok) return done;
+    if (done.btw) this.dispatch({ type: "btws", key: op.key, btws: [done.btw] });
+    else if (op.verb === "promote" && done.messageID) {
+      const held = this.state.threads[op.key]?.btws?.[op.btwID];
+      if (held) this.dispatch({ type: "btws", key: op.key, btws: [{ ...held, promotedMessageID: done.messageID }] });
+    }
+    return done;
   }
 
   /** how long a refetch of this message waits before it goes out: none the first time, then longer for each
@@ -1099,6 +1139,7 @@ export class Sync {
     clearTimeout(this.hiddenTimer);
     clearTimeout(this.interestTimer);
     this.saver.stop();
+    this.btwRereads.clear();
     if (this.frameHandle !== undefined) scope.cancelAnimationFrame?.(this.frameHandle);
     this.telemetry.stop();
   }
@@ -1205,6 +1246,9 @@ scope.addEventListener("message", (event) => {
         return;
       case "photos":
         post({ type: "photos", key: message.key, photos: await current.sender.photos(message.key) });
+        return;
+      case "btw":
+        post({ type: "btw-done", id: message.id, done: await current.btw(message.op) });
         return;
       default:
         message satisfies never;

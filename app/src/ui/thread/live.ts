@@ -11,7 +11,9 @@ import type { ReadTrouble } from "../../sync/read";
 import type { AskReply } from "../../sync/replies";
 import { hideThread, holdThread, releaseThread, showThread } from "../../sync/client";
 import { state } from "../../store";
-import { type Item, type Turn, projectRoot, spawnsOf } from "./model";
+import { type Item, type Turn, projectRoot, shownCount, spawnsOf } from "./model";
+import type { Btw } from "../btw/types";
+import { btwNames, placeBtws } from "../btw/place";
 import { NO_MESSAGES, type TurnsOptions, createTurns } from "./turns";
 import { type Wanted, createHolds, isRead } from "./holds";
 import type { ThreadCaches } from "./memo-cache";
@@ -68,7 +70,14 @@ export type ThreadData = {
   children: Accessor<ReadonlyMap<string, Child>>;
   /** every session under this thread at any depth, with what each cost: for the spend */
   kin: Accessor<readonly Kin[]>;
+  /** the thread's btws, placed in the turns that show them (btw/place.ts): a turn's, in created order; the turn a btw is
+      drawn in; and the name its controls are told apart by (docs/thread.md, btw) */
+  btwsOf: (turnID: string) => readonly Btw[];
+  btwTurn: (btwID: string) => string | undefined;
+  btwName: (btwID: string) => string;
 };
+
+const NO_BTWS: readonly Btw[] = [];
 
 /* the agents a child's items started, by the items' array: a child that did not change is read once */
 const spawned = new WeakMap<readonly Item[], readonly string[]>();
@@ -311,11 +320,32 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
   /* the context a row is painted in, without the clock: it changes when a child, an ask, a report or the thinking setting does,
      never for a delta to the running turn nor for a second passing (the clock is `now`, handed to the turns that show it) */
   const ctx = createMemo<RowCtx>(() => ({ turns: reports(), children: children(), asks: asksByCall(), replies: replies(), thinking: thinking() }));
+
+  /* the btws (the store's `threads[key].btws`, by id): listed when one comes or goes or is replaced whole, never for an answer's
+     delta (that writes inside a record, which placement does not read); placed by the shown messages' ids and roles alone,
+     so a part streaming moves nothing here, and a thread without btws walks nothing */
+  const btwList = createMemo<readonly Btw[]>(() => {
+    const held = thread()?.btws;
+    return held ? Object.values(held) : NO_BTWS;
+  });
+  const placedBtws = createMemo(() => {
+    const list = btwList();
+    if (list.length === 0) return new Map<string, Btw[]>();
+    const all = rawMessages();
+    const shown: { id: string; role: string }[] = [];
+    for (let i = 0, n = shownCount(all); i < n; i++) { const m = all[i]; if (m) shown.push({ id: m.info.id, role: m.info.role }); }
+    return placeBtws(shown, list);
+  });
+  const btwTurns = createMemo(() => { const out = new Map<string, string>(); for (const [turn, list] of placedBtws()) for (const b of list) out.set(b.id, turn); return out; });
+  const namesOfBtws = createMemo(() => btwNames(btwList()));
   return {
     key, host, title, directory, repoRoot, tone,
     held: () => thread() !== undefined,
     hydrating: () => thread()?.status === "hydrating",
     trouble: () => thread()?.trouble,
     count, turns, ids, turnOf, more, grow, all, ctx, working, now, asks, children, kin, seen,
+    btwsOf: (turnID) => placedBtws().get(turnID) ?? NO_BTWS,
+    btwTurn: (btwID) => btwTurns().get(btwID),
+    btwName: (btwID) => namesOfBtws().get(btwID) ?? "",
   };
 }

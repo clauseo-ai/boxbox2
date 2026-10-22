@@ -60,6 +60,9 @@ pub struct Message {
     /// this one (its brief): the source's mail envelope, as parts carry it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mail: Option<super::part::Mail>,
+    /// on a user message a btw was added to the thread as: the btw's id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub btw: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

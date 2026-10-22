@@ -52,6 +52,10 @@ import { inlineRuns } from "./inline";
 import { QueueStrip, type QueueVerb } from "./queue";
 import { type Agent, type Card, compactionWords, contextFill, DRAFTS_FULL, DROP_LINE, effortChoices, fateLine, type ListState, liveLine, menuOf, menuQuery, type Mount, placeholder, sendWord, tailPrint, typedAnswers, withFile } from "./words";
 import type { SlashChoice } from "./suggestions";
+import type { BtwActions } from "../btw/types";
+import { mintId } from "../../sync/mint-id";
+import { BTW_CHIP, BTW_CHIP_NAME, BTW_FATE, BTW_UNAVAILABLE, askedDraftGoes, btwSendBlock, BTW_PLACEHOLDER, BTW_ROW, BTW_SEND, backspaceLeaves, btwOffered, btwQuestion, typedIntoBtw } from "../btw/mode";
+import { BTW_COLOUR } from "../btw/tint";
 import "./composer.css";
 
 /** a draft past this many lines offers the full stage */
@@ -91,6 +95,9 @@ export type ComposerProps = {
   colour?: RepoColour;
   /** a wider drop target than the composer itself (the thread's stage): a photo or a file dropped anywhere on it lands here */
   dropZone?: () => HTMLElement | null | undefined;
+  /** the btw verbs, given only where the thread's agent answers btws (`capabilities.btw`): the composer offers btw mode then
+      (docs/composer.md, btw) */
+  btw?: BtwActions | undefined;
 };
 
 const EMPTY: Draft = { text: "", photos: [], model: null, effort: null, at: 0 };
@@ -102,7 +109,7 @@ export function Composer(props: ComposerProps) {
   const host = () => props.target.host;
   const directory = () => props.target.directory;
   const repo = () => repoName(directory());
-  const draft = () => state.composer.drafts[key()] ?? EMPTY;
+  const draft = (): Draft => state.composer.drafts[key()] ?? EMPTY;
   /* the draft's photos are read from the device as the composer opens (a launch reads only the open thread's) */
   createEffect(() => void loadDraftPhotos(key()));
   const entry = () => (props.target.kind === "session" ? state.fleet.threads[key()] : undefined);
@@ -153,9 +160,17 @@ export function Composer(props: ComposerProps) {
   const [overZone, setOverZone] = createSignal(false);
   const dropping = () => overSelf() || overZone();
 
-  const shell = () => draft().text.startsWith("!");
-  const has = () => draft().text.trim().length > 0 || draft().photos.length > 0;
-  const word = () => sendWord(props.mount, agent(), steering(), shell());
+  /* —— btw mode (docs/composer.md, btw): a side question, answered from the thread with no tools, never in the agent's
+     context. offered where the agent answers btws; the draft holds the mode, so it survives a reload as the words do —— */
+  const offersBtw = () => btwOffered({ capable: props.btw !== undefined, target: props.target.kind, mount: props.mount });
+  /* the draft is a btw whenever it says so, offered here or not: a btw draft restored before the thread's read lands (or on
+     an agent that no longer answers btws) keeps its chip and its tint, and its send is held with the reason, so a private
+     question never goes out as a message (mode.ts, btwSendBlock) */
+  const inBtw = () => draft().btw === true;
+  const shell = () => !inBtw() && draft().text.startsWith("!");
+  // a btw is words: photos the draft holds do not make it sendable
+  const has = () => draft().text.trim().length > 0 || (!inBtw() && draft().photos.length > 0);
+  const word = () => (inBtw() ? BTW_SEND : sendWord(props.mount, agent(), steering(), shell()));
   const worded = () => has() && word() !== "send" && props.mount === "bar";
 
   /* —— the queue: this device's sends and the daemon's provisional messages, in order —— */
@@ -218,6 +233,7 @@ export function Composer(props: ComposerProps) {
     if (dropping()) return { kind: "", text: DROP_LINE, prose: true };
     // the sheet's place line already says where the new thread starts: its row is the chips alone, and never repeats it
     if (props.mount !== "bar") return null;
+    if (inBtw()) return { kind: "", text: BTW_FATE, prose: true };
     if (focused() || has() || steering()) return { kind: "", text: fateLine(props.mount, agent(), steering(), shell(), waitingCount(), host(), repo(), questionCount()), prose: true };
     if (agent() === "offline") return { kind: "", text: `offline, last update ${clockOf(state.stream.lastEventAt)}`, prose: true };
     if (agent() !== "working" || onScreen()) return null;
@@ -329,8 +345,16 @@ export function Composer(props: ComposerProps) {
 
   const onInput = (event: InputEvent & { currentTarget: HTMLTextAreaElement }) => {
     const text = event.currentTarget.value;
+    // `/btw ` typed (or pasted) first puts the draft in btw mode, and the command is eaten: what follows is the question
+    const asked = offersBtw() && !inBtw() ? typedIntoBtw(text) : null;
+    if (asked !== null) {
+      setBtw(true, asked);
+      event.currentTarget.value = asked;
+      setMenu(null);
+      return;
+    }
     write({ text });
-    const opened = menuOf(text);
+    const opened = inBtw() ? null : menuOf(text);
     setMenuIndex(0);
     if (opened !== menu() && (opened || (menu() !== "model" && menu() !== "tools"))) setMenu(opened);
     if (opened === "@") readFiles(text);
@@ -404,7 +428,8 @@ export function Composer(props: ComposerProps) {
   const LOCAL: SlashChoice[] = [{ name: "compact", description: "summarise to free the context", hints: [], source: "command", local: true }];
   const commandOptions = createMemo<SlashChoice[]>(() => {
     const q = menu() === "/" ? menuQuery(draft().text, "/") : "";
-    const mine = props.target.kind === "session" ? LOCAL.filter((c) => c.name.startsWith(q)) : [];
+    const local = offersBtw() ? [{ name: BTW_ROW.name, description: BTW_ROW.description, hints: [], source: "command" as const, local: true }, ...LOCAL] : LOCAL;
+    const mine = props.target.kind === "session" ? local.filter((c) => c.name.startsWith(q)) : [];
     const theirs = (commandList() ?? []).filter((c) => c.name.toLowerCase().startsWith(q) && !mine.some((m) => m.name === c.name));
     return [...mine, ...theirs].slice(0, 8);
   });
@@ -512,7 +537,12 @@ export function Composer(props: ComposerProps) {
     const open = menu();
     if (open === "/") {
       const choice = commandOptions()[index];
-      if (choice?.local) {
+      if (choice?.local && choice.name === BTW_ROW.name) {
+        // the slash that asked for it goes, and the draft is in btw mode, empty, the caret in it
+        setBtw(true, "");
+        if (editor) editor.value = "";
+        caretToEnd();
+      } else if (choice?.local) {
         // a compaction that cannot start leaves what was typed where it was
         const blocked = compactBlock();
         if (blocked) {
@@ -556,6 +586,20 @@ export function Composer(props: ComposerProps) {
     if (held) plusKey?.focus({ preventScroll: true });
     setProblem(null);
     void compactThread(host(), target.session);
+  };
+  /** puts the draft in btw mode or takes it out, its words `text` when given. the flag rides the draft (`Draft.btw`) */
+  const setBtw = (on: boolean, text?: string) => {
+    const { btw: _was, ...rest } = draft();
+    const next: Draft = { ...rest, ...(text !== undefined ? { text } : {}), ...(on ? { btw: true as const } : {}), at: Date.now() };
+    saveDraft(key(), next.text || next.photos.length || next.held || next.model || next.effort || next.btw ? next : null, false, "kept");
+    setProblem(null);
+  };
+  /** leaves btw mode from the chip or a backspace: the words stay, the caret before them */
+  const leaveBtw = () => {
+    setBtw(false);
+    if (!editor) return;
+    editor.focus({ preventScroll: true });
+    editor.setSelectionRange(0, 0);
   };
   const setText = (text: string) => {
     write({ text });
@@ -659,6 +703,8 @@ export function Composer(props: ComposerProps) {
   let windowEl: HTMLDivElement | undefined;
   const send = async (mode?: "steer") => {
     // a message takes the draft's photos, so ones still on the device are read first (they are, as the composer opens)
+    // a btw first: it takes no photos, so the photos' state is not its problem line
+    if (inBtw()) return askBtw();
     if (draft().held) await loadDraftPhotos(key());
     if (draft().held) return setProblem((await draftPhotos()).PHOTOS_UNREAD);
     if (!has() || props.blocked) return;
@@ -709,11 +755,45 @@ export function Composer(props: ComposerProps) {
     if (full()) setFull(false);
   };
 
+  /* a btw is asked at once, idle or mid-turn: never queued, never a steer. it goes through the worker (askBtw), which
+     puts the card in the thread before the stream's echo; a refusal keeps the draft and says why in the problem line */
+  let asking = false;
+  /* the ask's client id, kept while its draft is asked again unchanged after a failure (a dropped answer may hide an ask that
+     landed), and let go once it lands or the words change */
+  let lastAsk: { at: string; question: string; id: string } | null = null;
+  const askBtw = async () => {
+    const question = btwQuestion(draft().text);
+    if (!question || asking) return;
+    const blocked = btwSendBlock({ offered: offersBtw(), photos: draft().photos.length, held: Boolean(draft().held) });
+    const actions = props.btw;
+    if (blocked || !actions) return setProblem(blocked ?? BTW_UNAVAILABLE);
+    asking = true;
+    const at = key();
+    if (lastAsk?.at !== at || lastAsk.question !== question) lastAsk = { at, question, id: mintId(Date.now()) };
+    try {
+      const done = await actions.ask(at, question, lastAsk.id);
+      const here = key() === at;
+      if (!done.ok) return void (here && setProblem(done.message));
+      /* the asked draft goes whichever thread is open now, so it cannot be asked twice; words typed into it while the ask
+         was on its way are a new question and stay. the mode ends with the send, and a model or effort picked meanwhile
+         still waits for the next message */
+      lastAsk = null;
+      const now = state.composer.drafts[at] ?? EMPTY;
+      if (askedDraftGoes(now.text, question)) saveDraft(at, now.model || now.effort ? { ...EMPTY, model: now.model, effort: now.effort, at: Date.now() } : null);
+      if (!here) return;
+      if (editor && askedDraftGoes(editor.value, question)) editor.value = "";
+      setProblem(null);
+      props.onSent?.();
+    } finally {
+      asking = false;
+    }
+  };
+
   /* hold to steer: the word turns to steer and the line says where it lands; letting go sends it */
   let holdTimer: ReturnType<typeof setTimeout> | undefined;
   let held = false;
   const holdStart = () => {
-    if (!has() || agent() !== "working" || props.mount !== "bar" || shell()) return;
+    if (!has() || agent() !== "working" || props.mount !== "bar" || shell() || inBtw()) return;
     holdTimer = setTimeout(() => {
       held = true;
       setSteering(true);
@@ -728,7 +808,13 @@ export function Composer(props: ComposerProps) {
   };
   onCleanup(() => clearTimeout(holdTimer));
 
-  const onKeyDown = (event: KeyboardEvent) => {
+  const onKeyDown = (event: KeyboardEvent & { currentTarget: HTMLTextAreaElement }) => {
+    // backspace before the first word deletes the btw chip: the mode goes, the words stay
+    if (inBtw() && backspaceLeaves(event.key, event.currentTarget.selectionStart, event.currentTarget.selectionEnd)) {
+      event.preventDefault();
+      leaveBtw();
+      return;
+    }
     const list = menu() === "/" ? commandOptions().length : menu() === "@" ? (fileList()?.length ?? 0) : 0;
     if (list && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       event.preventDefault();
@@ -899,7 +985,7 @@ export function Composer(props: ComposerProps) {
   const when = () => (props.target.kind === "new" ? "the new thread starts on it" : agent() === "idle" ? "changes from this message on" : "changes from your next message when the agent is done");
 
   const label = () =>
-    props.mount === "sheet" ? `first message for a new thread in ${repo()}` : `message to ${props.title ?? repo()}`;
+    props.mount === "sheet" ? `first message for a new thread in ${repo()}` : inBtw() ? `btw about ${props.title ?? repo()}, the agent won't see it` : `message to ${props.title ?? repo()}`;
 
   return (
     <div class="composer" ref={rootEl} data-mount={props.mount} data-full={full() ? "" : undefined} style={{ ...colourStyle(colour()), ...(room() === null ? {} : { "--room": `${room()}px` }) }}>
@@ -983,12 +1069,14 @@ export function Composer(props: ComposerProps) {
               onCompact={startCompact}
               onAgents={() => { setMenu(null); props.agents?.open(); }}
               onExpand={() => { setMenu(null); setFull(true); }}
+              btw={offersBtw() && !inBtw()}
+              onBtw={() => { setMenu(null); setBtw(true); caretToEnd(); }}
             />
           </Show>
         </div>
       </Show>
 
-      <div class="cz-window" ref={windowEl} data-focus={focused() || menu() ? "" : undefined} data-shell={shell() ? "" : undefined} data-bad={problem() ? "" : undefined} data-drop={dropping() ? "" : undefined}>
+      <div class="cz-window" ref={windowEl} style={inBtw() ? colourStyle(BTW_COLOUR) : undefined} data-btw={inBtw() ? "" : undefined} data-focus={focused() || menu() ? "" : undefined} data-shell={shell() ? "" : undefined} data-bad={problem() ? "" : undefined} data-drop={dropping() ? "" : undefined}>
         <Show when={full()}>
           <div class="cz-full-head">
             <button class="cz-back" type="button" aria-label="back to the thread" onClick={() => setFull(false)} />
@@ -1001,7 +1089,7 @@ export function Composer(props: ComposerProps) {
             appears on focus, so focusing moves nothing */}
         <div class="cz-top" data-lit={steering() ? "" : undefined} onKeyDown={(e) => e.key === "Escape" && dial() && (e.stopPropagation(), closeDial())}>
           <Show
-            when={dial()}
+            when={dial() && !inBtw()}
             fallback={
               <>
                 <Show when={props.mount === "bar" || line()}>
@@ -1023,6 +1111,8 @@ export function Composer(props: ComposerProps) {
                   </Show>
                 </div>
                 </Show>
+                {/* a btw runs on the thread's own model and settings (that keeps it on the prompt cache): no pick is offered in btw mode */}
+                <Show when={!inBtw()}>
                 <button class="cz-key me cz-chip" type="button" aria-label={`model${ofThread()}: ${modelLabel()}${listWhy()}${waits() && draft().model ? ", waits for your next message" : ""}`} aria-expanded={menu() === "model" ? "true" : "false"} data-pending={waits() && draft().model ? "" : undefined} data-quiet={list() === "ready" ? undefined : ""} onPointerDown={(e) => (e.preventDefault(), void warm("ModelMenu").catch(() => undefined))} onClick={() => (menu() === "model" ? toggleMenu("model") : whenLoaded("ModelMenu", () => toggleMenu("model")))}>
                   <MarkGlyph provider={chosenProvider()} class="cz-chip-mark" />
                   <span class="cz-chip-label">{modelLabel()}</span>
@@ -1032,6 +1122,7 @@ export function Composer(props: ComposerProps) {
                     <EffortMeter levels={list() === "ready" ? scaleOf(efforts()).levels : []} effort={chosenEffort()} />
                     <em class="cz-chip-label">{effortChip().label}</em>
                   </button>
+                </Show>
                 </Show>
               </>
             }
@@ -1093,12 +1184,16 @@ export function Composer(props: ComposerProps) {
           >
             <Icon name="plus" />
           </button>
+          {/* btw mode's chip, before the words: a tap leaves the mode, as a backspace before the first word does */}
+          <Show when={inBtw()}>
+            <button class="cz-btw" type="button" aria-label={BTW_CHIP_NAME} onPointerDown={(e) => e.preventDefault()} onClick={leaveBtw}>{BTW_CHIP}</button>
+          </Show>
           <textarea
             ref={editor}
             rows={1}
             value={draft().text}
             aria-label={label()}
-            placeholder={placeholder(props.mount, agent(), repo(), shell())}
+            placeholder={inBtw() ? BTW_PLACEHOLDER : placeholder(props.mount, agent(), repo(), shell())}
             enterkeyhint="enter"
             spellcheck={true}
             autofocus={props.autofocus}

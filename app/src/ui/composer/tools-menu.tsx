@@ -7,6 +7,7 @@ import { ContextRing } from "./context";
 import { MAX_ATTACHMENTS } from "./fit";
 import { Icon, type IconName } from "./icons";
 import { type Agent, type ContextFill, compactMeta } from "./words";
+import { BTW_ROW } from "../btw/mode";
 
 type ToolsMenuProps = {
   host: string;
@@ -18,6 +19,8 @@ type ToolsMenuProps = {
   fill: ContextFill | null;
   compacting: boolean;
   agent: Agent;
+  /** the thread's agent answers btws and the draft is not one yet: the btw row is offered (docs/composer.md, btw) */
+  btw?: boolean;
   /** each row's press; the composer closes the menu or turns it into another as the row says */
   onPhoto: () => void;
   onFile: () => void;
@@ -27,6 +30,7 @@ type ToolsMenuProps = {
   onCompact: () => void;
   onAgents: () => void;
   onExpand: () => void;
+  onBtw?: () => void;
 };
 
 /* a press keeps the focus in the editor, so the keyboard stays up on a phone */
@@ -60,6 +64,15 @@ export function ToolsMenu(props: ToolsMenuProps) {
         <b>shell</b>
         <em>runs on {props.host}</em>
       </button>
+      <Show when={props.btw}>
+        <button type="button" class="cz-option tool" role="menuitem" aria-label={`btw, ${BTW_ROW.description}`} onPointerDown={keepFocus} onClick={() => props.onBtw?.()}>
+          <ToolTile icon="aside" />
+          <span class="cz-tool-text">
+            <b>btw</b>
+            <small>{BTW_ROW.description}</small>
+          </span>
+        </button>
+      </Show>
       <Show when={props.session}>
         <button
           type="button"

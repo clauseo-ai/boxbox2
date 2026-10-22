@@ -1848,6 +1848,15 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
 - **a compact replay can carry a session info ahead of the event that moved its revision.**
   judge transcript revisions only once the replay is caught up, or every busy thread resets
   after a restart.
+- **a restored count must count what it restores.** `StreamKeys::restore_thread` put the
+  thread's newest-turn ids back without adding them to the fleet-wide `turn_ids`, so the
+  first removal or reset after a crash restart subtracted ids never counted: a debug build
+  panicked in the fleet actor (every write then answered `stopping`), a release build wrapped.
+  found by the btw live run against a fresh daemon; `fleet/keys.rs` has the test.
+- **a new cmx2 capability fails the two-wire test.** `two-wire-main.json.gz` holds main's
+  fleet made neutral by `translate::agent` as it stood when it was recorded, while the
+  replayed goldens carry today's capabilities. lay the new capability onto the recording in
+  `ADDED_SINCE_RECORDING` (`app/src/sync/two-wire.test.ts`); never edit the recording.
 
 ## a new capability moves every recording that holds an agent (fork-threads)
 

@@ -71,6 +71,12 @@ const keyOf = (node: Node, open: boolean): string => (node.nodeType === Node.ELE
 /** the blank text between blocks is not a block */
 const isBlock = (node: Node): boolean => node.nodeType === Node.ELEMENT_NODE || (node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "");
 
+/** `child` is the last thing in `el` that holds words: nothing but white space follows it (the caret goes after the last word) */
+function endsWith(el: Element, child: Element): boolean {
+  for (let n = el.lastChild; n && n !== child; n = n.previousSibling) if (n.nodeType !== Node.TEXT_NODE || (n.textContent ?? "").trim() !== "") return false;
+  return true;
+}
+
 /** the source of a code block whose run too long to lay out was cut for display (big-text.ts): what its control copies. a block that was not
     cut has none, and its text is its source */
 const sources = new WeakMap<Element, string>();
@@ -190,8 +196,10 @@ export function painter(surface: HTMLElement, html?: HtmlMemo, whole = false): P
     /* a fence still being written holds back its copy control: it would copy half of it */
     writing = writingIn(surface.lastElementChild);
     writing?.classList.add("writing");
+    /* down into the last element only while it is the last thing written: words after an inline code or a strong are the
+       end, and a caret put inside the code sat in the middle of the sentence */
     let end: Element = surface;
-    while (end.lastElementChild && !end.lastElementChild.matches("pre, table, hr, .cblock")) end = end.lastElementChild;
+    while (end.lastElementChild && endsWith(end, end.lastElementChild) && !end.lastElementChild.matches("pre, table, hr, .cblock")) end = end.lastElementChild;
     caret = document.createElement("span");
     caret.className = "caret-end";
     caret.setAttribute("aria-hidden", "true");

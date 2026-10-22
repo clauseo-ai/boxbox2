@@ -18,7 +18,7 @@ use std::collections::{HashMap, VecDeque};
 use sha2::{Digest, Sha256};
 
 use crate::wire::patch::{self, TextHash};
-use crate::wire::{Change, Message, Part, Thread};
+use crate::wire::{Btw, Change, Message, Part, Thread};
 
 /// a text delta waits at most this long for the next one of its part.
 pub const DELTA_EVERY_MS: i64 = 100;
@@ -30,15 +30,31 @@ pub const TRACKED_PARTS: usize = 4096;
 /// parts and messages whose last journaled state is remembered, for the
 /// rule that an unchanged re-send is not journaled.
 pub const REMEMBERED: usize = 4096;
+/// running btws whose answer length is tracked, so their deltas carry an
+/// offset; the oldest go first, and their next deltas go without one.
+pub const TRACKED_BTWS: usize = 1024;
 
-/// one part's deltas, merged while they chain.
+/// what a pending delta streams into.
+#[derive(Debug, PartialEq, Eq)]
+enum Target {
+    /// a part's text or reasoning.
+    Part {
+        message_id: String,
+        part_id: String,
+        field: String,
+    },
+    /// a btw's answer.
+    Btw { btw_id: String },
+}
+
+/// one part's or btw's deltas, merged while they chain.
 #[derive(Debug)]
 struct Pending {
     key: String,
-    message_id: String,
-    part_id: String,
-    field: String,
-    offset: u64,
+    target: Target,
+    /// utf-16 units before `text`; none for a btw whose answer's length the
+    /// encoder does not know.
+    offset: Option<u64>,
     text: String,
     /// utf-16 units of `text`.
     units: u64,
@@ -130,6 +146,10 @@ pub struct Encoder {
     texts: Capped<TextHash>,
     parts: Capped<Remembered>,
     messages: Capped<[u8; 32]>,
+    /// per running btw, keyed `<thread>\n<btw>`: the utf-16 length of its
+    /// answer as journaled and pending. cmx2's btw deltas carry no offset,
+    /// so the encoder counts one.
+    btws: Capped<u64>,
 }
 
 fn digest(value: &impl serde::Serialize) -> Option<[u8; 32]> {
@@ -258,6 +278,7 @@ impl Encoder {
         self.texts.retain(|k, _| !k.starts_with(&prefix));
         self.parts.retain(|k, _| !k.starts_with(&prefix));
         self.messages.retain(|k, _| !k.starts_with(&prefix));
+        self.btws.retain(|k, _| !k.starts_with(&prefix));
         self.pending.retain(|p| p.key != key);
         self.pending_bytes = self.pending.iter().map(|p| p.text.len()).sum();
     }
@@ -325,8 +346,10 @@ impl Encoder {
             self.parts.remove(&k);
             self.texts.remove(&k);
         }
-        self.pending
-            .retain(|p| !(p.key == key && p.message_id == message_id));
+        self.pending.retain(|p| {
+            !(p.key == key
+                && matches!(&p.target, Target::Part { message_id: m, .. } if *m == message_id))
+        });
         self.pending_bytes = self.pending.iter().map(|p| p.text.len()).sum();
         self.then(Change::MessageRemoved {
             key: key.to_owned(),
@@ -410,13 +433,13 @@ impl Encoder {
         offset: u64,
     ) -> Vec<Change> {
         let mut out = Vec::new();
-        if let Some(at) = self
-            .pending
-            .iter()
-            .position(|p| p.key == key && p.part_id == part_id)
-        {
+        if let Some(at) = self.pending.iter().position(|p| {
+            p.key == key && matches!(&p.target, Target::Part { part_id: id, .. } if id == part_id)
+        }) {
             let p = &mut self.pending[at];
-            if p.field == field && offset == p.offset + p.units {
+            let chains = matches!(&p.target, Target::Part { field: f, .. } if f == field)
+                && p.offset.map(|o| o + p.units) == Some(offset);
+            if chains {
                 p.text.push_str(delta);
                 p.units += utf16_len(delta);
                 self.pending_bytes += delta.len();
@@ -431,14 +454,78 @@ impl Encoder {
         }
         self.pending.push(Pending {
             key: key.to_owned(),
-            message_id: message_id.to_owned(),
-            part_id: part_id.to_owned(),
-            field: field.to_owned(),
-            offset,
+            target: Target::Part {
+                message_id: message_id.to_owned(),
+                part_id: part_id.to_owned(),
+                field: field.to_owned(),
+            },
+            offset: Some(offset),
             text: delta.to_owned(),
             units: utf16_len(delta),
             first: now,
         });
+        self.pending_bytes += delta.len();
+        if self.pending_bytes > PENDING_BYTES {
+            out.extend(self.flush());
+        }
+        out
+    }
+
+    /// a btw, created or replaced whole: pending deltas first, then it. a
+    /// running one's answer is what its next deltas build on; a settled one
+    /// takes no more, so its length is no longer tracked.
+    pub fn btw(&mut self, key: &str, upstream: Option<u64>, btw: Btw) -> Vec<Change> {
+        let out = self.flush();
+        let id = part_key(key, &btw.id);
+        if btw.status.settled() {
+            self.btws.remove(&id);
+        } else if let Some(units) = self.btws.get_mut(&id) {
+            *units = utf16_len(&btw.answer);
+        } else {
+            self.btws.insert(&id, utf16_len(&btw.answer), TRACKED_BTWS);
+        }
+        let mut out = out;
+        out.push(Change::Btw {
+            key: key.to_owned(),
+            upstream,
+            btw,
+        });
+        out
+    }
+
+    /// streamed text for a btw's answer: merged with its pending one, at
+    /// the offset the encoder counted; none for a btw it does not track (one
+    /// first seen by its deltas, or one past the cap), which the client
+    /// answers by reading the btws again.
+    pub fn btw_delta(&mut self, now: i64, key: &str, btw_id: &str, delta: &str) -> Vec<Change> {
+        let mut out = Vec::new();
+        let units = utf16_len(delta);
+        let id = part_key(key, btw_id);
+        let offset = self.btws.get_mut(&id).map(|known| {
+            let before = *known;
+            *known += units;
+            before
+        });
+        let pending = self.pending.iter_mut().find(|p| {
+            p.key == key && matches!(&p.target, Target::Btw { btw_id: b } if b == btw_id)
+        });
+        // a btw's deltas come in order and never overlap, so each chains
+        // onto the pending one, known offset or not
+        if let Some(p) = pending {
+            p.text.push_str(delta);
+            p.units += units;
+        } else {
+            self.pending.push(Pending {
+                key: key.to_owned(),
+                target: Target::Btw {
+                    btw_id: btw_id.to_owned(),
+                },
+                offset,
+                text: delta.to_owned(),
+                units,
+                first: now,
+            });
+        }
         self.pending_bytes += delta.len();
         if self.pending_bytes > PENDING_BYTES {
             out.extend(self.flush());
@@ -479,29 +566,46 @@ impl Encoder {
 
     /// a merged delta on its way into the journal: the built text grows.
     fn journal_delta(&mut self, p: Pending) -> Change {
-        let id = part_key(&p.key, &p.part_id);
+        let (message_id, part_id, field) = match p.target {
+            Target::Part {
+                message_id,
+                part_id,
+                field,
+            } => (message_id, part_id, field),
+            Target::Btw { btw_id } => {
+                return Change::BtwDelta {
+                    key: p.key,
+                    btw_id,
+                    delta: p.text,
+                    offset: p.offset,
+                };
+            }
+        };
+        // a part's pending delta always carries its offset
+        let offset = p.offset.unwrap_or_default();
+        let id = part_key(&p.key, &part_id);
         match self.texts.get_mut(&id) {
-            Some(built) if p.offset <= built.length && p.offset + p.units > built.length => {
-                built.push(after_units(&p.text, built.length - p.offset));
+            Some(built) if offset <= built.length && offset + p.units > built.length => {
+                built.push(after_units(&p.text, built.length - offset));
             }
             // a re-send of what it already holds
-            Some(built) if p.offset + p.units <= built.length => {}
+            Some(built) if offset + p.units <= built.length => {}
             // a gap: the built text is no longer the client's
             Some(_) => {
                 self.texts.remove(&id);
             }
-            None if p.offset == 0 => {
+            None if offset == 0 => {
                 self.texts.insert(&id, TextHash::of(&p.text), TRACKED_PARTS);
             }
             None => {}
         }
         Change::Delta {
             key: p.key,
-            message_id: p.message_id,
-            part_id: p.part_id,
-            field: p.field,
+            message_id,
+            part_id,
+            field,
             delta: p.text,
-            offset: p.offset,
+            offset,
         }
     }
 
@@ -696,6 +800,114 @@ mod tests {
         assert_eq!(e.tracked().0, 0, "the ended part is still tracked");
         // the step end sends it again, the same: the digest drops it
         assert!(e.part("k", Some(3), ended("hello world")).is_empty());
+    }
+
+    fn btw(id: &str, answer: &str, status: crate::wire::BtwStatus) -> Btw {
+        Btw {
+            id: id.into(),
+            question: "why".into(),
+            answer: answer.into(),
+            status,
+            error: None,
+            after_message_id: None,
+            created: 1.0,
+            completed: None,
+            dismissed: None,
+            promoted_message_id: None,
+            model: None,
+            tokens: None,
+            cost: None,
+        }
+    }
+
+    fn btw_delta(change: &Change) -> (&str, Option<u64>) {
+        let Change::BtwDelta { delta, offset, .. } = change else {
+            panic!("{change:?}")
+        };
+        (delta.as_str(), *offset)
+    }
+
+    #[test]
+    fn btw_deltas_merge_into_one_batch_at_the_offset_the_encoder_counts() {
+        use crate::wire::BtwStatus::Running;
+        let mut e = Encoder::new();
+        assert_eq!(
+            kinds(&e.btw("k", Some(1), btw("b", "ab", Running))),
+            ["btw"]
+        );
+        assert!(e.btw_delta(0, "k", "b", "c\u{1F600}").is_empty());
+        assert!(e.btw_delta(40, "k", "b", "d").is_empty());
+        assert_eq!(e.due(), Some(100));
+        let out = e.flush_due(100);
+        assert_eq!(out.len(), 1);
+        assert_eq!(btw_delta(&out[0]), ("c\u{1F600}d", Some(2)));
+        // the emoji is two utf-16 units: the next batch starts at 2 + 1 + 2 + 1
+        e.btw_delta(200, "k", "b", "e");
+        assert_eq!(btw_delta(&e.flush()[0]), ("e", Some(6)));
+    }
+
+    #[test]
+    fn a_whole_btw_takes_its_pending_deltas_out_first_and_resets_the_count() {
+        use crate::wire::BtwStatus::{Done, Running};
+        let mut e = Encoder::new();
+        e.btw("k", Some(1), btw("b", "", Running));
+        e.btw_delta(0, "k", "b", "hello");
+        let out = e.btw("k", Some(2), btw("b", "hello world", Running));
+        assert_eq!(kinds(&out), ["btw.delta", "btw"]);
+        assert_eq!(btw_delta(&out[0]), ("hello", Some(0)));
+        e.btw_delta(10, "k", "b", "!");
+        assert_eq!(btw_delta(&e.flush()[0]), ("!", Some(11)));
+        // settled: no delta builds on it any more
+        e.btw("k", Some(3), btw("b", "hello world!", Done));
+        e.btw_delta(20, "k", "b", "late");
+        assert_eq!(btw_delta(&e.flush()[0]), ("late", None));
+    }
+
+    #[test]
+    fn a_btw_the_encoder_never_saw_whole_streams_without_an_offset() {
+        let mut e = Encoder::new();
+        e.btw_delta(0, "k", "unknown", "abc");
+        e.btw_delta(5, "k", "unknown", "def");
+        let out = e.flush();
+        assert_eq!(out.len(), 1);
+        assert_eq!(btw_delta(&out[0]), ("abcdef", None));
+    }
+
+    #[test]
+    fn btw_and_part_deltas_batch_apart_and_go_in_arrival_order() {
+        use crate::wire::BtwStatus::Running;
+        let mut e = Encoder::new();
+        e.btw("k", None, btw("b", "", Running));
+        e.delta(0, "k", "m", "p", "text", "one", 0);
+        e.btw_delta(1, "k", "b", "two");
+        e.delta(2, "k", "m", "p", "text", "three", 3);
+        let out = e.other(Change::ThreadReset { key: "x".into() });
+        assert_eq!(kinds(&out), ["delta", "btw.delta", "thread.reset"]);
+        let Change::Delta { delta, .. } = &out[0] else {
+            panic!()
+        };
+        assert_eq!(delta, "onethree");
+        // a reset forgets the thread's counts
+        e.btw("k", None, btw("b", "zz", Running));
+        e.thread_reset("k");
+        e.btw_delta(10, "k", "b", "q");
+        assert_eq!(btw_delta(&e.flush()[0]), ("q", None));
+    }
+
+    #[test]
+    fn the_btw_counts_keep_their_cap() {
+        use crate::wire::BtwStatus::Running;
+        let mut e = Encoder::new();
+        for i in 0..(TRACKED_BTWS + 10) {
+            e.btw("k", None, btw(&format!("b{i}"), "", Running));
+        }
+        assert_eq!(e.btws.len(), TRACKED_BTWS);
+        // the oldest went first: its deltas lose their offset
+        e.btw_delta(0, "k", "b0", "x");
+        e.btw_delta(0, "k", &format!("b{}", TRACKED_BTWS + 9), "y");
+        let out = e.flush();
+        assert_eq!(btw_delta(&out[0]).1, None);
+        assert_eq!(btw_delta(&out[1]).1, Some(0));
     }
 
     #[test]

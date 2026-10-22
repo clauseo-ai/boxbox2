@@ -87,6 +87,12 @@ impl ThreadKeys {
         }
     }
 
+    /// a btw entry: the whole read and the newest page carry the thread's
+    /// btws, so `v` moves; no older page holds one, so `rv` stays.
+    fn btw(&mut self, seq: u64) {
+        self.v = seq;
+    }
+
     /// a message entry. `room` says the fleet-wide set of newest-turn ids
     /// may grow; without it a set that would grow goes full instead.
     fn message(&mut self, seq: u64, id: &str, role: Role, queued: bool, at: f64, room: bool) {
@@ -326,6 +332,11 @@ impl StreamKeys {
             } => {
                 self.in_turn(key, |t, _| t.removed(seq, message_id));
             }
+            Change::Btw { key, .. } | Change::BtwDelta { key, .. } => {
+                if let Some(t) = self.threads.get_mut(key) {
+                    t.btw(seq);
+                }
+            }
         }
     }
 
@@ -496,10 +507,13 @@ impl StreamKeys {
         turn: Option<&str>,
     ) {
         let [v, rv, reset_seq] = versions;
-        let turn = turn
+        let turn: Turn = turn
             .and_then(|t| serde_json::from_str(t).ok())
             .unwrap_or_default();
-        self.threads.insert(
+        // the restored ids join the fleet-wide count, which a later removal
+        // or reset takes them out of
+        let held = turn.ids.len();
+        let replaced = self.threads.insert(
             key,
             ThreadKeys {
                 seq,
@@ -509,6 +523,7 @@ impl StreamKeys {
                 turn,
             },
         );
+        self.turn_ids = self.turn_ids - replaced.map_or(0, |t| t.turn.ids.len()) + held;
     }
 
     pub fn restore_agent(&mut self, kept: Kept<Agent>) {
@@ -697,6 +712,29 @@ mod tests {
         assert_eq!(kinds, [(4, "ask.settled")]);
         // one before the first raise never held it
         assert!(keys.since(0).entries.is_empty());
+    }
+
+    #[test]
+    fn a_restored_thread_s_turn_ids_join_the_count_so_its_removal_after_a_restart_is_whole() {
+        let mut kept = StreamKeys::new();
+        kept.saw(1, &thread(), 0);
+        kept.saw(2, &message("u", "user", 10.0, false), 0);
+        kept.saw(3, &message("m1", "assistant", 11.0, false), 0);
+        let (row, turn) = kept.thread_row("a:1").unwrap();
+        let (seq, versions) = (row.seq, [row.v, row.rv, row.reset_seq]);
+        assert_eq!(kept.turn_ids(), 2);
+        // a restart: the row comes back, and the source then says the thread is gone
+        let mut keys = StreamKeys::new();
+        keys.restore_thread("a:1".into(), seq, versions, turn.as_deref());
+        assert_eq!(keys.turn_ids(), 2);
+        keys.restore_thread("a:1".into(), seq, versions, turn.as_deref());
+        assert_eq!(
+            keys.turn_ids(),
+            2,
+            "restoring the same row twice counts it once"
+        );
+        keys.saw(4, &Change::ThreadRemoved { key: "a:1".into() }, 0);
+        assert_eq!(keys.turn_ids(), 0);
     }
 
     #[test]

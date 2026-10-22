@@ -4,7 +4,7 @@
 
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
 import type { Draft, DraftMessage, OutboxView, Photo, Target, Verb } from "./outbox";
-import type { BoardFrame } from "./protocol";
+import type { BoardFrame, Btw } from "./protocol";
 import type { Counters, Fleet, Patch, ThreadView } from "./reducer";
 import type { AskReply } from "./replies";
 
@@ -53,6 +53,16 @@ export type SyncCounters = Counters & {
 };
 
 export type Query = { query: "counters" } | { query: "transcript"; key: string };
+
+/** a btw verb on a thread (`key` is `<agent>:<thread>`): ask a question on the side, or dismiss or promote a btw */
+/** an ask's `clientID` names the question once for the server: an ask posted again with it (a retry after a post whose answer
+    was lost) is answered with the btw the first one made, never a second */
+export type BtwOp = { verb: "ask"; key: string; question: string; clientID: string } | { verb: "dismiss" | "promote"; key: string; btwID: string };
+
+/** what came of a btw verb. `btw`: the record the agent answered with (an ask, a dismiss), already merged into the thread;
+    `messageID`: the user message a promote made. `message` says what happened and what to do. `clientID`: an ask's, so a
+    failed one asked again with the same words reuses it */
+export type BtwDone = { ok: true; btw?: Btw; messageID?: string; clientID?: string } | { ok: false; message: string; clientID?: string };
 
 export type ToWorker =
   /** `open` is the thread the url names, whose pages boot reads for the first frame */
@@ -105,7 +115,9 @@ export type ToWorker =
   /** keep the record of a reply this device made to an ask, once the daemon settled it (replies.ts): the ui's store has it already */
   | { type: "replied"; record: AskReply }
   /** a draft's composer opened and the draft's photos are on the device, not read (`Draft.held`): read them */
-  | { type: "photos"; key: string };
+  | { type: "photos"; key: string }
+  /** a btw verb; its answer comes back as `btw-done` with the same id */
+  | { type: "btw"; id: number; op: BtwOp };
 
 /** what the ui lands in its store in order, at its frame (landing.ts) */
 export type Landed = { type: "patches"; patches: Patch[] } | { type: "stream"; stream: StreamStatus };
@@ -145,4 +157,6 @@ export type FromWorker =
       the next may come from a mac the board has left, or never come */
   | { type: "board"; frame: BoardFrame }
   /** a draft's photos, read for its composer; null when the read failed and the draft still holds them unread */
-  | { type: "photos"; key: string; photos: Photo[] | null };
+  | { type: "photos"; key: string; photos: Photo[] | null }
+  /** what came of a btw verb, after any record it returned was merged and its patches posted */
+  | { type: "btw-done"; id: number; done: BtwDone };

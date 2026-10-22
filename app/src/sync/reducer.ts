@@ -61,6 +61,8 @@
 import type {
   Agent,
   Ask,
+  Btw,
+  BtwEntry,
   Catchup,
   Cursor,
   DeltaEntry,
@@ -82,8 +84,10 @@ import type {
   Reset,
   ThreadEntry,
   ThreadPatch,
+  TranscriptEntry,
 } from "./protocol";
-import { isTranscript, textOf } from "./protocol";
+import { isBtwEntry, isTranscript, textOf } from "./protocol";
+import { foldBtws } from "./btw";
 import { type ColourAssignment, repoKey } from "../ui/window/repo";
 import { placeBefore } from "./order";
 import type { ReadTrouble } from "./read";
@@ -141,6 +145,9 @@ export type Thread = {
   /** the highest upstream seq applied to this thread */
   lastUpstream: number;
   messages: Message[];
+  /** its btws by id (btw.ts): seeded by the read, kept by the stream, never sent back. absent until one is known. counted
+      in `bytes`, and kept in the cache as a record of its own (`${key}#btw`) */
+  btws?: Readonly<Record<string, Btw>>;
   /** per part, how much of its text (utf-16 units) came from a hydration or refetch */
   baseline: Record<string, number>;
   /** entries that arrived while a hydration was in flight */
@@ -257,10 +264,18 @@ export type SyncState = {
 export const INITIAL_STATE: SyncState = { cursor: null, head: 0, fleet: EMPTY_FLEET, threads: {}, cold: {}, unfit: {}, reads: 0, counters: ZERO_COUNTERS, interest: INITIAL_INTEREST };
 
 /** the ui's view of a thread: the part it renders */
-export type ThreadView = { key: string; status: ThreadStatus; messages: Message[]; /** set while its read is failing */ trouble?: ReadTrouble };
+export type ThreadView = {
+  key: string;
+  status: ThreadStatus;
+  messages: Message[];
+  /** set while its read is failing */
+  trouble?: ReadTrouble;
+  /** its btws by id, patched at `["threads", key, "btws", id]`, their answers appended at `[..., "answer"]` */
+  btws?: Readonly<Record<string, Btw>>;
+};
 
 export function viewOf(thread: Thread): ThreadView {
-  return { key: thread.key, status: thread.status, messages: thread.messages, ...(thread.trouble ? { trouble: thread.trouble } : {}) };
+  return { key: thread.key, status: thread.status, messages: thread.messages, ...(thread.trouble ? { trouble: thread.trouble } : {}), ...(thread.btws ? { btws: thread.btws } : {}) };
 }
 
 export type PathSegment = string | number;
@@ -293,6 +308,9 @@ export type Effect =
   | { type: "evicted"; key: string; bytes: number; opened: boolean; cap: Cap }
   /** a thread's head changed (recency, staleness, `left`) and is written with the next save */
   | { type: "head"; key: string }
+  /** a btw's answer has a hole (a delta past its end, one with no offset, one for a btw the thread lacks): the thread's btws
+      are read again (`GET .../btw`) and come back as `btws` */
+  | { type: "btws-reread"; key: string }
   /** a protocol error or a rule's miss, for telemetry (`sync.fault`, docs/protocol.md section 16) */
   | { type: "fault"; what: Fault }
   /** an interest post is due (`InterestState.due`): the worker sends `post-interest` once the messages already queued have
@@ -338,12 +356,12 @@ export type Action =
   /** the pages of a cold thread, read back from the cache (null: a page was missing, so the thread starts over from the
       daemon). `bytes` is their size where the worker measured it, which it does for a head with none (`Cold.sized`). a
       thread that is no longer cold is left alone */
-  | { type: "restored"; key: string; messages: Message[] | null; bytes?: number }
+  | { type: "restored"; key: string; messages: Message[] | null; bytes?: number; /** the cache's `#btw` record */ btws?: Btw[] }
   /** `bytes` is the read's size where the worker measured it, else it is measured here. `seq` is the journal head when the
       server started the read (`x-boxbox-seq`, S): a thread that entered interest at H takes it only when S >= H. `seqEpoch`
       is that stamp's epoch (absent: the stream's own). `at` and `upstreamEpoch` are the source event it reflects
       (`x-boxbox-upstream`); `etag` its version */
-  | { type: "hydrated"; key: string; hydration: number; upstreamEpoch: string; at: number; seq: number; seqEpoch?: string; messages: Message[]; bytes?: number; etag?: string }
+  | { type: "hydrated"; key: string; hydration: number; upstreamEpoch: string; at: number; seq: number; seqEpoch?: string; messages: Message[]; bytes?: number; etag?: string; /** the read's btws, oldest first; absent when the source keeps none or their list failed, which leaves the held ones */ btws?: Btw[] }
   | { type: "refetched"; key: string; hydration: number; messageID: string; message: Message | null }
   /** a try of read `hydration` failed and waits its backoff to try again: why, for a stage with nothing to show */
   | { type: "read-failed"; key: string; hydration: number; trouble: ReadTrouble }
@@ -353,7 +371,10 @@ export type Action =
   /** the server's whole map of repo colours, outside the journal: it replaces what the fleet holds */
   | { type: "colours"; colours: RepoColourEntry[] }
   /** one repo's colour changed, outside the journal */
-  | { type: "colour"; colour: RepoColourEntry };
+  | { type: "colour"; colour: RepoColourEntry }
+  /** btws from outside the stream (the reread after a hole, a verb's own answer), merged by the same rule as the stream's
+      (btw.ts), so a card shows before its echo. a thread not in memory takes nothing */
+  | { type: "btws"; key: string; btws: Btw[] };
 
 export type Result = { state: SyncState; patches: Patch[]; effects: Effect[] };
 
@@ -469,6 +490,9 @@ export function reduce(state: SyncState, action: Action): Result {
       break;
     case "colour":
       next = colour(work, state, action.colour);
+      break;
+    case "btws":
+      next = btwsFrom(work, state, action.key, action.btws);
       break;
     default:
       return unreachable(action);
@@ -652,7 +676,8 @@ function readKey(work: Work, state: SyncState, key: string, drop: boolean): Sync
     if (drop) {
       // nothing held is the read's any more: its etag would revalidate an empty thread as current
       const { etag: _, ...rest } = thread;
-      thread = thread.messages.length > 0 ? grown({ ...rest, messages: [], baseline: {} }, -thread.bytes) : thread.etag === undefined ? thread : rest;
+      // the btws are the agent's records beside the transcript, not part of what was reset: they stay, and stay counted
+      thread = thread.messages.length > 0 ? grown({ ...rest, messages: [], baseline: {} }, btwWeight(thread.btws) - thread.bytes) : thread.etag === undefined ? thread : rest;
       if (warm.messages.length > 0) work.patch(["threads", key, "messages"], []);
     }
     if (!thread.waiting) thread = rehydrate(work, thread);
@@ -942,6 +967,8 @@ function entry(work: Work, state: SyncState, frame: Entry, id: Cursor | null): S
     case "delta":
     case "message.removed":
     case "reactions":
+    case "btw":
+    case "btw.delta":
       return transcriptEntry(work, next, frame);
     default:
       return unreachable(frame);
@@ -949,14 +976,81 @@ function entry(work: Work, state: SyncState, frame: Entry, id: Cursor | null): S
 }
 
 /** a transcript entry, from the journal or a catch-up: a cold thread's pages are behind it, a thread in memory takes it */
-function transcriptEntry(work: Work, state: SyncState, frame: ThreadEntry, catchingUp = false): SyncState {
+function transcriptEntry(work: Work, state: SyncState, frame: TranscriptEntry, catchingUp = false): SyncState {
   const thread = state.threads[frame.key];
   if (!thread) return { ...state, cold: staleAll(work, state.cold, (key) => key === frame.key) };
-  const grown = threadEntry(work, thread, frame, catchingUp);
-  const threads = { ...state.threads, [frame.key]: grown };
-  // a thread that the stream grows past the byte cap is evicted for it now, not at the next open or read
+  return withThread(work, state, thread, isBtwEntry(frame) ? btwEntry(work, thread, frame) : threadEntry(work, thread, frame, catchingUp));
+}
+
+/** a thread in memory changed: a thread that grew past the byte cap is evicted for it now, not at the next open or read */
+function withThread(work: Work, state: SyncState, thread: Thread, grown: Thread): SyncState {
+  if (grown === thread) return state;
+  const threads = { ...state.threads, [thread.key]: grown };
   if (grown.bytes <= thread.bytes || totalBytes({ threads, cold: state.cold }) <= BYTE_CAP) return { ...state, threads };
-  return { ...state, ...makeRoom(work, state, threads, state.cold, frame.key) };
+  return { ...state, ...makeRoom(work, state, threads, state.cold, thread.key) };
+}
+
+/* —— btws (btw.ts holds the merge rule) —— */
+
+/** a btw entry applies at once, whether or not the thread is being read: the merge is the same whichever record comes
+    first, and the read's btws merge over what the stream gave meanwhile (`hydrated`). it carries no upstream gate for the
+    same reason */
+function btwEntry(work: Work, thread: Thread, frame: BtwEntry): Thread {
+  switch (frame.type) {
+    case "btw":
+      return putBtws(work, thread, [frame.btw]);
+    case "btw.delta":
+      return btwDelta(work, thread, frame);
+    default:
+      return unreachable(frame);
+  }
+}
+
+const btwWeight = (btws: Readonly<Record<string, Btw>> | undefined): number => (btws ? Object.values(btws).reduce((n, btw) => n + jsonWeight(btw), 0) : 0);
+
+const sameBtw = (a: Btw, b: Btw): boolean => sameJson(a, b);
+
+/** records merged into the thread's btws: each one that changed goes to the ui whole, one the cap let go as a delete */
+function putBtws(work: Work, thread: Thread, sent: readonly Btw[]): Thread {
+  const held = thread.btws;
+  const next = foldBtws(held, sent, sameBtw);
+  if (next === held || next === undefined) return thread;
+  const base = ["threads", thread.key, "btws"] as const;
+  if (held === undefined) work.patch(base, next);
+  else for (const id of new Set([...Object.keys(held), ...Object.keys(next)])) if (held[id] !== next[id]) work.patch([...base, id], next[id]);
+  return grown({ ...thread, btws: next }, btwWeight(next) - btwWeight(held));
+}
+
+/** words streamed onto a running btw's answer, placed by their utf-16 offset as a part's delta is: at the end they append,
+    inside they are covered, past it (or with no offset, or for a btw the thread lacks) the btws are read again. a settled
+    btw's answer is whole, so a delta for one is ignored */
+function btwDelta(work: Work, thread: Thread, frame: Extract<BtwEntry, { type: "btw.delta" }>): Thread {
+  const held = thread.btws?.[frame.btwID];
+  if (held && held.status !== "running") return thread;
+  const offset = frame.offset;
+  if (!held || offset === undefined || offset === null) return rereadBtws(work, thread);
+  const had = held.answer;
+  const end = offset + frame.delta.length;
+  let added: string;
+  if (offset === had.length) added = frame.delta;
+  else if (end <= had.length) {
+    work.count("duplicates");
+    return thread;
+  } else if (offset < had.length) added = frame.delta.slice(had.length - offset);
+  else return rereadBtws(work, thread);
+  work.patches.push({ path: ["threads", thread.key, "btws", frame.btwID, "answer"], append: added, from: had.length });
+  return grown({ ...thread, btws: { ...thread.btws, [frame.btwID]: { ...held, answer: had + added } } }, added.length);
+}
+
+function rereadBtws(work: Work, thread: Thread): Thread {
+  work.effects.push({ type: "btws-reread", key: thread.key });
+  return thread;
+}
+
+function btwsFrom(work: Work, state: SyncState, key: string, btws: readonly Btw[]): SyncState {
+  const thread = state.threads[key];
+  if (!thread) return state;
+  return withThread(work, state, thread, putBtws(work, thread, btws));
 }
 
 /** a thread sent whole, or patched: what changed in it goes to the ui */
@@ -1576,9 +1670,12 @@ function restored(work: Work, state: SyncState, action: Extract<Action, { type: 
     leased: head.leased,
     bytes: action.messages ? (action.bytes ?? head.bytes) : 0,
     trouble: null,
+    ...restoredBtws(action),
     ...(head.left === undefined ? {} : { left: head.left }),
     ...(head.etag === undefined || !action.messages ? {} : { etag: head.etag }),
   };
+  // the head's size held the btws with the pages; a size measured from the pages alone, or none, did not
+  if (thread.btws && (!action.messages || action.bytes !== undefined)) thread = grown(thread, btwWeight(thread.btws));
   if (again) {
     thread = rehydrate(work, thread);
   } else {
@@ -1587,6 +1684,13 @@ function restored(work: Work, state: SyncState, action: Extract<Action, { type: 
   work.patch(["threads", head.key], viewOf(thread));
   // a head with no size counted for nothing until now, so its pages may be what passes a cap
   return { ...state, ...makeRoom(work, state, { ...state.threads, [head.key]: thread }, cold, head.key) };
+}
+
+/** a restored thread's btws, from the cache's record. they come back even when its pages did not: they are the agent's
+    records, current to the last save, and the read that follows merges over them */
+function restoredBtws(action: Extract<Action, { type: "restored" }>): Pick<Thread, "btws"> {
+  const btws = action.btws?.length ? foldBtws(undefined, action.btws, sameBtw) : undefined;
+  return btws ? { btws } : {};
 }
 
 type Placed = { key: string; openedAt: number; heldAt: number; leased: boolean; bytes: number; cold: boolean };
@@ -1730,6 +1834,12 @@ function hydrated(work: Work, state: SyncState, action: Extract<Action, { type: 
     trouble: null,
     ...(action.etag === undefined ? {} : { etag: action.etag }),
   };
+  if (action.btws) {
+    // the read's bytes hold its btws: what the merge keeps beside or over them is counted on top
+    const btws = foldBtws(held.btws, action.btws, sameBtw);
+    const read = action.btws.reduce((n, btw) => n + jsonWeight(btw), 0);
+    thread = grown(btws ? { ...thread, btws } : thread, (action.bytes === undefined ? read : 0) + btwWeight(btws) - read);
+  } else thread = grown(thread, btwWeight(held.btws));
   viewChanged(work, held, thread);
   for (const buffered of held.buffer) thread = threadEntry(work, thread, buffered);
   // the read may be what passes the byte cap
@@ -1756,6 +1866,9 @@ function viewChanged(work: Work, before: Thread, after: Thread): void {
   }
   if (before.trouble && !after.trouble) work.patch([...base, "trouble"], undefined);
   else if (after.trouble && !sameJson(before.trouble, after.trouble)) work.patch([...base, "trouble"], after.trouble);
+  if (before.btws === after.btws || after.btws === undefined) return;
+  if (before.btws === undefined) work.patch([...base, "btws"], after.btws);
+  else changed(work, [...base, "btws"], before.btws, after.btws);
 }
 
 /** a try of the thread's current read failed: it is said once per change, so a read failing the same way each try sends

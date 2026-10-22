@@ -15,7 +15,7 @@ export type Agent = "working" | "idle" | "wants" | "offline";
 export type Mount = "bar" | "sheet";
 
 /** what tapping send will do */
-export type SendWord = "send" | "queue" | "steer" | "answer" | "run" | "start";
+export type SendWord = "send" | "queue" | "steer" | "answer" | "run" | "start" | "ask";
 
 export function placeholder(mount: Mount, agent: Agent, repo: string, shell: boolean): string {
   if (mount === "sheet") return "what should it do?";
@@ -168,6 +168,9 @@ export const DROP_LINE = "drop a photo or a file to add it";
 
 /** what a composer says while this device has no room to keep drafts: what is written stays only while the page is open */
 export const DRAFTS_FULL = "this device has no room left to keep drafts, so what you write here stays only while this page is open. free some space and it saves again";
+
+/** a slash row draws the context's fill (its ring and percent) only for compact, the one command the fill is about */
+export const slashShowsFill = (choice: { name: string; local?: boolean | undefined }): boolean => choice.local === true && choice.name === "compact";
 
 /** the menu a draft opens: `/` first is a command, `@` after a space is a file, `!` first is the shell */
 export function menuOf(text: string): "/" | "@" | "!" | null {

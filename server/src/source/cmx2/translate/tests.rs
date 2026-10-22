@@ -204,6 +204,113 @@ fn message_updated_is_a_message_with_its_client_id_and_model() {
     assert_eq!(message.effort.as_deref(), Some("high"));
 }
 
+/// a finished btw as the pinned daemon writes it in `btw.updated`.
+const BTW_DONE: &str = r#"{"sessionID":"ses_1","btw":{"id":"btw_1","sessionID":"ses_1","text":"why a cache?","answer":"the reads repeat","status":"done","afterMessageID":"msg_9","time":{"created":10,"completed":12,"dismissed":13},"promotedMessageID":"msg_10","model":{"providerID":"anthropic","modelID":"opus"},"tokens":{"input":5,"output":7,"cache":{"read":100,"write":2}},"cost":0.01}}"#;
+
+#[test]
+fn btw_updated_is_the_whole_btw_with_its_times_flattened() {
+    let Some(SourceEvent::Btw { thread, btw }) = translate(&payload("btw.updated", BTW_DONE))
+    else {
+        panic!("not a btw");
+    };
+    assert_eq!(thread, "ses_1");
+    assert_eq!(
+        serde_json::to_value(&*btw).unwrap(),
+        serde_json::json!({
+            "id": "btw_1",
+            "question": "why a cache?",
+            "answer": "the reads repeat",
+            "status": "done",
+            "afterMessageID": "msg_9",
+            "created": 10.0,
+            "completed": 12.0,
+            "dismissed": 13.0,
+            "promotedMessageID": "msg_10",
+            "model": "anthropic/opus",
+            "tokens": {"input": 5, "output": 7, "cacheRead": 100, "cacheWrite": 2},
+            "cost": 0.01
+        })
+    );
+}
+
+#[test]
+fn a_btw_is_read_loosely_and_refused_only_without_its_facts() {
+    let raw = |json: &str| serde_json::value::RawValue::from_string(json.to_owned()).unwrap();
+    // a running one, just asked, with odd extras: read, the extras dropped
+    let running = btw(&raw(
+        r#"{"id":"btw_2","text":"q","answer":"","status":"running","time":{"created":1,"completed":"soon"},"error":7,"model":"opus","tokens":[]}"#,
+    ))
+    .unwrap();
+    assert_eq!(running.status, crate::wire::BtwStatus::Running);
+    assert_eq!(
+        (
+            running.completed,
+            running.error,
+            running.model,
+            running.tokens
+        ),
+        (None, None, None, None)
+    );
+    // an error keeps its words
+    let failed = btw(&raw(
+        r#"{"id":"btw_3","text":"q","answer":"par","status":"error","error":"the daemon restarted before it answered","time":{"created":1}}"#,
+    ))
+    .unwrap();
+    assert_eq!(
+        failed.error.as_deref(),
+        Some("the daemon restarted before it answered")
+    );
+    // no status boxbox knows, or no question: refused
+    assert!(
+        btw(&raw(
+            r#"{"id":"b","text":"q","status":"thinking","time":{"created":1}}"#
+        ))
+        .is_err()
+    );
+    assert!(btw(&raw(r#"{"id":"b","status":"done","time":{"created":1}}"#)).is_err());
+}
+
+#[test]
+fn btw_delta_is_its_text_with_no_offset_of_its_own() {
+    let frame = payload(
+        "btw.delta",
+        r#"{"sessionID":"ses_1","btwID":"btw_1","delta":"the "}"#,
+    );
+    let Some(SourceEvent::BtwDelta { thread, btw, delta }) = translate(&frame) else {
+        panic!("not a btw delta");
+    };
+    assert_eq!(
+        (thread.as_str(), btw.as_str(), delta.as_str()),
+        ("ses_1", "btw_1", "the ")
+    );
+}
+
+#[test]
+fn a_promoted_user_message_names_its_btw() {
+    let frame = payload(
+        "message.updated",
+        r#"{"sessionID":"ses_1","info":{"id":"msg_10","sessionID":"ses_1","role":"user","time":{"created":3},"btw":"btw_1"}}"#,
+    );
+    let Some(SourceEvent::Message { message, .. }) = translate(&frame) else {
+        panic!("not a message");
+    };
+    assert_eq!(message.btw.as_deref(), Some("btw_1"));
+    let plain = payload(
+        "message.updated",
+        r#"{"sessionID":"ses_1","info":{"id":"msg_11","sessionID":"ses_1","role":"user","time":{"created":3}}}"#,
+    );
+    let Some(SourceEvent::Message { message, .. }) = translate(&plain) else {
+        panic!("not a message");
+    };
+    assert_eq!(message.btw, None);
+    assert!(
+        serde_json::to_value(&*message)
+            .unwrap()
+            .get("btw")
+            .is_none()
+    );
+}
+
 #[test]
 fn message_part_updated_is_a_part_placed_by_its_id() {
     let frame = payload(
@@ -571,6 +678,14 @@ fn consumed_frames() -> Vec<(&'static str, String)> {
             payload(
                 "message.removed",
                 r#"{"sessionID":"ses_1","messageID":"msg_1"}"#,
+            ),
+        ),
+        ("btw.updated", payload("btw.updated", BTW_DONE)),
+        (
+            "btw.delta",
+            payload(
+                "btw.delta",
+                r#"{"sessionID":"ses_1","btwID":"btw_1","delta":"the "}"#,
             ),
         ),
         (

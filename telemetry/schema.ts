@@ -635,6 +635,25 @@ export const EVENTS = {
       outcome: { type: "TEXT", doc: "how it went: done, refused (the agent said no: a turn or thread gone, browse-only history, no fork), failed (the agent was not reached or was busy) or unknown (taken, answer lost).", values: ["done", "refused", "failed", "unknown"], required: true },
     },
   },
+  "btw.asked": {
+    doc: "v2: a side question was asked about a thread from the composer's btw mode (cmx2's POST /session/:id/btw, through the server). ok is the daemon's answer, never the tap. outcome: done (the daemon took it; the answer streams after), gone (no such thread), refused (the daemon said no, or the question was not one), unsupported (the agent or its daemon has no btw) or failed (the host did not answer). chars is the question's length; the question is never recorded.",
+    props: {
+      outcome: { type: "TEXT", doc: "how the ask went.", values: ["done", "gone", "refused", "unsupported", "failed"], required: true },
+      chars: { type: "INTEGER", doc: "length of the question in characters.", required: true },
+    },
+  },
+  "btw.dismissed": {
+    doc: "v2: a btw card was dismissed, on every device (cmx2's POST /session/:id/btw/:btw/dismiss, through the server). ok is the daemon's answer, never the tap. outcome as btw.asked, gone meaning the btw no longer exists.",
+    props: {
+      outcome: { type: "TEXT", doc: "how the dismissal went.", values: ["done", "gone", "refused", "unsupported", "failed"], required: true },
+    },
+  },
+  "btw.promoted": {
+    doc: "v2: a btw's question and answer were added to its thread as a user message, a steer while a turn ran or a prompt otherwise (cmx2's POST /session/:id/btw/:btw/promote, through the server). ok is the daemon's answer, never the tap. outcome as btw.asked; refused is a btw still running or added already.",
+    props: {
+      outcome: { type: "TEXT", doc: "how the promotion went.", values: ["done", "gone", "refused", "unsupported", "failed"], required: true },
+    },
+  },
   "review.merged": {
     doc: "v2: a checkout's branch was squash-merged into its base from the review card (cmx2's /experimental/worktree/merge, through the server). ok is the daemon's answer, never the tap. outcome says how it went: done, busy (a turn runs in the checkout), conflict (the branch conflicts with its base), refused (dirty, nothing to merge, detached, or the base is dirty), gone (the checkout was merged or discarded already) or failed (the host did not answer). no path, message or file name is recorded.",
     props: {

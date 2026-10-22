@@ -10,7 +10,7 @@ import { unwrap } from "solid-js/store";
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
 import { boardCapable, deviceClass, deviceId } from "../push/device";
 import { applyPatches, boardCompose, boardFocus, boardGone, boardHere, bootSync, setCacheBlocked, setComposerNotice, setDraft, setDraftsKept, setBorn, setOpenThread, setOutbox, setReply, setStream, state, syncNeedsReload, syncSignedOut } from "../store";
-import type { Emit, FromWorker, Outgoing, Query, StreamStatus, SyncCounters, ToWorker } from "./messages";
+import type { BtwDone, BtwOp, Emit, FromWorker, Outgoing, Query, StreamStatus, SyncCounters, ToWorker } from "./messages";
 import type { BoardFrame } from "./protocol";
 import { type Draft, type DraftMessage, type Photo, photosNotFitted, takeBackDraft } from "./outbox";
 import { Landing } from "./landing";
@@ -26,6 +26,8 @@ const waiting = new Map<number, (value: unknown) => void>();
 /** unsends waiting for the worker's word, by `key messageID` */
 type Unsent = { ok: boolean; message: string | null; returned: boolean };
 const unsending = new Map<string, (result: Unsent) => void>();
+/** btw verbs waiting for the worker's word, by the id each was sent with */
+const btwWaiting = new Map<number, (done: BtwDone) => void>();
 let sampled = 0;
 let timed: { at: number; key: string } | null = null;
 /* the landing is writing the store inside a frame's callbacks: what changes now paints in this frame, not the next */
@@ -121,6 +123,10 @@ function onMessage(event: MessageEvent<FromWorker>) {
     case "photos":
       void draftPhotos().then((m) => m.read(message.key, message.photos));
       return;
+    case "btw-done":
+      btwWaiting.get(message.id)?.(message.done);
+      btwWaiting.delete(message.id);
+      return;
     case "unsent": {
       const id = `${message.key} ${message.messageID}`;
       unsending.get(id)?.({ ok: message.ok, message: message.message, returned: message.returned });
@@ -215,6 +221,8 @@ function detach() {
   waiting.clear();
   for (const resolve of unsending.values()) resolve({ ok: false, message: "not connected", returned: false });
   unsending.clear();
+  for (const resolve of btwWaiting.values()) resolve(BTW_OFFLINE);
+  btwWaiting.clear();
   if (photosAsked) void draftPhotos().then((m) => m.clear());
   if (pressed) clearTimeout(pressed.timer);
   pressed = null;
@@ -467,6 +475,39 @@ export function unsendQueued(key: string, messageID: string, clientID: string | 
   const answer = new Promise<Unsent>((resolve) => unsending.set(`${key} ${messageID}`, resolve));
   send({ type: "unsend", key, messageID, clientID, toDraft });
   return answer;
+}
+
+/* —— btws: the worker makes the call and folds what it answers into the store; the ui never fetches —— */
+
+export type { BtwDone } from "./messages";
+
+const BTW_OFFLINE: BtwDone = { ok: false, message: "the app is not connected, so nothing was sent. reload the page and try again" };
+
+function btw(op: BtwOp): Promise<BtwDone> {
+  if (!worker) return Promise.resolve(BTW_OFFLINE);
+  const id = nextId++;
+  const done = new Promise<BtwDone>((resolve) => btwWaiting.set(id, resolve));
+  send({ type: "btw", id, op });
+  return done;
+}
+
+/** asks a question on the side of a thread (`<agent>:<thread>`), idle or mid-turn: it never steers or queues. the record the
+    agent answers with is in the store when this resolves, running, and the stream streams its answer onto it. `clientID` names
+    this question for the server: the answer carries the one used (minted here when none is given), and asking the same words
+    again after a failure with it gets the btw the first post may have made, never a second */
+export function askBtw(key: string, question: string, clientID: string = mintId(Date.now())): Promise<BtwDone> {
+  return btw({ verb: "ask", key, question, clientID }).then((done) => ({ ...done, clientID }));
+}
+
+/** dismisses a btw on every device; the dismissed record is in the store when this resolves */
+export function dismissBtw(key: string, btwID: string): Promise<BtwDone> {
+  return btw({ verb: "dismiss", key, btwID });
+}
+
+/** adds a btw's question and answer to the thread as a user message (`messageID`), which the agent then sees; the btw is
+    marked promoted in the store when this resolves */
+export function promoteBtw(key: string, btwID: string): Promise<BtwDone> {
+  return btw({ verb: "promote", key, btwID });
 }
 
 function ask(query: Query): Promise<unknown> {

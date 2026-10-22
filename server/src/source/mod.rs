@@ -40,9 +40,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::upstream::HostStatus;
 use crate::wire::{
-    Accepted, Activity, AgentConnection, AgentStatus, Ask, AskKind, AskSettled, Born, Capabilities,
-    Capability, Changes, Context, Kind, Label, Mark, Message, Origin, Part, Place, Reaction,
-    SendStateKind, Source, Vcs,
+    Accepted, Activity, AgentConnection, AgentStatus, Ask, AskKind, AskSettled, Born, Btw,
+    Capabilities, Capability, Changes, Context, Kind, Label, Mark, Message, Origin, Part, Place,
+    Reaction, SendStateKind, Source, Vcs,
 };
 pub use config::{AgentOverride, ConnectionConfig, HermesConfig, OpenclawConfig, OpenclawMode};
 
@@ -120,6 +120,19 @@ pub enum SourceEvent {
         message: String,
         reactions: Vec<Reaction>,
     },
+    /// a btw, whole: asked, answered, failed, dismissed or added to the
+    /// thread. like a message it is journaled whatever the floors say.
+    Btw {
+        thread: String,
+        btw: Box<Btw>,
+    },
+    /// streamed text for a btw's answer, in order; the encoder counts its
+    /// offset, since cmx2 sends none.
+    BtwDelta {
+        thread: String,
+        btw: String,
+        delta: String,
+    },
     AskRaised {
         ask: Box<Ask>,
     },
@@ -194,6 +207,8 @@ impl SourceEvent {
             Self::Delta { .. } => "delta",
             Self::MessageRemoved { .. } => "message.removed",
             Self::Reactions { .. } => "reactions",
+            Self::Btw { .. } => "btw",
+            Self::BtwDelta { .. } => "btw.delta",
             Self::AskRaised { .. } => "ask.raised",
             Self::AskSettled { .. } => "ask.settled",
             Self::Fault { .. } => "fault",
@@ -857,6 +872,30 @@ pub trait AgentSource: std::marker::Send + Sync + 'static {
     fn restart(&self, agent: &str) -> Verb<'_, ()> {
         let _ = agent;
         unsupported(Capability::Admin)
+    }
+    /// btw: ask a side question about the thread. the agent answers it from
+    /// the thread's context with no tools and never puts it into that
+    /// context; it answers the btw running, and the answer streams after.
+    fn btw_ask(&self, thread: &ThreadRef, client_id: &str, question: &str) -> Verb<'_, Btw> {
+        let _ = (thread, client_id, question);
+        unsupported(Capability::Btw)
+    }
+    /// btw: the thread's btws, oldest first.
+    fn btws(&self, thread: &ThreadRef) -> Verb<'_, Vec<Btw>> {
+        let _ = thread;
+        unsupported(Capability::Btw)
+    }
+    /// btw: dismiss one on every device.
+    fn btw_dismiss(&self, thread: &ThreadRef, btw: &str) -> Verb<'_, Btw> {
+        let _ = (thread, btw);
+        unsupported(Capability::Btw)
+    }
+    /// btw: add its question and answer to the thread as a user message
+    /// (a steer while a turn runs, a prompt otherwise); answers that
+    /// message's id.
+    fn btw_promote(&self, thread: &ThreadRef, btw: &str) -> Verb<'_, String> {
+        let _ = (thread, btw);
+        unsupported(Capability::Btw)
     }
     /// terminal: the pty relay's verbs (cmx2 only).
     fn terminal(&self) -> Option<&dyn TerminalSource> {

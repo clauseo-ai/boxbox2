@@ -2,12 +2,21 @@
    asks until it has the messages, the journal head the read started at and the source event they reflect, and gives up the
    moment the thread is no longer the one the read is for. */
 
-import { type Cursor, type Message, parseCursor } from "./protocol";
+import { type Btw, type Cursor, type Message, parseCursor } from "./protocol";
 
 /** an answer. `messages` null is a 304: the read the client holds (the etag it sent) is still the thread, and stands as this
     read. `seq` is `x-boxbox-seq`, the journal head when the server started the read (the no-gap rule); `at` is
     `x-boxbox-upstream`, the source event it reflects (the upstream gate); `etag` its version, when the server gave one */
-export type Transcript = { messages: Message[] | null; at: Cursor; seq: Cursor; /** the body's length: the size the byte cap counts */ bytes: number; etag?: string };
+export type Transcript = {
+  messages: Message[] | null;
+  at: Cursor;
+  seq: Cursor;
+  /** the body's length: the size the byte cap counts */
+  bytes: number;
+  etag?: string;
+  /** the thread's btws, oldest first; absent on a 304, and when the source keeps none or their list failed */
+  btws?: Btw[];
+};
 
 /** why a try failed, for a stage that has nothing to show (docs/thread.md, reading): `gone` when the server answered that
     it does not have the thread (a 404), `problem` in the server's words when it said any, null when it did not answer */
@@ -63,10 +72,17 @@ async function troubleOf(res: Response | null): Promise<ReadTrouble> {
 
 /** a transcript from a body (`{messages, older, total, turns}`, the messages oldest first), or null when the body is not one */
 export function parseMessages(body: string): Message[] | null {
+  return parseTranscript(body)?.messages ?? null;
+}
+
+/** a read's body as the reducer takes it: its messages, and its btws when it carries them (`btws`, beside `messages`) */
+export function parseTranscript(body: string): { messages: Message[]; btws?: Btw[] } | null {
   try {
     const parsed: unknown = JSON.parse(body);
-    const messages = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as { messages?: unknown }).messages : undefined;
-    return Array.isArray(messages) ? (messages as Message[]) : null;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const { messages, btws } = parsed as { messages?: unknown; btws?: unknown };
+    if (!Array.isArray(messages)) return null;
+    return Array.isArray(btws) ? { messages: messages as Message[], btws: btws as Btw[] } : { messages: messages as Message[] };
   } catch {
     return null;
   }
@@ -107,9 +123,9 @@ export async function readTranscript(plan: ReadPlan): Promise<Transcript | "sign
     if (answered) {
       const body = await res.text().catch(() => null);
       if (!plan.wanted()) return null;
-      const messages = body === null ? null : parseMessages(body);
+      const read = body === null ? null : parseTranscript(body);
       const etag = res.headers.get("etag");
-      if (messages) return { messages, at, seq, bytes: body?.length ?? 0, ...(etag ? { etag } : {}) };
+      if (read) return { ...read, at, seq, bytes: body?.length ?? 0, ...(etag ? { etag } : {}) };
       trouble = { gone: false, problem: "the server sent something that is not this thread" };
     } else {
       // an answer that is not a transcript (an error, or no stamps to read it against) is not downloaded, past an error's own words

@@ -392,6 +392,12 @@ fn contract_two(state: &Arc<AppState>) -> Router<Arc<AppState>> {
             &at("/messages/{message}/reactions"),
             axum::routing::put(v2::react),
         )
+        .route(
+            &at("/btw"),
+            get(agents::btw::btw_list).post(agents::btw::btw_ask),
+        )
+        .route(&at("/btw/{btw}/dismiss"), post(agents::btw::btw_dismiss))
+        .route(&at("/btw/{btw}/promote"), post(agents::btw::btw_promote))
         .route(&at("/archive"), post(v2::archive))
         .route(&at("/fork"), post(v2::fork))
         .route(&at("/adopt"), post(v2::adopt))

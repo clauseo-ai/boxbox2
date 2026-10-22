@@ -5,6 +5,7 @@
 
 import { type Turn } from "./model";
 import { rowsOf } from "./rows";
+import { shownPrompt } from "../btw/words";
 
 /** the newest turns are always filled: the end of the thread is where the reader lands, and a reply arrives */
 export const ALWAYS_LAST = 3;
@@ -42,7 +43,7 @@ export function estimateHeight(turn: Turn, width: number): number {
   const measure = Math.max(200, width - GUTTERS);
   const said = measure / SAID_PX, answer = measure / ANSWER_PX;
   let px = 0;
-  if (turn.by === "you" || turn.by === "queued" || turn.by === "steer" || turn.by === "brief") px += BUBBLE + Math.min(6, lines(turn.prompt.length, said)) * 22;
+  if (turn.by === "you" || turn.by === "queued" || turn.by === "steer" || turn.by === "brief") px += BUBBLE + Math.min(6, lines(shownPrompt(turn).length, said)) * 22;
   else if (turn.by === "mail") px += 96 + Math.min(8, lines(turn.prompt.length, said)) * LINE_SAID;
   else px += 40;
   if (turn.by !== "compaction") {

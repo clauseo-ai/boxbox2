@@ -190,7 +190,9 @@ export const DRAFT_TROUBLE_AFTER = 3;
     and what counts them (the device's cap, a place that holds a draft) reads this until they are */
 export type HeldPhotos = { count: number; bytes: number; /** the read failed (draft-photos.ts) */ failed?: true };
 
-export type Draft = { text: string; photos: Photo[]; model: string | null; effort: string | null; at: number; held?: HeldPhotos };
+/** `btw`: the composer is in btw mode, so its words go out as a side question (docs/composer.md, btw); kept with the words so
+    the mode outlives a reload. absent is a message */
+export type Draft = { text: string; photos: Photo[]; model: string | null; effort: string | null; at: number; held?: HeldPhotos; btw?: true };
 
 /** a draft as it crosses to the worker. a keystroke carries the words and `"kept"`: the photos are megabytes, and the worker
     already holds the set the last edit that changed it sent, so they travel (and are written to indexeddb) only when the set changes */

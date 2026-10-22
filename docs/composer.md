@@ -582,7 +582,8 @@ new-thread route makes one before the session when asked.
   resize events, so the last line in sight is whole and the keys stay above the
   keyboard.
 - **send's word.** a disc with an arrow when it sends; it opens by clip
-  into a worded pill for queue, steer, answer, run (a `!` line) and start.
+  into a worded pill for queue, steer, answer, run (a `!` line), start and
+  ask (a btw, see btw mode).
 - **the queue is one strip** (`queue.tsx`; the ios app's decision 23). a card per
   message stacked above the window took 330 px of a phone's thread at three, and
   the daemon's provisional message drew a bubble in the transcript beside it. now
@@ -839,6 +840,65 @@ new-thread route makes one before the session when asked.
 - **the first-load script budget** counts what `index.html` loads, as
   `architecture.md` says ("the whole app's first load"); a chunk only a
   later action imports is printed and not counted (`scripts/compress.ts`).
+
+### btw mode (2026-10-22)
+
+a btw is a side question about the thread, answered from the session's
+context with no tools and never put into the agent's context
+(`thread.md`, btw). the composer asks it. rules in
+`app/src/ui/btw/mode.ts`, tested in `mode.test.ts`.
+
+- **offered** only on a thread whose agent answers btws
+  (`capabilities.btw`) and only in the bar under it: not the sheet, never a
+  new thread (there is no context to ask about). where it is not offered no
+  entry point shows: no slash row, no plus row, `/btw ` is plain words.
+- **entering.** `/btw` followed by a space (or a tab; a new line after it
+  is kept as the question's) as the first thing in the draft, typed or
+  pasted: the prefix is eaten and what follows is the question. the slash
+  menu's first row, "btw", where it is offered. the plus menu's "btw" row
+  ("ask on the side. the agent won't see it"). the draft holds the mode
+  (`Draft.btw`), so it survives a reload as the words do.
+- **leaving.** a tap on the chip; backspace with the caret before the first
+  word and nothing selected (the chip is what it deletes, the words stay);
+  a send that went. nothing else leaves it.
+- **what it looks like.** a "btw" chip before the words, the accent's fill
+  in a pill, the words' first line indented for it so a long question wraps
+  under it as text would. the window wears the citron (`design.md`, colour:
+  the btw exception) for as long as the draft is a btw, with a dashed inner
+  rule, the card's rail. the placeholder reads "ask on the side. the agent
+  won't see this"; send reads "ask". the words are named "btw about
+  <thread>, the agent won't see it".
+- **no model or effort in btw mode.** a btw runs on the thread's own model
+  and settings, which keeps it on the prompt cache, so a pick there would be
+  meaningless and misleading: the model and effort chips and the dial are
+  not drawn while the draft is a btw. the top row keeps its one height (the
+  composer's law: nothing appears or goes on focus) and holds one short line
+  in the chips' place, "on this thread's model, no tools", which says what
+  answers it and fits on one line at 390 px. a pick made before entering
+  stays in the draft for the next message.
+- **sending.** send, return on a keyboard and ⌘return all ask: a btw is
+  never queued and never a steer, and hold to steer does nothing. it works
+  idle or mid-turn and while the agent asks (the words do not answer the
+  question in btw mode). the worker asks (`askBtw`); the card is in the
+  thread before the stream's echo. the draft empties and the mode ends,
+  keeping a model or effort pick that has not gone.
+- **words only.** a btw carries no photo or file. photos in the draft stay
+  in it, and a send says "a btw takes words only. remove the photos and
+  files, or leave btw to send them to the agent" in the problem line.
+- **failure** keeps the draft and the mode and says the worker's words in
+  the problem line (they say what happened and what to do). asking the same
+  draft again carries the same client id, so an ask that landed while its
+  answer was lost is not asked twice.
+- **a btw draft is never a message.** the draft's flag is the mode, offered
+  here or not: a btw draft restored before the thread's read lands (or on an
+  agent that no longer answers btws, or a thread with no turn) keeps its
+  chip and tint, and its send says "a btw can't be asked here yet. wait for
+  the thread to load, or tap btw to send it to the agent instead"
+  (`btwSendBlock`). photos in a btw draft are named before anything about
+  reading them.
+- **after an ask lands** its draft goes on the thread it was asked from,
+  whichever thread is open now; words typed into it during the ask stay as
+  the next question (`askedDraftGoes`).
 
 ## voice, files and assistants (2026-10-15)
 

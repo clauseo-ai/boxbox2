@@ -86,12 +86,63 @@ fn cmx2_capabilities_are_everything_cmx2_does_today() {
         "voice": {"notes": false, "replies": false},
         "quotes": false, "reactions": false, "threads": true, "archive": true, "fork": true,
         "commands": true, "files": true, "shell": true, "history": true,
-        "subagents": true, "spend": true, "origins": false, "admin": true
+        "subagents": true, "spend": true, "origins": false, "admin": true, "btw": true
     }));
     assert_eq!(caps, Capabilities::cmx2());
+    assert!(caps.has(Capability::Btw));
     assert!(caps.has(Capability::Terminal));
     assert!(!caps.has(Capability::Reactions));
     assert!(!caps.has(Capability::Voice));
+}
+
+#[test]
+fn btw_is_left_out_when_false_so_a_row_persisted_before_it_reads_and_writes_the_same() {
+    let before = serde_json::to_value(Capabilities::default()).unwrap();
+    assert!(before.get("btw").is_none());
+    let read: Capabilities = serde_json::from_value(before.clone()).unwrap();
+    assert!(!read.btw && !read.has(Capability::Btw));
+    assert_eq!(serde_json::to_value(read).unwrap(), before);
+    assert_eq!(json!(Capability::Btw), json!("btw"));
+}
+
+#[test]
+fn a_btw_round_trips_with_its_times_flat_and_absent_fields_left_out() {
+    let full = round_trip::<Btw>(&json!({
+        "id": "btw_1", "question": "why?", "answer": "because", "status": "done",
+        "afterMessageID": "msg_1", "created": 1.0, "completed": 2.0, "dismissed": 3.0,
+        "promotedMessageID": "msg_2", "model": "anthropic/opus",
+        "tokens": {"input": 1, "output": 2, "cacheRead": 3, "cacheWrite": 4}, "cost": 0.5
+    }));
+    assert!(full.status.settled());
+    let bare = round_trip::<Btw>(&json!({
+        "id": "btw_2", "question": "q", "answer": "", "status": "running", "created": 1.0
+    }));
+    assert!(!bare.status.settled());
+    round_trip::<Btw>(&json!({
+        "id": "btw_3", "question": "q", "answer": "par", "status": "error",
+        "error": "the daemon restarted before it answered", "created": 1.0
+    }));
+    round_trip::<BtwPromoted>(&json!({"messageID": "msg_2"}));
+}
+
+#[test]
+fn the_btw_changes_are_transcript_entries_named_as_the_spec_names_them() {
+    let btw =
+        json!({"id": "btw_1", "question": "q", "answer": "", "status": "running", "created": 1.0});
+    let whole = round_trip::<JournalEntry>(&json!({
+        "seq": 7, "type": "btw", "key": "vm-a:ses_1", "upstream": 3, "btw": btw
+    }));
+    assert_eq!(whole.change.kind(), "btw");
+    assert_eq!(whole.change.transcript_key(), Some("vm-a:ses_1"));
+    let delta = round_trip::<JournalEntry>(&json!({
+        "seq": 8, "type": "btw.delta", "key": "vm-a:ses_1", "btwID": "btw_1", "delta": "he", "offset": 0
+    }));
+    assert_eq!(delta.change.kind(), "btw.delta");
+    assert_eq!(delta.change.transcript_key(), Some("vm-a:ses_1"));
+    // an offset boxbox does not know is absent, never null
+    round_trip::<JournalEntry>(&json!({
+        "seq": 9, "type": "btw.delta", "key": "vm-a:ses_1", "btwID": "btw_1", "delta": "llo"
+    }));
 }
 
 #[test]
