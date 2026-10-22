@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cutAfter, forkHeld, forkLabel, lineageOf, lineageWords, turnBeforeCut } from "./fork";
+import { boundaryWords, cutAfter, forkBoundary, forkHeld, forkLabel, lineageOf, lineageWords, turnBeforeCut } from "./fork";
 import type { Turn } from "./model";
 
 type T = Pick<Turn, "id" | "by" | "status" | "items" | "answer">;
@@ -35,6 +35,37 @@ describe("where a fork from a turn is cut", () => {
   test("a turn the thread does not have is not forked at", () => {
     expect(cutAfter(turns, "msg_7")).toBeNull();
     expect(cutAfter([], "msg_1")).toBeNull();
+  });
+});
+
+describe("where a fork's copied history ends", () => {
+  const MADE = 5000;
+  const at = (id: string, time: number) => ({ id, at: time });
+
+  test("after the last turn that began before the fork was made: the copies keep the parent's times", () => {
+    expect(forkBoundary([at("msg_f_1", 1000), at("msg_f_2", 2000), at("msg_f_3", 6000), at("msg_f_4", 7000)], MADE)).toBe("msg_f_2");
+  });
+
+  test("a whole fork with no turns of its own yet ends with its last turn", () => {
+    expect(forkBoundary([at("msg_f_1", 1000), at("msg_f_2", 2000)], MADE)).toBe("msg_f_2");
+  });
+
+  test("a fork with no copied turn shown has no boundary", () => {
+    expect(forkBoundary([at("msg_f_3", 6000)], MADE)).toBeNull();
+    expect(forkBoundary([], MADE)).toBeNull();
+  });
+
+  test("a turn begun in the same millisecond the fork was made is the fork's own", () => {
+    expect(forkBoundary([at("msg_f_1", 1000), at("msg_f_2", MADE)], MADE)).toBe("msg_f_1");
+  });
+
+  test("its words name the thread, say what is above, and name the link apart from the title block's", () => {
+    const named = boundaryWords({ key: "desk:ses_1", title: "fix the reducer", cut: "msg_9" }, true);
+    expect(`${named.before}${named.link}${named.after}`).toBe("forked from fix the reducer. everything above came from it; this thread's own turns start here.");
+    expect(named.name).toBe("open fix the reducer where this fork was cut");
+    expect(named.name).not.toBe(lineageWords({ key: "desk:ses_1", title: "fix the reducer", cut: "msg_9" }));
+    const waiting = boundaryWords({ key: "desk:ses_1", title: null, cut: null }, false);
+    expect(`${waiting.before}${waiting.link}${waiting.after}`).toBe("forked from another thread. everything above came from it; this thread's own turns will start here.");
   });
 });
 

@@ -46,7 +46,7 @@ import { createNames } from "./names";
 import { copyText } from "./clipboard";
 import { COPIED_MS, REFUSED_MS } from "./copy";
 import { READING_PATIENCE_MS, freshnessOf, readingOf, readingWords } from "./reading";
-import { type Cut, cutAfter, forkHeld, lineageOf, lineageWords, turnBeforeCut } from "./fork";
+import { type Cut, boundaryWords, cutAfter, forkBoundary, forkHeld, lineageOf, lineageWords, turnBeforeCut } from "./fork";
 import "./stage.css";
 
 /* the review is a chunk of its own: most threads never have one, so its card, controller and words stay out of the first
@@ -369,29 +369,35 @@ export function Stage(props: StageProps) {
 
   /* ---------- lineage: a forked thread names the thread it came from and opens it where it was cut ---------- */
   const lineage = createMemo(() => lineageOf(session()?.forkedFrom, data.host(), (k) => state.fleet.threads[k]?.title));
-  const [lineageNote, setLineageNote] = createSignal<string | null>(null);
+  /* what a link to it could not do, said beside the link that was used: the title block's, or the divider's */
+  const [lineageNote, setLineageNote] = createSignal<{ at: "top" | "mark"; text: string } | null>(null);
+  /** the last copied turn, after which the divider stands (fork.ts, forkBoundary: by time, the copies keep the parent's) */
+  const boundary = createMemo(() => { const s = session(); return lineage() && s ? forkBoundary(data.turns(), s.created) : null; });
+  /** whether the fork has turns of its own after the copies */
+  const ownTurns = createMemo(() => { const b = boundary(); return b !== null && data.ids().at(-1) !== b; });
   const [lineageOpening, setLineageOpening] = createSignal(false);
   /** opens the thread this one was forked from at the turn it was forked from. one the fleet does not hold (cleared from home's
       twelve hours, or archived) is asked for through history's adopt first, which answers that an archived one is gone */
-  const openLineage = async () => {
+  const openLineage = async (at: "top" | "mark") => {
     const from = lineage();
     if (!from || lineageOpening()) return;
     setLineageNote(null);
+    const setNote = (text: string) => setLineageNote({ at, text });
     if (!state.fleet.threads[from.key]) {
       setLineageOpening(true);
       try {
         const { error, response } = await api.POST("/api/hosts/{host}/sessions/{session}/adopt", { params: { path: { host: data.host(), session: from.key.slice(data.host().length + 1) } } });
         if (!response.ok) {
           const said = (error as { error?: { message?: unknown } } | undefined)?.error?.message;
-          setLineageNote(typeof said === "string" ? said : `the server answered ${response.status}. try again.`);
+          setNote(typeof said === "string" ? said : `the server answered ${response.status}. try again.`);
           return;
         }
         if (!(await arrives(from.key))) {
-          if (!disposed) setLineageNote("it was found, but has not reached this device yet. try again in a moment.");
+          if (!disposed) setNote("it was found, but has not reached this device yet. try again in a moment.");
           return;
         }
       } catch {
-        setLineageNote("the boxbox server is not answering. check it is running, then try again.");
+        setNote("the boxbox server is not answering. check it is running, then try again.");
         return;
       } finally {
         setLineageOpening(false);
@@ -1239,9 +1245,9 @@ export function Stage(props: StageProps) {
                   </Show>
                   <Show when={parentKey()}><span class="tb-parent">an agent of {parentTitle()}</span></Show>
                   {/* a fork names the thread it came from and is the door back to the turn it was forked from (docs/thread.md, fork) */}
-                  <Show when={lineage()}>{(from) => <button type="button" class="tb-parent tb-fork" aria-label={lineageWords(from())} disabled={lineageOpening()} onClick={() => void openLineage()}>{lineageWords(from())}</button>}</Show>
+                  <Show when={lineage()}>{(from) => <button type="button" class="tb-parent tb-fork" aria-label={lineageWords(from())} disabled={lineageOpening()} onClick={() => void openLineage("top")}>{lineageWords(from())}</button>}</Show>
                 </div>
-                <Show when={lineageNote()}>{(why) => <p class="tb-fork-note" role="alert">{why()}</p>}</Show>
+                <Show when={lineageNote()?.at === "top" && lineageNote()}>{(why) => <p class="tb-fork-note" role="alert">{why().text}</p>}</Show>
                 <h1 class="tb-h1">{title()}</h1>
                 <div class="tb-status" aria-live="polite">
                   <Show when={status().live}><i /></Show>
@@ -1270,7 +1276,21 @@ export function Stage(props: StageProps) {
                     <CachesContext.Provider value={threadCaches}><ThreadKeyContext.Provider value={key}><WindowContext.Provider value={win}><ChildWatchContext.Provider value={watchChild}><LandingContext.Provider value={still}><SettleContext.Provider value={settle}><FollowContext.Provider value={follow}><ForkContext.Provider value={forkHere}>
                       <OpenAgentContext.Provider value={(child, name) => openAgent(`${data.host()}:${child}`, name)}>
                         {/* turns are keyed by their id: the running turn is rebuilt as an object on every delta and must keep its dom, and turns come in above the first */}
-                        <For each={data.ids()}>{(id) => { let last: Turn | undefined; const turn = (): Turn => (last = data.turnOf(id) ?? last) as Turn; return <TurnView turn={turn()} ctx={data.ctx()} live={isLive(turn())} now={data.now()} />; }}</For>
+                        <For each={data.ids()}>{(id) => { let last: Turn | undefined; const turn = (): Turn => (last = data.turnOf(id) ?? last) as Turn; return (
+                          <>
+                            <TurnView turn={turn()} ctx={data.ctx()} live={isLive(turn())} now={data.now()} />
+                            {/* a fork's copied history ends here: the divider names where it came from and is a door back to the cut */}
+                            <Show when={boundary() === id && lineage()}>{(from) => {
+                              const words = () => boundaryWords(from(), ownTurns());
+                              return (
+                                <div class="fork-mark">
+                                  <p>{words().before}<button type="button" aria-label={words().name} disabled={lineageOpening()} onClick={() => void openLineage("mark")}>{words().link}</button>{words().after}</p>
+                                  <Show when={lineageNote()?.at === "mark" && lineageNote()}>{(why) => <p class="fork-mark-note" role="alert">{why().text}</p>}</Show>
+                                </div>
+                              );
+                            }}</Show>
+                          </>
+                        ); }}</For>
                       </OpenAgentContext.Provider>
                     </ForkContext.Provider></FollowContext.Provider></SettleContext.Provider></LandingContext.Provider></ChildWatchContext.Provider></WindowContext.Provider></ThreadKeyContext.Provider></CachesContext.Provider>
                   </NamesContext.Provider>

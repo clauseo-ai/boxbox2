@@ -60,6 +60,29 @@ export function lineageWords(lineage: Lineage): string {
   return lineage.title ? `forked from ${lineage.title}` : "forked from another thread";
 }
 
+/** where a fork's copied history ends: the last turn that began before the fork was made. the copies keep the times the
+    parent's messages were written at, and the fork's own turns are written after it was made, so the thread's creation time
+    splits them; positions would need the count of copied messages, which no client is told. null when no turn shown is a
+    copy (a fork cut before its first turn, or one whose copied turns are not read yet) */
+export function forkBoundary(turns: readonly Pick<Turn, "id" | "at">[], created: number): string | null {
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const turn = turns[i];
+    if (turn && turn.at < created) return turn.id;
+  }
+  return null;
+}
+
+/** the words of the divider at that boundary, around the link to the thread it came from */
+export function boundaryWords(lineage: Lineage, ownTurns: boolean): { before: string; link: string; after: string; name: string } {
+  const title = lineage.title ?? "another thread";
+  return {
+    before: "forked from ",
+    link: title,
+    after: ownTurns ? ". everything above came from it; this thread's own turns start here." : ". everything above came from it; this thread's own turns will start here.",
+    name: lineage.title ? `open ${lineage.title} where this fork was cut` : "open the thread this was forked from, where it was cut",
+  };
+}
+
 /** the turn a link to a fork's cut lands on: the one just above the message it was cut before. a cut that is not a turn
     of the thread (cut by another client inside a turn, or gone since) lands nowhere, and the thread opens at its end */
 export function turnBeforeCut(turns: readonly Pick<Turn, "id">[], cut: string): string | null {

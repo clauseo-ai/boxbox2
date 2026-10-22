@@ -1389,6 +1389,19 @@ touching those (`big-text.ts`):
     more. it may have been archived"). a fork is never "an agent of": that
     is `parent`, a different relation, and a fork of an agent's thread
     keeps only its own line.
+  - **the divider.** in the fork, after the last copied turn, a quiet rule
+    either side of "forked from <title>. everything above came from it;
+    this thread's own turns start here." ("will start here" while it has
+    none, so a whole fork with no new turns shows it at its end). the
+    title is a link with the top line's landing (the parent at the cut;
+    named "open <title> where this fork was cut", apart from the top
+    line's name), and what it could not do is said under it. the copied
+    turns are told by time: they keep the times the parent's messages were
+    written at, and the fork's own are written after the fork was made, so
+    the last turn that began before the thread's `created` is the boundary
+    (`fork.ts`, `forkBoundary`; positions would need the count of copied
+    messages, which no client is told). a boundary turn not read yet (an
+    older turn still to come in) shows no divider until it is.
 - **the repo line** above the big title is a button: a capsule on the
   flood, ringed in the accent, holding the mark, the repo's name, its
   colour's dot and a caret (44 px tall to the finger). it opens the colour
