@@ -251,8 +251,11 @@ pub struct ThreadFacts {
     pub updated: f64,
     pub said: Option<f64>,
     pub generation: Option<String>,
-    /// the parent thread's id.
+    /// the parent thread's id: this thread is an agent the parent started.
     pub parent: Option<String>,
+    /// the thread this one was forked from, and where (the fork capability).
+    /// not `parent`: a fork is a thread of its own, not an agent of another.
+    pub forked_from: Option<crate::wire::ForkedFrom>,
     pub place: Option<Place>,
     pub origin: Option<Origin>,
     pub queued: u32,
@@ -731,6 +734,13 @@ pub trait AgentSource: std::marker::Send + Sync + 'static {
     fn archive(&self, thread: &ThreadRef) -> Verb<'_, Archived> {
         let _ = thread;
         unsupported(Capability::Archive)
+    }
+    /// fork: a new thread holding this one's history up to, not including,
+    /// `before` (one of this thread's messages), or all of it when none.
+    /// answers the new thread; its facts arrive on the source's events.
+    fn fork(&self, thread: &ThreadRef, before: Option<&str>) -> Verb<'_, Born> {
+        let _ = (thread, before);
+        unsupported(Capability::Fork)
     }
     /// reactions.
     fn react(&self, thread: &ThreadRef, message: &str, emoji: &str, on: bool) -> Verb<'_, ()> {

@@ -59,8 +59,8 @@ pub fn thread(prev: &Thread, next: &Thread) -> Option<ThreadPatch> {
         title, created, updated, activity, queued, agents, processes, needs
     );
     optional!(
-        said => Said, generation => Generation, parent => Parent, place => Place,
-        origin => Origin, sends => Sends, model => Model, effort => Effort,
+        said => Said, generation => Generation, parent => Parent,
+        forked_from => ForkedFrom, place => Place, origin => Origin, sends => Sends, model => Model, effort => Effort,
         context => Context, cost => Cost, tokens => Tokens, vcs => Vcs,
         changes => Changes, read => Read, cleared => Cleared
     );
@@ -119,8 +119,22 @@ pub fn apply_thread(base: &Thread, patch: &ThreadPatch) -> Result<Thread, PatchE
             title, created, updated, activity, queued, agents, processes, needs
         );
         optional!(
-            said, generation, parent, place, origin, sends, model, effort, context, cost, tokens,
-            vcs, changes, read, cleared
+            said,
+            generation,
+            parent,
+            forked_from,
+            place,
+            origin,
+            sends,
+            model,
+            effort,
+            context,
+            cost,
+            tokens,
+            vcs,
+            changes,
+            read,
+            cleared
         );
         if let Some(browse_only) = set.browse_only {
             next.browse_only = browse_only;
@@ -131,6 +145,7 @@ pub fn apply_thread(base: &Thread, patch: &ThreadPatch) -> Result<Thread, PatchE
             ThreadField::Said => next.said = None,
             ThreadField::Generation => next.generation = None,
             ThreadField::Parent => next.parent = None,
+            ThreadField::ForkedFrom => next.forked_from = None,
             ThreadField::Place => next.place = None,
             ThreadField::Origin => next.origin = None,
             ThreadField::Sends => next.sends = None,

@@ -393,6 +393,7 @@ fn contract_two(state: &Arc<AppState>) -> Router<Arc<AppState>> {
             axum::routing::put(v2::react),
         )
         .route(&at("/archive"), post(v2::archive))
+        .route(&at("/fork"), post(v2::fork))
         .route(&at("/adopt"), post(v2::adopt))
         .route("/api/agents/{agent}/asks/{id}", post(v2::answer))
         .route("/api/agents/{agent}/models", get(v2::models))

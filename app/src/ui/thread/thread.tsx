@@ -29,6 +29,7 @@ import { StripLane } from "./strip";
 import { reportOf } from "./report";
 import { PictureViewer, ReportSheet, warmOn, whenLoaded } from "../later";
 import { ReportGlyph } from "./report-glyph";
+import { forkLabel } from "./fork";
 import "./thread.css";
 
 /* ---------- answering in place ---------- */
@@ -919,16 +920,42 @@ export function MarkLine(props: { turn: Turn }) {
   );
 }
 
-/** the answer, markdown at reading measure, and under it, once it is settled, one quiet line holding the reply's copy control: the answer's markdown as the agent wrote it. a streaming reply has no control. */
-export function Answer(props: { say: Say; /** the reply's control is named by its turn (replyLabel) */ name?: string | undefined }) {
+/** the answer, markdown at reading measure, and under it, once it is settled, one quiet line holding the reply's copy control: the answer's markdown as the agent wrote it. a streaming reply has no control. the turn's other controls (fork from here) join the line when `acts` says they show */
+export function Answer(props: { say: Say; /** the reply's control is named by its turn (replyLabel) */ name?: string | undefined; acts?: boolean; children?: JSX.Element }) {
   const copyable = () => !props.say.streaming && props.say.text.trim() !== "";
   return (
     <>
       <Markdown class={`answer ${props.say.streaming ? "caret" : ""}`} text={props.say.text} ref={(el) => el.setAttribute("data-part-text", "")} />
-      <Show when={copyable()}>
-        <div class="act-line"><CopyButton kind="reply" name={props.name ?? "copy the reply"} text={() => props.say.text} /></div>
+      <Show when={copyable() || props.acts}>
+        <div class="act-line">
+          <Show when={copyable()}><CopyButton kind="reply" name={props.name ?? "copy the reply"} text={() => props.say.text} /></Show>
+          {props.children}
+        </div>
       </Show>
     </>
+  );
+}
+
+/** what the stage lends its turns for forking (docs/thread.md, fork): absent off the stage (a story, home's window), so no turn offers one */
+export type ForkHere = {
+  /** the thread can be forked at all: its agent forks, and its history is not browse only */
+  shown: () => boolean;
+  /** why a fork waits (the stream is down), or null */
+  held: () => string | null;
+  /** the turn a fork is being made from, "whole" for the menu's, or null */
+  busy: () => string | null;
+  fork: (turn: string) => void;
+};
+export const ForkContext = createContext<ForkHere>();
+
+/** a settled turn's fork: a new thread holding the history through this turn's end. named apart from its neighbours as the
+    reply's copy is; while the stream is down it holds, and says why in its title */
+function ForkButton(props: { turn: Turn; fork: ForkHere }) {
+  const mine = () => props.fork.busy() === props.turn.id;
+  return (
+    <button type="button" class="fork-btn" aria-label={forkLabel(clock(props.turn.at), props.turn.prompt)} title={props.fork.held() ?? undefined} disabled={props.fork.held() !== null || props.fork.busy() !== null} onClick={() => props.fork.fork(props.turn.id)}>
+      <i class="fork-g" aria-hidden="true" />{mine() ? "forking" : "fork from here"}
+    </button>
   );
 }
 
@@ -994,6 +1021,9 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
   onMount(() => { if (win) onCleanup(win.slot(el, () => t().id, t)); });
   /* a message that waits and has nothing of its own yet takes no room: the composer's queue shows it */
   const waits = () => (t().by === "queued" || t().by === "steer") && !t().items.length && !t().answer;
+  /* a settled turn offers a fork through its end; the running one and one that waits have no end yet (fork.ts, cutAfter) */
+  const forkHere = useContext(ForkContext);
+  const forkable = () => forkHere !== undefined && !live() && t().status !== "working" && !waits() && forkHere.shown();
   return (
     <section ref={el} class="turn" data-turn={t().id} data-waits={waits() ? "" : undefined} data-pending={filled() ? undefined : ""} data-gist={filled() ? undefined : firstSentence(t().prompt).slice(0, 90)} data-far={far() ? "" : undefined} style={filled() ? undefined : { height: `${far()?.height ?? boxHeight()}px` }}>
       <Show when={filled()} fallback={<Show when={far()}>{(f) => <StandIn turn={t()} ctx={ctx()} far={f()} refill={() => win?.refill(t().id)} />}</Show>}>
@@ -1006,8 +1036,14 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
             message keeps the old reading, its last words the summary */}
         <Show when={t().by !== "compaction" || t().summary !== undefined}>
           <Ledger turn={t()} ctx={ctx()} live={live()} enter={watched()} />
-          <Show when={!live() && t().answer}>{(a) => <Answer say={a()} name={replyLabel(clock(t().at), t().prompt)} />}</Show>
+          <Show when={!live() && t().answer}>{(a) => (
+            <Answer say={a()} name={replyLabel(clock(t().at), t().prompt)} acts={forkable()}>
+              <Show when={forkable() && forkHere}>{(f) => <ForkButton turn={t()} fork={f()} />}</Show>
+            </Answer>
+          )}</Show>
         </Show>
+        {/* a turn with no answer to hang it on (a report, a stopped turn, a compaction) still offers its fork, on a line of its own */}
+        <Show when={forkable() && !(t().answer && (t().by !== "compaction" || t().summary !== undefined)) && forkHere}>{(f) => <div class="act-line"><ForkButton turn={t()} fork={f()} /></div>}</Show>
       </Show>
     </section>
   );

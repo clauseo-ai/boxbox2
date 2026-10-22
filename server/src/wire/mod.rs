@@ -47,8 +47,8 @@ pub use stream::{
     ThreadSet,
 };
 pub use thread::{
-    Activity, Changes, Context, Place, SendState, SendStateKind, TailItem, TailKind, TailRole,
-    Thread, Tokens, Vcs,
+    Activity, Changes, Context, ForkedFrom, Place, SendState, SendStateKind, TailItem, TailKind,
+    TailRole, Thread, Tokens, Vcs,
 };
 pub use verbs::{ModelEntry, Models};
 

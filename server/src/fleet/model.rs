@@ -745,6 +745,7 @@ impl Model {
             said: facts.said,
             generation: facts.generation.clone(),
             parent: facts.parent.clone(),
+            forked_from: facts.forked_from.clone(),
             place: facts.place.clone(),
             origin: facts.origin.clone(),
             activity: status.map_or(wire::Activity::Idle, |s| s.neutral.clone()),

@@ -628,6 +628,12 @@ export const EVENTS = {
     doc: "v2: a thread was archived from its menu. ok is the daemon's answer (cmx2's PATCH with time.archived), never the tap.",
     props: {},
   },
+  "thread.forked": {
+    doc: "v2: a thread was forked, from its menu (the whole thread) or from a turn (cut before the next turn's prompt), through the server's fork verb (cmx2's POST /session/:id/fork). ok is the agent's answer, never the tap. cut says which; no title, message or id is recorded.",
+    props: {
+      cut: { type: "TEXT", doc: "what the fork holds: the whole thread, or the thread through one turn.", values: ["whole", "turn"], required: true },
+    },
+  },
   "review.merged": {
     doc: "v2: a checkout's branch was squash-merged into its base from the review card (cmx2's /experimental/worktree/merge, through the server). ok is the daemon's answer, never the tap. outcome says how it went: done, busy (a turn runs in the checkout), conflict (the branch conflicts with its base), refused (dirty, nothing to merge, detached, or the base is dirty), gone (the checkout was merged or discarded already) or failed (the host did not answer). no path, message or file name is recorded.",
     props: {

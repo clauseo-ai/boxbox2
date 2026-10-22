@@ -59,6 +59,39 @@ pub fn verb_error(error: ApiError) -> VerbError {
 }
 
 /// what cmx2 calls a session: the thread id, checked as one path segment.
+/// the one field of a new session's info a fork reads.
+#[derive(serde::Deserialize)]
+struct NewSession {
+    id: String,
+}
+
+/// the thread a fork made, from the daemon's answer: the new session.
+fn forked(agent: &str, info: &serde_json::value::RawValue) -> Result<Born, VerbError> {
+    let made = serde_json::from_str::<NewSession>(info.get())
+        .ok()
+        .filter(|s| crate::http::asks::segment(&s.id).is_ok())
+        .ok_or_else(|| VerbError::Unreachable {
+            reason: "its answer to the fork was not a session".into(),
+        })?;
+    Ok(Born {
+        key: format!("{agent}:{}", made.id),
+        thread: made.id,
+    })
+}
+
+/// a fork the daemon refused. its 409 is history imported from cmx, which
+/// it keeps browse only; said in boxbox's words, since the daemon's name
+/// the session by id.
+fn fork_refused(error: ApiError) -> VerbError {
+    match error {
+        ApiError::HostSaid { status: 409, .. } => VerbError::Refused {
+            status: 409,
+            words: "history imported from cmx is browse only, so it cannot be forked".into(),
+        },
+        other => verb_error(other),
+    }
+}
+
 fn session(thread: &ThreadRef) -> Result<&str, VerbError> {
     crate::http::asks::segment(&thread.id).map_err(verb_error)
 }
@@ -334,6 +367,38 @@ impl Cmx2Source {
         })
     }
 
+    /// forks a session, whole or before one of its messages. a 404 is read
+    /// again to say which is missing: the session, or the message in it.
+    pub(crate) async fn typed_fork(
+        &self,
+        thread: &ThreadRef,
+        before: Option<&str>,
+    ) -> Result<Born, VerbError> {
+        let id = session(thread)?;
+        let before = before
+            .map(|m| crate::http::asks::segment(m).map_err(verb_error))
+            .transpose()?;
+        match self.fork_session(id, before).await {
+            Ok(info) => forked(&thread.agent, &info),
+            Err(ApiError::Gone) => Err(self.fork_missing(id, before).await),
+            Err(other) => Err(fork_refused(other)),
+        }
+    }
+
+    /// what a fork's 404 meant: with no message named, or with the session
+    /// gone too, the thread; else the message, which the person picked as a
+    /// turn of it.
+    async fn fork_missing(&self, id: &str, before: Option<&str>) -> VerbError {
+        if before.is_none() {
+            return VerbError::Missing { what: "thread" };
+        }
+        match self.session_info(id).await {
+            Ok(_) => VerbError::Missing { what: "turn" },
+            Err(ApiError::Gone) => VerbError::Missing { what: "thread" },
+            Err(other) => verb_error(other),
+        }
+    }
+
     pub(crate) async fn typed_adopt(&self, thread: &ThreadRef) -> Result<ThreadFacts, VerbError> {
         let id = session(thread)?;
         let info = self.session_info(id).await.map_err(|error| match error {
@@ -465,6 +530,49 @@ mod tests {
             panic!("an unreachable host stays unreachable");
         };
         assert_eq!(reason, "cannot connect (refused)");
+    }
+
+    #[test]
+    fn a_fork_answers_the_new_session_as_a_thread_of_the_same_agent() {
+        let info = serde_json::value::RawValue::from_string(
+            r#"{"id":"ses_new","title":"fix it (fork #1)","forkedFrom":{"sessionID":"ses_1"}}"#
+                .into(),
+        )
+        .unwrap();
+        let born = forked("desk", &info).unwrap();
+        assert_eq!(
+            (born.key.as_str(), born.thread.as_str()),
+            ("desk:ses_new", "ses_new")
+        );
+        // an answer that is not a session, or names one by an id no route takes, is the daemon failing
+        for bad in [r#"{"title":"x"}"#, r#"{"id":"../ses"}"#, "[]"] {
+            let info = serde_json::value::RawValue::from_string(bad.into()).unwrap();
+            assert!(matches!(
+                forked("desk", &info),
+                Err(VerbError::Unreachable { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn a_fork_of_imported_history_is_refused_in_boxboxs_words() {
+        let VerbError::Refused { status, words } = fork_refused(ApiError::HostSaid {
+            host: "desk".into(),
+            status: 409,
+            message: "session ses_1 has no transcript here to fork".into(),
+        }) else {
+            panic!("a 409 stays a refusal");
+        };
+        assert_eq!(status, 409);
+        assert!(words.contains("browse only"), "{words}");
+        // anything else keeps the daemon's meaning
+        assert!(matches!(
+            fork_refused(ApiError::HostUnreachable {
+                host: "desk".into(),
+                reason: "refused".into()
+            }),
+            VerbError::Unreachable { .. }
+        ));
     }
 
     #[test]

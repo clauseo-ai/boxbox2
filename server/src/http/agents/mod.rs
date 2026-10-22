@@ -169,6 +169,7 @@ impl Found {
                 self.facts.key,
                 thread.unwrap_or_default()
             )),
+            VerbError::Missing { what: "turn" } => ApiError::NoSuchTurn,
             VerbError::Missing { .. } | VerbError::Gone => ApiError::Gone,
             VerbError::Bad(words) => ApiError::BadRequest(words),
             VerbError::Unreachable { reason } => ApiError::AgentUnreachable {

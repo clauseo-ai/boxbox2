@@ -26,6 +26,10 @@ pub enum ApiError {
     #[error("the message {0} is not in this thread; open the thread again to see it as it is now")]
     NoSuchMessage(String),
     #[error(
+        "that turn is not in this thread any more. open the thread again and fork from a turn it shows"
+    )]
+    NoSuchTurn,
+    #[error(
         "one turn of this thread is too large to read as a page; read the whole thread instead"
     )]
     PageTooLarge,
@@ -193,7 +197,7 @@ pub struct ErrorBody {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorDetail {
     /// stable, for code: `sign-in`, `wrong-password`, `bad-request`,
-    /// `batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `page-too-large`, `app-missing`,
+    /// `batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `no-such-turn`, `page-too-large`, `app-missing`,
     /// `vite-down`, `unknown-host`, `host-taken`, `address-taken`,
     /// `configured-host`, `pair-refused`, `pair-unsupported`,
     /// `pair-unreachable`, `pair-failed`, `host-failed`,
@@ -241,6 +245,7 @@ impl ApiError {
             Self::StoreDown => (StatusCode::SERVICE_UNAVAILABLE, "store-down"),
             Self::NotFound => (StatusCode::NOT_FOUND, "not-found"),
             Self::NoSuchMessage(_) => (StatusCode::NOT_FOUND, "no-such-message"),
+            Self::NoSuchTurn => (StatusCode::NOT_FOUND, "no-such-turn"),
             Self::PageTooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "page-too-large"),
             Self::AppMissing => (StatusCode::NOT_FOUND, "app-missing"),
             Self::ViteDown(_) => (StatusCode::BAD_GATEWAY, "vite-down"),

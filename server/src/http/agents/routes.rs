@@ -68,6 +68,20 @@ pub struct StartBody {
     pub start: Start,
 }
 
+/// a fork: the device, and the message the fork is cut before. without
+/// one the fork holds the whole thread.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ForkBody {
+    pub device: String,
+    pub device_class: String,
+    #[serde(rename = "clientID")]
+    pub client_id: String,
+    /// the first message of this thread the fork leaves out.
+    #[serde(default)]
+    pub before: Option<String>,
+}
+
 /// a reaction put on or taken off a message (the reactions capability).
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -897,6 +911,54 @@ pub async fn archive(
         key: archived.key,
         at: archived.at,
     }))
+}
+
+/// forks a thread (the fork capability): a new thread holding its history
+/// up to, not including, `before`, or all of it. the new thread is the
+/// agent's to name; it reaches the fleet on the agent's events like any
+/// other, and the answer names it so the device can open it once it does.
+#[utoipa::path(
+    post,
+    path = "/api/agents/{agent}/threads/{thread}/fork",
+    params(("agent" = String, Path), ("thread" = String, Path)),
+    request_body = ForkBody,
+    responses(
+        (status = 201, description = "the new thread", body = Born),
+        (status = 400, description = "not a fork", body = ErrorBody),
+        (status = 404, description = "no such agent or thread (`no-such-session`), or the message is not in it (`no-such-turn`)", body = ErrorBody),
+        (status = 409, description = "the agent refused: history it holds as browse only", body = ErrorBody),
+        (status = 422, description = "the agent cannot fork", body = ErrorBody),
+        (status = 502, description = "the agent did not answer", body = ErrorBody),
+    ),
+)]
+pub async fn fork(
+    State(state): State<Arc<AppState>>,
+    Path((agent, thread)): Path<(String, String)>,
+    Json(body): Json<ForkBody>,
+) -> Result<(StatusCode, Json<Born>), ApiError> {
+    device_of(&body.device, &body.device_class)?;
+    client_id(&body.client_id)?;
+    segment(&thread)?;
+    if let Some(before) = &body.before {
+        segment(before)?;
+    }
+    let found = find(&state, &agent)?;
+    found.needs(Capability::Fork)?;
+    let reference = ThreadRef {
+        agent: agent.clone(),
+        id: thread.clone(),
+    };
+    let outcome = found.source.fork(&reference, body.before.as_deref()).await;
+    state.telemetry.record(&json!({
+        "kind": "thread.forked",
+        "host": agent,
+        "session": reference.key(),
+        "ok": outcome.is_ok(),
+        "cut": if body.before.is_some() { "turn" } else { "whole" },
+    }));
+    let born = outcome.map_err(|e| found.refusal(Some(&thread), e))?;
+    info!(agent, thread, forked = %born.thread, "thread forked");
+    Ok((StatusCode::CREATED, Json(born)))
 }
 
 /// holds a past thread in the fleet (the history capability): one opened

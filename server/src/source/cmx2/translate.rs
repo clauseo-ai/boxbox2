@@ -412,6 +412,10 @@ pub fn thread(info: &cmx2::SessionInfo, raw: Box<RawValue>) -> ThreadFacts {
         said: None,
         generation: None,
         parent: info.parent_id.clone(),
+        forked_from: info.forked_from.as_ref().map(|f| crate::wire::ForkedFrom {
+            thread: f.session_id.clone(),
+            message: f.message_id.clone(),
+        }),
         place: Some(Place {
             root,
             directory: info.directory.clone(),

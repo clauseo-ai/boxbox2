@@ -239,6 +239,20 @@ impl AgentSource for ScriptedSource {
         )
     }
 
+    fn fork(&self, thread: &ThreadRef, before: Option<&str>) -> Verb<'_, Born> {
+        self.called(
+            "fork",
+            &format!("{} {}", thread.key(), before.unwrap_or("whole")),
+        );
+        if before == Some("mGONE") {
+            return Box::pin(std::future::ready(Err(VerbError::Missing { what: "turn" })));
+        }
+        Box::pin(std::future::ready(Ok(Born {
+            key: format!("{}:oc_forked", thread.agent),
+            thread: "oc_forked".into(),
+        })))
+    }
+
     fn react(&self, thread: &ThreadRef, message: &str, emoji: &str, on: bool) -> Verb<'_, ()> {
         self.ok(
             "react",

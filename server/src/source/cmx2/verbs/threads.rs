@@ -1,6 +1,6 @@
-//! the cmx2 source's archive and adopt (`http/threads.rs`): one read or
-//! patch of a session, its answer kept raw and its refusals turned into what
-//! they mean for a thread.
+//! the cmx2 source's archive, adopt and fork (`http/threads.rs`,
+//! `http/agents/routes.rs`): one read, patch or fork of a session, its answer
+//! kept raw and its refusals turned into what they mean for a thread.
 
 use std::time::Duration;
 
@@ -51,6 +51,23 @@ impl Cmx2Source {
             Some(&sent),
         )
         .await
+    }
+
+    /// a new session holding this one's history up to, not including,
+    /// `before` (one of its message ids), or all of it (`POST
+    /// /session/:id/fork`); returns the new session as the daemon answered.
+    ///
+    /// # Errors
+    /// as `session_info`; the daemon answers 409 for history imported from
+    /// cmx (browse only) and 404 for a session or a message it does not have.
+    pub async fn fork_session(
+        &self,
+        session: &str,
+        before: Option<&str>,
+    ) -> Result<Box<RawValue>, ApiError> {
+        let route = format!("/session/{session}/fork");
+        let sent = before.map_or_else(|| json!({}), |m| json!({ "messageID": m }));
+        daemon(&self.client, self.host(), Method::POST, &route, Some(&sent)).await
     }
 }
 

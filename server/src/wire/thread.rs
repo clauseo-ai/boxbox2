@@ -27,9 +27,14 @@ pub struct Thread {
     /// opaque; changes when the agent swaps the conversation behind the key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<String>,
-    /// the parent thread's id (the subagents capability).
+    /// the parent thread's id (the subagents capability): this thread is an
+    /// agent the parent started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// the thread this one was forked from (the fork capability). a fork is
+    /// a thread of its own, never an agent of the one it came from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<ForkedFrom>,
     /// the places capability only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<Place>,
@@ -71,6 +76,20 @@ pub struct Thread {
     /// set while the person has this thread cleared off home.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cleared: Option<f64>,
+}
+
+/// where a thread was forked from: a thread of the same agent, and the
+/// message of it the fork was cut before.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[schema(as = ThreadForkedFrom)]
+pub struct ForkedFrom {
+    /// the thread's id, as `parent` names one.
+    pub thread: String,
+    /// the first of its messages the fork left out; absent when the fork
+    /// holds all of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

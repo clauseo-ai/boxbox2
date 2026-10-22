@@ -2,6 +2,28 @@
 /* source: boxbox openapi (server/src/http) */
 
 export type paths = {
+    "/api/agents/{agent}/threads/{thread}/fork": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * forks a thread (the fork capability): a new thread holding its history
+         *     up to, not including, `before`, or all of it. the new thread is the
+         *     agent's to name; it reaches the fleet on the agent's events like any
+         *     other, and the answer names it so the device can open it once it does.
+         */
+        post: operations["fork"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/board/pin": {
         parameters: {
             query?: never;
@@ -1164,6 +1186,12 @@ export type components = {
         };
         /** @enum {string} */
         AgentAskKind: "permission" | "question";
+        /** @description a new thread's answer. */
+        AgentBorn: {
+            /** @description `<agent>:<thread>`. */
+            key: string;
+            thread: string;
+        };
         /**
          * @description a change, discriminated on `type`. a client advances its cursor past a
          *     type it does not know and ignores it.
@@ -1553,6 +1581,11 @@ export type components = {
             compact: boolean;
             /** @description `@` file mentions. */
             files: boolean;
+            /**
+             * @description a new thread from this one's history, whole or up to a message.
+             *     absent from an older server's agents: read as false.
+             */
+            fork?: boolean;
             /** @description past threads, paged; adopt. */
             history: boolean;
             /** @description a model picker from the agent's catalog. */
@@ -1716,7 +1749,7 @@ export type components = {
         ErrorDetail: {
             /**
              * @description stable, for code: `sign-in`, `wrong-password`, `bad-request`,
-             *     `batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `page-too-large`, `app-missing`,
+             *     `batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `no-such-turn`, `page-too-large`, `app-missing`,
              *     `vite-down`, `unknown-host`, `host-taken`, `address-taken`,
              *     `configured-host`, `pair-refused`, `pair-unsupported`,
              *     `pair-unreachable`, `pair-failed`, `host-failed`,
@@ -1784,6 +1817,17 @@ export type components = {
             path: string;
             /** @description more folders matched than `children` holds: type more of the name to narrow it. */
             truncated: boolean;
+        };
+        /**
+         * @description a fork: the device, and the message the fork is cut before. without
+         *     one the fork holds the whole thread.
+         */
+        ForkBody: {
+            /** @description the first message of this thread the fork leaves out. */
+            before?: string | null;
+            clientID: string;
+            device: string;
+            deviceClass: string;
         };
         /** @description frames read from the host since the server started. */
         FrameCounts: {
@@ -2853,6 +2897,7 @@ export type components = {
              */
             created: number;
             effort?: string | null;
+            forkedFrom?: components["schemas"]["ThreadForkedFrom"] | null;
             /** @description opaque; changes when the agent swaps the conversation behind the key. */
             generation?: string | null;
             id: string;
@@ -2862,7 +2907,10 @@ export type components = {
             model?: string | null;
             needs: components["schemas"]["Need"][];
             origin?: components["schemas"]["MessageOrigin"] | null;
-            /** @description the parent thread's id (the subagents capability). */
+            /**
+             * @description the parent thread's id (the subagents capability): this thread is an
+             *     agent the parent started.
+             */
             parent?: string | null;
             place?: components["schemas"]["ThreadPlace"] | null;
             /**
@@ -2893,7 +2941,20 @@ export type components = {
          * @description a field of a thread that can become absent.
          * @enum {string}
          */
-        ThreadField: "said" | "generation" | "parent" | "place" | "origin" | "sends" | "model" | "effort" | "context" | "cost" | "tokens" | "vcs" | "changes" | "browseOnly" | "read" | "cleared";
+        ThreadField: "said" | "generation" | "parent" | "forkedFrom" | "place" | "origin" | "sends" | "model" | "effort" | "context" | "cost" | "tokens" | "vcs" | "changes" | "browseOnly" | "read" | "cleared";
+        /**
+         * @description where a thread was forked from: a thread of the same agent, and the
+         *     message of it the fork was cut before.
+         */
+        ThreadForkedFrom: {
+            /**
+             * @description the first of its messages the fork left out; absent when the fork
+             *     holds all of it.
+             */
+            message?: string | null;
+            /** @description the thread's id, as `parent` names one. */
+            thread: string;
+        };
         /**
          * @description a thread's change as only what changed (`docs/protocol.md`, section 6).
          *     a client that holds no thread for `key` has a protocol error.
@@ -2932,6 +2993,7 @@ export type components = {
             /** Format: double */
             created?: number | null;
             effort?: string | null;
+            forkedFrom?: components["schemas"]["ThreadForkedFrom"] | null;
             generation?: string | null;
             model?: string | null;
             needs?: components["schemas"]["Need"][] | null;
@@ -3121,6 +3183,78 @@ export type components = {
 };
 export type $defs = Record<string, never>;
 export interface operations {
+    fork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForkBody"];
+            };
+        };
+        responses: {
+            /** @description the new thread */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentBorn"];
+                };
+            };
+            /** @description not a fork */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description no such agent or thread (`no-such-session`), or the message is not in it (`no-such-turn`) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent refused: history it holds as browse only */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent cannot fork */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent did not answer */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     pin: {
         parameters: {
             query?: never;

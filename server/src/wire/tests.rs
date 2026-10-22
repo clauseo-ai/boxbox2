@@ -84,7 +84,7 @@ fn cmx2_capabilities_are_everything_cmx2_does_today() {
             "maxBytes": 9_437_184, "maxCount": 4
         },
         "voice": {"notes": false, "replies": false},
-        "quotes": false, "reactions": false, "threads": true, "archive": true,
+        "quotes": false, "reactions": false, "threads": true, "archive": true, "fork": true,
         "commands": true, "files": true, "shell": true, "history": true,
         "subagents": true, "spend": true, "origins": false, "admin": true
     }));

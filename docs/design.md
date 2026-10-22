@@ -542,6 +542,17 @@ about a thread is on its resting screen, and the long tail lives behind
   effort defaults, fork, compact, revert to a turn (also on each turn's
   own menu), open a terminal here, copy link, colour (the colour sheet,
   above), archive.
+- **fork** (built; `thread.md`, fork): the menu's item forks the whole
+  thread; a turn's "fork from here" forks it through that turn. a turn has
+  no menu of its own yet, so its fork sits on the quiet line under its
+  answer, after the reply's copy and in its voice (a glyph and a word, the
+  second ink), and on a line of its own for a turn with no answer: the
+  one place every settled turn already has a control, where a control is
+  found without a new gesture. revert, when built, joins it there. a
+  forked thread says "forked from <title>" beside the repo line, as an
+  agent's says "an agent of <parent>", underlined because it is a door
+  (to the turn the fork was cut at). neither control animates; the
+  opened fork takes the stage's place as any opened thread does.
 - **archive** (built): the menu item swaps the menu for one question in
   words, "archive this thread? it leaves every list on every device. its
   history stays on disk.", with "keep it" and "archive it". focus goes to

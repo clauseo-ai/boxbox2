@@ -5,14 +5,14 @@
    as data and pure functions over a query string: no dom, no store, so it
    is tested alone (routes.test.ts).
 
-   | route    | url                                   | parent   |
-   |----------|---------------------------------------|----------|
-   | home     | /                                     |          |
-   | thread   | /?thread=<host:session>[&at=][&part=] | home     |
-   | machines | /?screen=machines                     | home     |
-   | history  | /?screen=history                      | home     |
-   | settings | /?screen=settings                     | machines |
-   | terminal | /?terminal=<host>:<id>                | machines |
+   | route    | url                                          | parent   |
+   |----------|----------------------------------------------|----------|
+   | home     | /                                            |          |
+   | thread   | /?thread=<host:session>[&at=][&part=][&cut=] | home     |
+   | machines | /?screen=machines                            | home     |
+   | history  | /?screen=history                             | home     |
+   | settings | /?screen=settings                            | machines |
+   | terminal | /?terminal=<host>:<id>                       | machines |
 
    a push's link, /?thread=&ask=&push=, is the thread route plus a focus
    the push module takes and clears (push/links.ts). the thread's own
@@ -53,6 +53,8 @@ const TERMINAL = "terminal";
 const THREAD = "thread";
 const AT = "at";
 const PART = "part";
+/** the sync client's: where a fork of the thread was cut (client.ts, ThreadPlace) */
+const CUT = "cut";
 const ASK = "ask";
 const PUSH = "push";
 
@@ -103,10 +105,10 @@ export function canonicalSearch(search: string): string {
   const route = parseRoute(search);
   const query = new URLSearchParams(search);
   if (route.name !== "thread") {
-    for (const name of [THREAD, AT, PART, ASK, PUSH]) query.delete(name);
+    for (const name of [THREAD, AT, PART, CUT, ASK, PUSH]) query.delete(name);
   } else {
     // an empty place is no place
-    for (const name of [AT, PART]) if (!query.get(name)) query.delete(name);
+    for (const name of [AT, PART, CUT]) if (!query.get(name)) query.delete(name);
   }
   return withShellParams(queryString(query), route);
 }

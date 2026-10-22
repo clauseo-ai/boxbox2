@@ -1334,21 +1334,68 @@ touching those (`big-text.ts`):
   opens the details), show thinking (checked); then compact ("compacting"
   while it runs, held while a turn runs or the stream is down; it is the
   composer's compaction, one state per thread, so the composer's card says
-  it with its clock: `composer/compact.ts`) and copy link (`/?thread=` with
+  it with its clock: `composer/compact.ts`), fork (below, fork) and copy link (`/?thread=` with
   `&at=` the turn in view, else the newest; "copied" under the bar for
   1.6 s, or "could not copy. the address bar holds the same link" for 4
   s), and colour (the repo's colour's dot and "cobalt · automatic" or
   "sunset · chosen"; it opens the colour sheet, `design.md`, the colour
   sheet; not on a thread with no repo); then archive. esc closes it and
   gives the keyboard back to `⋯`.
-  rename and fork from here wait on a daemon verb.
+  rename waits on a daemon verb.
+- **fork** (built, the fork capability; `ui/thread/fork.ts`): a new
+  thread holding this one's history, which then goes its own way.
+  - **from the menu**, "fork" with "a new thread with this history" as its
+    second line forks the whole thread. it is held, with its reason in
+    place of that line, while a turn runs ("after this turn": the turn's
+    end is not written yet) or the stream is down ("offline"). it says
+    "forking" while it runs.
+  - **from a turn**, "fork from here" (a branch glyph, 12.5 px, the second
+    ink) sits after the reply's copy on the line under every settled turn's
+    answer, or on a line of its own for a turn with no answer (a report, a
+    stopped turn). it forks the history through that turn's end: the cut
+    is before the next turn's first message, and the last turn forks the
+    whole thread. the running turn and a message that waits offer none; a
+    settled turn above a running one still does, and its fork leaves the
+    running turn out. each is named apart as the reply's copy is, "fork
+    from here, 17:17, <the prompt's first line>". held while the stream is
+    down, with "offline" as its title.
+  - **neither shows** when the agent cannot fork (its capability; an older
+    server sends none) or the history is imported and browse only.
+  - **what follows.** the call is `POST /api/agents/:agent/threads/:id/fork`
+    with `before` (the cut message) or nothing (the whole thread). the
+    new thread comes on the stream like any thread the agent makes; the
+    stage waits up to 10 s for the fleet to hold it, then opens it in the
+    stage's place (the menu closes first). one that has not come says
+    "the fork was made and has not reached this device yet. it shows on
+    home when it does." a refusal says the server's words: in the menu
+    under the item for the menu's fork, under the bar for 6 s
+    (`stage-receipt`, an alert, wrapping) for a turn's. a turn the agent
+    no longer holds is "that turn is not in this thread any more. open
+    the thread again and fork from a turn it shows"; imported history is
+    "the host \"<machine>\" refused it: history imported from cmx is
+    browse only, so it cannot be forked"; a server that does not answer
+    is "the boxbox server is not answering. check it is running, then try
+    again."
+  - **the lineage line.** a forked thread (`Thread.forkedFrom`) says
+    "forked from <title>" after the repo line, in the line's quiet voice,
+    underlined: it is a button that opens the thread it came from at the
+    turn it was forked from (`/?thread=<key>&cut=<message>`: the stage
+    lands on the turn just above the cut message, `fork.ts`,
+    `turnBeforeCut`; a whole-thread fork has no cut and opens at the end).
+    a thread the fleet does not hold is named "forked from another
+    thread"; a tap asks for it through history's adopt and opens it once
+    it arrives, and an archived or deleted one answers with the server's
+    words in red under the line ("that thread is not on <machine> any
+    more. it may have been archived"). a fork is never "an agent of": that
+    is `parent`, a different relation, and a fork of an agent's thread
+    keeps only its own line.
 - **the repo line** above the big title is a button: a capsule on the
   flood, ringed in the accent, holding the mark, the repo's name, its
   colour's dot and a caret (44 px tall to the finger). it opens the colour
   sheet, as the menu's colour item does, and the keyboard comes back to it
   when the sheet closes. an agent's stage keeps "an agent of <parent>"
-  beside it, outside the button. a thread with no repo root shows the
-  plain line.
+  beside it, outside the button, and a forked thread "forked from
+  <title>" (below, fork). a thread with no repo root shows the plain line.
 - **the turn keys** (the ios app's, ⌘ on a mac and control elsewhere; the
   stage on top only, not under another layer or the sheet): ⌥⌘↓ and ⌥⌘↑
   the next and previous prompt, ⌘↓ the latest, ⌘I the details, ⇧⌘T the

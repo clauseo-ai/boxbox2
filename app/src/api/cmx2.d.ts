@@ -666,7 +666,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** a new session with this one's history up to (not including) a message, or all of it; titled (fork #n) */
+        /** a new session with this one's history up to (not including) a message, or all of it; titled (fork #n), with forkedFrom naming this session and the message. its copied messages get new ids under the fork's own id */
         post: operations["fork"];
         delete?: never;
         options?: never;
@@ -1536,6 +1536,12 @@ export type components = {
             projectID: string;
             directory: string;
             parentID?: string;
+            /** @description set on a session made by fork: where it came from */
+            forkedFrom?: {
+                sessionID: string;
+                /** @description the parent's message the fork was cut before: the fork holds the parent's history up to, not including, this message. absent when the whole history was forked */
+                messageID?: string;
+            };
             title: string;
             /** @description daemon version that created the session */
             version: string;
@@ -1952,6 +1958,12 @@ export type components = {
                     projectID: string;
                     directory: string;
                     parentID?: string;
+                    /** @description set on a session made by fork: where it came from */
+                    forkedFrom?: {
+                        sessionID: string;
+                        /** @description the parent's message the fork was cut before: the fork holds the parent's history up to, not including, this message. absent when the whole history was forked */
+                        messageID?: string;
+                    };
                     title: string;
                     /** @description daemon version that created the session */
                     version: string;
