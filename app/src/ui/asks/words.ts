@@ -53,6 +53,33 @@ export function shortWords(text: string, limit: number): string {
   return `${(at > limit / 2 ? cut.slice(0, at) : cut).replace(/[\s,;:.]+$/, "")}...`;
 }
 
+/** a question's markdown as the words a reader hears and a row's head shows: a link is its text, an image its alt, code and emphasis
+    lose their marks, html tags go, and the lines run together. the card paints the markdown itself (question.tsx); this is for names
+    and teasers, which are plain text */
+export function plainWords(md: string): string {
+  // an escaped mark is the mark itself, set aside first so no rule below reads it as markdown, and put back last
+  return md
+    .replace(/\\([\\`*_{}[\]()#+\-.!~|>])/g, (_, c: string) => String.fromCharCode(0xe000 + c.charCodeAt(0)))
+    .replace(/^ {0,3}(`{3,}|~{3,})[^\n]*$/gm, "")
+    .replace(/!\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\((?:[^()]|\([^()]*\))*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
+    .replace(/<((?:https?:|mailto:)[^>\s]+)>/gi, "$1")
+    .replace(/<\/?[a-z][^>]*>/gi, "")
+    .replace(/(`+)([^`]*?)\1/g, "$2")
+    .replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "$2")
+    .replace(/~~(?=\S)([\s\S]*?\S)~~/g, "$1")
+    .replace(/(^|[^\w*])\*(?=\S)([^*\n]*?\S)\*(?!\*)/g, "$1$2")
+    .replace(/(^|[^\w])_(?=\S)([^_\n]*?\S)_(?!\w)/g, "$1$2")
+    .replace(/^ {0,3}(#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, "")
+    .replace(/\s+/g, " ")
+    .replace(/[\ue000-\ue07f]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xe000))
+    .trim();
+}
+
+/** what a question's copy control copies (question.tsx): the question as the agent wrote it, markdown and all, never the painted text */
+export const copyOfQuestion = (q: { question: string }): string => q.question;
+
 const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 
 /** "answered on iphone at 23:49": who answered first, when the daemon said who and when */

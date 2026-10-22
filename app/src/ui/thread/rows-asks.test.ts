@@ -42,6 +42,58 @@ describe("an ask's row", () => {
   });
 });
 
+/* a settled question as cmx2 records it: the tool part completed, its input still holding every question, the answers in its
+   metadata (one list per question). the user's case of 2026-10-22: four questions, each with a label, answered together */
+describe("a settled ask keeps every question's words", () => {
+  const settled = (questions: unknown[], answers: string[][] | null) => neutral({
+    info: { id: "a", role: "assistant", time: { created: T0 + 100 } },
+    parts: [{ id: "q", type: "tool", callID: "c", tool: "question", state: answers
+      ? { status: "completed", input: { questions }, metadata: { answers }, output: "answered", title: "Asked 4 questions", time: { start: T0 + 200, end: T0 + 900 } }
+      : { status: "error", input: { questions }, error: "The user dismissed this question", metadata: {}, time: { start: T0 + 200, end: T0 + 900 } } } as unknown as WirePart],
+  });
+  const modelOf = (m: WireMessage) => {
+    const [turn] = turnsOf([user, m], "/");
+    const step = turn?.items.find((x) => x.k === "step");
+    if (!step || step.k !== "step") throw new Error("no step");
+    return stepModel(step, { turns: turn ? [turn] : [], children: new Map(), thinking: "rows" });
+  };
+  const four = [
+    question("Newer-version entries", "When the cache holds an entry from a newer version, decode what it can or drop it?"),
+    question("Unit variant growth rule", "Keep the catch-all `Other(String)` or add variants?"),
+    question("Command validation", "Validate once into a `ValidatedCommand` type, or at each use?"),
+    question("Scope of the change request", "Which go into this change? See [the notes](https://example.com/notes)."),
+  ];
+
+  test("answered: the card's body holds each question's words (markdown as written) and its own answer", () => {
+    const row = modelOf(settled(four, [["a"], ["b"], ["a"], ["my own words"]]));
+    expect(row.content).toEqual([{ t: "prose", s: "4 questions" }]);
+    expect(row.body?.k).toBe("ask");
+    if (row.body?.k !== "ask") return;
+    expect(row.body.pending).toBe(false);
+    expect(row.body.settled?.how).toBe("answered");
+    expect(row.body.questions.map((q) => [q.header, q.question, q.answer])).toEqual([
+      ["Newer-version entries", four[0]?.question, ["a"]],
+      ["Unit variant growth rule", four[1]?.question, ["b"]],
+      ["Command validation", four[2]?.question, ["a"]],
+      ["Scope of the change request", four[3]?.question, ["my own words"]],
+    ]);
+  });
+
+  test("dismissed: every question's words are still there", () => {
+    const row = modelOf(settled(four, null));
+    expect(row.body?.k === "ask" && row.body.settled?.how).toBe("dismissed");
+    expect(row.body?.k === "ask" && row.body.questions.map((q) => q.question)).toEqual(four.map((q) => q.question));
+  });
+
+  test("one question in markdown: the head and its name say it as plain words, the card keeps the markdown", () => {
+    const md = "Visit [the login page](https://login.example.com) and run `ssh build-1`, **then** say so.";
+    const row = modelOf(settled([question("re-auth", md)], [["a"]]));
+    expect(row.content).toEqual([{ t: "prose", s: "Visit the login page and run ssh build-1, then say so." }]);
+    expect(row.label).toContain("Visit the login page and run ssh build-1, then say so.");
+    expect(row.body?.k === "ask" && row.body.questions[0]?.question).toBe(md);
+  });
+});
+
 /* a settled ask's row reads this device's record of its reply (sync/replies.ts) from the context, by the step's call id */
 describe("a settled ask's record", () => {
   const edited = (status: "completed" | "error"): WireMessage => neutral({

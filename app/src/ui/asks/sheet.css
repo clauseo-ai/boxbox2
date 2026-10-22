@@ -102,6 +102,18 @@
   overflow-wrap: anywhere;
 }
 
+/* a lone question's words head the sheet in its title type, drawn by the card with their label, links and copy control */
+.asks-sheet .ask-card[data-one] .ask-t {
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.28;
+}
+
+.asks-sheet .ask-card[data-one] .ask-said {
+  row-gap: 4px;
+}
+
 .asks-sheet .asks-open {
   min-height: 44px;
   padding: 0;

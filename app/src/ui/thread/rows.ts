@@ -4,6 +4,7 @@
 
 import type { Ask } from "../../sync/protocol";
 import type { AskReply } from "../../sync/replies";
+import { plainWords } from "../asks/words";
 import type { Evidence } from "./evidence";
 import { type Item, type Picture, type Question, type Say, type Step, type Think, type Turn, homeAsTilde } from "./model";
 import { type Token, base, commandTokens, dirOf, firstLine } from "./shell";
@@ -449,8 +450,9 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
     case "ask": {
       const asked = ask.question?.questions ?? s.questions ?? [];
       const questions: AskQuestion[] = asked.map((q) => ({ header: q.header, question: q.question, options: q.options, custom: q.custom, multiple: q.multiple, ...(q.answer?.some(Boolean) ? { answer: q.answer.filter(Boolean) } : {}) }));
-      // several questions have no one question to head the row: it says how many, and the card asks each
-      const head = questions.length > 1 ? `${questions.length} questions` : (questions[0]?.question ?? "a question");
+      // several questions have no one question to head the row: it says how many, and the card asks each. the head is a button and its
+      // name: the question as plain words (its markdown is the card's, with its links and its copy control)
+      const head = questions.length > 1 ? `${questions.length} questions` : (plainWords(questions[0]?.question ?? "") || "a question");
       content = [{ t: "prose", s: head }]; face = "sans"; text = head;
       if (questions.length === 1) header = questions[0]?.header.trim() ?? "";
       const how = s.status !== "error" ? "answered" : /dismiss/i.test(s.error ?? "") ? "dismissed" : "ended";

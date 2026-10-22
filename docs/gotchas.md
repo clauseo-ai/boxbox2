@@ -1887,3 +1887,5 @@ merged, the first load was 122.2 kb. the only place it showed was the release bu
 branches that add first-load code, run the build and the compress line on the merge. the fix moved what is not needed
 for the first paint into chunks (the btw card, marker and placement, the fork lineage line, divider and menu item, the
 fork verb, the btw send checks, the queue's strip), down to 118.5 kb.
+
+- **a row result is not a quiet button.** a row's quiet result is `<span class="row-r quiet">`, and the app's `.quiet` button rule (styles.css) gives it a 44 px min height, which pushed an ask row's question 24 px below its kind. `.row.ask > .row-h > .row-r` sets it back to 0 (thread.css, 2026-10-22).

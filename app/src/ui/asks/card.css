@@ -11,8 +11,26 @@
 /* several questions in one ask: each is a block of its own, told apart by a hairline, and the one "answer" sends them all */
 .ask-q { display: grid; gap: 12px; }
 .ask-q + .ask-q { padding-top: 12px; border-top: 1px solid var(--hairline); }
-.ask-h { margin: 0; font-size: 12.5px; font-weight: 620; color: var(--accent); }
-.ask-t { margin: 0; font-size: 15px; line-height: 1.4; font-weight: 520; overflow-wrap: anywhere; }
+.ask-h { margin: 0; font-size: 12.5px; line-height: 18px; font-weight: 620; color: var(--accent); }
+/* a question's own words (question.tsx): its label, the markdown, and its copy control on the first line's right, where a code block's
+   and a slip's sit. the words are text to select, in the size the ask's row has always used (sans 14.5 px) */
+.ask-said { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 14px; row-gap: 2px; align-items: start; min-width: 0; }
+.ask-said > :not(.ask-copy) { grid-column: 1; }
+.ask-said > .ask-copy { grid-column: 2; grid-row: 1; margin-top: -1px; }
+/* under a label the control sits on the label's line, and the words take the whole width beneath it */
+.ask-said:has(> .ask-h) > .ask-t { grid-column: 1 / -1; }
+.ask-t { margin: 0; font-family: var(--sans); font-stretch: 100%; font-size: 14.5px; line-height: 20px; font-weight: 520; color: var(--text); overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+/* the agent's markdown, at the question's size: a paragraph apart from the next by half a line, links in the light tone */
+.ask-md > * { margin: 0; }
+.ask-md > * + * { margin-top: 0.5em; }
+.ask-md ul, .ask-md ol { padding-left: 1.25em; }
+.ask-md li + li { margin-top: 0.2em; }
+.ask-md strong, .ask-md b { font-weight: 650; }
+.ask-md a[href] { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+@media (hover: hover) { .ask-md a[href]:hover { text-decoration-color: var(--accent); } }
+.ask-md code { font-family: var(--mono); font-stretch: 90%; font-size: 0.82em; font-weight: 500; padding: 0.08em 0.34em; border-radius: 5px; background: var(--code-bg); }
+.ask-md blockquote { padding-left: 0.8em; border-left: 2px solid var(--hairline); color: var(--text-2); }
+.ask-md h1, .ask-md h2, .ask-md h3, .ask-md h4 { font-size: 1em; font-weight: 650; }
 .ask-send { justify-self: end; }
 .ask-opts { display: grid; gap: 7px; }
 .ask-opt { overflow-wrap: anywhere; text-align: left; border-radius: 14px; padding: 12px 14px; min-height: 46px; font-size: 15px; background: var(--well); box-shadow: var(--well-edge); display: grid; }
@@ -40,25 +58,25 @@
 .ask-what { font-size: 12px; color: var(--text-2); overflow-wrap: anywhere; }
 .ask-what b { color: var(--text); font-weight: 560; }
 
-/* a settled question's record: the answer behind the accent's dot (the card's lit option, settled), where and when under it, and the
-   options as they were offered one tap away. the second ink for the words around the answer, the full ink for the answer */
-.ask-record { display: grid; gap: 8px; justify-items: start; }
-.ask-rec-said { display: grid; gap: 4px; }
+/* a settled question's record: every question's words with its answer right under it, behind the accent's dot (the card's lit option,
+   settled), the questions a hairline apart as the card's blocks are; then where and when, and the options as they were offered one tap
+   away, each question's under its own answer. the second ink for the words around the answer, the full ink for the answer */
+.ask-record { display: grid; gap: 12px; }
+.ask-rec-q { display: grid; gap: 6px; min-width: 0; }
+.ask-rec-q + .ask-rec-q { padding-top: 12px; border-top: 1px solid var(--hairline); }
+.ask-rec-foot { display: grid; gap: 2px; justify-items: start; }
 .ask-rec-lead { margin: 0; font-size: 13px; line-height: 18px; color: var(--text-2); overflow-wrap: anywhere; }
 .ask-rec-lead.lit { position: relative; padding-left: 14px; }
 .ask-rec-lead.lit::before { content: ""; position: absolute; left: 0; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .ask-rec-lead b { color: var(--text); font-weight: 640; }
 .ask-permit { display: grid; gap: 2px; }
 .ask-rec-facts { margin: 0; font-size: 12px; line-height: 16px; color: var(--text-2); font-variant-numeric: tabular-nums; }
-.ask-rec-opts { display: grid; gap: 12px; width: 100%; }
-.ask-rec-q { display: grid; gap: 6px; }
-.ask-rec-q + .ask-rec-q { padding-top: 12px; border-top: 1px solid var(--hairline); }
-.ask-rec-q ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
-.ask-rec-q li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 8px; align-items: baseline; font-size: 13.5px; line-height: 19px; color: var(--text-2); overflow-wrap: anywhere; }
-.ask-rec-q li i { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--text) 34%, transparent); transform: translateY(1px); }
-.ask-rec-q li.chosen { color: var(--text); }
-.ask-rec-q li.chosen i { background: var(--accent); box-shadow: none; }
-.ask-rec-q li small { font-family: var(--mono); font-stretch: 90%; font-size: 10.5px; color: var(--text-2); }
-.ask-rec-more { min-height: 32px; font-family: var(--mono); font-stretch: 90%; font-size: 11.5px; color: var(--text-2); border-radius: 8px; }
+.ask-rec-opts { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.ask-rec-opts li { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 0; align-items: baseline; font-size: 13.5px; line-height: 19px; color: var(--text-2); overflow-wrap: anywhere; }
+.ask-rec-opts li i { width: 6px; height: 6px; border-radius: 50%; box-shadow: inset 0 0 0 1.25px color-mix(in srgb, var(--text) 40%, transparent); transform: translateY(-1px); }
+.ask-rec-opts li.chosen { color: var(--text); }
+.ask-rec-opts li.chosen i { background: var(--accent); box-shadow: none; }
+.ask-rec-opts li small { padding-left: 8px; font-family: var(--mono); font-stretch: 90%; font-size: 10.5px; color: var(--text-2); }
+.ask-rec-more { min-height: 32px; margin-top: 2px; font-family: var(--mono); font-stretch: 90%; font-size: 11.5px; color: var(--text-2); border-radius: 8px; }
 @media (hover: hover) { .ask-rec-more:hover { color: var(--text); } }
 .ask-rec-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

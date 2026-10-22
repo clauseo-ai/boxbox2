@@ -216,6 +216,12 @@ button.row-h { cursor: pointer; }
 .thread:not(.wide) .row.ask .row-h { grid-template-columns: var(--col-k) minmax(0, 1fr) auto; row-gap: 2px; }
 .thread:not(.wide) .row.ask .row-c { grid-area: 2 / 1 / 3 / -1; }
 .thread:not(.wide) .row.ask .row-r { grid-area: 1 / 3; }
+/* the app's quiet button (styles.css, .quiet: a 44 px touch height) shares its class with a row's quiet result, a span: on an ask's
+   head it pushed the question 24 px down from its kind, and an open card's label further still */
+.row.ask > .row-h > .row-r { min-height: 0; }
+/* open, a question's card draws its label and its words as text to select, with links and a copy control (asks/question.tsx): the
+   head, a button, keeps only the kind and the result, so the words are never shown twice. several questions keep "4 questions" */
+.row.ask.open:has(> .row-b > .ask-card[data-one]) > .row-h > .row-c { display: none; }
 .row.commit .row-c { font-size: 13.5px; }
 .row.ask .row-k, .row.agent .row-k, .row.commit .row-k, .row.push .row-k { color: var(--accent); }
 .row.bad .row-k { color: var(--red); }
