@@ -187,6 +187,8 @@ pub struct ThreadSet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from: Option<super::thread::ForkedFrom>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<Place>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<super::message::Origin>,
@@ -232,6 +234,7 @@ pub enum ThreadField {
     Said,
     Generation,
     Parent,
+    ForkedFrom,
     Place,
     Origin,
     Sends,

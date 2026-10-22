@@ -36,6 +36,7 @@ const CMX2_CAPABILITIES: Agent["capabilities"] = {
   admin: true,
   approvals: true,
   archive: true,
+  fork: true,
   commands: true,
   compact: true,
   files: true,

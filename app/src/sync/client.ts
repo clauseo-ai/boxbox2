@@ -241,9 +241,11 @@ export async function forgetSync(): Promise<void> {
 
 const AT_PARAM = "at";
 const PART_PARAM = "part";
+const CUT_PARAM = "cut";
 
-/** where a link points inside a thread: the turn at the top of the view, and a row to open and light */
-export type ThreadPlace = { at: string | null; part: string | null };
+/** where a link points inside a thread: the turn at the top of the view, a row to open and light, and the message a fork
+    of it was cut before (the link lands on the turn just above it: fork.ts, turnBeforeCut) */
+export type ThreadPlace = { at: string | null; part: string | null; cut: string | null };
 
 /* the threads the ui shows, counted by what shows them: the thread on stage (`staged`), each stage layer's data (live.ts) and
    each child its lanes held while that layer is drawn, released or not (live.ts). the worker posts a thread's patches only while it is shown, so the store holds what is on screen */
@@ -322,7 +324,7 @@ export function openThread(key: string, place: Partial<ThreadPlace> = {}): void 
   setOpenThread(key);
   const url = new URL(location.href);
   url.searchParams.set(THREAD_PARAM, key);
-  for (const [name, value] of [[AT_PARAM, place.at], [PART_PARAM, place.part]] as const) {
+  for (const [name, value] of [[AT_PARAM, place.at], [PART_PARAM, place.part], [CUT_PARAM, place.cut]] as const) {
     if (value) url.searchParams.set(name, value);
     else url.searchParams.delete(name);
   }
@@ -354,14 +356,14 @@ export function rereadThread(key: string): void {
 /** the place the url names inside the open thread */
 export function placeInUrl(): ThreadPlace {
   const params = new URLSearchParams(location.search);
-  return { at: params.get(AT_PARAM), part: params.get(PART_PARAM) };
+  return { at: params.get(AT_PARAM), part: params.get(PART_PARAM), cut: params.get(CUT_PARAM) };
 }
 
 /** keeps the url current with the turn at the top of the view (design.md: replaceState only, never a history entry) */
 export function markPlace(place: ThreadPlace): void {
   const url = new URL(location.href);
   if (!url.searchParams.has(THREAD_PARAM)) return;
-  for (const [name, value] of [[AT_PARAM, place.at], [PART_PARAM, place.part]] as const) {
+  for (const [name, value] of [[AT_PARAM, place.at], [PART_PARAM, place.part], [CUT_PARAM, place.cut]] as const) {
     if (value) url.searchParams.set(name, value);
     else url.searchParams.delete(name);
   }
@@ -375,6 +377,7 @@ export function closeThread(): void {
   url.searchParams.delete(THREAD_PARAM);
   url.searchParams.delete(AT_PARAM);
   url.searchParams.delete(PART_PARAM);
+  url.searchParams.delete(CUT_PARAM);
   history.replaceState(history.state, "", url);
 }
 

@@ -63,6 +63,36 @@ fn session_updated_is_a_thread_not_born() {
 }
 
 #[test]
+fn a_fork_carries_where_it_came_from_apart_from_its_parent() {
+    let at = info("ses_2").replace(
+        r#""parentID":"ses_0","#,
+        r#""forkedFrom":{"sessionID":"ses_1","messageID":"msg_9"},"#,
+    );
+    let thread = thread_from_json(RawValue::from_string(at).unwrap()).unwrap();
+    assert_eq!(thread.parent, None, "a fork is not an agent of its source");
+    assert_eq!(
+        thread.forked_from,
+        Some(crate::wire::ForkedFrom {
+            thread: "ses_1".into(),
+            message: Some("msg_9".into()),
+        })
+    );
+    let whole = info("ses_3").replace(
+        r#""parentID":"ses_0","#,
+        r#""forkedFrom":{"sessionID":"ses_1"},"#,
+    );
+    let thread = thread_from_json(RawValue::from_string(whole).unwrap()).unwrap();
+    assert_eq!(
+        thread.forked_from.map(|f| (f.thread, f.message)),
+        Some(("ses_1".to_owned(), None))
+    );
+    // an older daemon says nothing of forks: no lineage, nothing refused
+    let plain = thread_from_json(RawValue::from_string(info("ses_4")).unwrap()).unwrap();
+    assert_eq!(plain.forked_from, None);
+    assert_eq!(plain.parent.as_deref(), Some("ses_0"));
+}
+
+#[test]
 fn a_project_that_is_not_a_path_roots_the_place_at_the_directory_and_names_it_by_the_project() {
     let raw = info("ses_1").replace(r#""projectID":"/w/app""#, r#""projectID":"global""#);
     let thread = thread_from_json(RawValue::from_string(raw).unwrap()).unwrap();

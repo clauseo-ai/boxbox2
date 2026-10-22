@@ -169,6 +169,7 @@ impl Found {
                 self.facts.key,
                 thread.unwrap_or_default()
             )),
+            VerbError::Missing { what: "turn" } => ApiError::NoSuchTurn,
             VerbError::Missing { .. } | VerbError::Gone => ApiError::Gone,
             VerbError::Bad(words) => ApiError::BadRequest(words),
             VerbError::Unreachable { reason } => ApiError::AgentUnreachable {
@@ -183,6 +184,11 @@ impl Found {
             },
             VerbError::GenerationChanged => ApiError::GenerationChanged(self.name()),
             VerbError::NotBuilt(what) => ApiError::NotBuilt(what),
+            VerbError::BrowseOnly(words) => ApiError::BrowseOnly(words),
+            VerbError::Uncertain { reason } => ApiError::AgentUncertain {
+                agent: self.name(),
+                reason,
+            },
             VerbError::Settled { by, at } => ApiError::Settled { by, at },
             VerbError::AlreadySent => ApiError::AlreadySent,
             VerbError::NotConfirmed => ApiError::NotConfirmed(self.name()),

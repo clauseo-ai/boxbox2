@@ -2,7 +2,8 @@
    (contract 1) when fixtures/two-wire-main.json.gz was recorded; here the same tape, re-encoded as protocol 3 by the
    simulated encoder (server/goldens/protocol3/journal.sse.gz), goes through this build's reducer, and what each build's own
    code derives from its final state must be the same: the fleet (main's mapped through translate.rs's cmx2-to-neutral
-   table when it was recorded), home's windows (which, in order, each window's view, its tail lines and its body), and for
+   table when it was recorded; a capability added to that table since, `fork`, is written into the recorded agent as the
+   table would have), home's windows (which, in order, each window's view, its tail lines and its body), and for
    every thread with a transcript its turn models as live.ts builds them, the ruler's ticks and the turns panel's rows as
    stage.tsx derives them, and what the details panel reads (details-model.ts). on both sides every thread with transcript
    entries is opened (the first 40, the cap) or held (the rest) just before its first entry, its read answering nothing,

@@ -59,6 +59,59 @@ pub fn verb_error(error: ApiError) -> VerbError {
 }
 
 /// what cmx2 calls a session: the thread id, checked as one path segment.
+/// the one field of a new session's info a fork reads.
+#[derive(serde::Deserialize)]
+struct NewSession {
+    id: String,
+}
+
+/// the thread a fork made, from the daemon's answer: the new session.
+fn forked(agent: &str, info: &serde_json::value::RawValue) -> Result<Born, VerbError> {
+    let made = serde_json::from_str::<NewSession>(info.get())
+        .ok()
+        .filter(|s| crate::http::asks::segment(&s.id).is_ok())
+        .ok_or_else(|| VerbError::Uncertain {
+            reason: "its answer to the fork was not a session".into(),
+        })?;
+    Ok(Born {
+        key: format!("{agent}:{}", made.id),
+        thread: made.id,
+    })
+}
+
+/// a fork the daemon refused, or did not answer. its 409 is history
+/// imported from cmx, which it keeps browse only; said in boxbox's words,
+/// since the daemon's name the session by id. a fork it took and did not
+/// answer in time, or answered in a way that could not be read, may have
+/// been made: uncertain, never a plain failure.
+fn fork_refused(error: ApiError) -> VerbError {
+    if super::threads::unanswered(&error) {
+        return VerbError::Uncertain {
+            reason: error.to_string(),
+        };
+    }
+    match error {
+        // the daemon's 409s: a client id used for another action, a first request a restart cut off (what it did is
+        // in the session, so not known here), or history it keeps browse only
+        ApiError::HostSaid {
+            status: 409,
+            message,
+            ..
+        } if message.contains("already used") => VerbError::Bad(
+            "that fork's client id was already used for something else. fork again".into(),
+        ),
+        ApiError::HostSaid {
+            status: 409,
+            message,
+            ..
+        } if message.contains("cut off") => VerbError::Uncertain { reason: message },
+        ApiError::HostSaid { status: 409, .. } => VerbError::BrowseOnly(
+            "history imported from cmx is browse only, so it cannot be forked".into(),
+        ),
+        other => verb_error(other),
+    }
+}
+
 fn session(thread: &ThreadRef) -> Result<&str, VerbError> {
     crate::http::asks::segment(&thread.id).map_err(verb_error)
 }
@@ -323,6 +376,9 @@ impl Cmx2Source {
             .await
             .map_err(|error| match error {
                 ApiError::Gone => VerbError::Missing { what: "thread" },
+                other if super::threads::unanswered(&other) => VerbError::Uncertain {
+                    reason: other.to_string(),
+                },
                 other => verb_error(other),
             })?;
         let at = serde_json::from_str::<Value>(info.get())
@@ -332,6 +388,40 @@ impl Cmx2Source {
             key: thread.key(),
             at: Some(at.unwrap_or(asked)),
         })
+    }
+
+    /// forks a session, whole or before one of its messages. a 404 is read
+    /// again to say which is missing: the session, or the message in it.
+    pub(crate) async fn typed_fork(
+        &self,
+        thread: &ThreadRef,
+        fork: &crate::source::Fork,
+    ) -> Result<Born, VerbError> {
+        let id = session(thread)?;
+        let before = fork
+            .before
+            .as_deref()
+            .map(|m| crate::http::asks::segment(m).map_err(verb_error))
+            .transpose()?;
+        match self.fork_session(id, before, &fork.client_id).await {
+            Ok(info) => forked(&thread.agent, &info),
+            Err(ApiError::Gone) => Err(self.fork_missing(id, before).await),
+            Err(other) => Err(fork_refused(other)),
+        }
+    }
+
+    /// what a fork's 404 meant: with no message named, or with the session
+    /// gone too, the thread; else the message, which the person picked as a
+    /// turn of it.
+    async fn fork_missing(&self, id: &str, before: Option<&str>) -> VerbError {
+        if before.is_none() {
+            return VerbError::Missing { what: "thread" };
+        }
+        match self.session_info(id).await {
+            Ok(_) => VerbError::Missing { what: "turn" },
+            Err(ApiError::Gone) => VerbError::Missing { what: "thread" },
+            Err(other) => verb_error(other),
+        }
     }
 
     pub(crate) async fn typed_adopt(&self, thread: &ThreadRef) -> Result<ThreadFacts, VerbError> {
@@ -465,6 +555,81 @@ mod tests {
             panic!("an unreachable host stays unreachable");
         };
         assert_eq!(reason, "cannot connect (refused)");
+    }
+
+    #[test]
+    fn a_fork_answers_the_new_session_as_a_thread_of_the_same_agent() {
+        let info = serde_json::value::RawValue::from_string(
+            r#"{"id":"ses_new","title":"fix it (fork #1)","forkedFrom":{"sessionID":"ses_1"}}"#
+                .into(),
+        )
+        .unwrap();
+        let born = forked("desk", &info).unwrap();
+        assert_eq!(
+            (born.key.as_str(), born.thread.as_str()),
+            ("desk:ses_new", "ses_new")
+        );
+        // an answer that is not a session, or names one by an id no route takes, is the daemon failing
+        for bad in [r#"{"title":"x"}"#, r#"{"id":"../ses"}"#, "[]"] {
+            let info = serde_json::value::RawValue::from_string(bad.into()).unwrap();
+            assert!(matches!(
+                forked("desk", &info),
+                Err(VerbError::Uncertain { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn a_fork_of_imported_history_is_refused_in_boxboxs_words() {
+        let VerbError::BrowseOnly(words) = fork_refused(ApiError::HostSaid {
+            host: "desk".into(),
+            status: 409,
+            message: "session ses_1 has no transcript here to fork".into(),
+        }) else {
+            panic!("a 409 is browse only");
+        };
+        assert!(words.contains("browse only"), "{words}");
+        // a client id the daemon saw for another action: the request is wrong, and a new id is the way on
+        assert!(matches!(
+            fork_refused(ApiError::HostSaid {
+                host: "desk".into(),
+                status: 409,
+                message: "clientID c-1 was already used for prompt on ses_2; send a new one for a new action".into(),
+            }),
+            VerbError::Bad(_)
+        ));
+        // a first request a restart cut off may have forked: not known
+        assert!(matches!(
+            fork_refused(ApiError::HostSaid {
+                host: "desk".into(),
+                status: 409,
+                message: "the first request with clientID c-1 was cut off by a daemon restart; what it did is in the session".into(),
+            }),
+            VerbError::Uncertain { .. }
+        ));
+        // a host that could not be reached made nothing: unreachable
+        assert!(matches!(
+            fork_refused(ApiError::HostUnreachable {
+                host: "desk".into(),
+                reason: "cannot connect (refused)".into()
+            }),
+            VerbError::Unreachable { .. }
+        ));
+        // one that took the fork and did not answer in time, or answered past reading, may have made it
+        assert!(matches!(
+            fork_refused(ApiError::HostUnreachable {
+                host: "desk".into(),
+                reason: "no answer within 15s".into()
+            }),
+            VerbError::Uncertain { .. }
+        ));
+        assert!(matches!(
+            fork_refused(ApiError::HostFailed {
+                host: "desk".into(),
+                detail: "its answer was not json".into()
+            }),
+            VerbError::Uncertain { .. }
+        ));
     }
 
     #[test]

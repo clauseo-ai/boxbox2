@@ -44,9 +44,9 @@ export function settle(button: HTMLElement, ok: boolean, said?: string): void {
 }
 
 const NONE: ReadonlyMap<string, number> = new Map();
-/** names every copy control in a thread, in document order: its base name (`data-name`), and for the second of a kind "again", then "third time" (ledger.ts, namesOf). the page is read as it stands, so a control that appears above another (a row opened) moves the namesakes below it on by one. a far turn's stand-in holds its controls as hidden marks (far.ts), counted here, so letting a turn go renames nothing below it */
+/** names every copy control in a thread, and every turn's fork control (`data-fork`), in document order: its base name (`data-name`), and for the second of a kind "again", then "third time" (ledger.ts, namesOf). the page is read as it stands, so a control that appears above another (a row opened) moves the namesakes below it on by one. a far turn's stand-in holds its controls as hidden marks (far.ts), counted here, so letting a turn go renames nothing below it */
 export function renameAll(root: Element): void {
-  const controls = Array.from(root.querySelectorAll<HTMLElement>("button[data-copy], [data-copy-held]"));
+  const controls = Array.from(root.querySelectorAll<HTMLElement>("button[data-copy], button[data-fork], [data-copy-held]"));
   const names = namesOf(controls.map((b) => b.dataset["name"]), NONE);
   controls.forEach((b, i) => { const name = names[i]; if (name && b.getAttribute("aria-label") !== name) b.setAttribute("aria-label", name); });
 }

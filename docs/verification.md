@@ -153,6 +153,16 @@ events it saw by type, so boxbox's count can be compared with the
 daemon's. `bun bench/session.ts --words N` streams one reply of N words
 instead (N delta events), for the memory run.
 
+## the fork drive
+
+`bun bench/fork.ts`, with `just cmx2` and `just dev` running
+(`BOXBOX_PORT` and `BENCH_DIR` move them). it makes a thread of two turns
+on the daemon, forks it through boxbox at its second turn and whole, and
+checks the 201 and its key, the daemon's `forkedFrom` and the history up
+to the cut, the fleet's `forkedFrom` with no `parent`, and the refusals
+(`no-such-turn`, `no-such-session`, `no-such-agent`, an unknown field),
+one line each; it archives the threads it made and exits 1 on a failure.
+
 ## the thread drive (m3)
 
 `bun bench/thread.ts [--boxbox http://127.0.0.1:3051] [--replies 50]

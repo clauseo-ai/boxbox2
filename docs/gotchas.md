@@ -1848,3 +1848,23 @@ raw value from it (`wire/part.rs`), while the cmx2 source builds parts with
 - **a compact replay can carry a session info ahead of the event that moved its revision.**
   judge transcript revisions only once the replay is caught up, or every busy thread resets
   after a restart.
+
+## a new capability moves every recording that holds an agent (fork-threads)
+
+adding `fork` to `Capabilities::cmx2()` changed every protocol 3 golden under
+`server/goldens/protocol3/` (the agent frame carries the capabilities whole),
+the converter's recording `app/src/ui/home/fixtures/journal-p3.ndjson` (its
+`CMX2_CAPABILITIES` mirrors the server's) and the two-wire fixture's recorded
+agent. write the goldens with `BOXBOX_GOLDENS=write cargo test protocol3_goldens`
+and diff the old and new bytes decompressed before committing: the only
+difference should be the new field. an unknown field in a verb's body (every
+body is `deny_unknown_fields`) answers 422 in axum's plain words, not the json
+error body, so a drive that parses every answer as json throws there.
+
+a parallel lane took 4840 and 4841 a moment before this one (the btw lane's
+`just cmx2`): the bench model failed to bind, and the bench dir still named
+4840, so the drive and the dev server reached the other lane's daemon with
+this lane's password (401s, nothing done). check `lsof` on the decade first,
+and take another: `bun scripts/cmx2.ts --port 4846 --boxbox-port 3061` with
+`target/debug/boxbox serve --config .cmx2/bench/boxbox.toml` (vite's 3002 is
+fixed in `scripts/dev.ts`, so two lanes cannot both run `just dev`).

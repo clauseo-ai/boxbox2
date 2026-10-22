@@ -39,6 +39,7 @@ fn assistant() -> Capabilities {
         reactions: true,
         threads: true,
         archive: true,
+        fork: true,
         history: true,
         subagents: true,
         origins: true,
@@ -321,6 +322,7 @@ async fn an_agent_with_none_of_the_gated_capabilities_refuses_every_gated_verb_f
             "reactions",
         ),
         ("POST", format!("{T}/archive"), Some(verb()), "archive"),
+        ("POST", format!("{T}/fork"), Some(verb()), "fork"),
         ("POST", format!("{T}/adopt"), Some(verb()), "history"),
         ("GET", "/api/agents/assistant/models".into(), None, "model"),
         (
@@ -426,6 +428,66 @@ async fn the_assistants_verbs_reach_its_source_through_the_trait() {
     assert_eq!(agents[1]["label"]["name"], "assistant");
     assert!(agents[1]["palette"].is_string());
     assert_eq!(agents[1]["connection"]["name"], "vm-b");
+}
+
+#[tokio::test]
+async fn a_fork_reaches_the_source_whole_or_cut_and_answers_the_new_thread() {
+    let world = World::new(assistant()).await;
+    let (status, whole) = world.call("POST", &format!("{T}/fork"), Some(verb())).await;
+    assert_eq!(status, 201, "{whole}");
+    assert_eq!(whole["key"], "assistant:oc_forked");
+    assert_eq!(whole["thread"], "oc_forked");
+    let cut = with(&json!({"clientID": "f-2", "before": "mZW50cnktMQ"}));
+    let (status, _) = world.call("POST", &format!("{T}/fork"), Some(cut)).await;
+    assert_eq!(status, 201);
+    // a turn the agent no longer has is said as one, not as a thread that is gone
+    let gone = with(&json!({"clientID": "f-3", "before": "mGONE"}));
+    let (status, answer) = world.call("POST", &format!("{T}/fork"), Some(gone)).await;
+    assert_eq!(
+        (status, answer["error"]["code"].as_str()),
+        (404, Some("no-such-turn"))
+    );
+    // history the agent keeps to read only is 409 browse-only, never 422 (that is a missing capability)
+    let imported = with(&json!({"clientID": "f-6", "before": "mIMPORTED"}));
+    let (status, answer) = world
+        .call("POST", &format!("{T}/fork"), Some(imported))
+        .await;
+    assert_eq!(
+        (status, answer["error"]["code"].as_str()),
+        (409, Some("browse-only")),
+        "{answer}"
+    );
+    // a fork taken and not answered may exist: 502 agent-uncertain, which says a retry is safe
+    let slow = with(&json!({"clientID": "f-7", "before": "mSLOW"}));
+    let (status, answer) = world.call("POST", &format!("{T}/fork"), Some(slow)).await;
+    assert_eq!(
+        (status, answer["error"]["code"].as_str()),
+        (502, Some("agent-uncertain")),
+        "{answer}"
+    );
+    // the route's client id reaches the source, for the agent's once rule
+    let key = "assistant:oc_aaaaaaaaaaaaaaaaaaaaaaaa";
+    assert_eq!(
+        world.source.calls(),
+        vec![
+            format!("fork {key} whole v-1"),
+            format!("fork {key} mZW50cnktMQ f-2"),
+            format!("fork {key} mGONE f-3"),
+            format!("fork {key} mIMPORTED f-6"),
+            format!("fork {key} mSLOW f-7"),
+        ]
+    );
+    // a cut that is not a message id, or a field no fork takes, is refused before the source hears it
+    for body in [
+        json!({"clientID": "f-4", "before": "../x"}),
+        json!({"clientID": "f-5", "at": 3}),
+    ] {
+        let (status, answer) = world
+            .call("POST", &format!("{T}/fork"), Some(with(&body)))
+            .await;
+        assert!(status == 400 || status == 422, "{status} {answer}");
+    }
+    assert_eq!(world.source.calls().len(), 5);
 }
 
 #[tokio::test]

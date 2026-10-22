@@ -81,6 +81,12 @@ describe("a launch settles on the canonical url", () => {
     expect(canonicalSearch("?thread=desk:ses_1&at=msg_4&screen=machines")).toBe("?screen=machines");
   });
 
+  test("a fork's cut stays on its thread, and goes with it under a screen or when empty", () => {
+    expect(new URLSearchParams(canonicalSearch("?thread=desk:ses_1&cut=msg_9")).get("cut")).toBe("msg_9");
+    expect(canonicalSearch("?thread=desk:ses_1&cut=msg_9&screen=history")).toBe("?screen=history");
+    expect(new URLSearchParams(canonicalSearch("?thread=desk:ses_1&cut=")).has("cut")).toBe(false);
+  });
+
   test("a screen under a terminal goes", () => {
     expect(canonicalSearch("?screen=settings&terminal=desk:pty_7")).toBe("?terminal=desk%3Apty_7");
   });

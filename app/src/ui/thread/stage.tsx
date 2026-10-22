@@ -4,7 +4,7 @@
    scroll law, links in and out, and the perf rows. the composer is another
    session's; the dock leaves it a slot. */
 
-import { For, Index, type JSX, Show, createEffect, createMemo, createSignal, createUniqueId, lazy, on, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, type JSX, Show, createEffect, createMemo, createRoot, createSignal, createUniqueId, lazy, on, onCleanup, onMount, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import { api } from "../../api/client";
 import { carried, play, whenLanded } from "../../motion/animate";
@@ -39,13 +39,15 @@ import { createCaughtUp } from "../caught-up";
 import type { Turn } from "./model";
 import { flip, installMotion, reducedMotion } from "./motion";
 import { clock, clockDur, dur, plural, waitingOn } from "./rows";
-import { AskContext, CachesContext, ChildWatchContext, FollowContext, LandingContext, MeasureContext, NamesContext, OpenAgentContext, READING, type Settle, SettleContext, ThreadKeyContext, TurnView, WindowContext, bring, light } from "./thread";
+import { AskContext, CachesContext, ChildWatchContext, FollowContext, ForkContext, type ForkHere, LandingContext, MeasureContext, NamesContext, OpenAgentContext, READING, type Settle, SettleContext, ThreadKeyContext, TurnView, WindowContext, bring, light } from "./thread";
 import { createStageWindow } from "./stage-window";
 import { paintSource } from "./paint-source";
 import { createNames } from "./names";
 import { copyText } from "./clipboard";
 import { COPIED_MS, REFUSED_MS } from "./copy";
 import { READING_PATIENCE_MS, freshnessOf, readingOf, readingWords } from "./reading";
+import { cutKey, forkDone, forkId, settles, tabShelf } from "./fork-ids";
+import { type Cut, boundaryWords, cutAfter, forkBoundary, forkHeld, lineageOf, lineageWords, turnBeforeCut } from "./fork";
 import "./stage.css";
 
 /* the review is a chunk of its own: most threads never have one, so its card, controller and words stay out of the first
@@ -66,6 +68,10 @@ const RULER_HIDE_MS = 1200;
 const RUN_SLACK_MS = 1500;
 /** the keys that scroll the page when focus is not in a field */
 const SCROLL_KEYS: ReadonlySet<string> = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
+/** how long a new fork may take to reach this device after the agent made it, before the stage says so instead of opening it */
+const FORK_ARRIVAL_MS = 10_000;
+/** how long a turn's fork that failed says so under the bar */
+const FORK_NOTE_MS = 6000;
 /** the status line says "done just now" this long after a turn the reader watched end */
 const FRESH_MS = 60_000;
 
@@ -113,8 +119,8 @@ export function Stage(props: StageProps) {
   const [thinking, setThinking] = createSignal<"open" | "rows">(prefs.get(THINKING_KEY) === "open" ? "open" : "rows");
   /* a thread opens with its newest turns and the rest follow a few at a time (turns.ts): a thread of hundreds of turns made in one task is
      a long task. one that was opened to a turn, a row or an ask is opened whole, since what it goes to may be any of them */
-  const placeHere = (): ThreadPlace => (new URLSearchParams(location.search).get("thread") === props.threadKey ? placeInUrl() : { at: null, part: null });
-  const aimed = Boolean(placeHere().at || placeHere().part || (state.focus && state.focus.thread === props.threadKey));
+  const placeHere = (): ThreadPlace => (new URLSearchParams(location.search).get("thread") === props.threadKey ? placeInUrl() : { at: null, part: null, cut: null });
+  const aimed = Boolean(placeHere().at || placeHere().part || placeHere().cut || (state.focus && state.focus.thread === props.threadKey));
   const data = createThreadData(key, thinking, threadCaches, aimed ? {} : { first: FIRST_TURNS });
   const inset = createKeyboardInset();
   const mountedAt = performance.now();
@@ -265,7 +271,7 @@ export function Stage(props: StageProps) {
   };
 
   // the menu closing takes its question with it
-  createEffect(on(menuOpen, (open) => { if (!open) { setConfirming(false); setArchiveNote(null); } }, { defer: true }));
+  createEffect(on(menuOpen, (open) => { if (!open) { setConfirming(false); setArchiveNote(null); setForkNote(null); } }, { defer: true }));
   /** archives the thread through its daemon (POST .../archive: cmx2's time.archived). it leaves every listing, its
       history stays on disk. on the deck the stage shrinks back into home; beside the windows (strip, rail) home lets
       go of it when the fleet drops it, a beat later. a refusal (the daemon says no: an imported thread is read only) is
@@ -291,6 +297,128 @@ export function Stage(props: StageProps) {
     } finally {
       setArchiving(false);
     }
+  };
+
+  /* ---------- fork (docs/thread.md, fork): the menu's forks the whole thread, a turn's forks it through that turn ---------- */
+  /** the agent forks (its capability) and the history is not imported, browse only: else no fork is offered anywhere */
+  const forkShown = () => state.fleet.agents[data.host()]?.capabilities.fork === true && session()?.browseOnly !== true;
+  const streamDown = () => state.stream.state === "down";
+  /** the menu's: the whole thread waits for a running turn, since its end is not written yet */
+  const wholeHeld = () => forkHeld({ streamDown: streamDown(), browseOnly: false, working: data.working() });
+  /** what is being forked now: "whole", a turn's id, or nothing */
+  const [forking, setForking] = createSignal<string | null>(null);
+  /** a fork from the menu that failed says so in the menu, as archive does; one from a turn says so under the bar */
+  const [forkNote, setForkNote] = createSignal<string | null>(null);
+  const [forkReceipt, setForkReceipt] = createSignal<string | null>(null);
+  let disposed = false;
+  /* the waits for a thread to arrive that are running: each ends (as not arrived) when the stage goes, its timer with it */
+  const waiting = new Set<(arrived: boolean) => void>();
+  onCleanup(() => { disposed = true; for (const end of [...waiting]) end(false); });
+  createEffect(() => {
+    if (!forkReceipt()) return;
+    const timer = setTimeout(() => setForkReceipt(null), FORK_NOTE_MS);
+    onCleanup(() => clearTimeout(timer));
+  });
+  /** the new thread opens once the fleet holds it: it comes on the stream like any thread the agent makes, a moment after the
+      answer. false if it has not come within the wait */
+  const arrives = (born: string): Promise<boolean> => new Promise((resolve) => {
+    if (state.fleet.threads[born]) return resolve(true);
+    if (disposed) return resolve(false);
+    createRoot((dispose) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const end = (arrived: boolean) => {
+        if (!waiting.delete(end)) return;
+        clearTimeout(timer);
+        dispose();
+        resolve(arrived);
+      };
+      waiting.add(end);
+      timer = setTimeout(() => end(false), FORK_ARRIVAL_MS);
+      createEffect(() => { if (state.fleet.threads[born]) end(true); });
+    });
+  });
+  /** forks the thread through the server's fork verb (POST /api/agents/:agent/threads/:thread/fork, cmx2's
+      /session/:id/fork), then opens the new thread. `from` is "whole" (the menu) or the turn's id */
+  const fork = async (cut: Cut, from: string) => {
+    if (forking()) return;
+    setForking(from);
+    setForkNote(null);
+    setForkReceipt(null);
+    const say = (words: string) => (from === "whole" ? setForkNote(words) : setForkReceipt(words));
+    /* one client id per cut until its fork is made, so a retry, a reload or a second tap is the same fork (fork-ids.ts) */
+    const cutAt = cutKey(key(), cut.before);
+    try {
+      const { data: born, error, response } = await api.POST("/api/agents/{agent}/threads/{thread}/fork", {
+        params: { path: { agent: data.host(), thread: key().slice(data.host().length + 1) } },
+        body: { ...deviceIdentity(), clientID: forkId(tabShelf, cutAt, () => crypto.randomUUID()), ...(cut.before ? { before: cut.before } : {}) },
+      });
+      if (settles(response.status)) forkDone(tabShelf, cutAt);
+      if (!response.ok || !born) {
+        const said = (error as { error?: { message?: unknown } } | undefined)?.error?.message;
+        say(typeof said === "string" ? said : `the server answered ${response.status}. try again.`);
+        return;
+      }
+      if (!(await arrives(born.key))) {
+        if (!disposed) say("the fork was made and has not reached this device yet. it shows on home when it does.");
+        return;
+      }
+      setMenuOpen(false);
+      openThread(born.key);
+    } catch {
+      say("the boxbox server is not answering. check it is running, then try again.");
+    } finally {
+      setForking(null);
+    }
+  };
+  /** a turn's fork holds the history through that turn's end: cut before the next turn, or the whole thread after the last */
+  const forkHere: ForkHere = {
+    shown: forkShown,
+    held: () => (streamDown() ? "offline" : null),
+    busy: forking,
+    fork: (turn) => {
+      const cut = cutAfter(data.turns(), turn);
+      if (cut) void fork(cut, turn);
+    },
+  };
+
+  /* ---------- lineage: a forked thread names the thread it came from and opens it where it was cut ---------- */
+  const lineage = createMemo(() => lineageOf(session()?.forkedFrom, data.host(), (k) => state.fleet.threads[k]?.title));
+  /* what a link to it could not do, said beside the link that was used: the title block's, or the divider's */
+  const [lineageNote, setLineageNote] = createSignal<{ at: "top" | "mark"; text: string } | null>(null);
+  /** the last copied turn, after which the divider stands (fork.ts, forkBoundary: by time, the copies keep the parent's) */
+  const boundary = createMemo(() => { const s = session(); return lineage() && s ? forkBoundary(data.turns(), s.created) : null; });
+  /** whether the fork has turns of its own after the copies */
+  const ownTurns = createMemo(() => { const b = boundary(); return b !== null && data.ids().at(-1) !== b; });
+  const [lineageOpening, setLineageOpening] = createSignal(false);
+  /** opens the thread this one was forked from at the turn it was forked from. one the fleet does not hold (cleared from home's
+      twelve hours, or archived) is asked for through history's adopt first, which answers that an archived one is gone */
+  const openLineage = async (at: "top" | "mark") => {
+    const from = lineage();
+    if (!from || lineageOpening()) return;
+    setLineageNote(null);
+    const setNote = (text: string) => setLineageNote({ at, text });
+    if (!state.fleet.threads[from.key]) {
+      setLineageOpening(true);
+      try {
+        const { error, response } = await api.POST("/api/agents/{agent}/threads/{thread}/adopt", { params: { path: { agent: data.host(), thread: from.key.slice(data.host().length + 1) } }, body: { ...deviceIdentity(), clientID: crypto.randomUUID() } });
+        if (!response.ok) {
+          const said = (error as { error?: { message?: unknown } } | undefined)?.error?.message;
+          setNote(typeof said === "string" ? said : `the server answered ${response.status}. try again.`);
+          return;
+        }
+        if (!(await arrives(from.key))) {
+          if (!disposed) setNote("it was found, but has not reached this device yet. try again in a moment.");
+          return;
+        }
+      } catch {
+        setNote("the boxbox server is not answering. check it is running, then try again.");
+        return;
+      } finally {
+        setLineageOpening(false);
+      }
+    }
+    if (disposed) return;
+    openThread(from.key, { cut: from.cut });
   };
 
   /* ---------- the bar condenses once the big title has gone by ---------- */
@@ -523,7 +651,7 @@ export function Stage(props: StageProps) {
     placeTimer = setTimeout(() => {
       let at: string | null = null;
       at = turnAtLine(turnEls())?.dataset["turn"] ?? null;
-      markPlace({ at, part: null });
+      markPlace({ at, part: null, cut: null });
     }, 250);
   };
   onCleanup(() => clearTimeout(placeTimer));
@@ -620,7 +748,7 @@ export function Stage(props: StageProps) {
     if (goToAsk() || landed) return;
     const place = placeInUrl();
     /* the place in the url is another thread's when this stage is under another layer or was opened by a tap: it is not a reason to make every turn */
-    if (placeHere().at === null && placeHere().part === null) { if (data.turns().length) { landed = true; pin.pin(); } return; }
+    if (placeHere().at === null && placeHere().part === null && placeHere().cut === null) { if (data.turns().length) { landed = true; pin.pin(); } return; }
     if (place.part) {
       /* the row's turn is filled first: a turn the window has not filled has no rows to find (stage-window.ts, reveal) */
       const owner = turnOfPart(place.part);
@@ -633,6 +761,13 @@ export function Stage(props: StageProps) {
         light(row, scroller);
         return;
       }
+    }
+    /* a fork's link: the turn just above the message it was cut before, the turn the fork was made from (fork.ts) */
+    const target = place.cut ? (whole(), turnBeforeCut(data.turns(), place.cut)) : null;
+    if (target) {
+      win.reveal(target);
+      const el = scroller.querySelector<HTMLElement>(`section.turn[data-turn="${CSS.escape(target)}"]`);
+      if (el) { landed = true; scroller.scrollTop = topOf(el) - 72; pin.derive(); return; }
     }
     if (place.at) {
       whole();
@@ -1079,6 +1214,10 @@ export function Stage(props: StageProps) {
             <button role="menuitemcheckbox" aria-checked={thinking() === "open" ? "true" : "false"} onClick={() => { setMenuOpen(false); toggleThinking(); }}>show thinking<em>{thinking() === "open" ? "on" : "off"}</em></button>
             <div class="menu-sep" role="separator" />
             <button role="menuitem" disabled={compactBlocked()} onClick={compactNow}>{compacting() ? "compacting" : "compact"}<em>summarise to free the context</em></button>
+            <Show when={forkShown()}>
+              <button role="menuitem" disabled={wholeHeld() !== null} aria-disabled={forking() !== null ? "true" : undefined} onClick={() => void fork({}, "whole")}>{forking() === "whole" ? "forking" : "fork"}<em>{wholeHeld() ?? "a new thread with this history"}</em></button>
+              <Show when={forkNote()}>{(why) => <p class="menu-note" role="alert">{why()}</p>}</Show>
+            </Show>
             <button role="menuitem" onClick={copyLink}>copy link</button>
             <Show when={hasRepo()}>
               <button role="menuitem" class="menu-colour" aria-label={`colour, ${colourWords()}`} onClick={() => openColour("menu")}>
@@ -1104,6 +1243,7 @@ export function Stage(props: StageProps) {
           </div>
           <Show when={state.board.met}><BoardReceipt thread={key()} /></Show>
           <Show when={linkCopied()}>{(c) => <p class="stage-receipt" role="status">{c() === "copied" ? "copied" : "could not copy. the address bar holds the same link"}</p>}</Show>
+          <Show when={forkReceipt()}>{(why) => <p class="stage-receipt" role="alert">{why()}</p>}</Show>
           <div ref={scroller} class="stage-scroll" onTouchStart={markTouched} onPointerDown={markTouched} onKeyDown={markTouched}>
             <div ref={threadEl} class="thread" classList={{ wide: wide() }} data-flip-root aria-label="transcript">
               <div ref={titleBlock} class="title-block">
@@ -1118,7 +1258,10 @@ export function Stage(props: StageProps) {
                     </button>
                   </Show>
                   <Show when={parentKey()}><span class="tb-parent">an agent of {parentTitle()}</span></Show>
+                  {/* a fork names the thread it came from and is the door back to the turn it was forked from (docs/thread.md, fork) */}
+                  <Show when={lineage()}>{(from) => <button type="button" class="tb-parent tb-fork" aria-label={lineageWords(from())} aria-disabled={lineageOpening() ? "true" : undefined} onClick={() => void openLineage("top")}>{lineageWords(from())}</button>}</Show>
                 </div>
+                <Show when={lineageNote()?.at === "top" && lineageNote()}>{(why) => <p class="tb-fork-note" role="alert">{why().text}</p>}</Show>
                 <h1 class="tb-h1">{title()}</h1>
                 <div class="tb-status" aria-live="polite">
                   <Show when={status().live}><i /></Show>
@@ -1144,12 +1287,26 @@ export function Stage(props: StageProps) {
               <AskContext.Provider value={actions}>
                 <MeasureContext.Provider value={measure}>
                   <NamesContext.Provider value={names}>
-                    <CachesContext.Provider value={threadCaches}><ThreadKeyContext.Provider value={key}><WindowContext.Provider value={win}><ChildWatchContext.Provider value={watchChild}><LandingContext.Provider value={still}><SettleContext.Provider value={settle}><FollowContext.Provider value={follow}>
+                    <CachesContext.Provider value={threadCaches}><ThreadKeyContext.Provider value={key}><WindowContext.Provider value={win}><ChildWatchContext.Provider value={watchChild}><LandingContext.Provider value={still}><SettleContext.Provider value={settle}><FollowContext.Provider value={follow}><ForkContext.Provider value={forkHere}>
                       <OpenAgentContext.Provider value={(child, name) => openAgent(`${data.host()}:${child}`, name)}>
                         {/* turns are keyed by their id: the running turn is rebuilt as an object on every delta and must keep its dom, and turns come in above the first */}
-                        <For each={data.ids()}>{(id) => { let last: Turn | undefined; const turn = (): Turn => (last = data.turnOf(id) ?? last) as Turn; return <TurnView turn={turn()} ctx={data.ctx()} live={isLive(turn())} now={data.now()} />; }}</For>
+                        <For each={data.ids()}>{(id) => { let last: Turn | undefined; const turn = (): Turn => (last = data.turnOf(id) ?? last) as Turn; return (
+                          <>
+                            <TurnView turn={turn()} ctx={data.ctx()} live={isLive(turn())} now={data.now()} />
+                            {/* a fork's copied history ends here: the divider names where it came from and is a door back to the cut */}
+                            <Show when={boundary() === id && lineage()}>{(from) => {
+                              const words = () => boundaryWords(from(), ownTurns());
+                              return (
+                                <div class="fork-mark">
+                                  <p>{words().before}<button type="button" aria-label={words().name} aria-disabled={lineageOpening() ? "true" : undefined} onClick={() => void openLineage("mark")}>{words().link}</button>{words().after}</p>
+                                  <Show when={lineageNote()?.at === "mark" && lineageNote()}>{(why) => <p class="fork-mark-note" role="alert">{why().text}</p>}</Show>
+                                </div>
+                              );
+                            }}</Show>
+                          </>
+                        ); }}</For>
                       </OpenAgentContext.Provider>
-                    </FollowContext.Provider></SettleContext.Provider></LandingContext.Provider></ChildWatchContext.Provider></WindowContext.Provider></ThreadKeyContext.Provider></CachesContext.Provider>
+                    </ForkContext.Provider></FollowContext.Provider></SettleContext.Provider></LandingContext.Provider></ChildWatchContext.Provider></WindowContext.Provider></ThreadKeyContext.Provider></CachesContext.Provider>
                   </NamesContext.Provider>
                 </MeasureContext.Provider>
               </AskContext.Provider>

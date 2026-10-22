@@ -9,6 +9,167 @@
     "version": "1"
   },
   "paths": {
+    "/api/agents/{agent}/threads/{thread}/adopt": {
+      "post": {
+        "tags": [
+          "super::agents::routes"
+        ],
+        "summary": "holds a past thread in the fleet (the history capability): one opened\nfrom history that the fleet does not hold.",
+        "operationId": "adoptThread",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verb"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "the fleet holds the thread now"
+          },
+          "404": {
+            "description": "no such agent or thread, or it was archived",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the agent has no history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{agent}/threads/{thread}/fork": {
+      "post": {
+        "tags": [
+          "super::agents::routes"
+        ],
+        "summary": "forks a thread (the fork capability): a new thread holding its history\nup to, not including, `before`, or all of it. the new thread is the\nagent's to name; it reaches the fleet on the agent's events like any\nother, and the answer names it so the device can open it once it does.",
+        "operationId": "fork",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForkBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "the new thread",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentBorn"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a fork",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such agent or thread (`no-such-session`), or the message is not in it (`no-such-turn`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "the agent refused: history it holds as browse only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the agent cannot fork",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the agent could not be reached (`agent-unreachable`), or took the fork and did not answer in time (`agent-uncertain`: a retry with the same clientID answers the first fork)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/board/pin": {
       "post": {
         "tags": [
@@ -4707,6 +4868,23 @@
           "question"
         ]
       },
+      "AgentBorn": {
+        "type": "object",
+        "description": "a new thread's answer.",
+        "required": [
+          "key",
+          "thread"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "`<agent>:<thread>`."
+          },
+          "thread": {
+            "type": "string"
+          }
+        }
+      },
       "AgentChange": {
         "oneOf": [
           {
@@ -6237,6 +6415,10 @@
             "type": "boolean",
             "description": "`@` file mentions."
           },
+          "fork": {
+            "type": "boolean",
+            "description": "a new thread from this one's history, whole or up to a message.\nabsent from an older server's agents: read as false."
+          },
           "history": {
             "type": "boolean",
             "description": "past threads, paged; adopt."
@@ -6682,7 +6864,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `page-too-large`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,\nand the board's `no-board`, `no-board-window`, `board-busy`,\n`no-such-machine`, `board-protocol`; protocol 3's `no-such-stream`."
+            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `no-such-turn`, `browse-only`, `agent-uncertain`, `page-too-large`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,\nand the board's `no-board`, `no-board-window`, `board-busy`,\n`no-such-machine`, `board-protocol`; protocol 3's `no-such-stream`."
           },
           "message": {
             "type": "string",
@@ -6887,6 +7069,34 @@
             "description": "more folders matched than `children` holds: type more of the name to narrow it."
           }
         }
+      },
+      "ForkBody": {
+        "type": "object",
+        "description": "a fork: the device, and the message the fork is cut before. without\none the fork holds the whole thread.",
+        "required": [
+          "device",
+          "deviceClass",
+          "clientID"
+        ],
+        "properties": {
+          "before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the first message of this thread the fork leaves out."
+          },
+          "clientID": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "FrameCounts": {
         "type": "object",
@@ -9888,6 +10098,17 @@
               "null"
             ]
           },
+          "forkedFrom": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThreadForkedFrom",
+                "description": "the thread this one was forked from (the fork capability). a fork is\na thread of its own, never an agent of the one it came from."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "generation": {
             "type": [
               "string",
@@ -9930,7 +10151,7 @@
               "string",
               "null"
             ],
-            "description": "the parent thread's id (the subagents capability)."
+            "description": "the parent thread's id (the subagents capability): this thread is an\nagent the parent started."
           },
           "place": {
             "oneOf": [
@@ -10026,6 +10247,7 @@
           "said",
           "generation",
           "parent",
+          "forkedFrom",
           "place",
           "origin",
           "sends",
@@ -10040,6 +10262,26 @@
           "read",
           "cleared"
         ]
+      },
+      "ThreadForkedFrom": {
+        "type": "object",
+        "description": "where a thread was forked from: a thread of the same agent, and the\nmessage of it the fork was cut before.",
+        "required": [
+          "thread"
+        ],
+        "properties": {
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "the first of its messages the fork left out; absent when the fork\nholds all of it."
+          },
+          "thread": {
+            "type": "string",
+            "description": "the thread's id, as `parent` names one."
+          }
+        }
       },
       "ThreadPatch": {
         "type": "object",
@@ -10177,6 +10419,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "forkedFrom": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ThreadForkedFrom"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "generation": {

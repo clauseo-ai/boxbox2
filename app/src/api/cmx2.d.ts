@@ -666,7 +666,7 @@ export type paths = {
         };
         get?: never;
         put?: never;
-        /** a new session with this one's history up to (not including) a message, or all of it; titled (fork #n) */
+        /** a new session with this one's history up to (not including) a message, or all of it; titled (fork #n), with forkedFrom naming this session and the message. its copied messages get new ids under the fork's own id. a repeat with the same clientID answers the first fork, as it was answered, and makes no other */
         post: operations["fork"];
         delete?: never;
         options?: never;
@@ -720,6 +720,58 @@ export type paths = {
         put?: never;
         /** land a message at the next tool boundary of the running turn (announced as a provisional message marked steer: true), or start a turn. an effort or agent rides the steer (the effort applies from the next turn, the agent when it lands); a model other than the running turn's answers 400, since a steer joins the turn that is running (queue it instead). an effort the model does not allow answers 400 */
         post: operations["steer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/session/{sessionID}/btw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** the session's btws, oldest first, dismissed ones included (time.dismissed set) */
+        get: operations["btws"];
+        put?: never;
+        /** ask a side question about the session. it runs at once, idle or mid-turn, on the session's model with the session's context (mid-turn, the context of the request already sent), and never touches the session's status, queue, steers or transcript. the answer streams as btw.delta and lands in btw.updated; its spend adds to the session's totals */
+        post: operations["askBtw"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/session/{sessionID}/btw/{btwID}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** hide a btw: sets time.dismissed (a flag; the btw stays readable). a running btw stops and ends as an error. a second call changes nothing and answers the same btw */
+        post: operations["dismissBtw"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/session/{sessionID}/btw/{btwID}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** put a done btw into the thread: a user message (marked btw: <id>) holding the question and the answer, framed as a btw the user asked, sent as a steer when a turn runs and as a prompt otherwise. 409 when the btw is not done or was promoted already */
+        post: operations["promoteBtw"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1536,6 +1588,12 @@ export type components = {
             projectID: string;
             directory: string;
             parentID?: string;
+            /** @description set on a session made by fork: where it came from */
+            forkedFrom?: {
+                sessionID: string;
+                /** @description the parent's message the fork was cut before: the fork holds the parent's history up to, not including, this message. absent when the whole history was forked */
+                messageID?: string;
+            };
             title: string;
             /** @description daemon version that created the session */
             version: string;
@@ -1655,6 +1713,8 @@ export type components = {
             };
             /** @description on a queued or steered user message: the effort it asked for, applied when it runs (a steer's from the next turn) */
             variant?: string;
+            /** @description on a user message made by promoting a btw: the btw's id. its text is the question and the answer, framed as a btw the user asked */
+            btw?: string;
         } & {
             [key: string]: unknown;
         };
@@ -1952,6 +2012,12 @@ export type components = {
                     projectID: string;
                     directory: string;
                     parentID?: string;
+                    /** @description set on a session made by fork: where it came from */
+                    forkedFrom?: {
+                        sessionID: string;
+                        /** @description the parent's message the fork was cut before: the fork holds the parent's history up to, not including, this message. absent when the whole history was forked */
+                        messageID?: string;
+                    };
                     title: string;
                     /** @description daemon version that created the session */
                     version: string;
@@ -2423,6 +2489,79 @@ export type components = {
                 delta: string;
                 /** @description utf-16 units of the part's text before this delta; deltas are not logged, so a consumer checks contiguity with this */
                 offset: number;
+            };
+            /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
+            seq?: number;
+            /** @description logged events only: names the store the seq belongs to */
+            epoch?: string;
+        };
+        /** @description a btw was asked, finished (done or error), dismissed or promoted; it carries the whole btw. on a resume a running btw is sent again with its answer so far where the stream goes live */
+        Event_btw_updated: {
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "btw.updated";
+            properties: {
+                sessionID: string;
+                /** @description a side question about a session, answered by the session's model from the session's context in a request that reads the session's prompt cache. it is never part of the transcript: not in message reads, forks or compaction, and the model does not see it later unless it is promoted */
+                btw: {
+                    id: string;
+                    sessionID: string;
+                    /** @description the question */
+                    text: string;
+                    /** @description the answer so far: empty when asked, grown by btw.delta while running, final when done. an error keeps the text that came before it */
+                    answer: string;
+                    status: "running" | "done" | "error";
+                    /** @description on status error: what went wrong, short and lowercase, to show as is */
+                    error?: string;
+                    /** @description the session's last message when the btw was asked; a client places the card after it */
+                    afterMessageID?: string;
+                    time: {
+                        created: number;
+                        /** @description when it finished, done or error */
+                        completed?: number;
+                        /** @description when it was dismissed; a dismissed btw stays readable, clients hide it */
+                        dismissed?: number;
+                    };
+                    /** @description the user message it was promoted into */
+                    promotedMessageID?: string;
+                    /** @description the model that answers: the session's */
+                    model?: {
+                        providerID: string;
+                        modelID: string;
+                    };
+                    /** @description once finished: what its requests used; added to the session's totals, not to its context fill */
+                    tokens?: {
+                        input: number;
+                        output: number;
+                        cache: {
+                            read: number;
+                            write: number;
+                        };
+                    };
+                    /** @description once finished: what it cost, added to the session's cost */
+                    cost?: number;
+                };
+            };
+            /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
+            seq?: number;
+            /** @description logged events only: names the store the seq belongs to */
+            epoch?: string;
+        };
+        /** @description streamed answer text for a running btw, appended to its answer in order. not logged and not numbered, like message.part.delta; coalesce=100 merges a btw's deltas into one per batch */
+        Event_btw_delta: {
+            id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "btw.delta";
+            properties: {
+                sessionID: string;
+                btwID: string;
+                delta: string;
             };
             /** @description logged events only: the event's place in the log; the sse id is <epoch>:<seq> */
             seq?: number;
@@ -3047,6 +3186,8 @@ export type components = {
                 /** @description parked, failed, partial */
                 label: string;
                 body_length: number;
+                /** @description the file holding the whole report body, under the daemon's data dir; absent when the body was empty */
+                file?: string;
                 abort_reason?: {
                     reason: string;
                     details: string;
@@ -3341,7 +3482,7 @@ export type components = {
             /** @description logged events only: names the store the seq belongs to */
             epoch?: string;
         };
-        Event: components["schemas"]["Event_server_connected"] | components["schemas"]["Event_server_heartbeat"] | components["schemas"]["Event_global_disposed"] | components["schemas"]["Event_stream_reset"] | components["schemas"]["Event_config_updated"] | components["schemas"]["Event_mcp_status"] | components["schemas"]["Event_session_created"] | components["schemas"]["Event_session_updated"] | components["schemas"]["Event_session_deleted"] | components["schemas"]["Event_session_model"] | components["schemas"]["Event_session_resumed"] | components["schemas"]["Event_session_status"] | components["schemas"]["Event_session_idle"] | components["schemas"]["Event_session_error"] | components["schemas"]["Event_session_steered"] | components["schemas"]["Event_session_queued"] | components["schemas"]["Event_session_effort"] | components["schemas"]["Event_session_tools"] | components["schemas"]["Event_session_warning"] | components["schemas"]["Event_session_compacted"] | components["schemas"]["Event_compaction_prefire"] | components["schemas"]["Event_compaction_failed"] | components["schemas"]["Event_session_images_dropped"] | components["schemas"]["Event_session_prefix_changed"] | components["schemas"]["Event_message_updated"] | components["schemas"]["Event_message_part_updated"] | components["schemas"]["Event_message_part_delta"] | components["schemas"]["Event_file_edited"] | components["schemas"]["Event_message_removed"] | components["schemas"]["Event_command_executed"] | components["schemas"]["Event_pty_created"] | components["schemas"]["Event_pty_updated"] | components["schemas"]["Event_pty_exited"] | components["schemas"]["Event_pty_deleted"] | components["schemas"]["Event_process_started"] | components["schemas"]["Event_process_updated"] | components["schemas"]["Event_process_exited"] | components["schemas"]["Event_process_deleted"] | components["schemas"]["Event_process_notify"] | components["schemas"]["Event_step_recorded"] | components["schemas"]["Event_session_escalated"] | components["schemas"]["Event_session_deescalated"] | components["schemas"]["Event_session_warmed"] | components["schemas"]["Event_project_updated"] | components["schemas"]["Event_worktree_ready"] | components["schemas"]["Event_worktree_failed"] | components["schemas"]["Event_worktree_review_requested"] | components["schemas"]["Event_worktree_merged"] | components["schemas"]["Event_worktree_discarded"] | components["schemas"]["Event_agent_spawned"] | components["schemas"]["Event_agent_updated"] | components["schemas"]["Event_agent_closed"] | components["schemas"]["Event_agent_report"] | components["schemas"]["Event_agent_message"] | components["schemas"]["Event_agent_wait"] | components["schemas"]["Event_agent_metric_deliverable_arrived"] | components["schemas"]["Event_agent_metric_safety_net_fired"] | components["schemas"]["Event_agent_metric_sibling_deadlock"] | components["schemas"]["Event_agent_metric_step_up"] | components["schemas"]["Event_agent_metric_retry"] | components["schemas"]["Event_agent_metric_subagent_tool_error"] | components["schemas"]["Event_permission_asked"] | components["schemas"]["Event_permission_replied"] | components["schemas"]["Event_question_asked"] | components["schemas"]["Event_question_replied"] | components["schemas"]["Event_question_rejected"];
+        Event: components["schemas"]["Event_server_connected"] | components["schemas"]["Event_server_heartbeat"] | components["schemas"]["Event_global_disposed"] | components["schemas"]["Event_stream_reset"] | components["schemas"]["Event_config_updated"] | components["schemas"]["Event_mcp_status"] | components["schemas"]["Event_session_created"] | components["schemas"]["Event_session_updated"] | components["schemas"]["Event_session_deleted"] | components["schemas"]["Event_session_model"] | components["schemas"]["Event_session_resumed"] | components["schemas"]["Event_session_status"] | components["schemas"]["Event_session_idle"] | components["schemas"]["Event_session_error"] | components["schemas"]["Event_session_steered"] | components["schemas"]["Event_session_queued"] | components["schemas"]["Event_session_effort"] | components["schemas"]["Event_session_tools"] | components["schemas"]["Event_session_warning"] | components["schemas"]["Event_session_compacted"] | components["schemas"]["Event_compaction_prefire"] | components["schemas"]["Event_compaction_failed"] | components["schemas"]["Event_session_images_dropped"] | components["schemas"]["Event_session_prefix_changed"] | components["schemas"]["Event_message_updated"] | components["schemas"]["Event_message_part_updated"] | components["schemas"]["Event_message_part_delta"] | components["schemas"]["Event_btw_updated"] | components["schemas"]["Event_btw_delta"] | components["schemas"]["Event_file_edited"] | components["schemas"]["Event_message_removed"] | components["schemas"]["Event_command_executed"] | components["schemas"]["Event_pty_created"] | components["schemas"]["Event_pty_updated"] | components["schemas"]["Event_pty_exited"] | components["schemas"]["Event_pty_deleted"] | components["schemas"]["Event_process_started"] | components["schemas"]["Event_process_updated"] | components["schemas"]["Event_process_exited"] | components["schemas"]["Event_process_deleted"] | components["schemas"]["Event_process_notify"] | components["schemas"]["Event_step_recorded"] | components["schemas"]["Event_session_escalated"] | components["schemas"]["Event_session_deescalated"] | components["schemas"]["Event_session_warmed"] | components["schemas"]["Event_project_updated"] | components["schemas"]["Event_worktree_ready"] | components["schemas"]["Event_worktree_failed"] | components["schemas"]["Event_worktree_review_requested"] | components["schemas"]["Event_worktree_merged"] | components["schemas"]["Event_worktree_discarded"] | components["schemas"]["Event_agent_spawned"] | components["schemas"]["Event_agent_updated"] | components["schemas"]["Event_agent_closed"] | components["schemas"]["Event_agent_report"] | components["schemas"]["Event_agent_message"] | components["schemas"]["Event_agent_wait"] | components["schemas"]["Event_agent_metric_deliverable_arrived"] | components["schemas"]["Event_agent_metric_safety_net_fired"] | components["schemas"]["Event_agent_metric_sibling_deadlock"] | components["schemas"]["Event_agent_metric_step_up"] | components["schemas"]["Event_agent_metric_retry"] | components["schemas"]["Event_agent_metric_subagent_tool_error"] | components["schemas"]["Event_permission_asked"] | components["schemas"]["Event_permission_replied"] | components["schemas"]["Event_question_asked"] | components["schemas"]["Event_question_replied"] | components["schemas"]["Event_question_rejected"];
         GlobalFrame: {
             directory?: string;
             project?: string;
@@ -5098,6 +5239,8 @@ export interface operations {
                     body: string;
                     wake?: boolean;
                     correlation_id?: string;
+                    /** @description files whose contents ride along with the note, cut like a spawn's (relative paths resolve against the sender's directory); a report's file can be passed on this way */
+                    files?: string[];
                 };
             };
         };
@@ -6605,6 +6748,8 @@ export interface operations {
             content: {
                 "application/json": {
                     messageID?: string;
+                    /** @description a uuid the client picks; a repeat within 24 h returns the first answer and does nothing, and events the request causes carry it */
+                    clientID?: string;
                 };
             };
         };
@@ -6874,6 +7019,337 @@ export interface operations {
                         model?: string;
                         effort?: string;
                         agent?: string;
+                    };
+                };
+            };
+            /** @description error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description BusyError (a turn is running) or ConflictError (already settled, imported history, a used client id) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    btws: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ok */
+            200: {
+                headers: {
+                    /** @description the cursor (<epoch>:<seq>) of the last event this state includes; apply only events after it */
+                    "x-cmx2-seq"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        sessionID: string;
+                        /** @description the question */
+                        text: string;
+                        /** @description the answer so far: empty when asked, grown by btw.delta while running, final when done. an error keeps the text that came before it */
+                        answer: string;
+                        status: "running" | "done" | "error";
+                        /** @description on status error: what went wrong, short and lowercase, to show as is */
+                        error?: string;
+                        /** @description the session's last message when the btw was asked; a client places the card after it */
+                        afterMessageID?: string;
+                        time: {
+                            created: number;
+                            /** @description when it finished, done or error */
+                            completed?: number;
+                            /** @description when it was dismissed; a dismissed btw stays readable, clients hide it */
+                            dismissed?: number;
+                        };
+                        /** @description the user message it was promoted into */
+                        promotedMessageID?: string;
+                        /** @description the model that answers: the session's */
+                        model?: {
+                            providerID: string;
+                            modelID: string;
+                        };
+                        /** @description once finished: what its requests used; added to the session's totals, not to its context fill */
+                        tokens?: {
+                            input: number;
+                            output: number;
+                            cache: {
+                                read: number;
+                                write: number;
+                            };
+                        };
+                        /** @description once finished: what it cost, added to the session's cost */
+                        cost?: number;
+                    }[];
+                };
+            };
+            /** @description error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    askBtw: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionID: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    text: string;
+                    /** @description a uuid the client picks; a repeat within 24 h returns the first answer and does nothing, and events the request causes carry it */
+                    clientID?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description ok */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        sessionID: string;
+                        /** @description the question */
+                        text: string;
+                        /** @description the answer so far: empty when asked, grown by btw.delta while running, final when done. an error keeps the text that came before it */
+                        answer: string;
+                        status: "running" | "done" | "error";
+                        /** @description on status error: what went wrong, short and lowercase, to show as is */
+                        error?: string;
+                        /** @description the session's last message when the btw was asked; a client places the card after it */
+                        afterMessageID?: string;
+                        time: {
+                            created: number;
+                            /** @description when it finished, done or error */
+                            completed?: number;
+                            /** @description when it was dismissed; a dismissed btw stays readable, clients hide it */
+                            dismissed?: number;
+                        };
+                        /** @description the user message it was promoted into */
+                        promotedMessageID?: string;
+                        /** @description the model that answers: the session's */
+                        model?: {
+                            providerID: string;
+                            modelID: string;
+                        };
+                        /** @description once finished: what its requests used; added to the session's totals, not to its context fill */
+                        tokens?: {
+                            input: number;
+                            output: number;
+                            cache: {
+                                read: number;
+                                write: number;
+                            };
+                        };
+                        /** @description once finished: what it cost, added to the session's cost */
+                        cost?: number;
+                    };
+                };
+            };
+            /** @description error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    dismissBtw: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionID: string;
+                btwID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ok */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: string;
+                        sessionID: string;
+                        /** @description the question */
+                        text: string;
+                        /** @description the answer so far: empty when asked, grown by btw.delta while running, final when done. an error keeps the text that came before it */
+                        answer: string;
+                        status: "running" | "done" | "error";
+                        /** @description on status error: what went wrong, short and lowercase, to show as is */
+                        error?: string;
+                        /** @description the session's last message when the btw was asked; a client places the card after it */
+                        afterMessageID?: string;
+                        time: {
+                            created: number;
+                            /** @description when it finished, done or error */
+                            completed?: number;
+                            /** @description when it was dismissed; a dismissed btw stays readable, clients hide it */
+                            dismissed?: number;
+                        };
+                        /** @description the user message it was promoted into */
+                        promotedMessageID?: string;
+                        /** @description the model that answers: the session's */
+                        model?: {
+                            providerID: string;
+                            modelID: string;
+                        };
+                        /** @description once finished: what its requests used; added to the session's totals, not to its context fill */
+                        tokens?: {
+                            input: number;
+                            output: number;
+                            cache: {
+                                read: number;
+                                write: number;
+                            };
+                        };
+                        /** @description once finished: what it cost, added to the session's cost */
+                        cost?: number;
+                    };
+                };
+            };
+            /** @description error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description error */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    promoteBtw: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionID: string;
+                btwID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description ok */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description the user message's id: provisional when it was steered into a running turn, as a steer's is */
+                        messageID: string;
                     };
                 };
             };

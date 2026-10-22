@@ -122,7 +122,8 @@ Thread {
   created: number, updated: number,             // ms on the agent's clock
   said?: number,                                // ms of the last turn that wrote to you or asked
   generation?: string,                          // opaque; changes when the agent swaps the conversation
-  parent?: string,                              // the parent thread's id (subagents capability)
+  parent?: string,                              // the parent thread's id (subagents capability): an agent it started
+  forkedFrom?: { thread: string, message?: string },   // fork capability: the thread of the same agent it was forked from, and its first message the fork left out (absent: the whole thread)
   place?: { root: string, directory: string, name: string },   // places capability only
   origin?: Origin,                              // the thread lives on a channel, or is a scheduled run
   activity: { state: "idle" } | { state: "busy", since: number }
@@ -412,6 +413,7 @@ longer cross raw. a field not named here does not cross.
 | `Thread.title` | `info.title` | |
 | `Thread.created`, `.updated` | `info.time.created`, `info.time.updated` | |
 | `Thread.parent` | `info.parentID` | |
+| `Thread.forkedFrom` | `info.forkedFrom`: `sessionID` to `thread`, `messageID` to `message` | a fork is never `parent`: `parent` says "an agent of"; absent from a daemon before cmx2 b1e6f8f |
 | `Thread.place.root` | `info.projectID` when absolute, else `info.directory` | today's client rule (`app/src/ui/composer/place.ts:9-11`) |
 | `Thread.place.directory` | `info.directory` | |
 | `Thread.place.name` | the repo word the server already derives | `model.rs:2686-2693` |
@@ -894,6 +896,7 @@ first (below).
 | commands | `GET /api/agents/{agent}/commands`, `POST T/command` | `/api/hosts/{host}/commands`, `.../command` | commands |
 | react | `PUT T/messages/{message}/reactions` with `{emoji, on}` | none | reactions |
 | archive | `POST T/archive` | `.../archive` | archive |
+| fork | `POST T/fork` with `{before?}`, the first message the fork leaves out, and the `clientID` a retry repeats; answers 201 `{key, thread}` | none (a new verb; the app calls this route) | fork |
 | adopt | `POST T/adopt` | `.../adopt` | history |
 | answer an ask | `POST /api/agents/{agent}/asks/{id}` | `/api/hosts/{host}/permissions/{ask}`, `.../questions/{ask}`, `.../questions/{ask}/reject` | approvals, questions |
 | new thread | `POST /api/agents/{agent}/threads` | `POST /api/hosts/{host}/sessions` | threads |
@@ -915,14 +918,19 @@ the journaled state (`protocol.md`, sections 6 and 15); `GET /api/needs`
 and `GET /api/history` answer as they did, with no `?protocol`.
 
 - **as built (m9, `http/agents/`).** the trait verbs (prompt, steer, queue,
-  run now, unsend, abort, compact, react, archive, adopt, answer, new
+  run now, unsend, abort, compact, react, archive, fork, adopt, answer, new
   thread, models) are `routes.rs`; the cmx2-only capabilities with no trait
   verb (terminal, review, places, files, shell, commands, admin) are served
   by the `/api/hosts` handlers behind the same check (`agents::guard`), in the
   shapes they answer today, and 501 `not-built` for an agent with the
   capability on a source that is not cmx2. `GET /api/agents` lists every
   agent with its connection's state (the agents screen's data). a plain
-  verb answers 204; archive answers `{key, at}`; models `{models:
+  verb answers 204; archive answers `{key, at}`; fork answers 201 with the
+  new thread's `{key, thread}` (404 `no-such-session` for the thread, 404
+  `no-such-turn` for a `before` the thread does not hold, 409 `browse-only`
+  for history the agent keeps browse only, 502 `agent-uncertain` when the
+  agent took it and its answer was lost; its `clientID` goes to the agent,
+  whose once rule answers a repeat with the first fork); models `{models:
   [{id, name, provider?, levels?}], default?}`. new error codes:
   `no-such-agent` 404, `agent-unreachable` 502, `agent-busy` 503 with
   `retry-after: 5`, `generation-changed` 409, `not-confirmed` 409,
@@ -963,6 +971,7 @@ true, and the server refuses the verb when it is not (section 4).
 | `reactions` | emoji reactions on messages | the reaction picker and row | no | yes | no |
 | `threads` | more than one thread; start one with no place | "start something" for this agent | yes | yes | yes |
 | `archive` | archive a thread | the archive item | yes | yes | yes |
+| `fork` | a new thread from this one's history, whole or up to a message | the menu's fork, each turn's fork from here | yes | no (not built) | no |
 | `commands` | slash commands | `/` | yes | no | no |
 | `files` | `@` file mentions | `@` | yes | no | no |
 | `shell` | `!` lines | `!` | yes | no | no |

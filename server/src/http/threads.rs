@@ -309,7 +309,8 @@ pub async fn archive(
         "kind": "thread.archived",
         "host": host,
         "session": format!("{host}:{session}"),
-        "ok": outcome.is_ok(),
+        // a patch the daemon took and did not answer in time may have landed: not known, not a failure
+        "ok": outcome.as_ref().map_or_else(|e| (!crate::source::cmx2::verbs::threads::unanswered(e)).then_some(false), |_| Some(true)),
     }));
     let info = outcome?;
     info!(host, session, "thread archived");

@@ -1334,21 +1334,104 @@ touching those (`big-text.ts`):
   opens the details), show thinking (checked); then compact ("compacting"
   while it runs, held while a turn runs or the stream is down; it is the
   composer's compaction, one state per thread, so the composer's card says
-  it with its clock: `composer/compact.ts`) and copy link (`/?thread=` with
+  it with its clock: `composer/compact.ts`), fork (below, fork) and copy link (`/?thread=` with
   `&at=` the turn in view, else the newest; "copied" under the bar for
   1.6 s, or "could not copy. the address bar holds the same link" for 4
   s), and colour (the repo's colour's dot and "cobalt · automatic" or
   "sunset · chosen"; it opens the colour sheet, `design.md`, the colour
   sheet; not on a thread with no repo); then archive. esc closes it and
   gives the keyboard back to `⋯`.
-  rename and fork from here wait on a daemon verb.
+  rename waits on a daemon verb.
+- **fork** (built, the fork capability; `ui/thread/fork.ts`): a new
+  thread holding this one's history, which then goes its own way.
+  - **from the menu**, "fork" with "a new thread with this history" as its
+    second line forks the whole thread. it is held, with its reason in
+    place of that line, while a turn runs ("after this turn": the turn's
+    end is not written yet) or the stream is down ("offline"). it says
+    "forking" while it runs.
+  - **from a turn**, "fork from here" (a branch glyph, 12.5 px, the second
+    ink) sits after the reply's copy on the line under every settled turn's
+    answer, or on a line of its own for a turn with no answer (a report, a
+    stopped turn). it forks the history through that turn's end: the cut
+    is before the next turn's first message, and the last turn forks the
+    whole thread. so forking the last turn copies whatever the thread
+    holds when the agent makes the fork, a turn another device started in
+    the meantime included: cmx2 cuts only before a message, and the
+    message after the last turn does not exist yet to cut before (decided:
+    recorded, not worked around). the running turn and a message that
+    waits offer none; a settled turn above a running one still does, and
+    its fork leaves the running turn out. each is named apart as the
+    reply's copy is, "fork from here, 17:17, <the prompt's first line>",
+    and named with the copy controls (`copy-run.ts`, renameAll), so two
+    turns with one clock and one first line get ", again". held while the
+    stream is down, with "offline" as its title. a held control and one
+    whose fork is running stay focusable (`aria-disabled`, the press
+    refused), so the keyboard is where it was when the fork fails.
+  - **neither shows** when the agent cannot fork (its capability; an older
+    server sends none) or the history is imported and browse only.
+  - **what follows.** the call is `POST /api/agents/:agent/threads/:id/fork`
+    with `before` (the cut message) or nothing (the whole thread), and a
+    `clientID`: one per cut, kept in the tab's sessionStorage while that
+    fork is running or its answer was lost (no answer, a 5xx) and let go
+    once it is made or refused (a 4xx: a repeat would be refused again;
+    16 cuts at most, the oldest let go; `fork-ids.ts`), so a retry after
+    an answer that never came, a reload of the stage or a second tap
+    repeats it and cmx2's once rule answers the first fork instead of
+    making a second. the same id on another thread is the daemon's 409,
+    which boxbox answers 400 ("that fork's client id was already used for
+    something else. fork again"), and a first request a daemon restart cut
+    off is `agent-uncertain`. a long thread's fork can be slow: the copy
+    holds cmx2's event loop about 60 ms at 5 mb and 0.9 s at 100 mb, inside
+    the 15 s boxbox waits, and a retry past it is the same fork. the
+    new thread comes on the stream like any thread the agent makes; the
+    stage waits up to 10 s for the fleet to hold it, then opens it in the
+    stage's place (the menu closes first). one that has not come says
+    "the fork was made and has not reached this device yet. it shows on
+    home when it does." a refusal says the server's words: in the menu
+    under the item for the menu's fork, under the bar for 6 s
+    (`stage-receipt`, an alert, wrapping) for a turn's. a turn the agent
+    no longer holds is "that turn is not in this thread any more. open
+    the thread again and fork from a turn it shows"; imported history is
+    409 `browse-only`, "history imported from cmx is browse only, so it
+    cannot be forked"; a fork the agent took and did not answer in time
+    (or answered past reading) is 502 `agent-uncertain`, "<agent> did not
+    answer in time (<why>). it may have done it: try again and it is not
+    done twice"; a server that does not answer is "the boxbox server is
+    not answering. check it is running, then try again."
+  - **the lineage line.** a forked thread (`Thread.forkedFrom`) says
+    "forked from <title>" after the repo line, in the line's quiet voice,
+    underlined: it is a button that opens the thread it came from at the
+    turn it was forked from (`/?thread=<key>&cut=<message>`: the stage
+    lands on the turn just above the cut message, `fork.ts`,
+    `turnBeforeCut`; a whole-thread fork has no cut and opens at the end).
+    a thread the fleet does not hold is named "forked from another
+    thread"; a tap asks for it through the agent's adopt (`POST
+    /api/agents/:agent/threads/:id/adopt`) and opens it once
+    it arrives, and an archived or deleted one answers with the server's
+    words in red under the line ("that thread is not on <machine> any
+    more. it may have been archived"). a fork is never "an agent of": that
+    is `parent`, a different relation, and a fork of an agent's thread
+    keeps only its own line.
+  - **the divider.** in the fork, after the last copied turn, a quiet rule
+    either side of "forked from <title>. everything above came from it;
+    this thread's own turns start here." ("will start here" while it has
+    none, so a whole fork with no new turns shows it at its end). the
+    title is a link with the top line's landing (the parent at the cut;
+    named "open <title> where this fork was cut", apart from the top
+    line's name), and what it could not do is said under it. the copied
+    turns are told by time: they keep the times the parent's messages were
+    written at, and the fork's own are written after the fork was made, so
+    the last turn that began before the thread's `created` is the boundary
+    (`fork.ts`, `forkBoundary`; positions would need the count of copied
+    messages, which no client is told). a boundary turn not read yet (an
+    older turn still to come in) shows no divider until it is.
 - **the repo line** above the big title is a button: a capsule on the
   flood, ringed in the accent, holding the mark, the repo's name, its
   colour's dot and a caret (44 px tall to the finger). it opens the colour
   sheet, as the menu's colour item does, and the keyboard comes back to it
   when the sheet closes. an agent's stage keeps "an agent of <parent>"
-  beside it, outside the button. a thread with no repo root shows the
-  plain line.
+  beside it, outside the button, and a forked thread "forked from
+  <title>" (below, fork). a thread with no repo root shows the plain line.
 - **the turn keys** (the ios app's, ⌘ on a mac and control elsewhere; the
   stage on top only, not under another layer or the sheet): ⌥⌘↓ and ⌥⌘↑
   the next and previous prompt, ⌘↓ the latest, ⌘I the details, ⇧⌘T the

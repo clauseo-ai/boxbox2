@@ -61,6 +61,10 @@ pub struct Capabilities {
     /// more than one thread; start one with no place.
     pub threads: bool,
     pub archive: bool,
+    /// a new thread from this one's history, whole or up to a message.
+    /// absent from an older server's agents: read as false.
+    #[serde(default)]
+    pub fork: bool,
     /// slash commands.
     pub commands: bool,
     /// `@` file mentions.
@@ -132,6 +136,7 @@ pub enum Capability {
     Reactions,
     Threads,
     Archive,
+    Fork,
     Commands,
     Files,
     Shell,
@@ -163,6 +168,7 @@ impl Capability {
             Self::Reactions => "reactions",
             Self::Threads => "threads",
             Self::Archive => "archive",
+            Self::Fork => "fork",
             Self::Commands => "commands",
             Self::Files => "files",
             Self::Shell => "shell",
@@ -195,6 +201,7 @@ impl Capability {
             Self::Reactions => "no reactions",
             Self::Threads => "no new threads",
             Self::Archive => "no archive",
+            Self::Fork => "no forks",
             Self::Commands => "no slash commands",
             Self::Files => "no file mentions",
             Self::Shell => "no shell lines",
@@ -239,6 +246,7 @@ impl Capabilities {
             reactions: false,
             threads: true,
             archive: true,
+            fork: true,
             commands: true,
             files: true,
             shell: true,
@@ -271,6 +279,7 @@ impl Capabilities {
             Capability::Reactions => self.reactions,
             Capability::Threads => self.threads,
             Capability::Archive => self.archive,
+            Capability::Fork => self.fork,
             Capability::Commands => self.commands,
             Capability::Files => self.files,
             Capability::Shell => self.shell,

@@ -239,6 +239,36 @@ impl AgentSource for ScriptedSource {
         )
     }
 
+    fn fork(&self, thread: &ThreadRef, fork: super::Fork) -> Verb<'_, Born> {
+        let before = fork.before.as_deref();
+        self.called(
+            "fork",
+            &format!(
+                "{} {} {}",
+                thread.key(),
+                before.unwrap_or("whole"),
+                fork.client_id
+            ),
+        );
+        let refused = match before {
+            Some("mGONE") => Some(VerbError::Missing { what: "turn" }),
+            Some("mIMPORTED") => Some(VerbError::BrowseOnly(
+                "this history is browse only here, so it cannot be forked".into(),
+            )),
+            Some("mSLOW") => Some(VerbError::Uncertain {
+                reason: "no answer within 15s".into(),
+            }),
+            _ => None,
+        };
+        if let Some(error) = refused {
+            return Box::pin(std::future::ready(Err(error)));
+        }
+        Box::pin(std::future::ready(Ok(Born {
+            key: format!("{}:oc_forked", thread.agent),
+            thread: "oc_forked".into(),
+        })))
+    }
+
     fn react(&self, thread: &ThreadRef, message: &str, emoji: &str, on: bool) -> Verb<'_, ()> {
         self.ok(
             "react",
