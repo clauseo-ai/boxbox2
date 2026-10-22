@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { nameOf, reportLabel } from "./copy-names";
+import { nameOf, replyLabel, reportLabel } from "./copy-names";
+import { forkLabel } from "./fork";
 import { announcement, renameAll } from "./copy-run";
 
 /** a control as renameAll reads it: its base name, and the name it has now */
@@ -32,6 +33,14 @@ describe("naming the copy controls of a thread", () => {
     const cs = [reportLabel("helper", false), reportLabel("worker", false), reportLabel("helper", true)].map(control);
     renameAll(thread(cs));
     expect(cs.map((c) => c.label)).toEqual(["copy helper's report", "copy worker's report", "copy helper's note"]);
+  });
+
+  test("turns' fork controls are named with them: two turns with one clock and one first line are told apart", () => {
+    const asked: string[] = [];
+    const forks = [forkLabel("17:17", "continue"), replyLabel("17:17", "continue"), forkLabel("17:17", "continue")].map(control);
+    renameAll({ querySelectorAll: (selector: string) => { asked.push(selector); return forks; } } as unknown as Element);
+    expect(asked[0]).toContain("button[data-fork]");
+    expect(forks.map((c) => c.label)).toEqual(["fork from here, 17:17, continue", "copy the reply, 17:17, continue", "fork from here, 17:17, continue, again"]);
   });
 });
 

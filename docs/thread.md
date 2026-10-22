@@ -1354,15 +1354,35 @@ touching those (`big-text.ts`):
     answer, or on a line of its own for a turn with no answer (a report, a
     stopped turn). it forks the history through that turn's end: the cut
     is before the next turn's first message, and the last turn forks the
-    whole thread. the running turn and a message that waits offer none; a
-    settled turn above a running one still does, and its fork leaves the
-    running turn out. each is named apart as the reply's copy is, "fork
-    from here, 17:17, <the prompt's first line>". held while the stream is
-    down, with "offline" as its title.
+    whole thread. so forking the last turn copies whatever the thread
+    holds when the agent makes the fork, a turn another device started in
+    the meantime included: cmx2 cuts only before a message, and the
+    message after the last turn does not exist yet to cut before (decided:
+    recorded, not worked around). the running turn and a message that
+    waits offer none; a settled turn above a running one still does, and
+    its fork leaves the running turn out. each is named apart as the
+    reply's copy is, "fork from here, 17:17, <the prompt's first line>",
+    and named with the copy controls (`copy-run.ts`, renameAll), so two
+    turns with one clock and one first line get ", again". held while the
+    stream is down, with "offline" as its title. a held control and one
+    whose fork is running stay focusable (`aria-disabled`, the press
+    refused), so the keyboard is where it was when the fork fails.
   - **neither shows** when the agent cannot fork (its capability; an older
     server sends none) or the history is imported and browse only.
   - **what follows.** the call is `POST /api/agents/:agent/threads/:id/fork`
-    with `before` (the cut message) or nothing (the whole thread). the
+    with `before` (the cut message) or nothing (the whole thread), and a
+    `clientID`: one per cut, kept in the tab's sessionStorage while that
+    fork is running or its answer was lost (no answer, a 5xx) and let go
+    once it is made or refused (a 4xx: a repeat would be refused again;
+    16 cuts at most, the oldest let go; `fork-ids.ts`), so a retry after
+    an answer that never came, a reload of the stage or a second tap
+    repeats it and cmx2's once rule answers the first fork instead of
+    making a second. the same id on another thread is the daemon's 409,
+    which boxbox answers 400 ("that fork's client id was already used for
+    something else. fork again"), and a first request a daemon restart cut
+    off is `agent-uncertain`. a long thread's fork can be slow: the copy
+    holds cmx2's event loop about 60 ms at 5 mb and 0.9 s at 100 mb, inside
+    the 15 s boxbox waits, and a retry past it is the same fork. the
     new thread comes on the stream like any thread the agent makes; the
     stage waits up to 10 s for the fleet to hold it, then opens it in the
     stage's place (the menu closes first). one that has not come says
@@ -1372,10 +1392,12 @@ touching those (`big-text.ts`):
     (`stage-receipt`, an alert, wrapping) for a turn's. a turn the agent
     no longer holds is "that turn is not in this thread any more. open
     the thread again and fork from a turn it shows"; imported history is
-    "the host \"<machine>\" refused it: history imported from cmx is
-    browse only, so it cannot be forked"; a server that does not answer
-    is "the boxbox server is not answering. check it is running, then try
-    again."
+    409 `browse-only`, "history imported from cmx is browse only, so it
+    cannot be forked"; a fork the agent took and did not answer in time
+    (or answered past reading) is 502 `agent-uncertain`, "<agent> did not
+    answer in time (<why>). it may have done it: try again and it is not
+    done twice"; a server that does not answer is "the boxbox server is
+    not answering. check it is running, then try again."
   - **the lineage line.** a forked thread (`Thread.forkedFrom`) says
     "forked from <title>" after the repo line, in the line's quiet voice,
     underlined: it is a button that opens the thread it came from at the
@@ -1383,7 +1405,8 @@ touching those (`big-text.ts`):
     lands on the turn just above the cut message, `fork.ts`,
     `turnBeforeCut`; a whole-thread fork has no cut and opens at the end).
     a thread the fleet does not hold is named "forked from another
-    thread"; a tap asks for it through history's adopt and opens it once
+    thread"; a tap asks for it through the agent's adopt (`POST
+    /api/agents/:agent/threads/:id/adopt`) and opens it once
     it arrives, and an archived or deleted one answers with the server's
     words in red under the line ("that thread is not on <machine> any
     more. it may have been archived"). a fork is never "an agent of": that

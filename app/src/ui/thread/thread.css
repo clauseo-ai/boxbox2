@@ -489,8 +489,8 @@ button.fl { border-radius: 8px; }
 .act-line { gap: var(--s4); }
 .fork-btn { position: relative; display: inline-flex; align-items: center; gap: 5px; flex: none; height: 20px; min-height: 0; padding: 0; border-radius: 0; background: none; font-family: var(--sans); font-size: 12.5px; line-height: 20px; color: var(--text-2); white-space: nowrap; -webkit-user-select: none; user-select: none; }
 .fork-btn::before { content: ""; position: absolute; inset: -12px -10px; }
-.fork-btn:disabled { opacity: 0.45; }
-@media (hover: hover) { .fork-btn:not(:disabled):hover { color: var(--text); } }
+.fork-btn[aria-disabled="true"] { opacity: 0.45; }
+@media (hover: hover) { .fork-btn:not([aria-disabled="true"]):hover { color: var(--text); } }
 .fork-g { width: 14px; height: 14px; flex: none; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='4.5' cy='3.5' r='1.5'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.5'/%3E%3Ccircle cx='11.5' cy='5.5' r='1.5'/%3E%3Cpath d='M4.5 5v6M11.5 7c0 2.5-2 3-5 4'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='4.5' cy='3.5' r='1.5'/%3E%3Ccircle cx='4.5' cy='12.5' r='1.5'/%3E%3Ccircle cx='11.5' cy='5.5' r='1.5'/%3E%3Cpath d='M4.5 5v6M11.5 7c0 2.5-2 3-5 4'/%3E%3C/svg%3E") center / contain no-repeat; }
 /* what a copy says is said here, to a screen reader only */
 .copy-status { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

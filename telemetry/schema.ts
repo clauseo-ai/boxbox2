@@ -625,13 +625,14 @@ export const EVENTS = {
     },
   },
   "thread.archived": {
-    doc: "v2: a thread was archived from its menu. ok is the daemon's answer (cmx2's PATCH with time.archived), never the tap.",
+    doc: "v2: a thread was archived from its menu. ok is the daemon's answer (cmx2's PATCH with time.archived), never the tap: null when the daemon took the patch and did not answer in time, or answered past reading (it may be archived).",
     props: {},
   },
   "thread.forked": {
-    doc: "v2: a thread was forked, from its menu (the whole thread) or from a turn (cut before the next turn's prompt), through the server's fork verb (cmx2's POST /session/:id/fork). ok is the agent's answer, never the tap. cut says which; no title, message or id is recorded.",
+    doc: "v2: a thread was forked, from its menu (the whole thread) or from a turn (cut before the next turn's prompt), through the server's fork verb (cmx2's POST /session/:id/fork). ok is the agent's answer, never the tap: 1 for the new thread, 0 for a refusal or an agent not reached, null when the agent took the fork and its answer was lost (no answer in time, or one that could not be read: the fork may exist). cut says what it held, outcome how it went; no title, message or id is recorded.",
     props: {
       cut: { type: "TEXT", doc: "what the fork holds: the whole thread, or the thread through one turn.", values: ["whole", "turn"], required: true },
+      outcome: { type: "TEXT", doc: "how it went: done, refused (the agent said no: a turn or thread gone, browse-only history, no fork), failed (the agent was not reached or was busy) or unknown (taken, answer lost).", values: ["done", "refused", "failed", "unknown"], required: true },
     },
   },
   "review.merged": {

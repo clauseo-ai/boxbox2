@@ -524,6 +524,16 @@ pub struct Transcript {
     pub upstream: Option<Stamp>,
 }
 
+/// a fork as the trait takes it: where it is cut, and the client id a
+/// retry repeats so the agent answers the first fork instead of making
+/// another (cmx2's `clientID`, under its once rule once the pin has it).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fork {
+    /// the first message of the thread the fork leaves out; none for all.
+    pub before: Option<String>,
+    pub client_id: String,
+}
+
 /// an archived thread.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Archived {
@@ -629,6 +639,15 @@ pub enum VerbError {
     /// this source does not serve the verb yet; the route says when it will.
     #[error("not built yet: {0}")]
     NotBuilt(&'static str),
+    /// the agent keeps this history to read, never to write or fork: 409
+    /// `browse-only`, in the source's words.
+    #[error("{0}")]
+    BrowseOnly(String),
+    /// the request reached the agent and its answer did not come back
+    /// (no answer in time, or one that could not be read): it may have been
+    /// done. a retry with the same client id is the way to know.
+    #[error("the agent may have done this: {reason}")]
+    Uncertain { reason: String },
 }
 
 /// what a verb answers with.
@@ -736,10 +755,10 @@ pub trait AgentSource: std::marker::Send + Sync + 'static {
         unsupported(Capability::Archive)
     }
     /// fork: a new thread holding this one's history up to, not including,
-    /// `before` (one of this thread's messages), or all of it when none.
+    /// `fork.before` (one of this thread's messages), or all of it when none.
     /// answers the new thread; its facts arrive on the source's events.
-    fn fork(&self, thread: &ThreadRef, before: Option<&str>) -> Verb<'_, Born> {
-        let _ = (thread, before);
+    fn fork(&self, thread: &ThreadRef, fork: Fork) -> Verb<'_, Born> {
+        let _ = (thread, fork);
         unsupported(Capability::Fork)
     }
     /// reactions.

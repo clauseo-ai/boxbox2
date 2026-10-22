@@ -64,10 +64,37 @@ impl Cmx2Source {
         &self,
         session: &str,
         before: Option<&str>,
+        client_id: &str,
     ) -> Result<Box<RawValue>, ApiError> {
         let route = format!("/session/{session}/fork");
-        let sent = before.map_or_else(|| json!({}), |m| json!({ "messageID": m }));
+        let sent = fork_body(before, client_id);
         daemon(&self.client, self.host(), Method::POST, &route, Some(&sent)).await
+    }
+}
+
+/// what a fork sends: the cut, and the client id a retry repeats. a daemon
+/// before the once rule for forks reads past the field (its fork body
+/// allows more than it names).
+fn fork_body(before: Option<&str>, client_id: &str) -> serde_json::Value {
+    let mut sent = json!({ "clientID": client_id });
+    if let Some(message) = before {
+        sent["messageID"] = json!(message);
+    }
+    sent
+}
+
+/// the reason `daemon` gives when the daemon took the request and did not
+/// answer in time: what it asked may have been done.
+const NO_ANSWER: &str = "no answer within";
+
+/// whether a call's failure leaves its outcome unknown: the daemon did not
+/// answer in time, or answered something that could not be read.
+#[must_use]
+pub fn unanswered(error: &ApiError) -> bool {
+    match error {
+        ApiError::HostUnreachable { reason, .. } => reason.starts_with(NO_ANSWER),
+        ApiError::HostFailed { .. } => true,
+        _ => false,
     }
 }
 
@@ -95,7 +122,7 @@ pub async fn daemon(
     }
     let answer = tokio::time::timeout(DAEMON_TIMEOUT, call.send())
         .await
-        .map_err(|_| unreachable(format!("no answer within {}s", DAEMON_TIMEOUT.as_secs())))?
+        .map_err(|_| unreachable(format!("{NO_ANSWER} {}s", DAEMON_TIMEOUT.as_secs())))?
         .map_err(|e| unreachable(plain(&e)))?;
     let status = answer.status().as_u16();
     // read in chunks up to the cap: a host that sends more is a failure, never a buffer
@@ -133,4 +160,36 @@ struct DaemonError {
 #[derive(Deserialize)]
 struct DaemonErrorData {
     message: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fork_sends_its_client_id_and_its_cut_only_when_it_has_one() {
+        assert_eq!(fork_body(None, "c-1"), json!({ "clientID": "c-1" }));
+        assert_eq!(
+            fork_body(Some("msg_9"), "c-2"),
+            json!({ "clientID": "c-2", "messageID": "msg_9" })
+        );
+    }
+
+    #[test]
+    fn only_a_request_taken_and_not_answered_leaves_its_outcome_unknown() {
+        let host = || "desk".to_owned();
+        assert!(unanswered(&ApiError::HostUnreachable {
+            host: host(),
+            reason: format!("{NO_ANSWER} 15s"),
+        }));
+        assert!(unanswered(&ApiError::HostFailed {
+            host: host(),
+            detail: "its answer was not json".into(),
+        }));
+        assert!(!unanswered(&ApiError::HostUnreachable {
+            host: host(),
+            reason: "cannot connect (refused)".into(),
+        }));
+        assert!(!unanswered(&ApiError::Gone));
+    }
 }

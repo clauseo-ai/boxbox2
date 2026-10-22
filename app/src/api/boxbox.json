@@ -9,6 +9,68 @@
     "version": "1"
   },
   "paths": {
+    "/api/agents/{agent}/threads/{thread}/adopt": {
+      "post": {
+        "tags": [
+          "super::agents::routes"
+        ],
+        "summary": "holds a past thread in the fleet (the history capability): one opened\nfrom history that the fleet does not hold.",
+        "operationId": "adoptThread",
+        "parameters": [
+          {
+            "name": "agent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "thread",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Verb"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "the fleet holds the thread now"
+          },
+          "404": {
+            "description": "no such agent or thread, or it was archived",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the agent has no history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/agents/{agent}/threads/{thread}/fork": {
       "post": {
         "tags": [
@@ -96,7 +158,7 @@
             }
           },
           "502": {
-            "description": "the agent did not answer",
+            "description": "the agent could not be reached (`agent-unreachable`), or took the fork and did not answer in time (`agent-uncertain`: a retry with the same clientID answers the first fork)",
             "content": {
               "application/json": {
                 "schema": {
@@ -6802,7 +6864,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `no-such-turn`, `page-too-large`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,\nand the board's `no-board`, `no-board-window`, `board-busy`,\n`no-such-machine`, `board-protocol`; protocol 3's `no-such-stream`."
+            "description": "stable, for code: `sign-in`, `wrong-password`, `bad-request`,\n`batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `no-such-turn`, `browse-only`, `agent-uncertain`, `page-too-large`, `app-missing`,\n`vite-down`, `unknown-host`, `host-taken`, `address-taken`,\n`configured-host`, `pair-refused`, `pair-unsupported`,\n`pair-unreachable`, `pair-failed`, `host-failed`,\n`credential-revoked`, `host-unreachable`, `host-refused`,\n`no-such-terminal`, `foreign-origin`, `stopping`, `no-such-session`,\n`gone`, `settled`, `already-sent`, `host-said`, `no-such-checkout`,\n`checkout-refused` (whose body is a `CheckoutRefusal`, not this one),\nand contract 2's `no-such-agent`, `agent-unreachable`, `agent-busy`\n(with `retry-after`), `generation-changed`, `not-confirmed`,\n`not-built`, `attachment-too-large`, `attachment-kind`, `name-reserved`,\nand the board's `no-board`, `no-board-window`, `board-busy`,\n`no-such-machine`, `board-protocol`; protocol 3's `no-such-stream`."
           },
           "message": {
             "type": "string",

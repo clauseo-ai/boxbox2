@@ -184,6 +184,11 @@ impl Found {
             },
             VerbError::GenerationChanged => ApiError::GenerationChanged(self.name()),
             VerbError::NotBuilt(what) => ApiError::NotBuilt(what),
+            VerbError::BrowseOnly(words) => ApiError::BrowseOnly(words),
+            VerbError::Uncertain { reason } => ApiError::AgentUncertain {
+                agent: self.name(),
+                reason,
+            },
             VerbError::Settled { by, at } => ApiError::Settled { by, at },
             VerbError::AlreadySent => ApiError::AlreadySent,
             VerbError::NotConfirmed => ApiError::NotConfirmed(self.name()),

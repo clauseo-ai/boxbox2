@@ -220,9 +220,9 @@ impl AgentSource for Cmx2Source {
         Box::pin(async move { self.typed_archive(&thread).await })
     }
 
-    fn fork(&self, thread: &ThreadRef, before: Option<&str>) -> Verb<'_, Born> {
-        let (thread, before) = (thread.clone(), before.map(str::to_owned));
-        Box::pin(async move { self.typed_fork(&thread, before.as_deref()).await })
+    fn fork(&self, thread: &ThreadRef, fork: crate::source::Fork) -> Verb<'_, Born> {
+        let thread = thread.clone();
+        Box::pin(async move { self.typed_fork(&thread, &fork).await })
     }
 
     fn queue(&self, thread: &ThreadRef, send: Send) -> Verb<'_, Accepted> {

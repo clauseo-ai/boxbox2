@@ -896,7 +896,7 @@ first (below).
 | commands | `GET /api/agents/{agent}/commands`, `POST T/command` | `/api/hosts/{host}/commands`, `.../command` | commands |
 | react | `PUT T/messages/{message}/reactions` with `{emoji, on}` | none | reactions |
 | archive | `POST T/archive` | `.../archive` | archive |
-| fork | `POST T/fork` with `{before?}`, the first message the fork leaves out; answers 201 `{key, thread}` | none (a new verb; the app calls this route) | fork |
+| fork | `POST T/fork` with `{before?}`, the first message the fork leaves out, and the `clientID` a retry repeats; answers 201 `{key, thread}` | none (a new verb; the app calls this route) | fork |
 | adopt | `POST T/adopt` | `.../adopt` | history |
 | answer an ask | `POST /api/agents/{agent}/asks/{id}` | `/api/hosts/{host}/permissions/{ask}`, `.../questions/{ask}`, `.../questions/{ask}/reject` | approvals, questions |
 | new thread | `POST /api/agents/{agent}/threads` | `POST /api/hosts/{host}/sessions` | threads |
@@ -927,8 +927,10 @@ and `GET /api/history` answer as they did, with no `?protocol`.
   agent with its connection's state (the agents screen's data). a plain
   verb answers 204; archive answers `{key, at}`; fork answers 201 with the
   new thread's `{key, thread}` (404 `no-such-session` for the thread, 404
-  `no-such-turn` for a `before` the thread does not hold, 409 `host-said`
-  for history the agent keeps browse only); models `{models:
+  `no-such-turn` for a `before` the thread does not hold, 409 `browse-only`
+  for history the agent keeps browse only, 502 `agent-uncertain` when the
+  agent took it and its answer was lost; its `clientID` goes to the agent,
+  whose once rule answers a repeat with the first fork); models `{models:
   [{id, name, provider?, levels?}], default?}`. new error codes:
   `no-such-agent` 404, `agent-unreachable` 502, `agent-busy` 503 with
   `retry-after: 5`, `generation-changed` 409, `not-confirmed` 409,

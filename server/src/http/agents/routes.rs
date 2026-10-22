@@ -903,7 +903,7 @@ pub async fn archive(
         "kind": "thread.archived",
         "host": agent,
         "session": reference.key(),
-        "ok": outcome.is_ok(),
+        "ok": outcome.as_ref().map_or_else(|e| (!matches!(e, VerbError::Uncertain { .. })).then_some(false), |_| Some(true)),
     }));
     let archived = outcome.map_err(|e| found.refusal(Some(&thread), e))?;
     info!(agent, thread, "thread archived");
@@ -928,7 +928,7 @@ pub async fn archive(
         (status = 404, description = "no such agent or thread (`no-such-session`), or the message is not in it (`no-such-turn`)", body = ErrorBody),
         (status = 409, description = "the agent refused: history it holds as browse only", body = ErrorBody),
         (status = 422, description = "the agent cannot fork", body = ErrorBody),
-        (status = 502, description = "the agent did not answer", body = ErrorBody),
+        (status = 502, description = "the agent could not be reached (`agent-unreachable`), or took the fork and did not answer in time (`agent-uncertain`: a retry with the same clientID answers the first fork)", body = ErrorBody),
     ),
 )]
 pub async fn fork(
@@ -948,17 +948,40 @@ pub async fn fork(
         agent: agent.clone(),
         id: thread.clone(),
     };
-    let outcome = found.source.fork(&reference, body.before.as_deref()).await;
+    let cut = if body.before.is_some() {
+        "turn"
+    } else {
+        "whole"
+    };
+    let fork = crate::source::Fork {
+        before: body.before,
+        client_id: body.client_id,
+    };
+    let outcome = found.source.fork(&reference, fork).await;
+    let (ok, told) = fork_outcome(&outcome);
     state.telemetry.record(&json!({
         "kind": "thread.forked",
         "host": agent,
         "session": reference.key(),
-        "ok": outcome.is_ok(),
-        "cut": if body.before.is_some() { "turn" } else { "whole" },
+        "ok": ok,
+        "props": { "cut": cut, "outcome": told },
     }));
     let born = outcome.map_err(|e| found.refusal(Some(&thread), e))?;
     info!(agent, thread, forked = %born.thread, "thread forked");
     Ok((StatusCode::CREATED, Json(born)))
+}
+
+/// what telemetry says of a fork: `ok` true when the agent answered with
+/// the new thread, false when it refused or could not be reached, and null
+/// when it took the fork and its answer was lost (it may exist), with the
+/// outcome that says which.
+fn fork_outcome(outcome: &Result<Born, VerbError>) -> (Option<bool>, &'static str) {
+    match outcome {
+        Ok(_) => (Some(true), "done"),
+        Err(VerbError::Uncertain { .. }) => (None, "unknown"),
+        Err(VerbError::Unreachable { .. } | VerbError::Busy) => (Some(false), "failed"),
+        Err(_) => (Some(false), "refused"),
+    }
 }
 
 /// holds a past thread in the fleet (the history capability): one opened
@@ -966,6 +989,7 @@ pub async fn fork(
 #[utoipa::path(
     post,
     path = "/api/agents/{agent}/threads/{thread}/adopt",
+    operation_id = "adoptThread",
     params(("agent" = String, Path), ("thread" = String, Path)),
     request_body = VerbBody,
     responses(

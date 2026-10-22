@@ -1860,3 +1860,11 @@ and diff the old and new bytes decompressed before committing: the only
 difference should be the new field. an unknown field in a verb's body (every
 body is `deny_unknown_fields`) answers 422 in axum's plain words, not the json
 error body, so a drive that parses every answer as json throws there.
+
+a parallel lane took 4840 and 4841 a moment before this one (the btw lane's
+`just cmx2`): the bench model failed to bind, and the bench dir still named
+4840, so the drive and the dev server reached the other lane's daemon with
+this lane's password (401s, nothing done). check `lsof` on the decade first,
+and take another: `bun scripts/cmx2.ts --port 4846 --boxbox-port 3061` with
+`target/debug/boxbox serve --config .cmx2/bench/boxbox.toml` (vite's 3002 is
+fixed in `scripts/dev.ts`, so two lanes cannot both run `just dev`).

@@ -4,7 +4,7 @@
    scroll law, links in and out, and the perf rows. the composer is another
    session's; the dock leaves it a slot. */
 
-import { For, Index, type JSX, Show, createEffect, createMemo, createSignal, createUniqueId, lazy, on, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, type JSX, Show, createEffect, createMemo, createRoot, createSignal, createUniqueId, lazy, on, onCleanup, onMount, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import { api } from "../../api/client";
 import { carried, play, whenLanded } from "../../motion/animate";
@@ -46,6 +46,7 @@ import { createNames } from "./names";
 import { copyText } from "./clipboard";
 import { COPIED_MS, REFUSED_MS } from "./copy";
 import { READING_PATIENCE_MS, freshnessOf, readingOf, readingWords } from "./reading";
+import { cutKey, forkDone, forkId, settles, tabShelf } from "./fork-ids";
 import { type Cut, boundaryWords, cutAfter, forkBoundary, forkHeld, lineageOf, lineageWords, turnBeforeCut } from "./fork";
 import "./stage.css";
 
@@ -310,7 +311,9 @@ export function Stage(props: StageProps) {
   const [forkNote, setForkNote] = createSignal<string | null>(null);
   const [forkReceipt, setForkReceipt] = createSignal<string | null>(null);
   let disposed = false;
-  onCleanup(() => { disposed = true; });
+  /* the waits for a thread to arrive that are running: each ends (as not arrived) when the stage goes, its timer with it */
+  const waiting = new Set<(arrived: boolean) => void>();
+  onCleanup(() => { disposed = true; for (const end of [...waiting]) end(false); });
   createEffect(() => {
     if (!forkReceipt()) return;
     const timer = setTimeout(() => setForkReceipt(null), FORK_NOTE_MS);
@@ -318,14 +321,22 @@ export function Stage(props: StageProps) {
   });
   /** the new thread opens once the fleet holds it: it comes on the stream like any thread the agent makes, a moment after the
       answer. false if it has not come within the wait */
-  const arrives = async (born: string): Promise<boolean> => {
-    const until = performance.now() + FORK_ARRIVAL_MS;
-    while (!state.fleet.threads[born]) {
-      if (disposed || performance.now() > until) return false;
-      await new Promise((resolve) => setTimeout(resolve, 40));
-    }
-    return true;
-  };
+  const arrives = (born: string): Promise<boolean> => new Promise((resolve) => {
+    if (state.fleet.threads[born]) return resolve(true);
+    if (disposed) return resolve(false);
+    createRoot((dispose) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const end = (arrived: boolean) => {
+        if (!waiting.delete(end)) return;
+        clearTimeout(timer);
+        dispose();
+        resolve(arrived);
+      };
+      waiting.add(end);
+      timer = setTimeout(() => end(false), FORK_ARRIVAL_MS);
+      createEffect(() => { if (state.fleet.threads[born]) end(true); });
+    });
+  });
   /** forks the thread through the server's fork verb (POST /api/agents/:agent/threads/:thread/fork, cmx2's
       /session/:id/fork), then opens the new thread. `from` is "whole" (the menu) or the turn's id */
   const fork = async (cut: Cut, from: string) => {
@@ -334,11 +345,14 @@ export function Stage(props: StageProps) {
     setForkNote(null);
     setForkReceipt(null);
     const say = (words: string) => (from === "whole" ? setForkNote(words) : setForkReceipt(words));
+    /* one client id per cut until its fork is made, so a retry, a reload or a second tap is the same fork (fork-ids.ts) */
+    const cutAt = cutKey(key(), cut.before);
     try {
       const { data: born, error, response } = await api.POST("/api/agents/{agent}/threads/{thread}/fork", {
         params: { path: { agent: data.host(), thread: key().slice(data.host().length + 1) } },
-        body: { ...deviceIdentity(), clientID: crypto.randomUUID(), ...(cut.before ? { before: cut.before } : {}) },
+        body: { ...deviceIdentity(), clientID: forkId(tabShelf, cutAt, () => crypto.randomUUID()), ...(cut.before ? { before: cut.before } : {}) },
       });
+      if (settles(response.status)) forkDone(tabShelf, cutAt);
       if (!response.ok || !born) {
         const said = (error as { error?: { message?: unknown } } | undefined)?.error?.message;
         say(typeof said === "string" ? said : `the server answered ${response.status}. try again.`);
@@ -386,7 +400,7 @@ export function Stage(props: StageProps) {
     if (!state.fleet.threads[from.key]) {
       setLineageOpening(true);
       try {
-        const { error, response } = await api.POST("/api/hosts/{host}/sessions/{session}/adopt", { params: { path: { host: data.host(), session: from.key.slice(data.host().length + 1) } } });
+        const { error, response } = await api.POST("/api/agents/{agent}/threads/{thread}/adopt", { params: { path: { agent: data.host(), thread: from.key.slice(data.host().length + 1) } }, body: { ...deviceIdentity(), clientID: crypto.randomUUID() } });
         if (!response.ok) {
           const said = (error as { error?: { message?: unknown } } | undefined)?.error?.message;
           setNote(typeof said === "string" ? said : `the server answered ${response.status}. try again.`);
@@ -1201,7 +1215,7 @@ export function Stage(props: StageProps) {
             <div class="menu-sep" role="separator" />
             <button role="menuitem" disabled={compactBlocked()} onClick={compactNow}>{compacting() ? "compacting" : "compact"}<em>summarise to free the context</em></button>
             <Show when={forkShown()}>
-              <button role="menuitem" disabled={wholeHeld() !== null || forking() !== null} onClick={() => void fork({}, "whole")}>{forking() === "whole" ? "forking" : "fork"}<em>{wholeHeld() ?? "a new thread with this history"}</em></button>
+              <button role="menuitem" disabled={wholeHeld() !== null} aria-disabled={forking() !== null ? "true" : undefined} onClick={() => void fork({}, "whole")}>{forking() === "whole" ? "forking" : "fork"}<em>{wholeHeld() ?? "a new thread with this history"}</em></button>
               <Show when={forkNote()}>{(why) => <p class="menu-note" role="alert">{why()}</p>}</Show>
             </Show>
             <button role="menuitem" onClick={copyLink}>copy link</button>
@@ -1245,7 +1259,7 @@ export function Stage(props: StageProps) {
                   </Show>
                   <Show when={parentKey()}><span class="tb-parent">an agent of {parentTitle()}</span></Show>
                   {/* a fork names the thread it came from and is the door back to the turn it was forked from (docs/thread.md, fork) */}
-                  <Show when={lineage()}>{(from) => <button type="button" class="tb-parent tb-fork" aria-label={lineageWords(from())} disabled={lineageOpening()} onClick={() => void openLineage("top")}>{lineageWords(from())}</button>}</Show>
+                  <Show when={lineage()}>{(from) => <button type="button" class="tb-parent tb-fork" aria-label={lineageWords(from())} aria-disabled={lineageOpening() ? "true" : undefined} onClick={() => void openLineage("top")}>{lineageWords(from())}</button>}</Show>
                 </div>
                 <Show when={lineageNote()?.at === "top" && lineageNote()}>{(why) => <p class="tb-fork-note" role="alert">{why().text}</p>}</Show>
                 <h1 class="tb-h1">{title()}</h1>
@@ -1284,7 +1298,7 @@ export function Stage(props: StageProps) {
                               const words = () => boundaryWords(from(), ownTurns());
                               return (
                                 <div class="fork-mark">
-                                  <p>{words().before}<button type="button" aria-label={words().name} disabled={lineageOpening()} onClick={() => void openLineage("mark")}>{words().link}</button>{words().after}</p>
+                                  <p>{words().before}<button type="button" aria-label={words().name} aria-disabled={lineageOpening() ? "true" : undefined} onClick={() => void openLineage("mark")}>{words().link}</button>{words().after}</p>
                                   <Show when={lineageNote()?.at === "mark" && lineageNote()}>{(why) => <p class="fork-mark-note" role="alert">{why().text}</p>}</Show>
                                 </div>
                               );

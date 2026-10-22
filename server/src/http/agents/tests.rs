@@ -447,13 +447,34 @@ async fn a_fork_reaches_the_source_whole_or_cut_and_answers_the_new_thread() {
         (status, answer["error"]["code"].as_str()),
         (404, Some("no-such-turn"))
     );
+    // history the agent keeps to read only is 409 browse-only, never 422 (that is a missing capability)
+    let imported = with(&json!({"clientID": "f-6", "before": "mIMPORTED"}));
+    let (status, answer) = world
+        .call("POST", &format!("{T}/fork"), Some(imported))
+        .await;
+    assert_eq!(
+        (status, answer["error"]["code"].as_str()),
+        (409, Some("browse-only")),
+        "{answer}"
+    );
+    // a fork taken and not answered may exist: 502 agent-uncertain, which says a retry is safe
+    let slow = with(&json!({"clientID": "f-7", "before": "mSLOW"}));
+    let (status, answer) = world.call("POST", &format!("{T}/fork"), Some(slow)).await;
+    assert_eq!(
+        (status, answer["error"]["code"].as_str()),
+        (502, Some("agent-uncertain")),
+        "{answer}"
+    );
+    // the route's client id reaches the source, for the agent's once rule
     let key = "assistant:oc_aaaaaaaaaaaaaaaaaaaaaaaa";
     assert_eq!(
         world.source.calls(),
         vec![
-            format!("fork {key} whole"),
-            format!("fork {key} mZW50cnktMQ"),
-            format!("fork {key} mGONE"),
+            format!("fork {key} whole v-1"),
+            format!("fork {key} mZW50cnktMQ f-2"),
+            format!("fork {key} mGONE f-3"),
+            format!("fork {key} mIMPORTED f-6"),
+            format!("fork {key} mSLOW f-7"),
         ]
     );
     // a cut that is not a message id, or a field no fork takes, is refused before the source hears it
@@ -466,7 +487,7 @@ async fn a_fork_reaches_the_source_whole_or_cut_and_answers_the_new_thread() {
             .await;
         assert!(status == 400 || status == 422, "{status} {answer}");
     }
-    assert_eq!(world.source.calls().len(), 3);
+    assert_eq!(world.source.calls().len(), 5);
 }
 
 #[tokio::test]

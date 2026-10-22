@@ -30,6 +30,7 @@ import { reportOf } from "./report";
 import { PictureViewer, ReportSheet, warmOn, whenLoaded } from "../later";
 import { ReportGlyph } from "./report-glyph";
 import { forkLabel } from "./fork";
+import { renameSoon } from "./copy";
 import "./thread.css";
 
 /* ---------- answering in place ---------- */
@@ -951,9 +952,19 @@ export const ForkContext = createContext<ForkHere>();
 /** a settled turn's fork: a new thread holding the history through this turn's end. named apart from its neighbours as the
     reply's copy is; while the stream is down it holds, and says why in its title */
 function ForkButton(props: { turn: Turn; fork: ForkHere }) {
+  let el!: HTMLButtonElement;
+  let thread: Element | null = null;
   const mine = () => props.fork.busy() === props.turn.id;
+  const name = () => forkLabel(clock(props.turn.at), props.turn.prompt);
+  /* held, it stays focusable (aria-disabled, the press refused here): a focused control that turned disabled while its fork
+     ran dropped the keyboard to the page, and nothing gave it back when the fork failed */
+  const held = () => props.fork.held() !== null || props.fork.busy() !== null;
+  /* named with the page's other controls, so two turns with one clock and one first line are told apart (copy-run.ts, renameAll) */
+  onMount(() => { thread = el.closest(".thread"); });
+  createEffect(() => { void name(); renameSoon(el); });
+  onCleanup(() => renameSoon(thread));
   return (
-    <button type="button" class="fork-btn" aria-label={forkLabel(clock(props.turn.at), props.turn.prompt)} title={props.fork.held() ?? undefined} disabled={props.fork.held() !== null || props.fork.busy() !== null} onClick={() => props.fork.fork(props.turn.id)}>
+    <button ref={el} type="button" class="fork-btn" data-fork="" data-name={name()} aria-label={name()} title={props.fork.held() ?? undefined} aria-disabled={held() ? "true" : undefined} onClick={() => { if (!held()) props.fork.fork(props.turn.id); }}>
       <i class="fork-g" aria-hidden="true" />{mine() ? "forking" : "fork from here"}
     </button>
   );

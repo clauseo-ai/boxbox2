@@ -9,7 +9,8 @@
      2. the daemon's new session holds the history up to the cut, and says where it came from (forkedFrom)
      3. the fleet carries the new thread with forkedFrom {thread, message} and no parent (a fork is not an agent)
      4. a whole fork carries forkedFrom with no message
-     5. a cut the thread does not hold is 404 no-such-turn, a thread the agent does not have 404 no-such-session, an
+     5. a fork repeated with its client id answers the first fork; the same id on another thread is 400
+     6. a cut the thread does not hold is 404 no-such-turn, a thread the agent does not have 404 no-such-session, an
         agent no source publishes 404 no-such-agent, and a body with a field no fork takes 4xx, none reaching the daemon
 
    BOXBOX_PORT moves the server (3001); BENCH_DIR the bench dir (.cmx2/bench: daemon.json, password,
@@ -126,7 +127,15 @@ const wholeThread = await fleetThread(wholeKey);
 check("a whole fork carries forkedFrom with no message", wholeThread?.forkedFrom?.thread === source && wholeThread.forkedFrom.message === undefined, JSON.stringify(wholeThread?.forkedFrom));
 check("a whole fork holds every message", (await messagesOf(String(whole.json["thread"]))).length === history.length);
 
-/* —— 5: refusals —— */
+/* —— 5: a retry with the same client id is the first fork, not a second —— */
+const again = crypto.randomUUID();
+const firstTry = await fork(source, { clientID: again, before: cut });
+const secondTry = await fork(source, { clientID: again, before: cut });
+check("a fork repeated with its client id answers the first fork", firstTry.status === 201 && secondTry.status === 201 && firstTry.json["key"] === secondTry.json["key"], `${String(firstTry.json["key"])} then ${String(secondTry.json["key"])}`);
+const elsewhere = await toBoxbox("POST", `/api/agents/${AGENT}/threads/${forkedId}/fork`, { ...device, clientID: again });
+check("the same client id on another thread is refused as a bad request", elsewhere.status === 400, JSON.stringify(elsewhere.json));
+
+/* —— 6: refusals —— */
 const noTurn = await fork(source, { before: "msg_notathing" });
 check("a cut the thread does not hold is 404 no-such-turn", noTurn.status === 404 && (noTurn.json["error"] as { code?: string } | undefined)?.code === "no-such-turn", JSON.stringify(noTurn.json));
 const noThread = await fork("ses_notathing");
@@ -137,6 +146,6 @@ const odd = await fork(source, { at: 2 });
 check("a field no fork takes is refused", odd.status >= 400 && odd.status < 500, String(odd.status));
 
 /* the bench's threads are archived, so the dev fleet does not fill with them */
-for (const id of [source, forkedId, String(whole.json["thread"])]) await toDaemon("PATCH", `/session/${id}`, { time: { archived: Date.now() } });
+for (const id of [source, forkedId, String(whole.json["thread"]), String(firstTry.json["thread"])]) await toDaemon("PATCH", `/session/${id}`, { time: { archived: Date.now() } });
 log(failed ? "fork: FAILED" : "fork: every check passed");
 process.exit(failed ? 1 : 0);

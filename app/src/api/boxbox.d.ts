@@ -2,6 +2,26 @@
 /* source: boxbox openapi (server/src/http) */
 
 export type paths = {
+    "/api/agents/{agent}/threads/{thread}/adopt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * holds a past thread in the fleet (the history capability): one opened
+         *     from history that the fleet does not hold.
+         */
+        post: operations["adoptThread"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agents/{agent}/threads/{thread}/fork": {
         parameters: {
             query?: never;
@@ -1749,7 +1769,7 @@ export type components = {
         ErrorDetail: {
             /**
              * @description stable, for code: `sign-in`, `wrong-password`, `bad-request`,
-             *     `batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `no-such-turn`, `page-too-large`, `app-missing`,
+             *     `batch-too-large`, `busy`, `store-down`, `not-found`, `no-such-message`, `no-such-turn`, `browse-only`, `agent-uncertain`, `page-too-large`, `app-missing`,
              *     `vite-down`, `unknown-host`, `host-taken`, `address-taken`,
              *     `configured-host`, `pair-refused`, `pair-unsupported`,
              *     `pair-unreachable`, `pair-failed`, `host-failed`,
@@ -3183,6 +3203,49 @@ export type components = {
 };
 export type $defs = Record<string, never>;
 export interface operations {
+    adoptThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent: string;
+                thread: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Verb"];
+            };
+        };
+        responses: {
+            /** @description the fleet holds the thread now */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description no such agent or thread, or it was archived */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the agent has no history */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     fork: {
         parameters: {
             query?: never;
@@ -3244,7 +3307,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description the agent did not answer */
+            /** @description the agent could not be reached (`agent-unreachable`), or took the fork and did not answer in time (`agent-uncertain`: a retry with the same clientID answers the first fork) */
             502: {
                 headers: {
                     [name: string]: unknown;

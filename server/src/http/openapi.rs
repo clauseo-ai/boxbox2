@@ -80,6 +80,7 @@ use crate::wire::{ColourFrame, RepoColour};
         super::threads::archive,
         super::threads::adopt,
         super::agents::routes::fork,
+        super::agents::routes::adopt,
         super::needs::list,
         super::needs::read,
         super::asks::permission,

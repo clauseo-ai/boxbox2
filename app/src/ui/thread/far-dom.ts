@@ -22,9 +22,9 @@ function holdsReader(el: HTMLElement, prompt: string): boolean {
   return Array.from(el.querySelectorAll("*")).some((node) => node.scrollTop !== 0 || node.scrollLeft !== 0);
 }
 
-/** the copy controls a turn holds, in order */
+/** the copy and fork controls a turn holds, in order: their stand-in's marks keep the namesakes below counted */
 const copiesIn = (el: HTMLElement): FarCopy[] =>
-  typeof el.querySelectorAll === "function" ? Array.from(el.querySelectorAll<HTMLElement>("button[data-copy]"), (b) => ({ kind: b.dataset["copy"] ?? "", name: b.dataset["name"] ?? "" })) : [];
+  typeof el.querySelectorAll === "function" ? Array.from(el.querySelectorAll<HTMLElement>("button[data-copy], button[data-fork]"), (b) => ({ kind: b.dataset["copy"] ?? "fork", name: b.dataset["name"] ?? "" })) : [];
 
 /** of the turns waiting to be let go, the first few that may be (`look` answers a turn still filled, far and not always filled, with its box,
     prompt and height): each looked at leaves the wait, and one that holds nothing of the reader's is answered with its stand-in's makings */

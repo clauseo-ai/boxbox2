@@ -70,7 +70,7 @@ fn forked(agent: &str, info: &serde_json::value::RawValue) -> Result<Born, VerbE
     let made = serde_json::from_str::<NewSession>(info.get())
         .ok()
         .filter(|s| crate::http::asks::segment(&s.id).is_ok())
-        .ok_or_else(|| VerbError::Unreachable {
+        .ok_or_else(|| VerbError::Uncertain {
             reason: "its answer to the fork was not a session".into(),
         })?;
     Ok(Born {
@@ -79,15 +79,35 @@ fn forked(agent: &str, info: &serde_json::value::RawValue) -> Result<Born, VerbE
     })
 }
 
-/// a fork the daemon refused. its 409 is history imported from cmx, which
-/// it keeps browse only; said in boxbox's words, since the daemon's name
-/// the session by id.
+/// a fork the daemon refused, or did not answer. its 409 is history
+/// imported from cmx, which it keeps browse only; said in boxbox's words,
+/// since the daemon's name the session by id. a fork it took and did not
+/// answer in time, or answered in a way that could not be read, may have
+/// been made: uncertain, never a plain failure.
 fn fork_refused(error: ApiError) -> VerbError {
+    if super::threads::unanswered(&error) {
+        return VerbError::Uncertain {
+            reason: error.to_string(),
+        };
+    }
     match error {
-        ApiError::HostSaid { status: 409, .. } => VerbError::Refused {
+        // the daemon's 409s: a client id used for another action, a first request a restart cut off (what it did is
+        // in the session, so not known here), or history it keeps browse only
+        ApiError::HostSaid {
             status: 409,
-            words: "history imported from cmx is browse only, so it cannot be forked".into(),
-        },
+            message,
+            ..
+        } if message.contains("already used") => VerbError::Bad(
+            "that fork's client id was already used for something else. fork again".into(),
+        ),
+        ApiError::HostSaid {
+            status: 409,
+            message,
+            ..
+        } if message.contains("cut off") => VerbError::Uncertain { reason: message },
+        ApiError::HostSaid { status: 409, .. } => VerbError::BrowseOnly(
+            "history imported from cmx is browse only, so it cannot be forked".into(),
+        ),
         other => verb_error(other),
     }
 }
@@ -356,6 +376,9 @@ impl Cmx2Source {
             .await
             .map_err(|error| match error {
                 ApiError::Gone => VerbError::Missing { what: "thread" },
+                other if super::threads::unanswered(&other) => VerbError::Uncertain {
+                    reason: other.to_string(),
+                },
                 other => verb_error(other),
             })?;
         let at = serde_json::from_str::<Value>(info.get())
@@ -372,13 +395,15 @@ impl Cmx2Source {
     pub(crate) async fn typed_fork(
         &self,
         thread: &ThreadRef,
-        before: Option<&str>,
+        fork: &crate::source::Fork,
     ) -> Result<Born, VerbError> {
         let id = session(thread)?;
-        let before = before
+        let before = fork
+            .before
+            .as_deref()
             .map(|m| crate::http::asks::segment(m).map_err(verb_error))
             .transpose()?;
-        match self.fork_session(id, before).await {
+        match self.fork_session(id, before, &fork.client_id).await {
             Ok(info) => forked(&thread.agent, &info),
             Err(ApiError::Gone) => Err(self.fork_missing(id, before).await),
             Err(other) => Err(fork_refused(other)),
@@ -549,29 +574,61 @@ mod tests {
             let info = serde_json::value::RawValue::from_string(bad.into()).unwrap();
             assert!(matches!(
                 forked("desk", &info),
-                Err(VerbError::Unreachable { .. })
+                Err(VerbError::Uncertain { .. })
             ));
         }
     }
 
     #[test]
     fn a_fork_of_imported_history_is_refused_in_boxboxs_words() {
-        let VerbError::Refused { status, words } = fork_refused(ApiError::HostSaid {
+        let VerbError::BrowseOnly(words) = fork_refused(ApiError::HostSaid {
             host: "desk".into(),
             status: 409,
             message: "session ses_1 has no transcript here to fork".into(),
         }) else {
-            panic!("a 409 stays a refusal");
+            panic!("a 409 is browse only");
         };
-        assert_eq!(status, 409);
         assert!(words.contains("browse only"), "{words}");
-        // anything else keeps the daemon's meaning
+        // a client id the daemon saw for another action: the request is wrong, and a new id is the way on
+        assert!(matches!(
+            fork_refused(ApiError::HostSaid {
+                host: "desk".into(),
+                status: 409,
+                message: "clientID c-1 was already used for prompt on ses_2; send a new one for a new action".into(),
+            }),
+            VerbError::Bad(_)
+        ));
+        // a first request a restart cut off may have forked: not known
+        assert!(matches!(
+            fork_refused(ApiError::HostSaid {
+                host: "desk".into(),
+                status: 409,
+                message: "the first request with clientID c-1 was cut off by a daemon restart; what it did is in the session".into(),
+            }),
+            VerbError::Uncertain { .. }
+        ));
+        // a host that could not be reached made nothing: unreachable
         assert!(matches!(
             fork_refused(ApiError::HostUnreachable {
                 host: "desk".into(),
-                reason: "refused".into()
+                reason: "cannot connect (refused)".into()
             }),
             VerbError::Unreachable { .. }
+        ));
+        // one that took the fork and did not answer in time, or answered past reading, may have made it
+        assert!(matches!(
+            fork_refused(ApiError::HostUnreachable {
+                host: "desk".into(),
+                reason: "no answer within 15s".into()
+            }),
+            VerbError::Uncertain { .. }
+        ));
+        assert!(matches!(
+            fork_refused(ApiError::HostFailed {
+                host: "desk".into(),
+                detail: "its answer was not json".into()
+            }),
+            VerbError::Uncertain { .. }
         ));
     }
 
