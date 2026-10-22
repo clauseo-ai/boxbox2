@@ -262,7 +262,7 @@ pushed the stage down by all of it across the full width and left a band
 beside it empty. so the window never holds the card and never grows; the
 ask is answered in its thread, which has the width and the height for it.
 
-**the ask card** (`app/src/ui/thread/thread.tsx`, `AskCard`, `PermissionCard`)
+**the ask card** (`app/src/ui/asks/card.tsx`, `AskCard`, `PermissionCard`; the question's words in `asks/question.tsx`)
 sits in the ask's row, open while it is pending (the thread's own rows,
 `thread.md`, asks); the row's head is the question, with its own short
 label above it in the light tone, as the window shows it. a question shows one option per answer, each with its
@@ -286,7 +286,14 @@ options of one question while focus is on the card or inside it (never in a
 field): in an ask of several questions, the question focus is in, else the
 first with no answer yet. at 320 px and up nothing scrolls sideways: a long
 question takes the row's whole width on a phone, under the kind and the
-result, and a long option wraps.
+result, and a long option wraps. the question's words are the agent's
+markdown, painted by the thread's own painter and sanitiser, in the card
+rather than the row's head (a button), so they can be selected, hold links
+and carry a copy control on their label's line, as a code block's and a
+slip's do; open, a lone question's head drops its words so they are not
+shown twice. settled, the card keeps every question whole with its answer
+under it. home's answer sheet draws the same words through the card, a lone
+question's in the sheet's 19 px title type (2026-10-22).
 
 ### the laws that keep it calm
 

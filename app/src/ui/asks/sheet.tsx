@@ -153,14 +153,14 @@ export function AskSheet(props: AskSheetProps) {
               <Show when={askOf(id)}>
                 {(ask) => {
                   const body = createMemo(() => bodyOf(ask()));
-                  const single = () => ask().kind === "permission" || questionsOf(ask()).length <= 1;
                   return (
                     <section class="asks-one" aria-label={ask().kind === "permission" ? "permission" : "question"}>
-                      <Show when={single()}>
+                      {/* a permission's label is the sheet's; a question's label and words are the card's own (asks/question.tsx), as in the thread */}
+                      <Show when={ask().kind === "permission"}>
                         <Show when={headerWords(ask())}>{(h) => <p class="asks-h">{h()}</p>}</Show>
-                        <Show when={ask().kind !== "permission"}>
-                          <p class="asks-q">{questionsOf(ask())[0]?.question || "the agent has a question"}</p>
-                        </Show>
+                      </Show>
+                      <Show when={ask().kind !== "permission" && questionsOf(ask()).length === 0}>
+                        <p class="asks-q">the agent has a question</p>
                       </Show>
                       {/* the card is made once per ask and follows its body, so what is typed or picked stays */}
                       <Show when={ask().kind === "permission"} fallback={<AskCard b={body() as AskBody} />}>

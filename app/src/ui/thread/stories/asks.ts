@@ -57,6 +57,63 @@ export const TWO_QUESTIONS: Question[] = [
   },
 ];
 
+/** a question an agent writes in markdown: a link to read first, code, emphasis, and a link the sanitiser must not let through (a
+    `javascript:` one is drawn as its words, not as a link) */
+export const MARKDOWN_ASK: Question[] = [
+  {
+    header: "re-auth",
+    question:
+      "The deploy is paused on a one-tap re-auth: visit [the login page](https://login.example.com/a/0001) from any logged-in device, then say when it's done. It retries `ssh deploy@build-1` after, **not before**. (Ignore [this link](javascript:alert(1)), it is not one.)",
+    options: [
+      { label: "Done, retry now", description: "The [status page](https://status.example.com) shows the host back." },
+      { label: "Skip the deploy", description: "Leave it paused and carry on with the docs." },
+    ],
+    custom: true,
+  },
+];
+
+/** four questions in one ask, each with its label, as a real agent asks a design's open choices: what a settled ask's record has to
+    hold whole, each question's words with its answer under them (the bug of 2026-10-22 showed only the labels and the answers) */
+export const FOUR_QUESTIONS: Question[] = [
+  {
+    header: "Newer-version entries",
+    question: "When the cache holds an entry written by a newer version than this one, should the reader decode what it can or drop the entry? Decoding first keeps the cache warm across an upgrade and a rollback.",
+    options: [
+      { label: "Version-first decode (recommended)", description: "Read the version, decode the fields it knows, keep the rest as bytes." },
+      { label: "Drop newer entries", description: "Simplest, but a rollback empties the cache." },
+    ],
+    custom: true,
+  },
+  {
+    header: "Unit variant growth rule",
+    question: "The `Unit` enum has grown a variant per release. Do we keep the catch-all `Other(String)` or drop it and add variants as they come?",
+    options: [
+      { label: "Drop it, add variants (recommended)", description: "Exhaustive matches catch every new unit at compile time." },
+      { label: "Keep the catch-all", description: "No release needed for a new unit, but nothing checks them." },
+    ],
+    custom: true,
+  },
+  {
+    header: "Command validation",
+    question: "Where should a command be validated: once, into a `ValidatedCommand` type at the edge, or at each use?",
+    options: [
+      { label: "ValidatedCommand type (recommended)", description: "Validated once; the type proves it everywhere after." },
+      { label: "At each use", description: "No new type, but every caller repeats the checks." },
+    ],
+    custom: true,
+  },
+  {
+    header: "Scope of the change request",
+    question: "Which of these go into this change request? See the [design notes](https://example.com/notes) for each.",
+    options: [
+      { label: "All of them (recommended)", description: "One review, one migration." },
+      { label: "Only the decode", description: "The smallest change that unblocks the release." },
+      { label: "Decode and validation", description: "Leave the enum for its own change." },
+    ],
+    custom: true,
+  },
+];
+
 /** the fleet's ask with its questions replaced: the ask the window previews and the stage answers */
 export function askWith(ask: Ask, questions: readonly Question[]): Ask {
   return { ...ask, questions: questions.map((q) => ({ header: q.header, question: q.question, options: q.options, custom: q.custom, multiple: q.multiple ?? false })) };

@@ -1896,3 +1896,17 @@ the report chip made it worse (120.7 kb: the wrapper and the chunk's shared impo
 moved to chunks instead is what draws only after a press: the moves that land on a row inside a closed group (`land.ts`) and an
 opened row's file bed and slip (`code.tsx`, warmed with ui/later.ts's surfaces), down to 119.8 kb. the headroom is small: the next
 change to the thread's first load should look for the next such piece first.
+
+merging it with the ask card's markdown and record (ask-card-markdown-copy) took the first load to 120.5 kb. what moved then is,
+again, what draws only after a press or only on a row that is not a pending ask: a settled question's record and a settled
+permission's line (`asks/ask-record.tsx`), and an opened agent's, search's, plan's, files, edit's or thought row's body
+(`thread/bodies.tsx`), all warmed with ui/later.ts's surfaces, down to 118.9 kb. a pending ask's card, its question's words and
+its options stay in the first load: they are what a push or a window's pill lands on. a row open on its own that is not a pending
+ask (a failed search or edit, a settled permission, thoughts under "show thinking") waits on the warmed chunk when a thread is
+opened before the launch went idle.
+
+## a row result is not a quiet button
+
+a row's quiet result is `<span class="row-r quiet">`, and the app's `.quiet` button rule (styles.css) gives it a 44 px min
+height, which pushed an ask row's question 24 px below its kind. `.row.ask > .row-h > .row-r` sets it back to 0 (thread.css,
+2026-10-22).

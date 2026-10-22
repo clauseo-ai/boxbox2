@@ -19,7 +19,7 @@ import { AskCard } from "../../asks/card";
 import type { AskReply } from "../../../sync/replies";
 import { type Loaded, type Tone, loadImported, loadNative, stepsOf } from "./fixtures";
 import { ANSWER_WITH_CODE, FENCES_OF_ALL_SHAPES, GITHUB_READING, HOSTILE_MARKUP, REPLY_IN_A_FENCE, REPLY_IN_A_LIST, REPORT_WITH_CODE } from "./code-sample";
-import { type Question as Asked, LONG_ASK, TWO_QUESTIONS } from "./asks";
+import { type Question as Asked, FOUR_QUESTIONS, LONG_ASK, MARKDOWN_ASK, TWO_QUESTIONS } from "./asks";
 import { HomeFrame, Host, TurnFrame } from "./host";
 import { picture } from "./pictures";
 import { CodeReplay, LiveReplay } from "./replay";
@@ -323,6 +323,21 @@ export const QuestionTwoAnswered = story("tool ask, completed: two questions ans
   const built = stepRow(l, two, { open: true });
   return { ...built, node: (wide) => createComponent(Pressed, { press: ".ask-rec-more", get children() { return built.node(wide); } }) };
 });
+/** a settled question's step asking `questions` instead of "which greeting", answered as `answers` says (one list per question; none
+    for an ask that was dismissed or whose turn ended): the shapes a real agent asks, which the recording does not hold */
+const settledAs = async (status: "completed" | "error", questions: readonly Asked[], answers: ReadonlyArray<readonly string[]> = [], opts: { press?: string; here?: boolean } = {}): Promise<Built> => {
+  const l = await notes();
+  const s = pickStep(l, (x) => x.family === "ask" && x.status === status, status === "completed" ? "answered question" : "dismissed question");
+  const step: Step = { ...s, questions: questions.map((q, i) => ({ header: q.header, question: q.question, options: q.options, custom: q.custom, multiple: q.multiple === true, answer: answers[i] ? [...answers[i]] : undefined })) };
+  const built = oneRow(l, stepModel(step, { ...l.ctx, ...(opts.here ? { replies: replied(step, { kind: "question", reply: { k: "answers", answers: answers.map((a) => [...a]) }, who: { here: true } }) } : {}) }), { open: true });
+  return opts.press ? pressing(built, opts.press) : built;
+};
+export const QuestionMarkdownPending = story("tool ask, pending: a question in markdown, its link opens in a tab of its own, a javascript: link is only words, copy copies the markdown", () => asked(MARKDOWN_ASK));
+export const QuestionMarkdownAnswered = story("tool ask, completed: a question in markdown stays whole over its record, with its link and its copy", () => settledAs("completed", MARKDOWN_ASK, [["Done, retry now"]], { here: true }));
+export const QuestionMarkdownClosed = story("tool ask, completed, closed: the head says the question as plain words, no markdown marks", async () => { const l = await notes(); const s = pickStep(l, (x) => x.family === "ask" && x.status === "completed", "answered question"); return stepRow(l, { ...s, questions: MARKDOWN_ASK.map((q) => ({ header: q.header, question: q.question, options: q.options, custom: q.custom, multiple: false, answer: ["Done, retry now"] })) }); });
+export const QuestionFourAnswered = story("tool ask, completed: four questions answered together, each question's words with its answer under them", () => settledAs("completed", FOUR_QUESTIONS, FOUR_QUESTIONS.map((q) => [q.options[0]?.label ?? ""]), { here: true }));
+export const QuestionFourAnsweredOptions = story("tool ask, completed: four questions, show the 9 options pressed, each question's options under its own answer", () => settledAs("completed", FOUR_QUESTIONS, FOUR_QUESTIONS.map((q) => [q.options[0]?.label ?? ""]), { here: true, press: ".ask-rec-more" }));
+export const QuestionTwoDismissed = story("tool ask, error: two questions dismissed, both questions whole, then you dismissed it", () => settledAs("error", TWO_QUESTIONS));
 export const AskCardOnItsOwn = story("ask card on its own: the card outside the thread, as home's answer sheet draws it", async () => {
   const l = await notes("question pending: greeting");
   const s = pickStep(l, (x) => x.family === "ask" && x.status !== "completed" && x.status !== "error", "pending question");

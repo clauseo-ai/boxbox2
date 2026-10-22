@@ -78,6 +78,18 @@ export const whoOf = (record: Pick<AskReply, "who">): Who => ("here" in record.w
 /** "show the 3 options", "show the option", "hide the options": the record opens to the options as they were offered */
 export const optionsControl = (count: number, shown: boolean): string => (shown ? "hide the options" : count === 1 ? "show the option" : `show the ${count} options`);
 
+/** what a settled question's record draws, in order: every question in its own block (its label, its words, and under them what was
+    answered to it, when it was answered), then one line for an ask that was not answered. the question's words are always there,
+    however it settled and however many questions it held: the record never stands in for them (bug of 2026-10-22, when several
+    questions showed only their labels and the answers) */
+export type RecordShape = { blocks: Array<{ header: string; question: string; answer: string | null }>; lead: string | null };
+export function recordShape(how: Settled, questions: readonly Asked[]): RecordShape {
+  return {
+    blocks: questions.map((q) => ({ header: q.header.trim(), question: q.question, answer: how === "answered" ? answerWords(q) : null })),
+    lead: how === "dismissed" ? YOU_DISMISSED : how === "ended" ? NOT_ANSWERED : null,
+  };
+}
+
 /** the record in one sentence, for a screen reader and a test: "you answered hi, on this iphone at 17:18" */
 export function spokenRecord(how: Settled, questions: readonly Asked[], facts: string): string {
   const tail = facts ? `, ${facts}` : "";

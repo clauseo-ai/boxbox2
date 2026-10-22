@@ -2,6 +2,7 @@
    itself, and the focus that goes into one */
 
 import { For, Show, createMemo, untrack, useContext } from "solid-js";
+import { plainWords } from "../asks/words";
 import { boundedPlain } from "./big-text";
 import { type FarTurn, longPrompt } from "./far";
 import { segmentsOf, groupLine } from "./groups";
@@ -30,6 +31,10 @@ function text(md: string, cache: HtmlMemo | undefined): HTMLDivElement {
 /** a row that is no control, as its words: its kind, its head and what it came to (its clock goes, as every timestamp of a far turn) */
 const rowWords = (m: RowModel): string => [m.kind, m.header, ...m.content.map((p) => (p.t === "cmd" ? p.tokens.map((k) => k.text).join("") : p.s)), m.opened, m.result.text].filter((w) => w).join(" ");
 
+/** an ask, as its words: every question whole (its label and its words, never cut), so a find in the page or a reader's eye that reaches a
+    far turn meets the question and not only its answer */
+const askWords = (b: Extract<RowModel["body"], { k: "ask" }>) => <For each={b.questions}>{(q) => <p>{[q.header.trim(), plainWords(q.question)].filter(Boolean).join(" ")}</p>}</For>;
+
 /** a far turn, as text only: the prompt, the files sent with it, what was said and the answer as the html they settled to, each folded
     group as its line. no controls, no step rows, no pictures, no diffs, no clocks; the copy controls it had are hidden marks, so their
     namesakes below keep their names (copy-run.ts). it is drawn in the turn's box at the height the turn measured, far from the view, and
@@ -57,7 +62,7 @@ export function StandIn(props: { turn: Turn; ctx: RowCtx; far: FarTurn; refill: 
       </Show>
       <Show when={t().by === "mail"}><p>{(() => { const r = reportOf(t()); return r.gist ? `${r.name} · ${r.gist}` : r.name; })()}</p></Show>
       <Show when={t().by === "notice"}><p>{firstSentence(t().prompt).slice(0, 120)}</p></Show>
-      <For each={segments()}>{(seg) => (seg.k === "group" ? <p>{groupLine(seg.group).text}</p> : seg.entry.say ? text(seg.entry.say.text, html) : seg.entry.model && seg.entry.model.body === undefined && seg.entry.model.permit === undefined ? <p>{rowWords(seg.entry.model)}</p> : null)}</For>
+      <For each={segments()}>{(seg) => (seg.k === "group" ? <p>{groupLine(seg.group).text}</p> : seg.entry.say ? text(seg.entry.say.text, html) : seg.entry.model && seg.entry.model.body === undefined && seg.entry.model.permit === undefined ? <p>{rowWords(seg.entry.model)}</p> : seg.entry.model?.body?.k === "ask" ? askWords(seg.entry.model.body) : null)}</For>
       <Show when={ledgered() && t().answer}>{(a) => text(a().text, html)}</Show>
       <For each={props.far.copies}>{(c) => <i hidden data-copy-held={c.kind} data-name={c.name} />}</For>
     </div>
