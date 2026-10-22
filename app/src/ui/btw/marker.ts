@@ -22,6 +22,6 @@ export function parentMarkerName(title: string | null): string {
   return title ? `from a btw, with its answer: go to the btw in ${title}` : "from a btw, with its answer: go to the btw in the thread this was forked from";
 }
 
-/** what the parent says when the link landed and the btw is not among its cards (dismissed ones still are: this is one
-    let go, by the cap or by the agent) */
+/** what a parent says when a fork's marker landed on it and the btw is not among its cards (dismissed ones still are: this
+    is one let go, by the cap or by the agent) */
 export const BTW_GONE = "that btw is not on this thread any more, so it opened where the fork was cut.";

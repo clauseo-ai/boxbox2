@@ -237,6 +237,12 @@ return choose, escape closes; in the model menu shift and return stars the row t
 | retried | the same `clientID` | the daemon answers the first result again; it never doubles |
 | offline | stream down over 5 s | sends wait on the device, faded, "waits for the connection", and go in order when the stream is back |
 
+the queue's strip (`queue.tsx`) is a chunk of its own, loaded just after the launch rather than in the first load
+(2026-10-22): fork and btw together took the first load to 122.2 kb of script, over its 120 kb budget, and moving
+the strip with the late btw and fork pieces brought it to 118.5 kb. the one thing it changes: on a reload with
+messages queued, the strip shows a frame or so after the first paint, read from the precache. a btw's send checks
+(`btw/ask.ts`) load at the first btw sent, the same way.
+
 ### the agent around it
 
 | agent | the composer |

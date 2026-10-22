@@ -17,7 +17,7 @@
    menu) and how many lines its words may grow to, on the viewport's own
    resize events, never in a frame loop. */
 
-import { For, Show, createComputed, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from "solid-js";
+import { For, Show, createComputed, createEffect, createMemo, createSignal, lazy, on, onCleanup, onMount, untrack } from "solid-js";
 import { flyInto } from "../../motion/fly";
 import { flip, play } from "../../motion/animate";
 import { ROLL_IN, SNAP } from "../../motion/springs";
@@ -49,14 +49,19 @@ import { modelName } from "../model-name";
 import { createClock } from "../clock";
 import { type Dropped, fileDrop, isPhoto, sortDrop, withMention, withWords } from "./drop";
 import { inlineRuns } from "./inline";
-import { QueueStrip, type QueueVerb } from "./queue";
+import type { QueueVerb } from "./queue";
 import { type Agent, type Card, compactionWords, contextFill, DRAFTS_FULL, DROP_LINE, effortChoices, fateLine, type ListState, liveLine, menuOf, menuQuery, type Mount, placeholder, sendWord, tailPrint, typedAnswers, withFile } from "./words";
 import type { SlashChoice } from "./suggestions";
 import type { BtwActions } from "../btw/types";
 import { mintId } from "../../sync/mint-id";
-import { BTW_CHIP, BTW_CHIP_NAME, BTW_FATE, BTW_UNAVAILABLE, askedDraftGoes, btwSendBlock, BTW_PLACEHOLDER, BTW_ROW, BTW_SEND, backspaceLeaves, btwOffered, btwQuestion, typedIntoBtw } from "../btw/mode";
+import { BTW_CHIP, BTW_CHIP_NAME, BTW_FATE, BTW_PLACEHOLDER, BTW_ROW, BTW_SEND, backspaceLeaves, btwOffered, btwQuestion, typedIntoBtw } from "../btw/mode";
 import { BTW_COLOUR } from "../btw/tint";
 import "./composer.css";
+
+/* the queue's strip loads just after the launch, never in the first load (architecture.md, the script budget): it draws
+   only when a message waits, so on a reload with messages queued it shows a frame or so after the first paint, read from
+   the precache (docs/composer.md, the queue) */
+const QueueStrip = lazy(() => import("./queue").then((m) => ({ default: m.QueueStrip })));
 
 /** a draft past this many lines offers the full stage */
 const TALL_LINES = 6;
@@ -165,7 +170,7 @@ export function Composer(props: ComposerProps) {
   const offersBtw = () => btwOffered({ capable: props.btw !== undefined, target: props.target.kind, mount: props.mount });
   /* the draft is a btw whenever it says so, offered here or not: a btw draft restored before the thread's read lands (or on
      an agent that no longer answers btws) keeps its chip and its tint, and its send is held with the reason, so a private
-     question never goes out as a message (mode.ts, btwSendBlock) */
+     question never goes out as a message (ask.ts, btwSendBlock) */
   const inBtw = () => draft().btw === true;
   const shell = () => !inBtw() && draft().text.startsWith("!");
   // a btw is words: photos the draft holds do not make it sendable
@@ -764,13 +769,16 @@ export function Composer(props: ComposerProps) {
   const askBtw = async () => {
     const question = btwQuestion(draft().text);
     if (!question || asking) return;
-    const blocked = btwSendBlock({ offered: offersBtw(), photos: draft().photos.length, held: Boolean(draft().held) });
-    const actions = props.btw;
-    if (blocked || !actions) return setProblem(blocked ?? BTW_UNAVAILABLE);
     asking = true;
-    const at = key();
-    if (lastAsk?.at !== at || lastAsk.question !== question) lastAsk = { at, question, id: mintId(Date.now()) };
     try {
+      /* the send's checks load at the first btw sent (ask.ts); a chunk that does not come says so as a refusal would */
+      const ask = await import("../btw/ask").catch(() => null);
+      if (!ask) return setProblem("this btw could not be sent. reload the page, then ask again.");
+      const blocked = ask.btwSendBlock({ offered: offersBtw(), photos: draft().photos.length, held: Boolean(draft().held) });
+      const actions = props.btw;
+      if (blocked || !actions) return setProblem(blocked ?? ask.BTW_UNAVAILABLE);
+      const at = key();
+      if (lastAsk?.at !== at || lastAsk.question !== question) lastAsk = { at, question, id: mintId(Date.now()) };
       const done = await actions.ask(at, question, lastAsk.id);
       const here = key() === at;
       if (!done.ok) return void (here && setProblem(done.message));
@@ -779,9 +787,9 @@ export function Composer(props: ComposerProps) {
          still waits for the next message */
       lastAsk = null;
       const now = state.composer.drafts[at] ?? EMPTY;
-      if (askedDraftGoes(now.text, question)) saveDraft(at, now.model || now.effort ? { ...EMPTY, model: now.model, effort: now.effort, at: Date.now() } : null);
+      if (ask.askedDraftGoes(now.text, question)) saveDraft(at, now.model || now.effort ? { ...EMPTY, model: now.model, effort: now.effort, at: Date.now() } : null);
       if (!here) return;
-      if (editor && askedDraftGoes(editor.value, question)) editor.value = "";
+      if (editor && ask.askedDraftGoes(editor.value, question)) editor.value = "";
       setProblem(null);
       props.onSent?.();
     } finally {

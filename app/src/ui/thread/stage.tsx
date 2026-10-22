@@ -4,7 +4,7 @@
    scroll law, links in and out, and the perf rows. the composer is another
    session's; the dock leaves it a slot. */
 
-import { For, Index, type JSX, Show, createEffect, createMemo, createRoot, createSignal, createUniqueId, lazy, on, onCleanup, onMount, untrack } from "solid-js";
+import { For, Index, type JSX, Show, createEffect, createMemo, createSignal, createUniqueId, lazy, on, onCleanup, onMount, untrack } from "solid-js";
 import { Portal } from "solid-js/web";
 import { api } from "../../api/client";
 import { carried, play, whenLanded } from "../../motion/animate";
@@ -46,12 +46,10 @@ import { createNames } from "./names";
 import { copyText } from "./clipboard";
 import { COPIED_MS, REFUSED_MS } from "./copy";
 import { READING_PATIENCE_MS, freshnessOf, readingOf, readingWords } from "./reading";
-import { cutKey, forkDone, forkId, settles, tabShelf } from "./fork-ids";
-import { type Cut, boundaryWords, cutAfter, forkBoundary, forkHeld, lineageOf, lineageWords, turnBeforeCut } from "./fork";
+import { type Cut, forkBoundary, lineageOf, turnBeforeCut } from "./fork";
 import { BtwContext, type BtwThread } from "../btw/types";
 import { answersBtw, btwActions } from "../btw/actions";
-import { shownPrompt } from "../btw/words";
-import { BTW_GONE } from "../btw/marker";
+import { shownPrompt } from "../btw/prompt";
 import "./stage.css";
 
 /* the review is a chunk of its own: most threads never have one, so its card, controller and words stay out of the first
@@ -73,6 +71,10 @@ const RUN_SLACK_MS = 1500;
 /** the keys that scroll the page when focus is not in a field */
 const SCROLL_KEYS: ReadonlySet<string> = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
 /** how long a new fork may take to reach this device after the agent made it, before the stage says so instead of opening it */
+/* a fork's lineage line and divider load with the first forked thread (fork-ui.tsx), warmed as soon as one is on stage */
+const LineageLine = lazy(() => import("./fork-ui").then((m) => ({ default: m.LineageLine })));
+const ForkMark = lazy(() => import("./fork-ui").then((m) => ({ default: m.ForkMark })));
+const ForkMenuItem = lazy(() => import("./fork-ui").then((m) => ({ default: m.ForkMenuItem })));
 const FORK_ARRIVAL_MS = 10_000;
 /** how long a turn's fork that failed says so under the bar */
 const FORK_NOTE_MS = 6000;
@@ -307,17 +309,17 @@ export function Stage(props: StageProps) {
   /** the agent forks (its capability) and the history is not imported, browse only: else no fork is offered anywhere */
   const forkShown = () => state.fleet.agents[data.host()]?.capabilities.fork === true && session()?.browseOnly !== true;
   const streamDown = () => state.stream.state === "down";
-  /** the menu's: the whole thread waits for a running turn, since its end is not written yet */
-  const wholeHeld = () => forkHeld({ streamDown: streamDown(), browseOnly: false, working: data.working() });
   /** what is being forked now: "whole", a turn's id, or nothing */
   const [forking, setForking] = createSignal<string | null>(null);
   /** a fork from the menu that failed says so in the menu, as archive does; one from a turn says so under the bar */
   const [forkNote, setForkNote] = createSignal<string | null>(null);
   const [forkReceipt, setForkReceipt] = createSignal<string | null>(null);
   let disposed = false;
+  /* what a press does (the verb, adopt, the wait for the thread to arrive) loads at the first press (fork-act.ts) */
+  const forkAct = () => import("./fork-act");
   /* the waits for a thread to arrive that are running: each ends (as not arrived) when the stage goes, its timer with it */
-  const waiting = new Set<(arrived: boolean) => void>();
-  onCleanup(() => { disposed = true; for (const end of [...waiting]) end(false); });
+  let arrivals: ReturnType<Awaited<ReturnType<typeof forkAct>>["createArrivals"]> | undefined;
+  onCleanup(() => { disposed = true; arrivals?.stop(); });
   createEffect(() => {
     if (!forkReceipt()) return;
     const timer = setTimeout(() => setForkReceipt(null), FORK_NOTE_MS);
@@ -325,49 +327,32 @@ export function Stage(props: StageProps) {
   });
   /** the new thread opens once the fleet holds it: it comes on the stream like any thread the agent makes, a moment after the
       answer. false if it has not come within the wait */
-  const arrives = (born: string): Promise<boolean> => new Promise((resolve) => {
-    if (state.fleet.threads[born]) return resolve(true);
-    if (disposed) return resolve(false);
-    createRoot((dispose) => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const end = (arrived: boolean) => {
-        if (!waiting.delete(end)) return;
-        clearTimeout(timer);
-        dispose();
-        resolve(arrived);
-      };
-      waiting.add(end);
-      timer = setTimeout(() => end(false), FORK_ARRIVAL_MS);
-      createEffect(() => { if (state.fleet.threads[born]) end(true); });
-    });
-  });
-  /** forks the thread through the server's fork verb (POST /api/agents/:agent/threads/:thread/fork, cmx2's
-      /session/:id/fork), then opens the new thread. `from` is "whole" (the menu) or the turn's id */
+  const arrives = async (born: string): Promise<boolean> => {
+    if (state.fleet.threads[born]) return true;
+    if (disposed) return false;
+    const act = await forkAct();
+    if (disposed) return false;
+    arrivals ??= act.createArrivals((k) => Boolean(state.fleet.threads[k]), FORK_ARRIVAL_MS);
+    return arrivals.arrives(born);
+  };
+  /** forks the thread through the server's fork verb (fork-act.ts), then opens the new thread. `from` is "whole" (the menu)
+      or the turn's id */
   const fork = async (cut: Cut, from: string) => {
     if (forking()) return;
     setForking(from);
     setForkNote(null);
     setForkReceipt(null);
     const say = (words: string) => (from === "whole" ? setForkNote(words) : setForkReceipt(words));
-    /* one client id per cut until its fork is made, so a retry, a reload or a second tap is the same fork (fork-ids.ts) */
-    const cutAt = cutKey(key(), cut.before);
     try {
-      const { data: born, error, response } = await api.POST("/api/agents/{agent}/threads/{thread}/fork", {
-        params: { path: { agent: data.host(), thread: key().slice(data.host().length + 1) } },
-        body: { ...deviceIdentity(), clientID: forkId(tabShelf, cutAt, () => crypto.randomUUID()), ...(cut.before ? { before: cut.before } : {}) },
-      });
-      if (settles(response.status)) forkDone(tabShelf, cutAt);
-      if (!response.ok || !born) {
-        const said = (error as { error?: { message?: unknown } } | undefined)?.error?.message;
-        say(typeof said === "string" ? said : `the server answered ${response.status}. try again.`);
-        return;
-      }
-      if (!(await arrives(born.key))) {
-        if (!disposed) say("the fork was made and has not reached this device yet. it shows on home when it does.");
+      const act = await forkAct();
+      const made = await act.forkThread(data.host(), key(), cut.before);
+      if ("say" in made) return say(made.say);
+      if (!(await arrives(made.key))) {
+        if (!disposed) say(act.FORK_NOT_HERE);
         return;
       }
       setMenuOpen(false);
-      openThread(born.key);
+      openThread(made.key);
     } catch {
       say("the boxbox server is not answering. check it is running, then try again.");
     } finally {
@@ -380,13 +365,19 @@ export function Stage(props: StageProps) {
     held: () => (streamDown() ? "offline" : null),
     busy: forking,
     fork: (turn) => {
-      const cut = cutAfter(data.turns(), turn);
-      if (cut) void fork(cut, turn);
+      if (forking()) return;
+      void forkAct().then((act) => {
+        const cut = act.cutAfter(data.turns(), turn);
+        if (cut) void fork(cut, turn);
+      }, () => setForkReceipt("the boxbox server is not answering. check it is running, then try again."));
     },
   };
 
   /* ---------- lineage: a forked thread names the thread it came from and opens it where it was cut ---------- */
   const lineage = createMemo(() => lineageOf(session()?.forkedFrom, data.host(), (k) => state.fleet.threads[k]?.title));
+  /* the fork pieces (fork-ui.tsx) load as soon as a stage offers a fork or shows one, just after its first paint, so the menu's
+     item is there when it opens and a fork's lineage line and divider land with it */
+  createEffect(() => { if (lineage() || forkShown()) void ForkMark.preload(); });
   /* what a link to it could not do, said beside the link that was used: the title block's, the divider's, or a copied
      promoted message's "from a btw" marker (`btw:<id>`, btw/marker.ts) */
   const [lineageNote, setLineageNote] = createSignal<{ at: "top" | "mark" | `btw:${string}`; text: string } | null>(null);
@@ -408,14 +399,11 @@ export function Stage(props: StageProps) {
     if (!state.fleet.threads[from.key]) {
       setLineageOpening(true);
       try {
-        const { error, response } = await api.POST("/api/agents/{agent}/threads/{thread}/adopt", { params: { path: { agent: data.host(), thread: from.key.slice(data.host().length + 1) } }, body: { ...deviceIdentity(), clientID: crypto.randomUUID() } });
-        if (!response.ok) {
-          const said = (error as { error?: { message?: unknown } } | undefined)?.error?.message;
-          setNote(typeof said === "string" ? said : `the server answered ${response.status}. try again.`);
-          return;
-        }
+        const act = await forkAct();
+        const refused = await act.adoptThread(data.host(), from.key);
+        if (refused !== null) return setNote(refused);
         if (!(await arrives(from.key))) {
-          if (!disposed) setNote("it was found, but has not reached this device yet. try again in a moment.");
+          if (!disposed) setNote(act.ADOPTED_NOT_HERE);
           return;
         }
       } catch {
@@ -780,7 +768,7 @@ export function Stage(props: StageProps) {
         const card = scroller.querySelector<HTMLElement>(`[data-btw="${CSS.escape(place.btw)}"]`);
         if (card) { landed = true; follow.hold(); light(card, scroller); return; }
       } else if (data.hydrating() || !caughtUp()) return;
-      else setLandNote(BTW_GONE);
+      else void import("../btw/marker").then((m) => setLandNote(m.BTW_GONE), () => undefined);
     }
     /* a fork's link: the turn just above the message it was cut before, the turn the fork was made from (fork.ts) */
     const target = place.cut ? (whole(), turnBeforeCut(data.turns(), place.cut)) : null;
@@ -1246,8 +1234,7 @@ export function Stage(props: StageProps) {
             <div class="menu-sep" role="separator" />
             <button role="menuitem" disabled={compactBlocked()} onClick={compactNow}>{compacting() ? "compacting" : "compact"}<em>summarise to free the context</em></button>
             <Show when={forkShown()}>
-              <button role="menuitem" disabled={wholeHeld() !== null} aria-disabled={forking() !== null ? "true" : undefined} onClick={() => void fork({}, "whole")}>{forking() === "whole" ? "forking" : "fork"}<em>{wholeHeld() ?? "a new thread with this history"}</em></button>
-              <Show when={forkNote()}>{(why) => <p class="menu-note" role="alert">{why()}</p>}</Show>
+              <ForkMenuItem streamDown={streamDown()} working={data.working()} busy={forking() !== null} forking={forking() === "whole"} note={forkNote()} fork={() => void fork({}, "whole")} />
             </Show>
             <button role="menuitem" onClick={copyLink}>copy link</button>
             <Show when={hasRepo()}>
@@ -1290,7 +1277,7 @@ export function Stage(props: StageProps) {
                   </Show>
                   <Show when={parentKey()}><span class="tb-parent">an agent of {parentTitle()}</span></Show>
                   {/* a fork names the thread it came from and is the door back to the turn it was forked from (docs/thread.md, fork) */}
-                  <Show when={lineage()}>{(from) => <button type="button" class="tb-parent tb-fork" aria-label={lineageWords(from())} aria-disabled={lineageOpening() ? "true" : undefined} onClick={() => void openLineage("top")}>{lineageWords(from())}</button>}</Show>
+                  <Show when={lineage()}>{(from) => <LineageLine from={from()} opening={lineageOpening()} open={() => void openLineage("top")} />}</Show>
                 </div>
                 <Show when={lineageNote()?.at === "top" && lineageNote()}>{(why) => <p class="tb-fork-note" role="alert">{why().text}</p>}</Show>
                 {/* a link in that could not land where it pointed (a fork's marker to a btw this thread let go) */}
@@ -1328,15 +1315,9 @@ export function Stage(props: StageProps) {
                           <>
                             <TurnView turn={turn()} ctx={data.ctx()} live={isLive(turn())} now={data.now()} />
                             {/* a fork's copied history ends here: the divider names where it came from and is a door back to the cut */}
-                            <Show when={boundary() === id && lineage()}>{(from) => {
-                              const words = () => boundaryWords(from(), ownTurns());
-                              return (
-                                <div class="fork-mark">
-                                  <p>{words().before}<span class="fork-mark-at"><button type="button" aria-label={words().name} aria-disabled={lineageOpening() ? "true" : undefined} onClick={() => void openLineage("mark")}>{words().link}</button>{words().stop}</span>{words().after}</p>
-                                  <Show when={lineageNote()?.at === "mark" && lineageNote()}>{(why) => <p class="fork-mark-note" role="alert">{why().text}</p>}</Show>
-                                </div>
-                              );
-                            }}</Show>
+                            <Show when={boundary() === id && lineage()}>{(from) => (
+                              <ForkMark from={from()} ownTurns={ownTurns()} opening={lineageOpening()} note={lineageNote()?.at === "mark" ? (lineageNote()?.text ?? null) : null} open={() => void openLineage("mark")} />
+                            )}</Show>
                           </>
                         ); }}</For>
                       </OpenAgentContext.Provider>

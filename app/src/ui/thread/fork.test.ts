@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { boundaryWords, cutAfter, forkBoundary, forkHeld, forkLabel, lineageOf, lineageWords, turnBeforeCut } from "./fork";
+import { forkBoundary, forkLabel, lineageOf, turnBeforeCut } from "./fork";
+import { boundaryWords, forkHeld, lineageWords } from "./fork-words";
+import { cutAfter } from "./fork-cut";
 import type { Turn } from "./model";
 
 type T = Pick<Turn, "id" | "by" | "status" | "items" | "answer">;

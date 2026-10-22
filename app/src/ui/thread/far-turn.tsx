@@ -11,7 +11,7 @@ import { settledHtml } from "./markdown";
 import { type HtmlMemo, cacheKey } from "./memo-cache";
 import type { Turn } from "./model";
 import { reportOf } from "./report";
-import { shownPrompt } from "../btw/words";
+import { shownPrompt } from "../btw/prompt";
 import { type RowCtx, type RowModel, firstSentence } from "./rows";
 import { CLAMPED_CHARS, CachesContext, ThreadKeyContext, useOrdinal } from "./thread";
 

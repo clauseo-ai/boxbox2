@@ -1878,3 +1878,12 @@ this lane's password (401s, nothing done). check `lsof` on the decade first,
 and take another: `bun scripts/cmx2.ts --port 4846 --boxbox-port 3061` with
 `target/debug/boxbox serve --config .cmx2/bench/boxbox.toml` (vite's 3002 is
 fixed in `scripts/dev.ts`, so two lanes cannot both run `just dev`).
+
+## two branches under the script budget alone can be over it together (fork-threads + btw)
+
+fork-threads and btw each passed every check, and each one's first load was under the 120 kb script budget on its own.
+merged, the first load was 122.2 kb. the only place it showed was the release build's compress gate
+(`bun scripts/compress.ts` after `cd app && bunx vite build`); `just check` does not build the app. when merging
+branches that add first-load code, run the build and the compress line on the merge. the fix moved what is not needed
+for the first paint into chunks (the btw card, marker and placement, the fork lineage line, divider and menu item, the
+fork verb, the btw send checks, the queue's strip), down to 118.5 kb.

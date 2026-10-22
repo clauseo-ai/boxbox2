@@ -5,7 +5,7 @@
 
 import { type Turn } from "./model";
 import { rowsOf } from "./rows";
-import { shownPrompt } from "../btw/words";
+import { shownPrompt } from "../btw/prompt";
 
 /** the newest turns are always filled: the end of the thread is where the reader lands, and a reply arrives */
 export const ALWAYS_LAST = 3;

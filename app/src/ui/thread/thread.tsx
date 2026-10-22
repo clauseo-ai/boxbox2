@@ -31,9 +31,16 @@ import { PictureViewer, ReportSheet, warmOn, whenLoaded } from "../later";
 import { ReportGlyph } from "./report-glyph";
 import { forkLabel } from "./fork";
 import { renameSoon } from "./copy";
-import { BtwCards, BtwMarker } from "../btw/card";
-import { shownPrompt } from "../btw/words";
+import { BtwContext } from "../btw/types";
+import "../btw/card.css";
+import { shownPrompt } from "../btw/prompt";
 import "./thread.css";
+
+/* the btw card and marker load when a thread first holds one (architecture.md, the script budget); their styles stay in
+   the first load, imported above, so a card arriving never reorders the cascade. no suspense boundary is above them: until
+   the chunk is in they render nothing, and the cards come from the store, so nothing is reserved and nothing shifts */
+const BtwCards = lazy(() => import("../btw/card").then((m) => ({ default: m.BtwCards })));
+const BtwMarker = lazy(() => import("../btw/card").then((m) => ({ default: m.BtwMarker })));
 
 /* ---------- answering in place ---------- */
 
@@ -1041,6 +1048,7 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
   const waits = () => (t().by === "queued" || t().by === "steer") && !t().items.length && !t().answer;
   /* a settled turn offers a fork through its end; the running one and one that waits have no end yet (fork.ts, cutAfter) */
   const forkHere = useContext(ForkContext);
+  const btws = useContext(BtwContext);
   const forkable = () => forkHere !== undefined && !live() && t().status !== "working" && !waits() && forkHere.shown();
   return (
     <section ref={el} class="turn" data-turn={t().id} data-waits={waits() ? "" : undefined} data-pending={filled() ? undefined : ""} data-gist={filled() ? undefined : firstSentence(shownPrompt(t())).slice(0, 90)} data-far={far() ? "" : undefined} style={filled() ? undefined : { height: `${far()?.height ?? boxHeight()}px` }}>
@@ -1063,7 +1071,7 @@ export function TurnView(props: { turn: Turn; ctx: RowCtx; live?: boolean; now?:
         {/* a turn with no answer to hang it on (a report, a stopped turn, a compaction) still offers its fork, on a line of its own */}
         <Show when={forkable() && !(t().answer && (t().by !== "compaction" || t().summary !== undefined)) && forkHere}>{(f) => <div class="act-line"><ForkButton turn={t()} fork={f()} /></div>}</Show>
         {/* the btws asked after this turn's messages, after its content (docs/thread.md, btw: placement) */}
-        <BtwCards turnID={t().id} />
+        <Show when={btws?.of(t().id).length}><BtwCards turnID={t().id} /></Show>
       </Show>
     </section>
   );

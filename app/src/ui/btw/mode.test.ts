@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { BTW_FATE, BTW_NO_PHOTOS, BTW_PLACEHOLDER, BTW_SEND, BTW_UNAVAILABLE, askedDraftGoes, backspaceLeaves, btwOffered, btwQuestion, btwSendBlock, typedIntoBtw } from "./mode";
+import { BTW_FATE, BTW_PLACEHOLDER, BTW_SEND, backspaceLeaves, btwOffered, btwQuestion, typedIntoBtw } from "./mode";
+import { BTW_NO_PHOTOS, BTW_UNAVAILABLE, askedDraftGoes, btwSendBlock } from "./ask";
 
 describe("where the btw mode is offered", () => {
   test("on a thread whose agent answers btws, in the bar", () => {

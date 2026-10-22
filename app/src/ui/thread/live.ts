@@ -13,7 +13,6 @@ import { hideThread, holdThread, releaseThread, showThread } from "../../sync/cl
 import { state } from "../../store";
 import { type Item, type Turn, projectRoot, shownCount, spawnsOf } from "./model";
 import type { Btw } from "../btw/types";
-import { btwNames, placeBtws } from "../btw/place";
 import { NO_MESSAGES, type TurnsOptions, createTurns } from "./turns";
 import { type Wanted, createHolds, isRead } from "./holds";
 import type { ThreadCaches } from "./memo-cache";
@@ -78,6 +77,16 @@ export type ThreadData = {
 };
 
 const NO_BTWS: readonly Btw[] = [];
+/* where btws go (btw/place.ts) loads with the first thread that holds one, in the card's chunk, never in the first load
+   (architecture.md, the script budget): until it is in, a thread places none, and the cards draw when it lands, as they
+   would from the store */
+const [placeModule, setPlaceModule] = createSignal<typeof import("../btw/place")>();
+let placeAsked = false;
+const askPlace = (): void => {
+  if (placeAsked) return;
+  placeAsked = true;
+  void import("../btw/place").then(setPlaceModule, () => { placeAsked = false; });
+};
 
 /* the agents a child's items started, by the items' array: a child that did not change is read once */
 const spawned = new WeakMap<readonly Item[], readonly string[]>();
@@ -331,13 +340,15 @@ export function createThreadData(key: Accessor<string>, thinking: Accessor<"open
   const placedBtws = createMemo(() => {
     const list = btwList();
     if (list.length === 0) return new Map<string, Btw[]>();
+    const place = placeModule();
+    if (!place) return askPlace(), new Map<string, Btw[]>();
     const all = rawMessages();
     const shown: { id: string; role: string }[] = [];
     for (let i = 0, n = shownCount(all); i < n; i++) { const m = all[i]; if (m) shown.push({ id: m.info.id, role: m.info.role }); }
-    return placeBtws(shown, list);
+    return place.placeBtws(shown, list);
   });
   const btwTurns = createMemo(() => { const out = new Map<string, string>(); for (const [turn, list] of placedBtws()) for (const b of list) out.set(b.id, turn); return out; });
-  const namesOfBtws = createMemo(() => btwNames(btwList()));
+  const namesOfBtws = createMemo(() => { const place = placeModule(); return place ? place.btwNames(btwList()) : new Map<string, string>(); });
   return {
     key, host, title, directory, repoRoot, tone,
     held: () => thread() !== undefined,

@@ -8,7 +8,6 @@ import { FollowContext, LandingContext, light, Markdown, WindowContext } from ".
 import { BtwContext, type Btw, type BtwDone } from "./types";
 import { BTW_ANSWERING, BTW_CAPTION, BTW_LABEL, type BtwVerb, btwView, FROM_BTW, fromBtwName } from "./words";
 import { markerTarget, parentMarkerName } from "./marker";
-import "./card.css";
 
 /** the scroller a light moves: the stage's, when the card is on one */
 const scrollerOf = (el: Element): HTMLElement | undefined => el.closest<HTMLElement>(".stage-scroll") ?? undefined;
