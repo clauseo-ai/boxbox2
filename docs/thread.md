@@ -1024,6 +1024,22 @@ conversation. built in `app/src/ui/btw/` (`card.tsx`, `words.ts`,
   dashed underline, the card's rail in small. inside the bubble it is in
   view wherever the bubble is. a tap fills the card's turn, brings the card
   into view and lights it (an inset ring in the rail's colour, 1.6 s).
+- **the marker in a fork** (the owner's call, 2026-10-22). a fork copies the
+  parent's messages, a promoted one with its btw's id, and never the btws:
+  the cards stay with the parent. so a marker whose btw the thread does not
+  hold, in a fork, opens the parent at that card (`btw/marker.ts`,
+  `markerTarget`): the lineage link's way there (`openLineage`, history's
+  adopt for a parent the fleet does not hold) with `&btw=<id>` beside
+  `&cut=`, and the parent fills the card's turn, brings the card into view
+  and lights it as its own marker would. its name says where: "from a btw,
+  with its answer: go to the btw in <parent title>". a parent that is gone
+  says so under the marker in red, in the lineage line's words; a parent
+  whose read has caught up without that btw (let go by the 64 cap, or a
+  fork of a fork whose btw lives two threads up) opens at the cut and says
+  "that btw is not on this thread any more, so it opened where the fork was
+  cut." under its title. a btw the thread does not hold in a thread that is
+  not a fork has nowhere to go: the marker is words, not a control. a btw
+  asked in the fork itself is the fork's own and goes to its card here.
 
 ### motion
 
@@ -1540,7 +1556,10 @@ touching those (`big-text.ts`):
     none, so a whole fork with no new turns shows it at its end). the
     title is a link with the top line's landing (the parent at the cut;
     named "open <title> where this fork was cut", apart from the top
-    line's name), and what it could not do is said under it. the copied
+    line's name), and what it could not do is said under it. the link and
+    the full stop after it never part (`.fork-mark-at`, nowrap; the title
+    wraps inside the link): a break there left the stop alone at the head
+    of the next line on a phone. the copied
     turns are told by time: they keep the times the parent's messages were
     written at, and the fork's own are written after the fork was made, so
     the last turn that began before the thread's `created` is the boundary

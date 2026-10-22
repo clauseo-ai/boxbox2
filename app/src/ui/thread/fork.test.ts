@@ -61,11 +61,11 @@ describe("where a fork's copied history ends", () => {
 
   test("its words name the thread, say what is above, and name the link apart from the title block's", () => {
     const named = boundaryWords({ key: "desk:ses_1", title: "fix the reducer", cut: "msg_9" }, true);
-    expect(`${named.before}${named.link}${named.after}`).toBe("forked from fix the reducer. everything above came from it; this thread's own turns start here.");
+    expect(`${named.before}${named.link}${named.stop}${named.after}`).toBe("forked from fix the reducer. everything above came from it; this thread's own turns start here.");
     expect(named.name).toBe("open fix the reducer where this fork was cut");
     expect(named.name).not.toBe(lineageWords({ key: "desk:ses_1", title: "fix the reducer", cut: "msg_9" }));
     const waiting = boundaryWords({ key: "desk:ses_1", title: null, cut: null }, false);
-    expect(`${waiting.before}${waiting.link}${waiting.after}`).toBe("forked from another thread. everything above came from it; this thread's own turns will start here.");
+    expect(`${waiting.before}${waiting.link}${waiting.stop}${waiting.after}`).toBe("forked from another thread. everything above came from it; this thread's own turns will start here.");
   });
 });
 

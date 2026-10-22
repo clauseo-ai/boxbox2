@@ -30,6 +30,15 @@ export type BtwThread = {
   turnOf: (btwID: string) => string | undefined;
   /** a btw's question as its controls name it, bounded and told apart from a namesake ("again") */
   nameOf: (btwID: string) => string;
+  /** the thread this one was forked from, for a copied promoted message whose card stayed there (marker.ts); absent or
+      null when this thread is not a fork */
+  lineage?: () => { key: string; title: string | null; cut: string | null } | null;
+  /** opens the parent at a btw's card, through the lineage link's landing (stage.tsx, openLineage) */
+  openInParent?: (btwID: string) => void;
+  /** what opening the parent for this btw could not do, in the lineage link's words; null when nothing went wrong */
+  parentNote?: (btwID: string) => string | null;
+  /** whether the parent is being looked up (history's adopt), so the marker holds */
+  parentOpening?: () => boolean;
 };
 
 export const BtwContext = createContext<BtwThread>();

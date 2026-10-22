@@ -7,6 +7,7 @@ import { createMemo, createSignal, For, Show, useContext } from "solid-js";
 import { FollowContext, LandingContext, light, Markdown, WindowContext } from "../thread/thread";
 import { BtwContext, type Btw, type BtwDone } from "./types";
 import { BTW_ANSWERING, BTW_CAPTION, BTW_LABEL, type BtwVerb, btwView, FROM_BTW, fromBtwName } from "./words";
+import { markerTarget, parentMarkerName } from "./marker";
 import "./card.css";
 
 /** the scroller a light moves: the stage's, when the card is on one */
@@ -151,17 +152,33 @@ export function BtwMarker(props: { btwID: string }) {
   const win = useContext(WindowContext);
   const follow = useContext(FollowContext);
   let el!: HTMLButtonElement;
+  /* the card is this thread's, or, in a fork, the parent's: the fork copied the message and never the btw (marker.ts) */
+  const target = () => markerTarget(props.btwID, (id) => thread?.turnOf(id), thread?.lineage?.() ?? null);
   const go = () => {
+    const to = target();
+    if (to.kind === "parent") {
+      if (thread?.parentOpening?.()) return;
+      thread?.openInParent?.(props.btwID);
+      return;
+    }
+    if (to.kind !== "here") return;
     follow?.hold();
-    const turn = thread?.turnOf(props.btwID);
-    if (turn) win?.reveal(turn);
+    win?.reveal(to.turn);
     const root = el.closest("[data-flip-root]") ?? document;
     const card = root.querySelector<HTMLElement>(`[data-btw="${CSS.escape(props.btwID)}"]`);
     if (card) light(card, scrollerOf(card));
   };
+  const words = () => <>{FROM_BTW.slice(0, 7)}<b>btw</b>{FROM_BTW.slice(10)}</>;
+  const name = () => { const to = target(); return to.kind === "parent" ? parentMarkerName(to.title) : fromBtwName(thread?.nameOf(props.btwID) || undefined); };
   return (
-    <button ref={el} type="button" class="btw-from" data-from-btw={props.btwID} aria-label={fromBtwName(thread?.nameOf(props.btwID) || undefined)} onClick={go}>
-      {FROM_BTW.slice(0, 7)}<b>btw</b>{FROM_BTW.slice(10)}
-    </button>
+    <>
+      {/* a btw no thread here can show (let go, in a thread that is not a fork) leaves the words with nothing to go to */}
+      <Show when={target().kind !== "none"} fallback={<span class="btw-from" data-from-btw={props.btwID}>{words()}</span>}>
+        <button ref={el} type="button" class="btw-from" data-from-btw={props.btwID} aria-label={name()} aria-disabled={target().kind === "parent" && thread?.parentOpening?.() ? "true" : undefined} onClick={go}>
+          {words()}
+        </button>
+      </Show>
+      <Show when={thread?.parentNote?.(props.btwID)}>{(why) => <p class="btw-from-note" role="alert">{why()}</p>}</Show>
+    </>
   );
 }

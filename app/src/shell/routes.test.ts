@@ -87,6 +87,12 @@ describe("a launch settles on the canonical url", () => {
     expect(new URLSearchParams(canonicalSearch("?thread=desk:ses_1&cut=")).has("cut")).toBe(false);
   });
 
+  test("a btw to land on stays on its thread, and goes with it under a screen or when empty", () => {
+    expect(new URLSearchParams(canonicalSearch("?thread=desk:ses_1&cut=msg_9&btw=btw_3")).get("btw")).toBe("btw_3");
+    expect(canonicalSearch("?thread=desk:ses_1&btw=btw_3&screen=history")).toBe("?screen=history");
+    expect(new URLSearchParams(canonicalSearch("?thread=desk:ses_1&btw=")).has("btw")).toBe(false);
+  });
+
   test("a screen under a terminal goes", () => {
     expect(canonicalSearch("?screen=settings&terminal=desk:pty_7")).toBe("?terminal=desk%3Apty_7");
   });

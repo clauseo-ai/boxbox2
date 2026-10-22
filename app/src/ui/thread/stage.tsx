@@ -51,6 +51,7 @@ import { type Cut, boundaryWords, cutAfter, forkBoundary, forkHeld, lineageOf, l
 import { BtwContext, type BtwThread } from "../btw/types";
 import { answersBtw, btwActions } from "../btw/actions";
 import { shownPrompt } from "../btw/words";
+import { BTW_GONE } from "../btw/marker";
 import "./stage.css";
 
 /* the review is a chunk of its own: most threads never have one, so its card, controller and words stay out of the first
@@ -122,8 +123,8 @@ export function Stage(props: StageProps) {
   const [thinking, setThinking] = createSignal<"open" | "rows">(prefs.get(THINKING_KEY) === "open" ? "open" : "rows");
   /* a thread opens with its newest turns and the rest follow a few at a time (turns.ts): a thread of hundreds of turns made in one task is
      a long task. one that was opened to a turn, a row or an ask is opened whole, since what it goes to may be any of them */
-  const placeHere = (): ThreadPlace => (new URLSearchParams(location.search).get("thread") === props.threadKey ? placeInUrl() : { at: null, part: null, cut: null });
-  const aimed = Boolean(placeHere().at || placeHere().part || placeHere().cut || (state.focus && state.focus.thread === props.threadKey));
+  const placeHere = (): ThreadPlace => (new URLSearchParams(location.search).get("thread") === props.threadKey ? placeInUrl() : { at: null, part: null, cut: null, btw: null });
+  const aimed = Boolean(placeHere().at || placeHere().part || placeHere().cut || placeHere().btw || (state.focus && state.focus.thread === props.threadKey));
   const data = createThreadData(key, thinking, threadCaches, aimed ? {} : { first: FIRST_TURNS });
   const inset = createKeyboardInset();
   const mountedAt = performance.now();
@@ -386,16 +387,20 @@ export function Stage(props: StageProps) {
 
   /* ---------- lineage: a forked thread names the thread it came from and opens it where it was cut ---------- */
   const lineage = createMemo(() => lineageOf(session()?.forkedFrom, data.host(), (k) => state.fleet.threads[k]?.title));
-  /* what a link to it could not do, said beside the link that was used: the title block's, or the divider's */
-  const [lineageNote, setLineageNote] = createSignal<{ at: "top" | "mark"; text: string } | null>(null);
+  /* what a link to it could not do, said beside the link that was used: the title block's, the divider's, or a copied
+     promoted message's "from a btw" marker (`btw:<id>`, btw/marker.ts) */
+  const [lineageNote, setLineageNote] = createSignal<{ at: "top" | "mark" | `btw:${string}`; text: string } | null>(null);
   /** the last copied turn, after which the divider stands (fork.ts, forkBoundary: by time, the copies keep the parent's) */
   const boundary = createMemo(() => { const s = session(); return lineage() && s ? forkBoundary(data.turns(), s.created) : null; });
   /** whether the fork has turns of its own after the copies */
   const ownTurns = createMemo(() => { const b = boundary(); return b !== null && data.ids().at(-1) !== b; });
   const [lineageOpening, setLineageOpening] = createSignal(false);
+  /* what a link into this thread could not land on, said in the lineage line's words under the title */
+  const [landNote, setLandNote] = createSignal<string | null>(null);
   /** opens the thread this one was forked from at the turn it was forked from. one the fleet does not hold (cleared from home's
-      twelve hours, or archived) is asked for through history's adopt first, which answers that an archived one is gone */
-  const openLineage = async (at: "top" | "mark") => {
+      twelve hours, or archived) is asked for through history's adopt first, which answers that an archived one is gone. a
+      marker's link lands on its btw's card instead, the cut kept for when the card is gone */
+  const openLineage = async (at: "top" | "mark" | `btw:${string}`, btw: string | null = null) => {
     const from = lineage();
     if (!from || lineageOpening()) return;
     setLineageNote(null);
@@ -421,7 +426,7 @@ export function Stage(props: StageProps) {
       }
     }
     if (disposed) return;
-    openThread(from.key, { cut: from.cut });
+    openThread(from.key, { cut: from.cut, btw });
   };
 
   /* ---------- the bar condenses once the big title has gone by ---------- */
@@ -654,7 +659,7 @@ export function Stage(props: StageProps) {
     placeTimer = setTimeout(() => {
       let at: string | null = null;
       at = turnAtLine(turnEls())?.dataset["turn"] ?? null;
-      markPlace({ at, part: null, cut: null });
+      markPlace({ at, part: null, cut: null, btw: null });
     }, 250);
   };
   onCleanup(() => clearTimeout(placeTimer));
@@ -751,7 +756,7 @@ export function Stage(props: StageProps) {
     if (goToAsk() || landed) return;
     const place = placeInUrl();
     /* the place in the url is another thread's when this stage is under another layer or was opened by a tap: it is not a reason to make every turn */
-    if (placeHere().at === null && placeHere().part === null && placeHere().cut === null) { if (data.turns().length) { landed = true; pin.pin(); } return; }
+    if (placeHere().at === null && placeHere().part === null && placeHere().cut === null && placeHere().btw === null) { if (data.turns().length) { landed = true; pin.pin(); } return; }
     if (place.part) {
       /* the row's turn is filled first: a turn the window has not filled has no rows to find (stage-window.ts, reveal) */
       const owner = turnOfPart(place.part);
@@ -764,6 +769,18 @@ export function Stage(props: StageProps) {
         light(row, scroller);
         return;
       }
+    }
+    /* a fork's "from a btw" marker: the card, lit as the marker lights one in its own thread. the btws come with the read, so
+       until it has caught up a card not placed yet is not gone; once it has, a btw not among them is, and the link says so and
+       lands on the cut below (btw/marker.ts) */
+    if (place.btw) {
+      const turn = data.btwTurn(place.btw);
+      if (turn) {
+        win.reveal(turn);
+        const card = scroller.querySelector<HTMLElement>(`[data-btw="${CSS.escape(place.btw)}"]`);
+        if (card) { landed = true; follow.hold(); light(card, scroller); return; }
+      } else if (data.hydrating() || !caughtUp()) return;
+      else setLandNote(BTW_GONE);
     }
     /* a fork's link: the turn just above the message it was cut before, the turn the fork was made from (fork.ts) */
     const target = place.cut ? (whole(), turnBeforeCut(data.turns(), place.cut)) : null;
@@ -813,7 +830,7 @@ export function Stage(props: StageProps) {
   onCleanup(() => cancelAnimationFrame(linkFrame));
   createEffect(on(() => state.focus, (focus) => { if (focus) landSoon(); }, { defer: true }));
   /* a link in is followed as soon as its target exists, once */
-  createEffect(on(() => `${data.turns().length}/${data.asks().size}/${data.hydrating()}/${caughtUp()}`, () => { if ((!landed || state.focus) && data.turns().length) landSoon(); }));
+  createEffect(on(() => `${data.turns().length}/${data.asks().size}/${data.hydrating()}/${caughtUp()}/${placeHere().btw ? data.btwTurn(placeHere().btw ?? "") ?? "" : ""}`, () => { if ((!landed || state.focus) && data.turns().length) landSoon(); }));
   onMount(() => emit("surface.view", { route: `/?thread=${key()}` }, { surface: "thread", session: key() }));
   /* what the memo caches held when this stage closed, one row each (docs/thread.md, what is remembered) */
   onCleanup(() => {
@@ -854,7 +871,14 @@ export function Stage(props: StageProps) {
   /* ---------- asks: the actions the cards call, and the settle that stamps the perf row ---------- */
   const actions = askActions(data.host);
   /* the thread's btws for its turns and its composer (docs/thread.md, btw): offered only where the agent answers them */
-  const btw: BtwThread = { key, actions: btwActions, of: data.btwsOf, turnOf: data.btwTurn, nameOf: data.btwName };
+  const btw: BtwThread = {
+    key, actions: btwActions, of: data.btwsOf, turnOf: data.btwTurn, nameOf: data.btwName,
+    /* a fork's copied promoted message goes to its card in the parent, through the lineage link (btw/marker.ts) */
+    lineage,
+    openInParent: (btwID) => void openLineage(`btw:${btwID}`, btwID),
+    parentNote: (btwID) => { const note = lineageNote(); return note?.at === `btw:${btwID}` ? note.text : null; },
+    parentOpening: lineageOpening,
+  };
   // and only once the thread has a turn: a thread with no message has nothing to ask about, and no turn for a card (mode.ts)
   const btwOffered = () => answersBtw(state.fleet.agents[data.host()]?.capabilities) && data.ids().length > 0;
   /* ---------- the review card: an agent in a checkout asked to be merged (docs/design.md, the needs table) ---------- */
@@ -1269,6 +1293,8 @@ export function Stage(props: StageProps) {
                   <Show when={lineage()}>{(from) => <button type="button" class="tb-parent tb-fork" aria-label={lineageWords(from())} aria-disabled={lineageOpening() ? "true" : undefined} onClick={() => void openLineage("top")}>{lineageWords(from())}</button>}</Show>
                 </div>
                 <Show when={lineageNote()?.at === "top" && lineageNote()}>{(why) => <p class="tb-fork-note" role="alert">{why().text}</p>}</Show>
+                {/* a link in that could not land where it pointed (a fork's marker to a btw this thread let go) */}
+                <Show when={landNote()}>{(why) => <p class="tb-fork-note" role="alert">{why()}</p>}</Show>
                 <h1 class="tb-h1">{title()}</h1>
                 <div class="tb-status" aria-live="polite">
                   <Show when={status().live}><i /></Show>
@@ -1306,7 +1332,7 @@ export function Stage(props: StageProps) {
                               const words = () => boundaryWords(from(), ownTurns());
                               return (
                                 <div class="fork-mark">
-                                  <p>{words().before}<button type="button" aria-label={words().name} aria-disabled={lineageOpening() ? "true" : undefined} onClick={() => void openLineage("mark")}>{words().link}</button>{words().after}</p>
+                                  <p>{words().before}<span class="fork-mark-at"><button type="button" aria-label={words().name} aria-disabled={lineageOpening() ? "true" : undefined} onClick={() => void openLineage("mark")}>{words().link}</button>{words().stop}</span>{words().after}</p>
                                   <Show when={lineageNote()?.at === "mark" && lineageNote()}>{(why) => <p class="fork-mark-note" role="alert">{why().text}</p>}</Show>
                                 </div>
                               );

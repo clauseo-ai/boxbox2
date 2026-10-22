@@ -73,12 +73,14 @@ export function forkBoundary(turns: readonly Pick<Turn, "id" | "at">[], created:
 }
 
 /** the words of the divider at that boundary, around the link to the thread it came from */
-export function boundaryWords(lineage: Lineage, ownTurns: boolean): { before: string; link: string; after: string; name: string } {
+export function boundaryWords(lineage: Lineage, ownTurns: boolean): { before: string; link: string; stop: string; after: string; name: string } {
   const title = lineage.title ?? "another thread";
   return {
     before: "forked from ",
     link: title,
-    after: ownTurns ? ". everything above came from it; this thread's own turns start here." : ". everything above came from it; this thread's own turns will start here.",
+    /* the full stop is its own piece so the divider can keep it on the link's line: a break between them orphaned it */
+    stop: ".",
+    after: ownTurns ? " everything above came from it; this thread's own turns start here." : " everything above came from it; this thread's own turns will start here.",
     name: lineage.title ? `open ${lineage.title} where this fork was cut` : "open the thread this was forked from, where it was cut",
   };
 }

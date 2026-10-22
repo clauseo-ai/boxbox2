@@ -8,7 +8,7 @@
    | route    | url                                          | parent   |
    |----------|----------------------------------------------|----------|
    | home     | /                                            |          |
-   | thread   | /?thread=<host:session>[&at=][&part=][&cut=] | home     |
+   | thread   | /?thread=<host:session>[&at=][&part=][&cut=][&btw=] | home |
    | machines | /?screen=machines                            | home     |
    | history  | /?screen=history                             | home     |
    | settings | /?screen=settings                            | machines |
@@ -55,6 +55,8 @@ const AT = "at";
 const PART = "part";
 /** the sync client's: where a fork of the thread was cut (client.ts, ThreadPlace) */
 const CUT = "cut";
+/** the sync client's: a btw card to land on (client.ts, ThreadPlace) */
+const BTW = "btw";
 const ASK = "ask";
 const PUSH = "push";
 
@@ -105,10 +107,10 @@ export function canonicalSearch(search: string): string {
   const route = parseRoute(search);
   const query = new URLSearchParams(search);
   if (route.name !== "thread") {
-    for (const name of [THREAD, AT, PART, CUT, ASK, PUSH]) query.delete(name);
+    for (const name of [THREAD, AT, PART, CUT, BTW, ASK, PUSH]) query.delete(name);
   } else {
     // an empty place is no place
-    for (const name of [AT, PART, CUT]) if (!query.get(name)) query.delete(name);
+    for (const name of [AT, PART, CUT, BTW]) if (!query.get(name)) query.delete(name);
   }
   return withShellParams(queryString(query), route);
 }

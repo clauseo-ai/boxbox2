@@ -78,7 +78,9 @@
 .fork-mark::before { grid-column: 1; grid-row: 1; }
 .fork-mark::after { grid-column: 3; grid-row: 1; }
 .fork-mark p { grid-column: 2; grid-row: 1; margin: 0; max-width: 44ch; text-align: center; text-wrap: balance; }
-.thread-stage .fork-mark button { position: relative; min-height: 0; padding: 0; background: none; font: inherit; color: var(--text-2); font-weight: 600; text-decoration: underline; text-decoration-color: var(--text-3); text-underline-offset: 3px; }
+/* the link and the full stop after it never part: the title wraps inside the link, and the stop stays on its last line */
+.fork-mark .fork-mark-at { white-space: nowrap; }
+.thread-stage .fork-mark button { white-space: normal; position: relative; min-height: 0; padding: 0; background: none; font: inherit; color: var(--text-2); font-weight: 600; text-decoration: underline; text-decoration-color: var(--text-3); text-underline-offset: 3px; }
 .thread-stage .fork-mark button::after { content: ""; position: absolute; inset: -12px -4px; }
 @media (hover: hover) { .thread-stage .fork-mark button:not(:disabled):hover { color: var(--text); text-decoration-color: currentColor; } }
 .fork-mark .fork-mark-note { grid-row: 2; margin-top: 6px; color: var(--red); }
