@@ -3673,6 +3673,107 @@
         }
       }
     },
+    "/api/hosts/{host}/sessions/{session}/title": {
+      "post": {
+        "tags": [
+          "super::threads"
+        ],
+        "summary": "renames a thread through its daemon (cmx2's `PATCH /session/:id` with\n`title`). the new title reaches every device on the daemon's own update.",
+        "operationId": "rename",
+        "parameters": [
+          {
+            "name": "host",
+            "in": "path",
+            "description": "the host's name in boxbox.toml",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "session",
+            "in": "path",
+            "description": "the daemon's session id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "renamed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Renamed"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a title",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no such host or thread",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "the daemon refused, with its own words (`host-said`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "the host did not answer or failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/login": {
       "post": {
         "tags": [
@@ -9845,6 +9946,33 @@
             "items": {
               "$ref": "#/components/schemas/McpServer"
             }
+          }
+        }
+      },
+      "RenameBody": {
+        "type": "object",
+        "description": "a thread's new name.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "1 to 200 characters on one line; trimmed."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Renamed": {
+        "type": "object",
+        "description": "the daemon's answer to a rename.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "the title the daemon now holds."
           }
         }
       },

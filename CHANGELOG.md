@@ -6,6 +6,13 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **rename a thread.** the thread menu's "rename" opens a field holding the
+  title; save sends it to the daemon (`POST
+  /api/hosts/{host}/sessions/{session}/title`, cmx2's `PATCH /session/:id`
+  with `title`), and the daemon's update carries the new name to every
+  device. a title is one line of 1 to 200 characters; telemetry kind
+  `thread.renamed` never records it.
+
 - **fork a thread.** the thread menu's "fork" makes a new thread holding
   the whole history, and "fork from here" under any settled turn makes one
   holding the history through that turn; the new thread opens at once. a

@@ -461,6 +461,10 @@ fn lifecycle() -> Router<Arc<AppState>> {
             post(threads::archive),
         )
         .route(
+            "/api/hosts/{host}/sessions/{session}/title",
+            post(threads::rename),
+        )
+        .route(
             "/api/hosts/{host}/sessions/{session}/adopt",
             post(threads::adopt),
         )

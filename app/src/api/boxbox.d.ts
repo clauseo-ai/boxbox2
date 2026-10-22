@@ -829,6 +829,26 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/hosts/{host}/sessions/{session}/title": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * renames a thread through its daemon (cmx2's `PATCH /session/:id` with
+         *     `title`). the new title reaches every device on the daemon's own update.
+         */
+        post: operations["rename"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/login": {
         parameters: {
             query?: never;
@@ -2781,6 +2801,16 @@ export type components = {
             /** @description what the daemon flushed: skills, agents, commands, models. */
             flushed: string[];
             mcp: components["schemas"]["McpServer"][];
+        };
+        /** @description a thread's new name. */
+        RenameBody: {
+            /** @description 1 to 200 characters on one line; trimmed. */
+            title: string;
+        };
+        /** @description the daemon's answer to a rename. */
+        Renamed: {
+            /** @description the title the daemon now holds. */
+            title: string;
         };
         /**
          * @description the colour of one repo: a host plus its root, which the repo's
@@ -6024,6 +6054,80 @@ export interface operations {
                 };
             };
             /** @description the host did not answer */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rename: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description the host's name in boxbox.toml */
+                host: string;
+                /** @description the daemon's session id */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameBody"];
+            };
+        };
+        responses: {
+            /** @description renamed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Renamed"];
+                };
+            };
+            /** @description not a title */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description no such host or thread */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the daemon refused, with its own words (`host-said`) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the host did not answer or failed */
             502: {
                 headers: {
                     [name: string]: unknown;

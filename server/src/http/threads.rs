@@ -319,6 +319,88 @@ pub async fn archive(
     Ok(Json(Archived { archived }))
 }
 
+/// the longest title a rename takes, in characters: past a phone's two lines.
+const MAX_TITLE: usize = 200;
+
+/// a thread's new name.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RenameBody {
+    /// 1 to 200 characters on one line; trimmed.
+    pub title: String,
+}
+
+/// the daemon's answer to a rename.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Renamed {
+    /// the title the daemon now holds.
+    pub title: String,
+}
+
+/// the part of a session a rename's answer is read for.
+#[derive(Deserialize)]
+struct Titled {
+    title: String,
+}
+
+/// renames a thread through its daemon (cmx2's `PATCH /session/:id` with
+/// `title`). the new title reaches every device on the daemon's own update.
+#[utoipa::path(
+    post,
+    path = "/api/hosts/{host}/sessions/{session}/title",
+    params(
+        ("host" = String, Path, description = "the host's name in boxbox.toml"),
+        ("session" = String, Path, description = "the daemon's session id"),
+    ),
+    request_body = RenameBody,
+    responses(
+        (status = 200, description = "renamed", body = Renamed),
+        (status = 400, description = "not a title", body = ErrorBody),
+        (status = 401, description = "not signed in", body = ErrorBody),
+        (status = 404, description = "no such host or thread", body = ErrorBody),
+        (status = 422, description = "the daemon refused, with its own words (`host-said`)", body = ErrorBody),
+        (status = 502, description = "the host did not answer or failed", body = ErrorBody),
+    ),
+)]
+pub async fn rename(
+    State(state): State<Arc<AppState>>,
+    Path((host, session)): Path<(String, String)>,
+    Json(body): Json<RenameBody>,
+) -> Result<Json<Renamed>, ApiError> {
+    let id = segment(&session)?;
+    let title = body.title.trim();
+    if title.is_empty() || title.chars().count() > MAX_TITLE {
+        return Err(ApiError::BadRequest(format!(
+            "a title is 1 to {MAX_TITLE} characters"
+        )));
+    }
+    if title.chars().any(char::is_control) {
+        return Err(ApiError::BadRequest(
+            "a title is one line. take out the line breaks".to_owned(),
+        ));
+    }
+    let source = agents::cmx2(&state, &host, None)?;
+    let key = session_key(&host, &session);
+    let outcome = source
+        .rename_session(id, title)
+        .await
+        .map_err(|error| match error {
+            ApiError::Gone => ApiError::NoSuchSession(key.clone()),
+            other => other,
+        });
+    state.telemetry.record(&json!({
+        "kind": "thread.renamed",
+        "host": host,
+        "session": key,
+        "ok": outcome.as_ref().map_or_else(|e| (!crate::source::cmx2::verbs::threads::unanswered(e)).then_some(false), |_| Some(true)),
+    }));
+    let info = outcome?;
+    info!(host, session, "thread renamed");
+    let title =
+        serde_json::from_str::<Titled>(info.get()).map_or_else(|_| title.to_owned(), |t| t.title);
+    Ok(Json(Renamed { title }))
+}
+
 /// reads a thread from its daemon and lets the fleet adopt it, for a thread
 /// opened from history that the fleet does not hold. the fleet's stream
 /// then carries its entry like any session's.

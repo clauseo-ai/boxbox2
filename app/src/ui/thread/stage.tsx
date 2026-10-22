@@ -177,6 +177,18 @@ export function Stage(props: StageProps) {
     queueMicrotask(() => (asking ? keepButton : archiveItem)?.focus());
   };
 
+  /* the menu's rename: the item opens a field holding the title; save sends it to the daemon, whose update brings it back */
+  const [renameOpen, setRenameOpen] = createSignal(false);
+  const [renameBusy, setRenameBusy] = createSignal(false);
+  const [renameNote, setRenameNote] = createSignal<string | null>(null);
+  let renameItem: HTMLButtonElement | undefined;
+  let renameField: HTMLInputElement | undefined;
+  const editName = (open: boolean) => {
+    setRenameOpen(open);
+    setRenameNote(null);
+    queueMicrotask(() => { if (open && renameField) { renameField.value = title(); renameField.focus(); renameField.select(); } else renameItem?.focus(); });
+  };
+
   onMount(() => installMotion());
 
   /* ---------- what the lines say ---------- */
@@ -279,7 +291,7 @@ export function Stage(props: StageProps) {
   };
 
   // the menu closing takes its question with it
-  createEffect(on(menuOpen, (open) => { if (!open) { setConfirming(false); setArchiveNote(null); setForkNote(null); } }, { defer: true }));
+  createEffect(on(menuOpen, (open) => { if (!open) { setConfirming(false); setArchiveNote(null); setForkNote(null); setRenameOpen(false); setRenameNote(null); } }, { defer: true }));
   /** archives the thread through its daemon (POST .../archive: cmx2's time.archived). it leaves every listing, its
       history stays on disk. on the deck the stage shrinks back into home; beside the windows (strip, rail) home lets
       go of it when the fleet drops it, a beat later. a refusal (the daemon says no: an imported thread is read only) is
@@ -306,6 +318,32 @@ export function Stage(props: StageProps) {
       setArchiving(false);
     }
   };
+
+  /** renames the thread through its daemon (POST .../title: cmx2's PATCH with title). the fleet's stream brings the
+      new title to every device; a refusal is said in the menu, in words */
+  const rename = async () => {
+    const next = renameField?.value.trim() ?? "";
+    if (renameBusy()) return;
+    if (!next) { setRenameNote("a name needs at least one character."); return; }
+    if (next === title()) { setMenuOpen(false); return; }
+    setRenameBusy(true);
+    setRenameNote(null);
+    try {
+      const { error, response } = await api.POST("/api/hosts/{host}/sessions/{session}/title", { params: { path: { host: data.host(), session: key().slice(data.host().length + 1) } }, body: { title: next } });
+      if (!response.ok) {
+        const said = (error as { error?: { message?: unknown } } | undefined)?.error?.message;
+        setRenameNote(typeof said === "string" ? said : `the server answered ${response.status}. try again.`);
+        return;
+      }
+      setMenuOpen(false);
+      moreEl.focus({ preventScroll: true });
+    } catch {
+      setRenameNote("the boxbox server is not answering. check it is running, then try again.");
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+  const renameShown = () => session() !== undefined && session()?.browseOnly !== true;
 
   /* ---------- fork (docs/thread.md, fork): the menu's forks the whole thread, a turn's forks it through that turn ---------- */
   /** the agent forks (its capability) and the history is not imported, browse only: else no fork is offered anywhere */
@@ -1239,6 +1277,21 @@ export function Stage(props: StageProps) {
             <button role="menuitem" disabled={compactBlocked()} onClick={compactNow}>{compacting() ? "compacting" : "compact"}<em>summarise to free the context</em></button>
             <Show when={forkShown()}>
               <ForkMenuItem streamDown={streamDown()} working={data.working()} busy={forking() !== null} forking={forking() === "whole"} note={forkNote()} fork={() => void fork({}, "whole")} />
+            </Show>
+            <Show when={renameShown()}>
+              <Show
+                when={renameOpen()}
+                fallback={<button ref={renameItem} role="menuitem" onClick={() => editName(true)}>rename</button>}
+              >
+                <form class="menu-ask" role="group" aria-label="rename this thread" onSubmit={(e) => { e.preventDefault(); void rename(); }}>
+                  <input ref={renameField} class="menu-field" type="text" aria-label="thread name" maxLength={200} enterkeyhint="done" autocomplete="off" />
+                  <Show when={renameNote()}>{(why) => <p class="menu-ask-note" role="alert">{why()}</p>}</Show>
+                  <div class="menu-ask-do">
+                    <button type="button" onClick={() => editName(false)}>cancel</button>
+                    <button type="submit" class="menu-ask-go" disabled={renameBusy()}>{renameBusy() ? "renaming" : "rename"}</button>
+                  </div>
+                </form>
+              </Show>
             </Show>
             <button role="menuitem" onClick={copyLink}>copy link</button>
             <Show when={hasRepo()}>

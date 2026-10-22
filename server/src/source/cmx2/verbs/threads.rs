@@ -53,6 +53,29 @@ impl Cmx2Source {
         .await
     }
 
+    /// renames a session (`PATCH /session/:id` with `title`) and returns the
+    /// session as the daemon answered. the daemon's `session.updated` carries
+    /// the new title to the fleet like any other change.
+    ///
+    /// # Errors
+    /// as `session_info`.
+    pub async fn rename_session(
+        &self,
+        session: &str,
+        title: &str,
+    ) -> Result<Box<RawValue>, ApiError> {
+        let route = format!("/session/{session}");
+        let sent = json!({ "title": title });
+        daemon(
+            &self.client,
+            self.host(),
+            Method::PATCH,
+            &route,
+            Some(&sent),
+        )
+        .await
+    }
+
     /// a new session holding this one's history up to, not including,
     /// `before` (one of its message ids), or all of it (`POST
     /// /session/:id/fork`); returns the new session as the daemon answered.

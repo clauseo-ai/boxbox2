@@ -22,7 +22,9 @@ use super::push::{
 use super::review::{MergeBody, WorktreeDiscarded, WorktreeFile, WorktreeMerged, WorktreeReview};
 use super::session::{ModelRef, Send, SendPart};
 use super::telemetry::{Accepted, TelemetryBatch};
-use super::threads::{Archived, ClearBody, ClearSource, Cleared, NotCleared, NotClearedWhy};
+use super::threads::{
+    Archived, ClearBody, ClearSource, Cleared, NotCleared, NotClearedWhy, RenameBody, Renamed,
+};
 use crate::config::Origin;
 use crate::fleet::needs::{By, How, Need, NeedKind};
 use crate::fleet::read::ReadMark;
@@ -78,6 +80,7 @@ use crate::wire::{ColourFrame, RepoColour};
         super::history::page,
         super::threads::clear,
         super::threads::archive,
+        super::threads::rename,
         super::threads::adopt,
         super::agents::routes::fork,
         super::agents::routes::adopt,
@@ -116,6 +119,8 @@ use crate::wire::{ColourFrame, RepoColour};
         boxbox_board_wire::PinRequest,
         crate::media::MediaObject,
         Archived,
+        RenameBody,
+        Renamed,
         super::agents::routes::ForkBody,
         crate::wire::Born,
         CheckoutRefusal,

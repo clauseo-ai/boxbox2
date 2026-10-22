@@ -545,7 +545,10 @@ about a thread is on its resting screen, and the long tail lives behind
     routed (`docs/architecture.md`, review).
 - **menu.** turns (the list of prompts and reports, shown where the
   details would be), details (with a count, "2 agents, 3 files"), show
-  thinking, then the law's long tail as it is built: rename, model and
+  thinking, then the law's long tail as it is built: rename (built: the
+  item opens a field holding the title in place, save sends cmx2's
+  `PATCH /session/:id` with `title` through `POST .../title`, and the
+  daemon's update carries the name to every device), model and
   effort defaults, fork, compact, revert to a turn (also on each turn's
   own menu), open a terminal here, copy link, colour (the colour sheet,
   above), archive.
