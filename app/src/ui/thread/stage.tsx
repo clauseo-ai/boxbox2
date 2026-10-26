@@ -28,6 +28,7 @@ import { DetailsPanel, warm, whenLoaded } from "../later";
 import { factsOf, filesChanged, rosterOf, spendOf, summaryOf } from "./details-model";
 import { type DetailsRoom, docksBeside, type InspectorLink } from "./inspector";
 import { askActions, replies, settled } from "./asks";
+import { APPLE } from "../apple";
 import { type ThreadData, createThreadData, toneOfColour } from "./live";
 import { listen, releaseOnCleanup } from "./release";
 import { watchMeasure } from "./measure";
@@ -1216,12 +1217,11 @@ export function Stage(props: StageProps) {
     if (target) goTo(target.t);
   };
   const togglePanel = (which: "turns" | "details") => (shown() === which ? openPanel(null) : enter(which));
-  const MAC = /Mac|iPhone|iPad/.test(navigator.userAgent);
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       // the stage on top only: one under another layer or the new-thread sheet is inert
       if (e.defaultPrevented || e.isComposing || stageEl.closest("[inert]") || colourFrom()) return;
-      if (!(MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
+      if (!(APPLE ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)) return;
       const typing = e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]") !== null;
       const key_ = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       let act: (() => void) | null = null;
@@ -1241,7 +1241,7 @@ export function Stage(props: StageProps) {
     addEventListener("keydown", onKey, { capture: true });
     onCleanup(() => removeEventListener("keydown", onKey, { capture: true }));
   });
-  const mod = MAC ? "Meta" : "Control";
+  const mod = APPLE ? "Meta" : "Control";
 
   return (
     <section

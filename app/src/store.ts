@@ -13,6 +13,7 @@ import type { Draft, OutboxView } from "./sync/outbox";
 import { appended, EMPTY_FLEET, type Fleet, isAppend, type Patch, type ThreadView } from "./sync/reducer";
 import { type AskReply, keepReply, replyKey, restoreReplies } from "./sync/replies";
 import { createThreadCaches } from "./ui/thread/memo-cache";
+import { dropped, failed, offered, type Offers, settled, TOAST_MS } from "./ui/home/offers";
 
 /** what a thread's finished parts cost to make, kept between stages (ui/thread/memo-cache.ts). it lives here with the rest of the app's
     state: a thread the worker lets go drops its entries (`applyPatches`), and signing out empties it */
@@ -155,6 +156,8 @@ export type State = {
   colourPreview: ColourPreview | null;
   /** the clear the undo toast offers back (home/toast.tsx), or null while no toast is up. this device's ui alone */
   undo: Undo | null;
+  /** the clears waiting for the toast on screen to end (an auto-clear behind a hand clear's toast; home/undo.ts, `offered`) */
+  undoNext: Undo[];
 };
 
 /** one repo, by host and root, shown in one of the ten by name */
@@ -201,6 +204,7 @@ const [state, setState] = createStore<State>({
   board: { here: false, digits: {}, bound: {}, met: false, since: 0, focus: null, compose: null, pin: null, pairing: true },
   colourPreview: null,
   undo: null,
+  undoNext: [],
 });
 
 export { state };
@@ -247,7 +251,7 @@ export async function signOut(): Promise<void> {
     await api.POST("/api/logout");
   } finally {
     threadCaches.clear();
-    setState({ gate: "signed-out", hosts: [], hostsAt: null, problem: null, fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null, undo: null });
+    setState({ gate: "signed-out", hosts: [], hostsAt: null, problem: null, fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null, undo: null, undoNext: [] });
     setState("terminals", { byHost: {}, shells: {}, open: null });
     setState({ prefs: null, models: {}, modelsRead: {}, behind: null });
     setState("replies", reconcile({}));
@@ -374,7 +378,7 @@ export function setOpenThread(key: string | null): void {
 
 export function syncSignedOut(): void {
   threadCaches.clear();
-  setState({ gate: "signed-out", fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null, undo: null });
+  setState({ gate: "signed-out", fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null, undo: null, undoNext: [] });
   boardGone();
 }
 
@@ -458,11 +462,22 @@ const HOME_KEY = "boxbox.home";
 function keptHome(): HomePrefs {
   try {
     const text = typeof localStorage === "undefined" ? null : localStorage.getItem(HOME_KEY);
-    // the copy is the server's own document as it was last read; a field it lacks takes the default, as the server's read does
-    return { ...DEFAULT_HOME, ...(text ? (JSON.parse(text) as Partial<HomePrefs>) : {}) };
+    return text ? readHome(JSON.parse(text)) : DEFAULT_HOME;
   } catch {
     return DEFAULT_HOME;
   }
+}
+
+/** the copy as it was last kept, read field by field: one missing or of the wrong shape (another build wrote it, or someone
+    edited it) takes the default, as the server's own read does */
+export function readHome(value: unknown): HomePrefs {
+  const kept = typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+  const autoClear = kept["autoClear"];
+  return {
+    autoClear: autoClear === "seen1h" || autoClear === "any3h" || autoClear === "never" ? autoClear : DEFAULT_HOME.autoClear,
+    foldWorking: typeof kept["foldWorking"] === "boolean" ? kept["foldWorking"] : DEFAULT_HOME.foldWorking,
+    jobsAsNeeds: typeof kept["jobsAsNeeds"] === "boolean" ? kept["jobsAsNeeds"] : DEFAULT_HOME.jobsAsNeeds,
+  };
 }
 
 function keepHome(value: HomePrefs): void {
@@ -487,32 +502,69 @@ export function setHomePrefs(value: HomePrefs): void {
   keepHome(value);
 }
 
-/** the undo toast's one clear: the keys the server cleared, the title of the one thread when there is one, and a serial
-    so a newer clear replaces the toast and its timer (home/toast.tsx owns the 6 s) */
-export type Undo = { keys: string[]; title: string | null; serial: number; /** the unclear is out */ busy: boolean; /** why it did not come back */ error: string | null };
+/** the undo toast's one clear: the keys the server cleared, the title of the one thread when there is one, a serial so a
+    newer clear replaces the toast and its timer (home/toast.tsx owns the 6 s), whose clear it was, and when its offer runs
+    out (performance.now ms; Infinity while the toast holds it), so an offer is gone when home comes back after it */
+export type Undo = {
+  keys: string[];
+  title: string | null;
+  serial: number;
+  /** a clear by hand on this device, or the server's own (`autoCleared`) */
+  cause: "hand" | "auto";
+  until: number;
+  /** the unclear is out */ busy: boolean;
+  /** why it did not come back */ error: string | null;
+};
 let undoSerial = 0;
 
-/** a clear from this device, or one the server made while this page was in front: the toast offers it back */
-export function offerUndo(keys: readonly string[]): void {
+const offers = (): Offers => ({ now: state.undo, next: state.undoNext });
+function setOffers(next: Offers): void {
+  if (next.now === state.undo && next.next === state.undoNext) return;
+  batch(() => {
+    setState("undo", next.now);
+    setState("undoNext", next.next);
+  });
+}
+
+/** a clear from this device (`hand`), or one the server made while this page was in front (`auto`): the toast offers it back */
+export function offerUndo(keys: readonly string[], cause: Undo["cause"] = "hand", now = performance.now()): void {
   if (keys.length === 0) return;
   const only = keys.length === 1 ? state.fleet.threads[keys[0] ?? ""] : undefined;
-  setState("undo", { keys: [...keys], title: only ? only.title.trim() || "untitled" : null, serial: ++undoSerial, busy: false, error: null });
+  const offer: Undo = { keys: [...keys], title: only ? only.title.trim() || "untitled" : null, serial: ++undoSerial, cause, until: now + TOAST_MS, busy: false, error: null };
+  setOffers(offered(offers(), offer, now));
 }
 
-/** the toast is done with this clear (undone, timed out, dismissed); a newer one stays */
-export function dropUndo(serial: number): void {
-  if (state.undo?.serial === serial) setState("undo", null);
+/** the offer on screen as it stands now: one whose time ran out while home was away is dropped here, and the next one
+    waiting takes its place. home reads it as it mounts the toast, ⌘z before it undoes */
+export function liveUndo(now = performance.now()): Undo | null {
+  setOffers(settled(offers(), now));
+  return state.undo;
 }
 
-/** the toast's undo is out (`error` null) or came back refused or failed (`error` says why, and the toast stays) */
-export function undoState(serial: number, busy: boolean, error: string | null): void {
-  if (state.undo?.serial === serial) setState("undo", { busy, error });
+/** the toast is done with this clear (undone, timed out, dismissed); a newer one stays, and one waiting shows */
+export function dropUndo(serial: number, now = performance.now()): void {
+  setOffers(dropped(offers(), serial, now));
+}
+
+/** the toast's undo is out, or back with nothing to say */
+export function undoBusy(serial: number, busy: boolean): void {
+  if (state.undo?.serial === serial) setState("undo", { busy });
+}
+
+/** the toast's undo came back refused or failed (`error` says why): the line shows, even when a newer toast took over */
+export function undoFailed(undo: Undo, error: string, now = performance.now()): void {
+  setOffers(failed(offers(), undo, error, now));
+}
+
+/** when the toast on screen runs out, as its time hears it (`Lifetime`) */
+export function undoUntil(serial: number, until: number): void {
+  if (state.undo?.serial === serial && state.undo.until !== until) setState("undo", { until });
 }
 
 /** the server cleared threads on its own while a device was looking (`autoCleared`): only a page in front offers it back */
 export function autoCleared(keys: readonly string[]): void {
   if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-  offerUndo(keys);
+  offerUndo(keys, "auto");
 }
 
 export function setDevicePrefs(device: string, value: DevicePrefs): void {

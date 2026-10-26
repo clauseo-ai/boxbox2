@@ -3,8 +3,7 @@
 
 import type { Undo } from "../../store";
 
-/** how long the toast offers the clear back */
-export const TOAST_MS = 6000;
+export { TOAST_MS, toastWords } from "./offers";
 
 /** the square's edge from twelve clockwise, as fractions of the way round: where the sweep turns a corner */
 const CORNERS: readonly [number, string][] = [
@@ -38,10 +37,6 @@ export function wedge(t: number): string {
 /** the sweep's frames: one at each corner, so a straight stretch of edge is a straight interpolation */
 export const DRAIN_FRAMES = [0, 1 / 8, 3 / 8, 5 / 8, 7 / 8, 1].map((t) => ({ clipPath: wedge(t), offset: t }));
 
-/** what the toast says: "cleared 3", "cleared 1" */
-export function toastWords(count: number): string {
-  return `cleared ${count}`;
-}
 
 /** the undo button's name: what it brings back, so it is never one of two "undo"s */
 export function undoName(undo: Pick<Undo, "keys" | "title">): string {
@@ -55,7 +50,9 @@ export type Clock = {
 };
 
 /** the toast's time: it runs out after `ms` unless held (a pointer over the toast, focus in it, an undo out), and a hold
-    keeps what was left. `restart` gives the full time again (a newer clear, an undo that failed). the owner stops it */
+    keeps what was left. `restart` gives the full time again (a newer clear, an undo that failed), or what is left of an
+    offer's time when the toast mounts again. `deadline` hears when it will run out (Infinity while held), so the store's
+    offer carries its expiry while home is away and the toast with it. the owner stops it */
 export class Lifetime {
   private left: number;
   private started = 0;
@@ -65,30 +62,35 @@ export class Lifetime {
     private readonly ms: number,
     private readonly expire: () => void,
     private readonly clock: Clock,
+    private readonly deadline: (at: number) => void = () => {},
   ) {
     this.left = ms;
   }
-  /** the time starts over from the full length, unless a hold is on */
-  restart(): void {
+  /** the time starts over from the full length (or `left` of it), unless a hold is on */
+  restart(left = this.ms): void {
     this.cancel();
-    this.left = this.ms;
+    this.left = Math.min(this.ms, Math.max(0, left));
     this.run();
   }
   hold(): void {
     if (this.holds++ > 0) return;
     if (this.handle !== undefined) this.left = Math.max(0, this.left - (this.clock.now() - this.started));
     this.cancel();
+    this.deadline(Infinity);
   }
   release(): void {
     if (this.holds === 0 || --this.holds > 0) return;
     this.run();
   }
+  /** the owner is done with it; a hold still on hands back the time it kept, so the offer runs out that much later */
   stop(): void {
     this.cancel();
+    if (this.holds > 0) this.deadline(this.clock.now() + this.left);
   }
   private run(): void {
     if (this.holds > 0) return;
     this.started = this.clock.now();
+    this.deadline(this.started + this.left);
     this.handle = this.clock.after(this.left, () => {
       this.handle = undefined;
       this.expire();

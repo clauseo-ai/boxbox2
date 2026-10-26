@@ -4,7 +4,7 @@
 
 import { api } from "../../api/client";
 import { deviceIdentity } from "../../sync/client";
-import { dropUndo, state, undoState } from "../../store";
+import { dropUndo, liveUndo, undoBusy, undoFailed } from "../../store";
 import { said, UNREACHABLE } from "../machines/verb";
 import { markBroughtBack } from "../window/clearing";
 
@@ -42,15 +42,18 @@ export async function awaySeen(): Promise<string | null> {
   }
 }
 
-/** the toast's undo, from its button or ⌘z: brings back exactly what the clear cleared. the toast goes once all of it is
-    back; a refusal or a failure stays on it, saying why */
+/** the toast's undo, from its button or ⌘z: brings back exactly what the clear on screen cleared (an offer whose time ran
+    out is no offer). the toast goes once all of it is back; a refusal or a failure always shows, saying why, even when a
+    newer toast took over meanwhile (store.ts, `undoFailed`) */
 export async function undoLast(): Promise<void> {
-  const undo = state.undo;
-  if (!undo || undo.busy) return;
-  undoState(undo.serial, true, null);
+  const live = liveUndo();
+  if (!live || live.busy) return;
+  // a copy: the store merges a newer offer into the same object, and a failure must name this one
+  const undo = { ...live, keys: [...live.keys] };
+  undoBusy(undo.serial, true);
   const result = await unclear(undo.keys, "undo");
-  if (!result.ok) return undoState(undo.serial, false, `not brought back. ${result.error}`);
+  if (!result.ok) return undoFailed(undo, `not brought back. ${result.error}`);
   const first = result.refused[0];
-  if (first) return undoState(undo.serial, false, result.refused.length === 1 ? first.message : `${result.refused.length} not brought back. ${first.message}`);
+  if (first) return undoFailed(undo, result.refused.length === 1 ? first.message : `${result.refused.length} not brought back. ${first.message}`);
   dropUndo(undo.serial);
 }

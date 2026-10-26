@@ -496,30 +496,53 @@ is the law, and decisions 93 to 100 say why; how it is built:
   answer sheet's shape: a sheet from the foot on the deck, a popover under
   what opened it at the strip and the rail (under the away line's start
   for "show"), measured once, the one close (`ui/close.tsx`), escape and a
-  press outside close, focus back to the opener. home is inert under them
+  press outside close, focus back to the opener, or to the bar's first
+  control when the opener went with the change ("bring all back" empties
+  the away line; `focus-back.ts`). home is inert under them
   (`sheetUp`). a fold row is a stretched button (its title, the whole row's
   hit area) that opens the thread through the window's own path
-  (`activate`, perf control `fold`); a row parked on jobs alone keeps its
+  (`activate`, perf control `fold`), and focus stays with the stage, not
+  back on the capsule; a row parked on jobs alone keeps its
   clear (`clearThreads`, the window's name for it). the list follows the live
   fold and closes when it empties.
 - **the toast** (`toast.tsx`, a chunk; `undo.ts` its words, sweep and
   time): `state.undo` in the store, set by `offerUndo` with the keys the
   clear's answer says it cleared (`clear.tsx`), or by `autoCleared` for an
   `autoCleared` frame (worker to page, never state) while the document is
-  visible. a newer clear replaces it. `Lifetime` owns the 6 s and holds it
-  while a pointer is over the toast, focus is in it, or its undo is out;
+  visible. which clear shows is `offers.ts` (first load, pure, pinned by
+  `undo.test.ts`): a newer clear replaces the toast, except that a hand
+  clear's toast is never replaced by an auto-clear: the auto-clear waits
+  (`state.undoNext`, one auto offer joining the one waiting, at most 4) and
+  shows for its own full 6 s when the hand toast ends, so ⌘z always undoes
+  the toast on screen. `Lifetime` owns the 6 s and holds it
+  while a pointer is over the toast, focus is in it, or its undo is out,
+  and tells the offer when it runs out (`until`, Infinity while held): home
+  unmounts off home, and an offer read after its time (`liveUndo`, as home
+  mounts and before ⌘z) is gone, so coming back later shows nothing and ⌘z
+  does nothing; one still running shows for what is left of it;
   the ring is a clip-path wedge with seven points at every frame, played as
   a decor curve, so reduced motion keeps it full while the time still
   runs. undo (`settle-api.ts`, `undoLast`; home's `⌘z` when no text field
   has focus and no sheet is up) posts exactly those keys with source
   `undo`; a refusal stays on the toast with the server's words and "try
-  again". a key the server says is already back counts as back. the
+  again", and shows even when a newer toast took over meanwhile: the failed
+  offer comes back on screen and the newer one waits first in line. a key
+  the server says is already back counts as back. focus in the toast when
+  it goes (its undo done) moves to the bar's first control. the toast is no
+  live region: it would arrive already holding its words. home keeps one,
+  empty and visually hidden, from the first paint (`.toast-live`,
+  `toastAnnouncement`), and the words go into it as a toast shows. the ⌘z
+  hint and `aria-keyshortcuts` show only on an apple desktop (`ui/apple.ts`,
+  the stage's own test for the command key). the
   windows it brings back are born without the calm wait
   (`markBroughtBack`, as a hand clear's hole closes at once).
 - **the away list** is fleet state outside the journal (`fleet.away`, the
   `away` frame routed like the colours: protocol.ts `settle`, the reducer's
   `away` action, kept across a reset and in indexeddb with the fleet's other
-  fields, so a cold launch paints the line in its first frame). the line
+  fields, so a cold launch paints the line in its first frame). every
+  `hello` empties it: the server sends the list after the hello only when
+  it holds a row, so a cached list the server has since dropped never comes
+  back (`settle.test.ts`). the line
   shows while the list holds anything this device has not acknowledged,
   and while its sheet is open; "show" opens the sheet on the list as it
   stood and then acknowledges it, the dismiss acknowledges it
@@ -535,7 +558,8 @@ is the law, and decisions 93 to 100 say why; how it is built:
   inbox). history's rows read the same choice.
 - **the home prefs** (`store.ts`, `homePrefs`): the server's `prefs.home`
   once read, a copy in localStorage (`boxbox.home`) before, so a cold launch
-  folds as the person chose. settings saves them optimistically
+  folds as the person chose. the copy is read field by field (`readHome`):
+  a field missing or of the wrong shape takes the default. settings saves them optimistically
   (`saveHome`, a later choice is never undone by an earlier one's failure)
   with a `verb` row each (`setAutoClear`, `setFoldWorking`,
   `setJobsAsNeeds`).

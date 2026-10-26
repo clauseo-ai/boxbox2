@@ -2,7 +2,8 @@
    (ui/later.ts): the working fold opened, a row per folded thread with its live line and clock, and the threads the server
    cleared while you were away, each with "bring back". both are the answer sheet's shape (asks/sheet.tsx): a sheet from the
    foot on the deck, where a thumb reaches; a popover hung under what opened it on the strip and the rail, so the stage
-   stays in view. escape, a press outside and the close button close it, and focus goes back to what opened it. */
+   stays in view. escape, a press outside and the close button close it, and focus goes back to what opened it (the bar's
+   first control when that is gone; nowhere when a row opened a thread, which the stage has). */
 
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { play } from "../../motion/animate";
@@ -18,6 +19,7 @@ import { colourOf, colourStyle } from "../window/repo";
 import type { TailLine } from "../window/tail";
 import { footClock, parkedOn, type WindowView, windowName } from "../window/view";
 import { awayDetail, awaySubtitle, awayWords } from "./away";
+import { barControl, focusBack } from "./focus-back";
 import { unclear } from "./settle-api";
 import { type FoldKind, foldWords } from "./working-fold";
 
@@ -28,7 +30,10 @@ const POPOVER_WIDTH = 440;
 const MARGIN = 12;
 const LEAST = 280;
 
-function HomeSheet(props: { arrangement: Arrangement; from: HTMLElement; title: string; sub: string; label: string; onClose: () => void; children: JSX.Element; close?: (close: () => void) => void }) {
+/** closes the sheet; `restore` false leaves focus where it went (a thread opened from the list: the stage has it) */
+type CloseSheet = (restore?: boolean) => void;
+
+function HomeSheet(props: { arrangement: Arrangement; from: HTMLElement; title: string; sub: string; label: string; onClose: () => void; children: JSX.Element; close?: (close: CloseSheet) => void }) {
   let sheetEl: HTMLDivElement | undefined;
   let scrimEl: HTMLDivElement | undefined;
   const deck = () => props.arrangement === "deck";
@@ -44,7 +49,7 @@ function HomeSheet(props: { arrangement: Arrangement; from: HTMLElement; title: 
   };
   const placed = place();
   let closing = false;
-  const close = async () => {
+  const close = async (restore = true) => {
     if (closing) return;
     closing = true;
     const out = sheetEl && play(sheetEl, deck() ? [{ transform: "none" }, { transform: "translateY(110%)" }] : [{ opacity: 1 }, { opacity: 0, transform: "scale(.97)" }], deck() ? SHEET : FADE, { fill: "forwards" });
@@ -52,10 +57,11 @@ function HomeSheet(props: { arrangement: Arrangement; from: HTMLElement; title: 
     await out?.finished.catch(() => undefined);
     const back = props.from;
     props.onClose();
-    // home is inert under the sheet until it closes: focus goes back to what opened it once it is not
-    queueMicrotask(() => back.isConnected && back.focus({ preventScroll: true }));
+    // home is inert under the sheet until it closes: focus goes back to what opened it once it is not, or to the bar's first
+    // control when that went with the change (the away line, emptied by "bring all back")
+    if (restore) queueMicrotask(() => focusBack(back, barControl));
   };
-  props.close?.(() => void close());
+  props.close?.((restore) => void close(restore));
   onMount(() => {
     if (sheetEl) play(sheetEl, deck() ? [{ transform: "translateY(110%)" }, { transform: "none" }] : [{ opacity: 0, transform: "scale(.97)" }, { opacity: 1, transform: "none" }], deck() ? SHEET : FADE);
     if (scrimEl) play(scrimEl, [{ opacity: 0 }, { opacity: 1 }], FADE);
@@ -129,7 +135,7 @@ export type FoldListProps = {
     as its window had it. the list follows the fold: a thread that finishes, fails or asks leaves it at once, and when the
     last has gone the list closes */
 export function FoldList(props: FoldListProps) {
-  let closeIt: () => void = () => undefined;
+  let closeIt: CloseSheet = () => undefined;
   const working = () => props.keys.filter((key) => props.kindOf(key) === "working").length;
   createEffect(() => {
     if (props.keys.length === 0) closeIt();
@@ -157,7 +163,8 @@ export function FoldList(props: FoldListProps) {
                     aria-label={`open ${windowName(view())}`}
                     onClick={(event) => {
                       props.onOpenThread(key, event.currentTarget.closest<HTMLElement>(".hrow") ?? event.currentTarget, event);
-                      closeIt();
+                      // the stage has the thread, and focus stays with it, not back on the capsule
+                      closeIt(false);
                     }}
                   >
                     <span class="hrow-t">
@@ -195,7 +202,7 @@ export type AwaySheetProps = {
 /** the threads the server cleared while you were away, each with "bring back", and "bring all back" at the foot. a row
     brought back says so and stays, so the list does not move under the finger */
 export function AwaySheet(props: AwaySheetProps) {
-  let closeIt: () => void = () => undefined;
+  let closeIt: CloseSheet = () => undefined;
   const [back, setBack] = createSignal<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = createSignal<ReadonlySet<string>>(new Set());
   const [problem, setProblem] = createSignal<string | null>(null);

@@ -358,13 +358,18 @@ four places, each its own decision where the law was silent.
   auto-clear while the page is in front shows a glass pill for 6 s:
   "cleared N", "undo" in the accent, a 20 px ring draining clockwise by
   clip-path. at the rail it sits at the column's foot, the column's width,
-  with the one thread's title under "cleared 1" and the ⌘z hint; on the deck
+  with the one thread's title under "cleared 1" and, on an apple desktop,
+  the ⌘z hint; on the deck
   it is 48 px tall and centred in the page dots' row, between the window in
   view and the dock (measured once as it shows), so it never covers a
   window's clear or the dock. its time stops while a pointer or focus is on
   it. ⌘z undoes from anywhere but a text field. undo brings back exactly
   what the clear cleared, and a failure stays on the pill in the server's
-  words with "try again".
+  words with "try again", coming back on screen if a newer pill took over.
+  an auto-clear never replaces a hand clear's pill: it waits, and shows for
+  its own 6 s when that one ends. an offer is over when its time is, home
+  away or not: coming back later shows no pill. the words are announced
+  through a live region home keeps from its first paint, not by the pill.
 - **the away line.** when the server cleared threads while no device was
   looking, a line under the bar's line says "6 cleared while you were
   away" with "show" (the accent, underlined) and a dismiss. show opens a

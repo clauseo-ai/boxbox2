@@ -25,7 +25,9 @@ import { flip, insetOf, installMotionProperties, play, prefersReducedMotion, set
 import { birth } from "../../motion/fly";
 import { FADE, SHEET, SNAP } from "../../motion/springs";
 import { composeHost, focusPlan, holdsWords, type Over } from "../../board/requests";
-import { boardCompose, boardFocus, homePrefs, openFocus, releaseFocus, sessionsBeat, setWindowsInView, state } from "../../store";
+import { boardCompose, boardFocus, homePrefs, liveUndo, openFocus, releaseFocus, sessionsBeat, setWindowsInView, state } from "../../store";
+import { APPLE } from "../apple";
+import { toastAnnouncement } from "./offers";
 import { type ThreadPlace, closeThread, openThread, placeInUrl } from "../../sync/client";
 import type { Ask } from "../../sync/protocol";
 import { extraOf } from "../inbox/extra";
@@ -1068,8 +1070,9 @@ export function Home(props: HomeProps) {
       return;
     }
     if (typing) return;
-    // ⌘z undoes the clear the toast offers (not ⇧⌘z, the browser's redo), from anywhere but a text field, which keeps its own
-    if (event.metaKey && !event.shiftKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "z" && state.undo && !state.undo.busy && !sheetUp()) {
+    // ⌘z undoes the clear the toast offers (not ⇧⌘z, the browser's redo), from anywhere but a text field, which keeps its own;
+    // an offer whose time ran out is no offer, and ⌘z does nothing
+    if (event.metaKey && !event.shiftKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "z" && liveUndo()?.busy === false && !sheetUp()) {
       event.preventDefault();
       void settling().then((m) => m.undoLast());
       return;
@@ -1273,8 +1276,10 @@ export function Home(props: HomeProps) {
   };
 
   /* —— the fold, the away line, and the toast (docs/home.md, settle) —— */
-  /** a desktop's keyboard and pointer: the toast shows its ⌘z */
-  const fineKeys = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  /** an apple desktop's keyboard and pointer: the toast shows its ⌘z, and names it */
+  const fineKeys = APPLE && matchMedia("(hover: hover) and (pointer: fine)").matches;
+  // an offer whose time ran out while home was away is gone now, so coming back shows no toast (store.ts, `liveUndo`)
+  liveUndo();
   const acknowledge = () => {
     const seen = awaySig();
     setAcked(seen);
@@ -1555,6 +1560,8 @@ export function Home(props: HomeProps) {
         {(at) => <AwaySheet rows={at().rows} mode={homePrefs().autoClear} arrangement={arrangement()} from={at().from} onClose={() => setAwayOpen(null)} />}
       </Show>
       <Show when={state.undo}>{(undo) => <UndoToast undo={undo()} arrangement={arrangement()} keys={arrangement() !== "deck" && fineKeys} />}</Show>
+      {/* the toast's words, announced: this region is there from the first paint, empty, and takes them as a toast shows */}
+      <p class="toast-live" role="status">{toastAnnouncement(state.undo)}</p>
       <Show when={viewOf(cue() ?? "")}>{(view) => <div class="cue" aria-hidden="true" style={colourStyle(view().colour)} />}</Show>
       <Show when={capsule()}>
         {(shown) => (
