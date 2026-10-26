@@ -12,11 +12,13 @@
 
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { play } from "../../motion/animate";
-import { SHEET, SNAP } from "../../motion/springs";
+import { FADE, SHEET, SNAP } from "../../motion/springs";
 import { Icon } from "../composer/icons";
 import type { Place } from "../composer/new-thread";
 import { warmEdge } from "../later";
 import { RepoMark } from "../repo-mark/repo-mark";
+import { FoldToggle } from "../home/fold";
+import type { Beside } from "../home/windows";
 import { type FoldKind, foldWords } from "../home/working-fold";
 import type { WindowView } from "../window/view";
 import { type NeedRow, nextUp, type RepoRow } from "./assemble";
@@ -25,6 +27,9 @@ import { Field, type FieldApi, type FieldPlace } from "./field";
 /** a home mark: under the two-letter size (repo-mark/letters.ts), so a repo reads as the one letter its window, its chip
     and the capsule's beads show on the same screen (design.md, the repo mark) */
 export const MARK = 26;
+
+/** the way back to the windows fades in this long into their move: as the edge comes to it */
+const BACK_AFTER_MS = 220;
 
 /** how far down the spare height of the stage the field and its list stand: a little above the middle, where the eye
     rests, and never under the top once they are taller than the stage (they flow from the top and scroll then) */
@@ -62,6 +67,11 @@ export type NextUpProps = {
   kindOf: (key: string) => FoldKind;
   /** the row's press: the fold's list, as the capsule's press opens it */
   onFold: (from: HTMLElement) => void;
+  /** the windows put away with no thread on the stage (strip and rail): the round that shows them again, at the room's top
+      left where a thread's bar holds it, so home is never left with no way back to them. `arriving`: it comes with the
+      windows' move, under the receding edge (edge.ts clips the room with the card), and fades in as it is uncovered, since
+      the card on home is clear and a hard cut would be an edge nobody can see */
+  back: { form: Beside; arriving: boolean; onShow: () => void } | null;
   /** escape on the empty field: the thread you came from, when you came from one */
   onEscape?: (() => void) | undefined;
   api?: (api: NextApi) => void;
@@ -138,59 +148,68 @@ export function NextUp(props: NextUpProps) {
   };
 
   return (
-    <div class="nx" ref={rootEl} data-deck={props.deck ? "" : undefined}>
-      <h1 class="nx-title">what next?</h1>
-      <Field
-        start={props.start}
-        onBorn={props.onBorn}
-        {...(props.onEscape ? { onEscape: props.onEscape } : {})}
-        onPlace={(p) => setPlace(() => p)}
-        api={(api) => {
-          field = api;
-          props.api?.({ ...api, arrive, offers: () => (lists() ? next().repos.length : 0), moving: () => (props.deck || !rootEl ? [] : [...rootEl.querySelectorAll(".nx-field, .nx-group, .nx-quiet")]), place: () => placeNow() });
-        }}
-      />
-      <Show when={lists()}>
-        <div class="nx-lists">
-          <Show when={needs().length > 0}>
-            <section class="nx-group" aria-labelledby="nx-needs">
-              <h2 id="nx-needs">waiting on you</h2>
-              <ul class="nx-list">
-                <For each={needs()}>{(row) => <Need row={row} onOpen={props.onOpen} onAnswer={props.onAnswer} />}</For>
-              </ul>
-            </section>
-          </Show>
-          <Show when={working()}>
-            {(counts) => (
-              <section class="nx-group" aria-label="working">
+    <>
+      <Show when={props.back}>
+        {(back) => (
+          <div class="nx-back" ref={(el) => back().arriving && play(el, [{ opacity: 0 }, { opacity: 1 }], FADE, { delay: BACK_AFTER_MS, fill: "backwards" })}>
+            <FoldToggle form={back().form} state="hidden" round onToggle={back().onShow} />
+          </div>
+        )}
+      </Show>
+      <div class="nx" ref={rootEl} data-deck={props.deck ? "" : undefined}>
+        <h1 class="nx-title">what next?</h1>
+        <Field
+          start={props.start}
+          onBorn={props.onBorn}
+          {...(props.onEscape ? { onEscape: props.onEscape } : {})}
+          onPlace={(p) => setPlace(() => p)}
+          api={(api) => {
+            field = api;
+            props.api?.({ ...api, arrive, offers: () => (lists() ? next().repos.length : 0), moving: () => (props.deck || !rootEl ? [] : [...rootEl.querySelectorAll(".nx-field, .nx-group, .nx-quiet")]), place: () => placeNow() });
+          }}
+        />
+        <Show when={lists()}>
+          <div class="nx-lists">
+            <Show when={needs().length > 0}>
+              <section class="nx-group" aria-labelledby="nx-needs">
+                <h2 id="nx-needs">waiting on you</h2>
                 <ul class="nx-list">
-                  <li>
-                    <button type="button" class="nx-item" aria-haspopup="dialog" aria-label={workingName(counts().working, counts().waiting)} onClick={(event) => props.onFold(event.currentTarget)}>
-                      <span class="nx-beads" aria-hidden="true">
-                        <For each={props.foldKeys.slice(0, 3)}>
-                          {(key) => <Show when={props.viewOf(key)}>{(view) => <RepoMark host={view().host} root={view().root} size={MARK} />}</Show>}
-                        </For>
-                      </span>
-                      <span class="nx-text" aria-hidden="true">
-                        <b>{foldWords(counts().working, counts().waiting)}</b>
-                        <small>nothing wrong</small>
-                      </span>
-                      <span class="nx-verb" aria-hidden="true">see</span>
-                    </button>
-                  </li>
+                  <For each={needs()}>{(row) => <Need row={row} onOpen={props.onOpen} onAnswer={props.onAnswer} />}</For>
                 </ul>
               </section>
-            )}
-          </Show>
-          <Show when={needs().length === 0 && !working() && !props.deck}>
-            <p class="nx-quiet">nothing needs you right now.</p>
-          </Show>
-          <Show when={next().repos.length > 0}>
-            <StartIn repos={next().repos} onPick={(row) => field?.pick(row.host, row.root)} />
-          </Show>
-        </div>
-      </Show>
-    </div>
+            </Show>
+            <Show when={working()}>
+              {(counts) => (
+                <section class="nx-group" aria-label="working">
+                  <ul class="nx-list">
+                    <li>
+                      <button type="button" class="nx-item" aria-haspopup="dialog" aria-label={workingName(counts().working, counts().waiting)} onClick={(event) => props.onFold(event.currentTarget)}>
+                        <span class="nx-beads" aria-hidden="true">
+                          <For each={props.foldKeys.slice(0, 3)}>
+                            {(key) => <Show when={props.viewOf(key)}>{(view) => <RepoMark host={view().host} root={view().root} size={MARK} />}</Show>}
+                          </For>
+                        </span>
+                        <span class="nx-text" aria-hidden="true">
+                          <b>{foldWords(counts().working, counts().waiting)}</b>
+                          <small>nothing wrong</small>
+                        </span>
+                        <span class="nx-verb" aria-hidden="true">see</span>
+                      </button>
+                    </li>
+                  </ul>
+                </section>
+              )}
+            </Show>
+            <Show when={needs().length === 0 && !working() && !props.deck}>
+              <p class="nx-quiet">nothing needs you right now.</p>
+            </Show>
+            <Show when={next().repos.length > 0}>
+              <StartIn repos={next().repos} onPick={(row) => field?.pick(row.host, row.root)} />
+            </Show>
+          </div>
+        </Show>
+      </div>
+    </>
   );
 }
 
