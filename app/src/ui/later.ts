@@ -12,6 +12,8 @@
 import { type Component, lazy } from "solid-js";
 
 export const NextUp = lazy(() => import("./next/next-up").then((m) => ({ default: m.NextUp })));
+/** the way home in a thread's bar: the field's chunk, so it is in once the field is */
+export const WhatNext = lazy(() => import("./next/next-up").then((m) => ({ default: m.WhatNext })));
 export const AskSheet = lazy(() => import("./asks/sheet").then((m) => ({ default: m.AskSheet })));
 export const ModelMenu = lazy(() => import("./composer/model-menu").then((m) => ({ default: m.ModelMenu })));
 export const EffortDial = lazy(() => import("./composer/effort-dial").then((m) => ({ default: m.EffortDial })));

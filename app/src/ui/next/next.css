@@ -97,8 +97,10 @@
   gap: 24px;
 }
 
-/* the field's outline while its chunk comes: the composer's window, quiet, at the field's height */
-.nx-shell-field {
+/* the field's outline while its chunk comes (home.tsx draws it until the field hands home its verbs): the composer's window,
+   quiet, at the field's height, so the first frame already shows where a thread starts and the stage is never blank */
+.nx-shell::before {
+  content: "what next?";
   min-height: 176px;
   padding: 64px 22px 0;
   border-radius: 28px;

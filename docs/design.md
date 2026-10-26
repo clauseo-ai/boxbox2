@@ -959,7 +959,13 @@ below (the sheet and the dock), the dock wherever this law names it, and
   (`ui/next/next.css`) are in the first load, so the chunk's arrival never
   reorders the cascade. until it lands home draws the field's outline
   ("what next?" on the field's surface, at its height), so the first frame
-  shows where a thread starts and the stage is never blank ground.
+  shows where a thread starts and the stage is never blank ground. the
+  bar's "what next?" comes with the chunk, in before any thread can be on
+  the stage, and so do the reads of where a thread can start
+  (`composer/place-reads.ts`) and the way home's motion rides in the edge's
+  chunk (`home/edge.ts`, `pourBack`, warmed when the page is idle; a way
+  home that beats it lands at once). they keep the first load at 119.9 kb
+  of the 120 kb budget.
 - **the bar's line** does not repeat the capsule: a line that would say
   only what the working fold's capsule under it says (every thread
   working, all of them folded) is not drawn; a want, a done, offline or an

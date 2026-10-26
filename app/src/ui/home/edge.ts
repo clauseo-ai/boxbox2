@@ -24,6 +24,7 @@
    by the room it gained or lost, and one that is at its end stays there. */
 
 import { play, prefersReducedMotion } from "../../motion/animate";
+import { leave } from "./parts";
 import { FADE, ROLL_OUT, SHEET } from "../../motion/springs";
 import { type Align, type Boxed, carriers, type Span } from "./glide";
 
@@ -353,4 +354,53 @@ function moveTop(move: EdgeMove): { stop: () => void } {
   };
   void Promise.allSettled(animations.map((animation) => animation.finished)).then(finish);
   return { stop: finish };
+}
+
+/** a thread stepping back with no window to pour into: its opacity holds while the step is seen, then goes (decoration, so
+    reduced motion lands it at once) */
+const STEP_BACK = { easing: "cubic-bezier(.4, 0, .6, 1)", duration: SHEET.duration };
+
+export type PourBack = {
+  /** the thread's layers leaving the stage (one gone already is skipped); each is taken out of the tree as it goes */
+  layers: ReadonlyArray<HTMLElement | undefined>;
+  /** the sliver of the card beside the thread's window and the drift toward it (home.tsx, `pourEdge`), or none when the
+      window is not in view */
+  towards: { clip: string; drift: string } | null;
+  rim: HTMLElement | undefined;
+  /** what fades with the card: its shadow, its cap, and at the widest rail the thread's details */
+  fading: ReadonlyArray<HTMLElement | undefined>;
+};
+
+/** the way home (decision 109): the thread pours back into its window, the reverse of the pour that opened it (its clip
+    closes to the sliver beside the window and drifts toward it) while its parts fade where they are, and the card's rim
+    closes with it; its shadow fades. a thread with no window in view steps back instead: it shrinks on the sheet spring
+    and fades late, so the step is seen before it goes. returns what home cancels once the layers are off the stage */
+export function pourBack(input: PourBack): Animation[] {
+  const out: Animation[] = [];
+  const keep = (a: Animation | null) => {
+    if (a) out.push(a);
+  };
+  const whole = "inset(0px 0px 0px 0px round 0px)";
+  const { towards } = input;
+  for (const el of input.layers) {
+    if (!el) continue;
+    el.inert = true;
+    if (towards) {
+      keep(play(el, [{ clipPath: whole, transform: "none" }, { clipPath: towards.clip, transform: towards.drift }], SHEET, { fill: "forwards" }));
+      leave(el);
+    } else {
+      keep(play(el, [{ transform: "none" }, { transform: "scale(.94)" }], SHEET, { fill: "forwards" }));
+      keep(play(el, [{ opacity: 1 }, { opacity: 1, offset: 0.35 }, { opacity: 0 }], STEP_BACK, { fill: "forwards" }));
+    }
+  }
+  if (towards && input.rim) keep(play(input.rim, [{ clipPath: whole }, { clipPath: towards.clip }], SHEET, { fill: "forwards" }));
+  for (const el of [...input.fading, towards ? undefined : input.rim]) if (el) keep(play(el, [{ opacity: 1 }, { opacity: 0 }], FADE, { fill: "forwards" }));
+  return out;
+}
+
+/** a thread poured from home, where the stage had no card: its rim opens with the layer's clip and its shadow comes in under
+    it, so no whole card's outline stands in the first frame (a pour that beats this chunk shows them at once, as before) */
+export function cardIn(rim: HTMLElement | undefined, lift: HTMLElement | undefined, clip: string): void {
+  if (rim) play(rim, [{ clipPath: clip }, { clipPath: "inset(0px 0px 0px 0px round 0px)" }], SHEET, { fill: "backwards" });
+  if (lift) play(lift, [{ opacity: 0 }, { opacity: 1 }], SHEET, { fill: "backwards" });
 }

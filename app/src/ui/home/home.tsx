@@ -21,7 +21,7 @@
      what leaves and uncovers what arrives (edge.ts); the person's choice is
      kept on this device (remembered.ts). */
 
-import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, Suspense, untrack } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { flip, insetOf, installMotionProperties, play, prefersReducedMotion, settleIn } from "../../motion/animate";
 import { birth } from "../../motion/fly";
@@ -51,7 +51,7 @@ import { createCaughtUp } from "../caught-up";
 import type { EdgeMove } from "./edge";
 import { Folded, FoldToggle, WINDOWS_ID } from "./fold";
 import { strayView } from "./layers";
-import { AskSheet, AwaySheet, type Edge, edgeIfLoaded, FoldList, NextUp, RefusedLine, settling, UndoToast, warm, warmEdge, whenLoaded } from "../later";
+import { AskSheet, AwaySheet, type Edge, edgeIfLoaded, FoldList, NextUp, RefusedLine, settling, UndoToast, warm, warmEdge, WhatNext, whenLoaded } from "../later";
 import type { NextApi } from "../next/next-up";
 import { broughtBack } from "../window/clearing";
 import type { AwayThread } from "../../sync/protocol";
@@ -82,9 +82,7 @@ const CAPSULE_MS = 6000;
 const IN_VIEW = 0.35;
 /** a layer that shrinks into its window is taken off the stage when its clip is nearly there */
 const CLOSED_MS = SHEET.duration * 0.62;
-/** a thread stepping back with no window to pour into: its opacity holds while the step is seen, then goes (decoration, so
-    reduced motion lands it at once) */
-const STEP_BACK = { easing: "cubic-bezier(.4, 0, .6, 1)", duration: SHEET.duration };
+
 
 export function arrangementOf(width: number, height: number): Arrangement {
   if (width < 700) return "deck";
@@ -523,10 +521,7 @@ export function Home(props: HomeProps) {
       arrive(layer, drift, 60);
       // from home the stage had no card: its rim opens with the clip and its shadow comes in under it, rather than a whole
       // card's outline being there in the first frame
-      if (leaving.length === 0) {
-        if (rimEl) play(rimEl, [{ clipPath: start }, { clipPath: "inset(0px 0px 0px 0px round 0px)" }], SHEET, { fill: "backwards" });
-        if (liftEl) play(liftEl, [{ opacity: 0 }, { opacity: 1 }], SHEET, { fill: "backwards" });
-      }
+      if (leaving.length === 0) edgeIfLoaded()?.cardIn(rimEl, liftEl, start);
       watchTransition("pour", SHEET.duration, "thread");
     }
     for (const old of leaving) {
@@ -569,32 +564,14 @@ export function Home(props: HomeProps) {
       opened it (its clip closes to the window's edge of the card and drifts toward it), while its parts fade where they
       are; the card's rim closes with it and its shadow fades. a thread with no window in view (folded, or the windows put
       away) steps back instead: it shrinks on the sheet spring and fades late, so the step is seen before it goes */
-  const pourBack = (key: string, leaving: readonly StageLayer[]): Animation[] => {
-    const faded: Animation[] = [];
-    const keep = (a: Animation | null) => {
-      if (a) faded.push(a);
-    };
+  const pourBack = (key: string, leaving: readonly StageLayer[]): Animation[] | null => {
+    // the motion is the edge's chunk (later.ts), warmed when the page is idle: a way home that beat it lands at once
+    const motion = edgeIfLoaded();
+    if (!motion) return null;
     const box = stageEl?.getBoundingClientRect();
     const win = originOf(key);
     const rect = win?.isConnected && !windowsHidden() ? win.getBoundingClientRect() : null;
-    const towards = box && rect && rect.width > 0 ? pourEdge(box, rect) : null;
-    for (const entry of leaving) {
-      const el = layerEls.get(entry.id);
-      if (!el) continue;
-      el.inert = true;
-      if (towards) {
-        keep(play(el, [{ clipPath: "inset(0px 0px 0px 0px round 0px)", transform: "none" }, { clipPath: towards.clip, transform: towards.drift }], SHEET, { fill: "forwards" }));
-        leave(el);
-      } else {
-        keep(play(el, [{ transform: "none" }, { transform: "scale(.94)" }], SHEET, { fill: "forwards" }));
-        keep(play(el, [{ opacity: 1 }, { opacity: 1, offset: 0.35 }, { opacity: 0 }], STEP_BACK, { fill: "forwards" }));
-      }
-    }
-    if (towards && rimEl) keep(play(rimEl, [{ clipPath: "inset(0px 0px 0px 0px round 0px)" }, { clipPath: towards.clip }], SHEET, { fill: "forwards" }));
-    // the shadow, the rim when it does not close with the clip, and at the widest rail the thread's details go with it
-    const card = [liftEl, towards ? undefined : rimEl, capEl, wide() ? inspectorEl() : undefined].filter((el): el is HTMLElement => el !== undefined);
-    for (const el of card) keep(play(el, [{ opacity: 1 }, { opacity: 0 }], FADE, { fill: "forwards" }));
-    return faded;
+    return motion.pourBack({ layers: leaving.map((entry) => layerEls.get(entry.id)), towards: box && rect && rect.width > 0 ? pourEdge(box, rect) : null, rim: rimEl, fading: [liftEl, capEl, wide() ? inspectorEl() : undefined] });
   };
 
   const goHome = (event: Event | null) => {
@@ -611,6 +588,7 @@ export function Home(props: HomeProps) {
     if (event) tapped(event, "home", arrangement(), "home");
     const leaving = layers();
     const faded = pourBack(key, leaving);
+    // without the motion the thread goes at once rather than standing still and then vanishing
     setCameFrom(key);
     batch(() => setOpen(null));
     closeThread();
@@ -623,11 +601,11 @@ export function Home(props: HomeProps) {
     homeTimer = setTimeout(
       () => {
         setLayers((list) => list.filter((l) => !leaving.includes(l)));
-        for (const a of faded) a.cancel();
+        for (const a of faded ?? []) a.cancel();
         busy = false;
         applyOrder();
       },
-      prefersReducedMotion() ? 0 : SHEET.duration,
+      prefersReducedMotion() || !faded ? 0 : SHEET.duration,
     );
   };
   /** escape on the empty field: the thread home was reached from pours back onto the stage */
@@ -1316,11 +1294,7 @@ export function Home(props: HomeProps) {
     const done = all.filter((v) => v.state === "done").length;
     const idle = all.filter((v) => v.state === "idle").length;
     const rest = [working ? `${working} working` : "", done ? `${done} done` : "", idle ? `${idle} idle` : ""].filter(Boolean);
-    // a line that would only say what the capsule under it says (every thread working, all of them in the fold) is not drawn:
-    // the capsule is the one place it is said. the line stays a live region, so what comes next is still announced
-    const folded = new Set(foldShown());
-    const echo = wants.length === 0 && done === 0 && idle === 0 && working > 0 && all.every((v) => v.state !== "working" && v.state !== "queued" ? true : folded.has(v.key));
-    return { wants, rest, echo };
+    return { wants, rest };
   });
 
   /* a count that changes in front of you fades in, as a streamed word does; the line as it was
@@ -1435,7 +1409,10 @@ export function Home(props: HomeProps) {
 
   /** how many repos the list has room for under what needs you: the stage's height less the field and the rows above (on
       the deck, the bar and the capsule above the field too) */
-  const repoRoom = () => (arrangement() === "deck" ? Math.max(2, Math.min(5, Math.floor((size().height - 520) / 64))) : Math.max(2, Math.min(8, Math.floor((size().height - 470) / 64))));
+  const repoRoom = () => {
+    const deck = arrangement() === "deck";
+    return Math.max(2, Math.min(deck ? 5 : 8, Math.floor((size().height - (deck ? 520 : 470)) / 64)));
+  };
   /** the deck shows no window: every one is folded, or there are none */
   const bare = () => arrangement() === "deck" && order().length === 0;
 
@@ -1456,7 +1433,8 @@ export function Home(props: HomeProps) {
       <header class="bar" ref={barEl} inert={(arrangement() === "deck" && staged()) || sheetUp() || railOff()}>
         <span class="mark">boxbox</span>
         <span class="grow" />
-        <p class="sum" aria-live="polite" data-echo={!offline() && summary().echo && !updateReady() ? "" : undefined}>
+        {/* every thread folded: the line would only say what the capsule under it says, so it is not drawn (home.css) */}
+        <p class="sum" aria-live="polite" data-echo={!offline() && !updateReady() && !order().length && foldShown().length ? "" : undefined}>
           <Show
             when={!offline()}
             fallback={
@@ -1494,7 +1472,7 @@ export function Home(props: HomeProps) {
                 );
               }}
             </Show>
-            <For each={summary().echo ? [] : summary().rest}>
+            <For each={summary().rest}>
               {(part, i) => (
                 <>
                   {i() > 0 || summary().wants.length > 0 ? " " : ""}
@@ -1567,7 +1545,11 @@ export function Home(props: HomeProps) {
           a thread on the stage fades it out and takes it out of the tree, its words and its place kept; a thread stepping back
           uncovers it (goHome) */}
       <div class="nx-room" ref={nxStageEl} data-away={arrangement() !== "deck" && open() ? "" : undefined} inert={(arrangement() === "deck" ? staged() : open() !== null) || sheetUp()}>
-        <Suspense fallback={<FieldShell />}>
+        {/* the field's outline until its chunk has drawn and handed home its verbs (no Suspense: it would bring its machinery
+            into the first load for one fallback) */}
+        <Show when={!nextApi()}>
+          <div class="nx nx-shell" aria-hidden="true" />
+        </Show>
           <NextUp
             deck={arrangement() === "deck"}
             bare={bare()}
@@ -1582,7 +1564,6 @@ export function Home(props: HomeProps) {
             onEscape={arrangement() !== "deck" && cameFrom() !== null ? backToThread : undefined}
             api={takeNext}
           />
-        </Suspense>
       </div>
       <div
         class="wins"
@@ -1597,7 +1578,7 @@ export function Home(props: HomeProps) {
         <Show when={arrangement() === "strip" && (foldShown().length > 0 || awayShown())}>
           <div class="wlead">{settle()}</div>
         </Show>
-        <For each={order()} fallback={<Show when={foldShown().length === 0 && !(bare() && (nextApi()?.offers() ?? 0) > 0)}><Empty /></Show>}>
+        <For each={order()} fallback={<Show when={foldShown().length === 0 && !(bare() && nextApi()?.offers())}><Empty /></Show>}>
           {(key, index) => <Slot key={key} index={index()} />}
         </For>
       </div>
@@ -1795,26 +1776,5 @@ function Empty() {
       <h2>nothing is running</h2>
       <p class="win-note">a thread you start above, or in cmx2 on any of your machines, shows up here as a live window.</p>
     </article>
-  );
-}
-
-/** the way home from a thread at strip and rail (design.md, home: what next): the field, collapsed in the thread's bar. a
-    press, or escape with no field focused, and the thread steps back while the field drops out of the bar */
-/** the field's outline while its chunk comes (ui/later.ts warms it as home mounts): the first frame already shows where a
-    thread starts, and the stage is never blank ground meanwhile */
-function FieldShell() {
-  return (
-    <div class="nx nx-shell" aria-hidden="true">
-      <div class="nx-shell-field">what next?</div>
-    </div>
-  );
-}
-
-function WhatNext(props: { onPress: (event: Event) => void }) {
-  return (
-    <button class="bar-next" type="button" aria-label="what next? go home" aria-keyshortcuts="Escape" onClick={(event) => props.onPress(event)}>
-      <span class="bar-next-words">what next?</span>
-      <kbd class="bar-next-key" aria-hidden="true">esc</kbd>
-    </button>
   );
 }

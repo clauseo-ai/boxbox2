@@ -112,7 +112,7 @@ export type StageProps = {
   room?: DetailsRoom;
   /** what home puts at the start of the bar (the windows' toggle while they are put away) */
   barStart?: JSX.Element;
-  /** what follows the title: home's way home, the field collapsed (home.tsx, `WhatNext`), at strip and rail */
+  /** what follows the title: home's way home, the field collapsed (next/next-up.tsx, `WhatNext`), at strip and rail */
   barEnd?: JSX.Element;
   /** the thread this one was opened over, when it is an agent's (home's stacked layer knows it): back and the title block name
       it even when the fleet does not hold the agent's session, whose `parentID` would say it */

@@ -26,7 +26,8 @@ starting a thread, input, the motion law) and is binding the same way
 | `app/src/ui/composer/inline.ts` | the live line's markdown read inline: its runs (strong, emphasis, code), the marks gone, a mark still open dropped (tested) |
 | `app/src/ui/composer/words.ts` | every sentence it says (placeholder, send's word, the line, each card's why and when it goes, the strip's lead), pure and tested |
 | `app/src/ui/composer/photo.ts`, `fit.ts`, `heic.ts` | photos clamped on the device: 1568 px on the long side, jpeg under 1.5 mb, heic decoded where the browser can; where it cannot, the original sent as `image/heic` or `image/heif` under its own limit, found by type, extension or the `ftyp` brand (`heic.ts`, pure and tested); `fit.ts` holds every photo limit and the room rules |
-| `app/src/ui/composer/reads.ts` | the menus' reads through boxbox: commands, files, models, repos, and the folders inside a folder; kept per host and directory in a fixed-size map (folders are read per pause in typing, never kept) |
+| `app/src/ui/composer/reads.ts` | the menus' reads through boxbox: commands, files and models; kept per host and directory in a fixed-size map |
+| `app/src/ui/composer/place-reads.ts` | where a new thread can start: a machine's repos (kept as the commands are) and the folders inside a folder (read per pause in typing, never kept); only home's field reads them, so they ride in its chunk |
 | `app/src/sync/outbox.ts`, `sender.ts` | the outbox's rules (pure) and the worker's io: drafts and sends in indexeddb, posts with a client id, retries with the same id, settles on the echo; the outbox's byte cap for photos and each post's time by its bytes |
 | `server/src/http/compose.rs` | boxbox's routes: steer, unsend, run the queue, shell, command, the reads, and a new thread (with a fresh worktree when asked) |
 | `app/src/ui/composer/stories/` | one story per state below, from the fixtures |

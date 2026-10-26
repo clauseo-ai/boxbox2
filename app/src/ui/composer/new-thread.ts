@@ -18,7 +18,7 @@ import { discardSend, loadDraftPhotos, retrySend, saveDraft } from "../../sync/c
 import { type OutboxView, type Target, targetKey } from "../../sync/outbox";
 import { repoName } from "../window/repo";
 import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentRepos, restoredDraft, splitPath } from "./place";
-import { folders, projects } from "./reads";
+import { folders, projects } from "./place-reads";
 import { blockedWords, bornKey, makingWords as makingSaid, orphanOf, refusedOf, slowIn } from "./send-life";
 
 /** refused sends remembered as given back (`state.newThread.restored`): an entry is discarded within a beat, so a handful is plenty */

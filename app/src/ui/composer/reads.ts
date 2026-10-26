@@ -1,17 +1,14 @@
 /* what the composer's menus are drawn from, through boxbox's api (never
    straight to a daemon): the thread directory's `/` commands, files that
-   match an `@`, the host's models and their efforts, the repos a new
-   thread can start in, and the folders inside a folder on the host. commands and repos are kept a while per host and
-   directory, in a map with a fixed number of entries; files are read per
-   keystroke pause and never kept. */
+   match an `@`, and the host's models and their efforts. commands are kept a while per host and directory, in a map with
+   a fixed number of entries; files are read per keystroke pause and never kept. the repos and folders a new thread can
+   start in are `place-reads.ts`, with home's field in its own chunk. */
 
 import type { components } from "../../api/boxbox";
 import { api } from "../../api/client";
 import { setModels, setModelsRead, state } from "../../store";
 
 export type CommandChoice = components["schemas"]["CommandChoice"];
-export type ProjectChoice = components["schemas"]["ProjectChoice"];
-export type FolderList = components["schemas"]["Folders"];
 
 /** entries kept per kind; the oldest leaves first */
 const KEPT = 12;
@@ -20,7 +17,7 @@ const FRESH_MS = 60_000;
 
 type Kept<T> = { at: number; value: T };
 
-function keeper<T>() {
+export function keeper<T>() {
   const kept = new Map<string, Kept<T>>();
   return {
     get(key: string): T | null {
@@ -36,12 +33,11 @@ function keeper<T>() {
 }
 
 const commandsKept = keeper<CommandChoice[]>();
-const projectsKept = keeper<ProjectChoice[]>();
 
 /** a read's answer, or what to say when it did not come */
 export type Read<T> = { ok: true; value: T } | { ok: false; message: string };
 
-const DID_NOT_ANSWER = "the host did not answer. try again in a moment";
+export const DID_NOT_ANSWER = "the host did not answer. try again in a moment";
 /** the `@` menu shows this many; the daemon's default is 10 */
 const FILES_SHOWN = 20;
 
@@ -65,31 +61,6 @@ export async function files(host: string, directory: string, query: string): Pro
     const { data, response } = await api.GET("/api/hosts/{host}/find/file", { params: { path: { host }, query: { directory, query, limit: FILES_SHOWN } } });
     if (Array.isArray(data) && data.every((path) => typeof path === "string")) return { ok: true, value: data as string[] };
     return { ok: false, message: response.ok ? "the file list came back in a shape this app does not read" : DID_NOT_ANSWER };
-  } catch {
-    return { ok: false, message: DID_NOT_ANSWER };
-  }
-}
-
-export async function projects(host: string): Promise<Read<ProjectChoice[]>> {
-  const kept = projectsKept.get(host);
-  if (kept) return { ok: true, value: kept };
-  try {
-    const { data, error } = await api.GET("/api/hosts/{host}/projects", { params: { path: { host } } });
-    if (!data) return { ok: false, message: error?.error.message ?? DID_NOT_ANSWER };
-    projectsKept.set(host, data);
-    return { ok: true, value: data };
-  } catch {
-    return { ok: false, message: DID_NOT_ANSWER };
-  }
-}
-
-/** the folders inside one folder on the host (cmx2's /global/fs through boxbox), for a thread in a place no thread has
-    been in; read per pause in typing and never kept. `path` is absolute or starts with `~` */
-export async function folders(host: string, path: string, prefix = ""): Promise<Read<FolderList>> {
-  try {
-    const { data, error } = await api.GET("/api/hosts/{host}/folders", { params: { path: { host }, query: { path, ...(prefix ? { prefix } : {}) } } });
-    if (!data) return { ok: false, message: error?.error.message ?? DID_NOT_ANSWER };
-    return { ok: true, value: data };
   } catch {
     return { ok: false, message: DID_NOT_ANSWER };
   }

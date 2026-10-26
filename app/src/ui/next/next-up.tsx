@@ -184,3 +184,14 @@ function Need(props: { row: NeedRow; onOpen: (key: string, from: HTMLElement) =>
   );
 }
 
+/** the way home from a thread at strip and rail (design.md, home: what next): the field, collapsed in the thread's bar. a
+    press, or escape with no field focused, and the thread pours back while the field drops out of the bar. it comes with
+    the field's chunk, which home warms as it mounts, so it is in before any thread can be on the stage */
+export function WhatNext(props: { onPress: (event: Event) => void }) {
+  return (
+    <button class="bar-next" type="button" aria-label="what next? go home" aria-keyshortcuts="Escape" onClick={(event) => props.onPress(event)}>
+      <span class="bar-next-words">what next?</span>
+      <kbd class="bar-next-key" aria-hidden="true">esc</kbd>
+    </button>
+  );
+}

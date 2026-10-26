@@ -31,7 +31,10 @@ workflow publishes the section whose heading matches the version in
   in the store, so a resize across 700 px keeps them; a refusal seen from
   another thread is said over it with retry and edit, and nothing moves
   you home. offline the field says the composer's "write now, it goes
-  when you are back".
+  when you are back". the first load reads 119.9 kb (122,827 bytes) of
+  the 120 kb budget, from 119.7: the way home's motion moved into the
+  edge's chunk and the new thread's place reads into the field's, to make
+  room.
 - **the new-thread sheet and the dock become the field.** every way to
   start (⌘n, n, the new thread pill, the folded rail's plus disc, a board
   machine key) puts the caret in home's field. the place is typed into the
@@ -40,9 +43,9 @@ workflow publishes the section whose heading matches the version in
   every rule the sheet had (decisions 103 and 104). `composer/sheet.tsx`
   and `composer/dock.tsx` are gone; the state lives in
   `composer/new-thread.ts`. telemetry: `perf.paint` and `perf.frames` gain
-  the value `home`. the first load still reads 119.7 kb: the sheet and
-  the dock left it, and home's field and list are a chunk of their own
-  (about 25.8 kb raw), warmed as home mounts.
+  the value `home`. the sheet and the dock left the first load, and
+  home's field and list are a chunk of their own (about 28 kb raw),
+  warmed as home mounts.
 
 - **finished work clears itself.** the server sweeps home every 5 minutes
   by a person pref, the same on every device: "1 h after you've seen it"
