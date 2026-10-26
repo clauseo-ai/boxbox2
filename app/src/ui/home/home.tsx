@@ -171,7 +171,8 @@ export function Home(props: HomeProps) {
   const awaySig = createMemo(() => awayRows().map((row) => `${row.key}@${row.clearedAt}`).join(" "));
   const [acked, setAcked] = createSignal("");
   const [awayOpen, setAwayOpen] = createSignal<{ from: HTMLElement; rows: readonly AwayThread[] } | null>(null);
-  const awayLive = createMemo(() => awayRows().length > 0 && (awaySig() !== acked() || awayOpen() !== null));
+  // the sheet open holds the line even after the server's empty list (seeing it empties the list): it hangs from the line
+  const awayLive = createMemo(() => awayOpen() !== null || (awayRows().length > 0 && awaySig() !== acked()));
   const [order, setOrder] = createSignal<string[]>(untrack(target));
   /* the capsule and the away line as drawn: they come and go only with the order, in its flip, so neither moves the
      windows at a moment of its own (perf.shift); a change to the fold that leaves the capsule where it is lands at once */

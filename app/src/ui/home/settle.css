@@ -673,3 +673,9 @@
 .home[data-arrangement="rail"] .away-tick {
   display: none;
 }
+
+/* the sheet takes focus as it opens (so a keyboard starts inside it); the ring is for its controls, not the sheet */
+.hsheet:focus,
+.hsheet:focus-visible {
+  outline: none;
+}
