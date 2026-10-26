@@ -18,7 +18,8 @@ workflow publishes the section whose heading matches the version in
   stays until it changes (decision 97). what cleared while no device was
   looking is one line under the bar, "N cleared while you were away", with
   a sheet or popover to bring any or all back (an additive `away` frame and
-  `POST /api/away/seen`, decisions 94, 98 and 101; the server sends the away list after every hello). migrations 12 (the `person`
+  `POST /api/away/seen`, decisions 94, 98 and 101; the server sends the
+  away list after every hello). migrations 12 (the `person`
   prefs scope) and 13 (the clear's cause, times and away flag; the `kept`
   table). telemetry kinds `home.swept`, `thread.uncleared`, `away.seen`.
 - **the working fold.** threads at work with nothing wrong, and threads
