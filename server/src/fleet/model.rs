@@ -2385,8 +2385,9 @@ impl Model {
 /// how each thread of a clear went, in the order asked.
 pub type ClearAnswers = Vec<(String, Result<(), ClearRefused>)>;
 
-/// how each thread of an unclear went, in the order asked.
-pub type UnclearAnswers = Vec<(String, Result<(), UnclearRefused>)>;
+/// how each thread of an unclear went, in the order asked: brought back,
+/// with the cause of the clear it undid (hand or auto, for telemetry), or why not.
+pub type UnclearAnswers = Vec<(String, Result<Cause, UnclearRefused>)>;
 
 /// why a thread could not be brought back.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2839,7 +2840,7 @@ impl Model {
         (self.settle_moves(from), answers)
     }
 
-    fn unclear_one(&mut self, key: &str) -> Result<(), UnclearRefused> {
+    fn unclear_one(&mut self, key: &str) -> Result<Cause, UnclearRefused> {
         let updated = self
             .sessions
             .get(key)
@@ -2848,6 +2849,11 @@ impl Model {
         if self.cleared_mark(key).is_none() {
             return Err(UnclearRefused::NotCleared);
         }
+        // the mark held (`cleared_mark`), so it is there: whose clear this undoes
+        let cause = self
+            .clears
+            .get(key)
+            .map_or(Cause::Hand, |clear| clear.cause);
         self.clears.remove(key);
         self.effects.push(Effect::Uncleared(key.to_owned()));
         let kept = Kept {
@@ -2861,7 +2867,7 @@ impl Model {
             key: key.to_owned(),
             kept,
         });
-        Ok(())
+        Ok(cause)
     }
 
     /// a person acknowledged the away summary: its rows stay cleared and
@@ -8079,7 +8085,11 @@ mod tests {
         assert_eq!(sweep_at(&mut model, 1000 + HOUR).cleared, ["desk:ses_1"]);
         model.drain();
         let (changes, answers) = model.unclear(&["desk:ses_1".to_owned()]);
-        assert_eq!(answers, [("desk:ses_1".to_owned(), Ok(()))]);
+        assert_eq!(
+            answers,
+            [("desk:ses_1".to_owned(), Ok(Cause::Auto))],
+            "it undid the sweep's clear"
+        );
         assert!(
             threads_of(&changes)
                 .iter()
@@ -8129,7 +8139,7 @@ mod tests {
         // undoing a hand clear brings it back the same way
         model.clear(&["desk:ses_1".to_owned()], &phone());
         let (_, answers) = model.unclear(&["desk:ses_1".to_owned()]);
-        assert_eq!(answers[0].1, Ok(()));
+        assert_eq!(answers[0].1, Ok(Cause::Hand), "it undid a hand clear");
         assert!(model.entry("desk:ses_1").unwrap().cleared.is_none());
     }
 

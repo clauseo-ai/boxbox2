@@ -625,11 +625,13 @@ export const EVENTS = {
     },
   },
   "thread.uncleared": {
-    doc: "v2: threads were brought back to home: the undo after a clear (from this device, or after the sweep cleared while he was looking) or 'bring back' in the away summary (decision 93). a thread brought back is kept from the sweep until it is updated. ok is 1 when every thread asked for came back; refused counts the ones that were not cleared (already back on their own, or not in the fleet). the share of auto-clears undone says whether the sweep's rule clears what people still want.",
+    doc: "v2: threads were brought back to home: the undo after a clear (from this device, or after the sweep cleared while he was looking) or 'bring back' in the away summary (decision 93). a thread brought back is kept from the sweep until it is updated. ok is 1 when every thread asked for came back; refused counts the ones that were not cleared (already back on their own, or not in the fleet). hand and auto split count by whose clear came undone, read on the server from the marks removed: sum(auto) here over sum(cleared) in home.swept is the share of auto-clears undone, which says whether the sweep's rule clears what people still want; hand alone is the undo of a person's own clear.",
     props: {
       source: { type: "TEXT", doc: "the control: undo (the toast or cmd-z) or away (the away summary's bring back).", values: ["undo", "away"], required: true },
       count: { type: "INTEGER", doc: "threads brought back.", required: true },
       refused: { type: "INTEGER", doc: "threads asked for and not brought back." },
+      hand: { type: "INTEGER", doc: "of count, threads whose clear was a person's (a window's clear, 'clear done')." },
+      auto: { type: "INTEGER", doc: "of count, threads whose clear was the sweep's (decision 93)." },
     },
   },
   "home.swept": {

@@ -423,8 +423,10 @@ window, and history.
   that moment, decision 23 through push's `looking` watch), `done_at` (the
   done's raise, open or among the last 200 served, else when it went quiet)
   and `seen_at` (server ms), and `acked` once the away summary is
-  acknowledged. the served done and job needs say `how: cleared`, by
-  `agent`, and telemetry `need.cleared` by `auto`.
+  acknowledged. the served done and job needs say `how: cleared` on the
+  server (the ledger, the store), by `agent`, and telemetry `need.cleared`
+  by `auto`; on the wire such a need goes out with no `how` (no client
+  reads it, and a strict enum in the ios app would refuse a new value).
 - **unclear and kept.** `POST /api/unclear` (keys 1 to 300, source `undo` or
   `away`) removes each mark and writes a kept mark (`kept` table: the
   session's `updated` then, capped at 2000 like the clears); the sweep skips
@@ -432,7 +434,10 @@ window, and history.
   its next run. a key whose mark is already spent (it came back by itself)
   is refused `notcleared` ("it is on home already"), which a client takes
   as done; one the fleet does not hold, `unknown`. a hand clear drops the
-  kept mark. telemetry `thread.uncleared`.
+  kept mark. telemetry `thread.uncleared`, with `hand` and `auto`
+  counting whose clears came undone (read from the marks removed), so the
+  share of auto-clears undone is `sum(auto)` over `home.swept`'s
+  `sum(cleared)`.
 - **the away summary** is computed on the server: the auto-clears with
   `away`, not acknowledged, whose mark still holds, newest clear first. it
   travels as the id-less `away` frame (`docs/protocol.md`, settle frames)

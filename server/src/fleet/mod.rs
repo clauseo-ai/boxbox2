@@ -91,7 +91,6 @@ use encode::Encoder;
 use keys::StreamKeys;
 use model::{
     ClearRefused, ColourRefused, Device, Effect, Model, ReadRefused, ReviewTarget, TailRequest,
-    UnclearRefused,
 };
 use needs::{Moved, Need, Needs};
 use read::{Mark, Reads};
@@ -302,7 +301,7 @@ enum Command {
     },
     Unclear {
         keys: Vec<String>,
-        reply: oneshot::Sender<Vec<(String, Result<(), UnclearRefused>)>>,
+        reply: oneshot::Sender<model::UnclearAnswers>,
     },
     /// a person acknowledged the away summary; the reply is how many rows it held.
     AwaySeen {
@@ -698,10 +697,7 @@ impl Fleet {
     ///
     /// # Errors
     /// the actor has stopped.
-    pub async fn unclear(
-        &self,
-        keys: Vec<String>,
-    ) -> Result<Vec<(String, Result<(), UnclearRefused>)>, Stopped> {
+    pub async fn unclear(&self, keys: Vec<String>) -> Result<model::UnclearAnswers, Stopped> {
         let (reply, answer) = oneshot::channel();
         self.command(Command::Unclear { keys, reply }).await?;
         answer.await.map_err(|_| Stopped)

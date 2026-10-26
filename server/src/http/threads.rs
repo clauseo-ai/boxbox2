@@ -26,6 +26,7 @@ use super::AppState;
 use super::agents;
 use super::asks::{device_of, segment};
 use super::error::{ApiError, ErrorBody};
+use crate::fleet::clears::Cause;
 use crate::fleet::model::{ClearRefused, UnclearRefused, session_key};
 use crate::push::Thread;
 use crate::source::cmx2::translate;
@@ -286,9 +287,17 @@ pub async fn unclear(
         uncleared: Vec::new(),
         refused: Vec::new(),
     };
+    // whose clears came undone, from the marks removed: an undo of a hand clear and of the sweep's read apart
+    let mut by_cause = (0_usize, 0_usize);
     for (key, answer) in answers {
         match answer {
-            Ok(()) => done.uncleared.push(key),
+            Ok(cause) => {
+                match cause {
+                    Cause::Hand => by_cause.0 += 1,
+                    Cause::Auto => by_cause.1 += 1,
+                }
+                done.uncleared.push(key);
+            }
             Err(refused) => {
                 let why = match refused {
                     UnclearRefused::NotCleared => NotUnclearedWhy::Notcleared,
@@ -306,6 +315,8 @@ pub async fn unclear(
         device = %device.id,
         uncleared = done.uncleared.len(),
         refused = done.refused.len(),
+        hand = by_cause.0,
+        auto = by_cause.1,
         source = body.source.as_str(),
         "threads brought back to home"
     );
@@ -316,6 +327,8 @@ pub async fn unclear(
             "source": body.source.as_str(),
             "count": done.uncleared.len(),
             "refused": done.refused.len(),
+            "hand": by_cause.0,
+            "auto": by_cause.1,
         },
     }));
     Ok(Json(done))

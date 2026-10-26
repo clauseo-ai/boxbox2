@@ -298,7 +298,7 @@ async fn a_real_thread_auto_clears_comes_back_on_unclear_and_is_kept() {
 
     // unclear: back on home, out of the away summary, kept from the next sweeps
     let answers = fleet.unclear(vec![key.clone()]).await.unwrap();
-    assert_eq!(answers, [(key.clone(), Ok(()))]);
+    assert_eq!(answers, [(key.clone(), Ok(super::clears::Cause::Auto))]);
     assert!(thread(&fleet, &key).await.unwrap()["cleared"].is_null());
     let frames = settle_frames(&mut live);
     assert_eq!(

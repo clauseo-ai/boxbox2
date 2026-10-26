@@ -2350,7 +2350,7 @@ export type components = {
          * @description how a need was served. the names are telemetry values.
          * @enum {string}
          */
-        How: "answered" | "seen" | "continued" | "settled" | "dropped" | "gone" | "expired" | "cleared";
+        How: "answered" | "seen" | "continued" | "settled" | "dropped" | "gone" | "expired";
         ImagePart: {
             alt?: string | null;
             at?: components["schemas"]["PartAt"] | null;

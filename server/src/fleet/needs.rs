@@ -111,6 +111,11 @@ pub enum How {
     /// the ledger was full and it was the oldest.
     Expired,
     /// the thread was cleared off home by the server's sweep (decision 93).
+    /// server-side only (the ledger, the store, telemetry's `by: auto`): no
+    /// client reads it, and a client with a strict enum (the ios app) would
+    /// refuse a value it does not know, so a need served this way goes out
+    /// with no `how` (`off_the_wire`).
+    #[serde(skip)]
     Cleared,
 }
 
@@ -215,8 +220,15 @@ pub struct Need {
     pub served_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub served_by: Option<By>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "off_the_wire")]
     pub how: Option<How>,
+}
+
+/// a `how` the wire does not carry: none, or the sweep's `cleared`, which
+/// stays on the server (`How::Cleared`).
+#[allow(clippy::ref_option, clippy::trivially_copy_pass_by_ref)]
+fn off_the_wire(how: &Option<How>) -> bool {
+    matches!(how, None | Some(How::Cleared))
 }
 
 impl Need {
@@ -516,6 +528,25 @@ pub fn last_sentences(text: &str, count: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_need_the_sweep_served_goes_out_with_no_how_and_keeps_it_on_the_server() {
+        let mut needs = Needs::default();
+        let mut moved = Vec::new();
+        needs.raise(need("done:1", NeedKind::Done, "d:s", 1), &mut moved);
+        needs.raise(need("done:2", NeedKind::Done, "d:t", 1), &mut moved);
+        needs.serve("done:1", By::Agent, How::Cleared, 9, &mut moved);
+        needs.serve("done:2", By::Agent, How::Seen, 9, &mut moved);
+        let served = needs.served(10);
+        let cleared = served.iter().find(|n| n.id == "done:1").unwrap();
+        assert_eq!(cleared.how, Some(How::Cleared), "the ledger keeps it");
+        let wire = serde_json::to_value(cleared).unwrap();
+        assert!(wire.get("how").is_none(), "{wire}");
+        assert_eq!(wire["servedAt"], 9);
+        let seen = served.iter().find(|n| n.id == "done:2").unwrap();
+        assert_eq!(serde_json::to_value(seen).unwrap()["how"], "seen");
+        assert_eq!(How::parse(How::Cleared.as_str()), Some(How::Cleared));
+    }
 
     fn need(id: &str, kind: NeedKind, key: &str, at: i64) -> Need {
         Need::new(

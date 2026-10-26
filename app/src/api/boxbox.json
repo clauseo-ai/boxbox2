@@ -8532,8 +8532,7 @@
           "settled",
           "dropped",
           "gone",
-          "expired",
-          "cleared"
+          "expired"
         ]
       },
       "ImagePart": {
