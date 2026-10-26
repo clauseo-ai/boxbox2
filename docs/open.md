@@ -351,6 +351,12 @@
   --sizes all` takes the six sizes, and the default run (what a check
   would call) takes three (390, 820, 1512). · the six in the default run
   once its time (about two minutes per appearance) is acceptable.
+- [home] the first load is 98 bytes under its 120 kb budget (122,782 of
+  122,880 brotli bytes); the chunk names it carries are hashes, so any
+  change elsewhere moves it by tens of bytes either way. · the next lane
+  that adds to the first load makes room first (the pour, shrink and
+  swap motion in `home.tsx` could join the edge's chunk as the way home
+  did).
 - [home] a new thread's effort chip says "default", not a level: the
   daemon's model list (`/config/providers`, read by `GET
   /api/hosts/{host}/models`) carries a default model but no default

@@ -29,20 +29,25 @@ export const MARK = 26;
 export const PLACE = 0.4;
 
 /** what home asks of what next: the field's own verbs, the arrival as a thread steps back, and how many repos it offers */
-export type NextApi = FieldApi & { arrive: () => void; offers: () => number };
+export type NextApi = FieldApi & {
+  arrive: () => void;
+  /** how many repos "start in" offers (the empty deck's ghost gives way to them) */
+  offers: () => number;
+  /** what of home's list moves in home's reorder flip when its rows change (none on the deck, where the windows are the list) */
+  moving: () => Element[];
+};
 
 export type NextUpProps = {
-  /** the deck draws the field alone, and "start in" under it when it has no windows; the strip and the rail draw the list */
+  /** the deck draws the field alone, and "start in" under it when it shows no window (all folded, or none); the strip and
+      the rail draw the list */
   deck: boolean;
-  /** the deck shows no windows (all folded, or none): the list's "start in" fills the room under the field */
-  bare: boolean;
   start: Place | null;
   /** home's windows in the server's order, and their views */
   order: readonly string[];
   viewOf: (key: string) => WindowView | null;
   now: number;
-  /** how many repos there is room for under the list */
-  repoRoom: number;
+  /** the window's height, for how many repos there is room for */
+  height: number;
   onOpen: (key: string, from: HTMLElement) => void;
   onAnswer: (key: string, from: HTMLElement) => void;
   onBorn: (key: string, from: HTMLElement) => void;
@@ -55,10 +60,14 @@ export function NextUp(props: NextUpProps) {
   let field: FieldApi | undefined;
   /* the field's machine and its repos in recency order: the field owns them (composer/new-thread.ts), the list reads them */
   const [place, setPlace] = createSignal<FieldPlace | null>(null);
+  /* the repos there is room for under what needs you: the stage's height less the field and the rows above (on the deck,
+     the bar and the capsule above the field too), two to eight (five on the deck) */
+  const repoRoom = () => Math.max(2, Math.min(props.deck ? 5 : 8, Math.floor((props.height - (props.deck ? 520 : 470)) / 64)));
+  const bare = () => props.deck && props.order.length === 0;
   const next = createMemo(() =>
-    nextUp({ order: props.order, viewOf: props.viewOf, host: place()?.host() ?? "", repos: place()?.repos() ?? [], lastAt: (host, root) => place()?.lastAt(host, root) ?? null, now: props.now, repoLimit: props.repoRoom }),
+    nextUp({ order: props.order, viewOf: props.viewOf, host: place()?.host() ?? "", repos: place()?.repos() ?? [], lastAt: (host, root) => place()?.lastAt(host, root) ?? null, now: props.now, repoLimit: repoRoom() }),
   );
-  const lists = () => !props.deck || props.bare;
+  const lists = () => !props.deck || bare();
   const needs = () => (props.deck ? [] : next().needs);
 
   /* where the block stands in the stage (strip and rail): PLACE of the spare height down, measured when the stage or the
@@ -119,7 +128,7 @@ export function NextUp(props: NextUpProps) {
         onPlace={(p) => setPlace(() => p)}
         api={(api) => {
           field = api;
-          props.api?.({ ...api, arrive, offers: () => next().repos.length });
+          props.api?.({ ...api, arrive, offers: () => (lists() ? next().repos.length : 0), moving: () => (props.deck || !rootEl ? [] : [...rootEl.querySelectorAll(".nx-field, .nx-group, .nx-quiet")]) });
         }}
       />
       <Show when={lists()}>

@@ -31,10 +31,10 @@ workflow publishes the section whose heading matches the version in
   in the store, so a resize across 700 px keeps them; a refusal seen from
   another thread is said over it with retry and edit, and nothing moves
   you home. offline the field says the composer's "write now, it goes
-  when you are back". the first load reads 120.0 kb (122,845 bytes, 35
+  when you are back". the first load reads 119.9 kb (122,782 bytes, 98
   under the 120 kb budget), from 119.7: the way home's motion moved into the
-  edge's chunk and the new thread's place reads into the field's, to make
-  room.
+  edge's chunk, and the bar's "what next?", the list's room and the new
+  thread's place reads into the field's, to make room.
 - **the new-thread sheet and the dock become the field.** every way to
   start (⌘n, n, the new thread pill, the folded rail's plus disc, a board
   machine key) puts the caret in home's field. the place is typed into the

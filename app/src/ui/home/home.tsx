@@ -243,8 +243,7 @@ export function Home(props: HomeProps) {
     // the swatches of a folded rail are windows too: they close up and make room on the same spring
     // home's list under the field moves with them: its rows come from the same order (ui/next), so a row that arrives or
     // leaves makes room on the same spring, after the same calm
-    const listed = nxStageEl && arrangement() !== "deck" && !open() ? [...nxStageEl.querySelectorAll(".nx-field, .nx-group, .nx-quiet")] : [];
-    flip([...elements.values(), ...swatchEls.values(), ...listed], () => {
+    flip([...elements.values(), ...swatchEls.values(), ...(open() ? [] : (untrack(nextApi)?.moving() ?? []))], () => {
       setOrder(next);
       takeFold(nextFold);
       setAwayShown(nextAway);
@@ -1407,14 +1406,6 @@ export function Home(props: HomeProps) {
     </>
   );
 
-  /** how many repos the list has room for under what needs you: the stage's height less the field and the rows above (on
-      the deck, the bar and the capsule above the field too) */
-  const repoRoom = () => {
-    const deck = arrangement() === "deck";
-    return Math.max(2, Math.min(deck ? 5 : 8, Math.floor((size().height - (deck ? 520 : 470)) / 64)));
-  };
-  /** the deck shows no window: every one is folded, or there are none */
-  const bare = () => arrangement() === "deck" && order().length === 0;
 
   return (
     <div
@@ -1552,12 +1543,11 @@ export function Home(props: HomeProps) {
         </Show>
           <NextUp
             deck={arrangement() === "deck"}
-            bare={bare()}
             start={startPlace()}
             order={order()}
             viewOf={viewOf}
             now={now()}
-            repoRoom={repoRoom()}
+            height={size().height}
             onOpen={(key, from) => activate(key, from, null)}
             onAnswer={(key, from) => whenLoaded("AskSheet", () => setAskSheet({ key, from }))}
             onBorn={openBorn}
@@ -1578,7 +1568,7 @@ export function Home(props: HomeProps) {
         <Show when={arrangement() === "strip" && (foldShown().length > 0 || awayShown())}>
           <div class="wlead">{settle()}</div>
         </Show>
-        <For each={order()} fallback={<Show when={foldShown().length === 0 && !(bare() && nextApi()?.offers())}><Empty /></Show>}>
+        <For each={order()} fallback={<Show when={foldShown().length === 0 && !(arrangement() === "deck" && nextApi()?.offers())}><Empty /></Show>}>
           {(key, index) => <Slot key={key} index={index()} />}
         </For>
       </div>
