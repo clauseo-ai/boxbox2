@@ -552,7 +552,7 @@ pub struct AwayThread {
     pub key: String,
     /// when it settled: its done was raised, or it went quiet.
     pub done_at: i64,
-    /// when a person had seen it through its newest message; absent when
+    /// when a person's read mark covered its newest finished reply; absent when
     /// it was cleared unseen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seen_at: Option<i64>,

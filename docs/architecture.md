@@ -880,12 +880,13 @@ utf-16 units, as cmx2 defines it.
     app as `Thread.cleared`.
   - the auto-clear sweep (decision 93) is a timer arm on the fleet actor
     like the tail flush: a minute after the start, then every 5 minutes,
-    `Model::sweep` over the home windows (at most 300), one log line each
-    run. it writes the same marks with `cause`, `away`, `done_at`, `seen_at`
+    `Model::sweep` over the home windows (at most 300, clearing at most 100),
+    one log line each run, under `never` too. it writes the same marks with `cause`, `away`, `done_at`, `seen_at`
     and `acked` (migration 13). the rule is the person's home prefs
     (`person`/`home` in `prefs`, migration 12; `GET /api/prefs` `home`,
-    `PUT /api/prefs/home`, answered after the commit and told to the fleet
-    at once). `[dev] sweep_fast` runs it every 10 s with minute waits, for
+    `PUT /api/prefs/home`: the fleet follows it at once and its one writer
+    commits it, so two saves land in the order they came; answered after
+    the commit). `[dev] sweep_fast` runs it every 10 s with minute waits, for
     a dev server only.
   - `POST /api/unclear` takes `{device, deviceClass, keys, source: "undo"|"away"}`
     and answers `Uncleared` with the keys back on home and a `refused` list

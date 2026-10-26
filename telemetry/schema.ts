@@ -633,9 +633,9 @@ export const EVENTS = {
     },
   },
   "home.swept": {
-    doc: "v2: the server's auto-clear sweep cleared finished threads off home (decision 93). one row per sweep that cleared at least one; every sweep, clearing or not, logs one line. ms is how long the sweep took on the fleet task.",
+    doc: "v2: the server's auto-clear sweep cleared finished threads off home (decision 93). one row per sweep that cleared at least one; every sweep, clearing or not and under never too, logs one line (home swept: swept, cleared, left, mode, away, ms). ms is how long the sweep took on the fleet task.",
     props: {
-      mode: { type: "TEXT", doc: "the person's rule: seen1h (an hour after seen through the newest message) or any3h (three hours after it settled).", values: ["seen1h", "any3h"], required: true },
+      mode: { type: "TEXT", doc: "the person's rule: seen1h (an hour after a read mark covered the newest finished reply), or any3h (three hours after it settled). never clears nothing, so it writes no row.", values: ["seen1h", "any3h"], required: true },
       swept: { type: "INTEGER", doc: "home windows the sweep looked at (at most 300).", required: true },
       cleared: { type: "INTEGER", doc: "threads it cleared.", required: true },
       away: { type: "INTEGER", doc: "1: no device was looking (decision 23), so the clears joined the away summary. 0: a looking device was offered the undo." },

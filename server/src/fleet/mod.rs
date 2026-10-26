@@ -308,10 +308,11 @@ enum Command {
     AwaySeen {
         reply: oneshot::Sender<usize>,
     },
-    /// the person's home prefs, as just committed.
+    /// the person's home prefs: the fleet follows them and its writer keeps
+    /// them, in the order the commands came, so two saves never cross.
     Home {
         home: HomePrefs,
-        reply: oneshot::Sender<()>,
+        reply: oneshot::Sender<oneshot::Receiver<bool>>,
     },
     /// a sweep on a clock of the test's choosing: the integration test's way
     /// past the hour without a production knob.
@@ -716,11 +717,13 @@ impl Fleet {
         answer.await.map_err(|_| Stopped)
     }
 
-    /// the person's home prefs, once committed: the sweep and the badge follow them now.
+    /// the person's home prefs: the sweep and the badge follow them now, and
+    /// the fleet's writer keeps them (after any earlier save, so saves never
+    /// cross). the receiver says whether `boxbox.db` has them.
     ///
     /// # Errors
     /// the actor has stopped.
-    pub async fn home(&self, home: HomePrefs) -> Result<(), Stopped> {
+    pub async fn home(&self, home: HomePrefs) -> Result<oneshot::Receiver<bool>, Stopped> {
         let (reply, answer) = oneshot::channel();
         self.command(Command::Home { home, reply }).await?;
         answer.await.map_err(|_| Stopped)
@@ -1133,6 +1136,8 @@ enum Persist {
     },
     Unkeep(String),
     AwayAcked,
+    /// the person's home prefs, with where to say they were committed.
+    Home(HomePrefs, Option<oneshot::Sender<bool>>),
 }
 
 /// the fleet's writer: raises, serves and marks go to the store in order,
@@ -1140,7 +1145,7 @@ enum Persist {
 async fn persister(store: Store, mut writes: mpsc::Receiver<Persist>) {
     while let Some(mut write) = writes.recv().await {
         let ack = match &mut write {
-            Persist::Colour(_, ack) => ack.take(),
+            Persist::Colour(_, ack) | Persist::Home(_, ack) => ack.take(),
             _ => None,
         };
         let what = match &write {
@@ -1151,6 +1156,7 @@ async fn persister(store: Store, mut writes: mpsc::Receiver<Persist>) {
             Persist::Unclear(key) => format!("clear mark of {key}"),
             Persist::Keep { key, .. } | Persist::Unkeep(key) => format!("kept mark of {key}"),
             Persist::AwayAcked => "the away summary's acknowledgement".to_owned(),
+            Persist::Home(..) => "the home prefs".to_owned(),
             Persist::Adopt { key, .. } | Persist::Unadopt(key) => format!("adopted thread {key}"),
             Persist::Colour(
                 colours::Write::Put { host, root, .. } | colours::Write::Remove { host, root },
@@ -1170,6 +1176,7 @@ async fn persister(store: Store, mut writes: mpsc::Receiver<Persist>) {
                 Persist::Keep { key, kept } => clears::save_kept(connection, &key, kept),
                 Persist::Unkeep(key) => clears::remove_kept(connection, &key),
                 Persist::AwayAcked => clears::ack_away(connection),
+                Persist::Home(home, _) => crate::prefs::save_home(connection, home),
             })
             .await;
         if let Some(ack) = ack {
@@ -1343,7 +1350,9 @@ impl Actor {
                     "the fleet follows the new home prefs"
                 );
                 self.publish_all(changes);
-                let _ = reply.send(());
+                let (ack, written) = oneshot::channel();
+                self.outside.persist(Persist::Home(home, Some(ack)));
+                let _ = reply.send(written);
             }
             #[cfg(test)]
             Command::SweepAt { at, reply } => {
@@ -1563,14 +1572,12 @@ impl Actor {
         self.model.at(now);
         let (changes, swept) = self.model.sweep();
         self.publish_all(changes);
-        // with auto-clear off the timer still fires, to spend kept marks, and says nothing
-        if swept.mode == crate::prefs::AutoClear::Never {
-            return swept;
-        }
         let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        // with auto-clear off the timer still fires (it spends kept marks) and says so, swept 0
         info!(
             swept = swept.windows,
             cleared = swept.cleared.len(),
+            left = swept.left,
             mode = swept.mode.as_str(),
             away = swept.away,
             ms,
@@ -1866,6 +1873,10 @@ impl Actor {
         for colour in self.model.assign_colours(&changes) {
             self.colour(colour);
         }
+        // a thread with an away clear that arrives (a host read, an adoption) moves the summary though no clear moved
+        let mut away_moved = changes.iter().any(|change| {
+            matches!(change, Change::Thread { thread } if self.model.has_away_clear(&thread.key))
+        });
         if let Some(projection) = &mut self.board {
             let now = tokio::time::Instant::now();
             for change in &changes {
@@ -1880,7 +1891,6 @@ impl Actor {
         if self.board.is_some() {
             self.board_tick();
         }
-        let mut away_moved = false;
         for effect in self.model.drain() {
             match effect {
                 Effect::ReadTail(request) => self.ask_tail(request),
@@ -1893,7 +1903,7 @@ impl Actor {
                 }
             }
         }
-        // only a clear taken, spent or acknowledged moves the away summary
+        // otherwise only a clear taken, spent or acknowledged moves the away summary
         if away_moved {
             let away = self.model.away();
             if away != self.away {
@@ -3198,6 +3208,42 @@ mod tests {
             reply,
         });
         answer.try_recv().unwrap().unwrap()
+    }
+
+    #[test]
+    fn an_away_clear_kept_from_before_reaches_streams_when_its_thread_arrives() {
+        let (clears, _) = Clears::restore(vec![(
+            "desk:ses_1".into(),
+            clears::Clear {
+                mark: 2.0,
+                at: 5,
+                cause: clears::Cause::Auto,
+                away: true,
+                done_at: Some(3),
+                seen_at: Some(4),
+                acked: false,
+            },
+        )]);
+        let mut actor = actor();
+        actor.model = Model::restored(
+            Needs::default(),
+            Reads::default(),
+            clears,
+            Vec::new(),
+            Colours::default(),
+        );
+        actor.away = actor.model.away();
+        // the store kept the clear; no session holds it yet, so there is no away line
+        let mut early = open(&mut actor, From::Start);
+        assert!(!kinds(&early.frames).contains(&"away".to_owned()));
+        // its thread arrives (a host read after a start, as any upsert): the summary moves with no clear moving
+        actor.upstream(session_in("ses_1", "/w"));
+        let live: Vec<String> = kinds(&drained(&mut early.live));
+        assert!(live.contains(&"away".to_owned()), "{live:?}");
+        let later = open(&mut actor, From::Start);
+        let opened = kinds(&later.frames);
+        assert_eq!(&opened[..3], ["hello", "colours", "away"], "{opened:?}");
+        assert!(text(&later.frames[2]).contains("desk:ses_1"));
     }
 
     #[test]

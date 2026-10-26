@@ -1922,3 +1922,13 @@ build the commit it started from too.
 a row's quiet result is `<span class="row-r quiet">`, and the app's `.quiet` button rule (styles.css) gives it a 44 px min
 height, which pushed an ask row's question 24 px below its kind. `.row.ask > .row-h > .row-r` sets it back to 0 (thread.css,
 2026-10-22).
+
+## the newest message the model heard can be missing from the daemon's listing
+
+against the dev daemon (settle, 2026-10-26), a finished bench turn left the model's `turn.newest` naming a message created
+3 ms after the assistant's reply that `GET /session/:id/message` does not list (most likely a step's message the daemon
+created and removed; the model never rolls `newest` back). a device marks read through the last message it shows, so a
+mark never covered `newest`, and a rule of "seen through the newest message" would never fire. the auto-clear sweep's
+`seen1h` (`Model::sweepable`) therefore counts a thread seen when a person's read mark covers its newest finished reply and
+no done is open, the same reply the done need is served by (`Model::seen`). the job need's "newest seen" rule has the same
+exposure and was left as it is.

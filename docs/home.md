@@ -401,9 +401,9 @@ window, and history.
   touched in the last 12 hours), at most 300, so a first sweep after an
   upgrade looks at what home shows and never at the hundreds of older
   threads a machine lists. one log line per sweep, `home swept` with
-  `swept`, `cleared`, `mode`, `away` and `ms`; a `home.swept` telemetry row
+  `swept`, `cleared`, `left`, `mode`, `away` and `ms`; a `home.swept` telemetry row
   when it cleared any. with the rule at `never` the timer still fires, spends
-  kept marks and says nothing. its eligibility, in `Model::sweepable`: no
+  kept marks and logs its line (`mode=never swept=0`), with no telemetry row. its eligibility, in `Model::sweepable`: no
   status at all (busy, retry, parked on agents or on jobs alone), no queued
   prompt, no open ask, no open fault (failed, or a turn cut off), no open
   review, and not kept. `seen1h` counts a thread seen when a person's read
@@ -414,7 +414,10 @@ window, and history.
   `any3h` counts from the open done's raise, else the seen mark, else the
   first sweep that found the thread idle at its current `updated` (kept in
   memory per home window, so after a restart a thread with neither waits 3
-  hours from then: it errs on keeping).
+  hours from then: it errs on keeping). one sweep clears at most 100
+  (`MAX_SWEEP_CLEARS`; each clear queues two or three writes for the fleet's
+  1024-deep write queue), and the log line's `left` says how many wait for
+  the next run.
 - **what an auto-clear keeps** (migration 13): the clear mark as a hand clear
   writes it, plus `cause` (`hand` or `auto`), `away` (no device looking at
   that moment, decision 23 through push's `looking` watch), `done_at` (the
@@ -444,7 +447,8 @@ window, and history.
   the push badge (`Needs::waiting_counting`) and the order's lead
   (`Needs::lead_counting`) leave it out, so a thread whose only need is a
   job ranks as the idle or parked thread it is. turning the pref on
-  re-ranks at once (`PUT /api/prefs/home` tells the fleet after the commit).
+  re-ranks at once (`PUT /api/prefs/home` goes through the fleet, which
+  follows it and has its writer commit it, in order).
 - **a count per word.** the bar's line says "2 done, 1 idle" (done is a
   finished turn nobody has seen, idle one that was seen or never ran a turn;
   a thread with no turn is not "done"), and the pill says "clear 3", the two

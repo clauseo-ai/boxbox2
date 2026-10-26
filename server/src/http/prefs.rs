@@ -80,8 +80,9 @@ pub async fn device(
 }
 
 /// sets the person's home prefs, the same on every device (decisions 93 to
-/// 95). answered once the row is committed and the fleet follows them: the
-/// sweep's rule from its next run, the order and the badge at once.
+/// 95). the fleet follows them at once (the sweep's rule from its next run,
+/// the order and the badge now) and its writer keeps them, in the order the
+/// saves came; answered once the row is committed.
 #[utoipa::path(
     put,
     path = "/api/prefs/home",
@@ -97,14 +98,18 @@ pub async fn home(
     State(state): State<Arc<AppState>>,
     Json(value): Json<HomePrefs>,
 ) -> Result<Json<HomePrefs>, ApiError> {
-    prefs::put_home(&state.store, value)
-        .await
-        .map_err(|_| ApiError::StoreDown)?;
-    state
+    // the fleet follows them and its one writer keeps them, so two saves land in the order they reached it
+    let written = state
         .fleet
         .home(value)
         .await
         .map_err(|_| ApiError::Stopping)?;
+    if written.await != Ok(true) {
+        tracing::warn!(
+            "the home prefs were taken but not kept; they hold until the server restarts"
+        );
+        return Err(ApiError::StoreDown);
+    }
     tracing::info!(
         auto_clear = value.auto_clear.as_str(),
         fold_working = value.fold_working,

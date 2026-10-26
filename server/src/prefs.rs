@@ -91,7 +91,7 @@ pub struct ModelPrefs {
 /// when a finished thread leaves home by itself (decision 93).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub enum AutoClear {
-    /// an hour after a person saw it through its newest message.
+    /// an hour after a person's read mark covered its newest finished reply.
     #[default]
     #[serde(rename = "seen1h")]
     Seen1h,
@@ -213,12 +213,41 @@ pub async fn load(store: &Store) -> Result<Prefs, StoreError> {
     Ok(prefs)
 }
 
-/// the home document as stored, leniently: what does not read is the defaults.
+/// the home document as stored, each field on its own: a value this build
+/// does not know (a newer build's rule) is that field's default, and the
+/// others keep what was saved.
 fn read_home(value: &str) -> HomePrefs {
-    serde_json::from_str(value).unwrap_or_else(|error| {
-        warn!(%error, "the home prefs do not read; they are the defaults");
-        HomePrefs::default()
-    })
+    let mut home = HomePrefs::default();
+    let fields = match serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(value) {
+        Ok(fields) => fields,
+        Err(error) => {
+            warn!(%error, "the home prefs do not read; they are the defaults");
+            return home;
+        }
+    };
+    let field = |name: &str| fields.get(name).cloned();
+    if let Some(value) = field("autoClear") {
+        match serde_json::from_value(value) {
+            Ok(rule) => home.auto_clear = rule,
+            Err(error) => {
+                warn!(%error, "the home prefs' auto-clear does not read; it is the default");
+            }
+        }
+    }
+    for (name, slot) in [
+        ("foldWorking", &mut home.fold_working),
+        ("jobsAsNeeds", &mut home.jobs_as_needs),
+    ] {
+        if let Some(value) = field(name) {
+            match serde_json::from_value(value) {
+                Ok(flag) => *slot = flag,
+                Err(error) => {
+                    warn!(%error, field = name, "a home pref does not read; it is the default");
+                }
+            }
+        }
+    }
+    home
 }
 
 /// the home prefs, from the fleet's own start (`fleet::restore`), on the
@@ -238,13 +267,19 @@ pub fn load_home(connection: &rusqlite::Connection) -> rusqlite::Result<HomePref
     Ok(value.as_deref().map(read_home).unwrap_or_default())
 }
 
-/// sets the person's home prefs; the answer waits for the commit.
+/// writes the person's home prefs, on the store's thread: the fleet's writer
+/// does, in the order the saves reached the fleet (`PUT /api/prefs/home`).
 ///
 /// # Errors
-/// the store is not answering.
-pub async fn put_home(store: &Store, value: HomePrefs) -> Result<(), StoreError> {
+/// sqlite's.
+pub fn save_home(connection: &rusqlite::Connection, value: HomePrefs) -> rusqlite::Result<()> {
     let json = serde_json::to_string(&value).unwrap_or_default();
-    upsert(store, "person", HOME_SUBJECT.to_owned(), Some(json)).await
+    connection.execute(
+        "INSERT INTO prefs (scope, subject, value, updated_at) VALUES ('person', ?1, ?2, ?3)
+         ON CONFLICT (scope, subject) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        params![HOME_SUBJECT, json, crate::now_ms()],
+    )?;
+    Ok(())
 }
 
 /// sets one device's appearance.
@@ -383,7 +418,7 @@ mod tests {
             fold_working: false,
             jobs_as_needs: true,
         };
-        put_home(&store, set).await.unwrap();
+        store.call(move |c| save_home(c, set)).await.unwrap();
         assert_eq!(load(&store).await.unwrap().home, set);
         assert_eq!(store.call(|c| load_home(c)).await.unwrap(), set);
         drop(store);
@@ -403,6 +438,23 @@ mod tests {
             read_home("{\"autoClear\":\"weekly\"}"),
             HomePrefs::default()
         );
+        // one value this build does not know keeps the others as saved
+        assert_eq!(
+            read_home(r#"{"autoClear":"weekly","foldWorking":false,"jobsAsNeeds":true}"#),
+            HomePrefs {
+                auto_clear: AutoClear::Seen1h,
+                fold_working: false,
+                jobs_as_needs: true,
+            }
+        );
+        assert_eq!(
+            read_home(r#"{"autoClear":"any3h","foldWorking":"maybe"}"#),
+            HomePrefs {
+                auto_clear: AutoClear::Any3h,
+                ..HomePrefs::default()
+            }
+        );
+        assert_eq!(read_home("not json"), HomePrefs::default());
         assert_eq!(
             serde_json::to_string(&HomePrefs::default()).unwrap(),
             r#"{"autoClear":"seen1h","foldWorking":true,"jobsAsNeeds":false}"#

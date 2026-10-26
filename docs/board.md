@@ -86,7 +86,11 @@ the next view.
   bound thread, in the app's window order (the order `⌥1` to `⌥9` open:
   `fleet.order` through the home membership filter), subagents never, at
   most 36. since the app ranks needs and working threads first, digit n on
-  an unpaired board is window n in the app.
+  an unpaired board is window n in the app, with one exception: with job
+  notices off (`jobsAsNeeds`, the default, decision 95) a thread whose only
+  need is a job still lights `news` and rides the board, but the app's order
+  ranks it among the quiet threads, so a quiet window the board does not
+  show can sit before it in the app.
 - per thread: its need (`permission`, `question`, `fault`, `review`, or
   `news` for `done` and `job`), how long the need has waited as of the
   frame (an age, so the vm's and the mac's clocks never have to agree),

@@ -74,7 +74,7 @@ pub struct Clear {
     /// when the thread settled (its done was raised, or it went quiet), ms on
     /// the server's clock; auto-clears only.
     pub done_at: Option<i64>,
-    /// when a person had seen it through its newest message, ms on the
+    /// when a person's read mark covered its newest finished reply, ms on the
     /// server's clock; auto-clears only, and only when it was seen.
     pub seen_at: Option<i64>,
     /// a person acknowledged the away summary that held it.

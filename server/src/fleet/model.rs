@@ -64,11 +64,14 @@ pub const MAX_SESSIONS: usize = 1000;
 /// the window order lists at most this many sessions (architecture: 300
 /// sessions with windows).
 pub const MAX_ORDER: usize = 300;
-/// `seen1h`: how long after a person saw a thread through its newest message
-/// the sweep clears it (decision 93).
+/// `seen1h`: how long after a person's read mark covered a thread's newest
+/// finished reply the sweep clears it (decision 93).
 pub const SEEN_FOR_MS: i64 = 60 * 60 * 1000;
 /// `any3h`: how long after a thread settled the sweep clears it, seen or not.
 pub const SETTLED_FOR_MS: i64 = 3 * 60 * 60 * 1000;
+/// threads one sweep clears at most; the rest wait for the next run. each
+/// clear queues two or three writes, and the fleet's write queue holds 1024.
+pub const MAX_SWEEP_CLEARS: usize = 100;
 
 /// how often the auto-clear sweep runs and how long its rules wait.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2401,6 +2404,8 @@ pub struct Swept {
     pub windows: usize,
     /// the threads it cleared, in the window order.
     pub cleared: Vec<String>,
+    /// threads it could have cleared past `MAX_SWEEP_CLEARS`, left for the next run.
+    pub left: usize,
     /// no device was looking: the clears join the away summary.
     pub away: bool,
     pub mode: AutoClear,
@@ -2681,8 +2686,12 @@ impl Model {
         swept.windows = windows.len();
         for key in windows {
             if let Some(settled) = self.sweepable(&key, mode) {
-                self.auto_clear(&key, settled, swept.away);
-                swept.cleared.push(key);
+                if swept.cleared.len() < MAX_SWEEP_CLEARS {
+                    self.auto_clear(&key, settled, swept.away);
+                    swept.cleared.push(key);
+                } else {
+                    swept.left += 1;
+                }
             }
         }
         (self.settle_moves(from), swept)
@@ -2766,7 +2775,7 @@ impl Model {
             .unwrap_or_else(|| seen_at.map_or(quiet_since, |s| s.min(quiet_since)));
         let due = match mode {
             AutoClear::Seen1h => seen_at.is_some_and(|seen| now - seen >= self.pace.seen_for),
-            // settled: its done was raised, else it was seen through its newest, else it went quiet
+            // settled: its done was raised, else its finished reply was seen, else it went quiet
             AutoClear::Any3h => {
                 now - done.or(seen_at).unwrap_or(quiet_since) >= self.pace.settled_for
             }
@@ -2863,6 +2872,14 @@ impl Model {
             self.effects.push(Effect::AwayAcked);
         }
         held
+    }
+
+    /// whether `key` holds an auto-clear the away summary would list: a thread
+    /// arriving with one (a host read, an adoption after a start) moves the
+    /// summary though no clear moved.
+    #[must_use]
+    pub fn has_away_clear(&self, key: &str) -> bool {
+        self.clears.get(key).is_some_and(|clear| clear.in_away())
     }
 
     /// the away summary: auto-clears nobody was looking at, not
@@ -8083,7 +8100,7 @@ mod tests {
             "kept"
         );
         // updated past the unclear (a rename): the kept mark is spent at the next sweep, and the
-        // rule applies again (its newest message was seen hours ago)
+        // rule applies again (its finished reply was seen hours ago)
         event(&mut model, None, &updated("ses_1", 200, None));
         assert_eq!(
             sweep_at(&mut model, 1000 + 6 * HOUR).cleared,
@@ -8149,6 +8166,21 @@ mod tests {
         busy(&mut model, "ses_1");
         assert!(model.away().is_empty());
         assert!(told(&mut model).contains(&"uncleared desk:ses_1".to_owned()));
+    }
+
+    #[test]
+    fn one_sweep_clears_at_most_a_hundred_and_leaves_the_rest_for_the_next() {
+        let mut model = Model::new();
+        model.at(1000);
+        for n in 0..=MAX_SWEEP_CLEARS {
+            event(&mut model, None, &updated(&format!("ses_{n}"), 100, None));
+        }
+        mode(&mut model, AutoClear::Any3h);
+        assert!(sweep_at(&mut model, 2000).cleared.is_empty());
+        let first = sweep_at(&mut model, 2000 + 3 * HOUR);
+        assert_eq!((first.cleared.len(), first.left), (MAX_SWEEP_CLEARS, 1));
+        let second = sweep_at(&mut model, 2000 + 3 * HOUR + 1);
+        assert_eq!((second.cleared.len(), second.left), (1, 0));
     }
 
     /// `ses_job`'s job notice, and a done in `ses_1` whose notice carries the badge.

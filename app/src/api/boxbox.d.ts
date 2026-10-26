@@ -1025,8 +1025,9 @@ export type paths = {
         get?: never;
         /**
          * sets the person's home prefs, the same on every device (decisions 93 to
-         *     95). answered once the row is committed and the fleet follows them: the
-         *     sweep's rule from its next run, the order and the badge at once.
+         *     95). the fleet follows them at once (the sweep's rule from its next run,
+         *     the order and the badge now) and its writer keeps them, in the order the
+         *     saves came; answered once the row is committed.
          */
         put: operations["home"];
         post?: never;
@@ -1810,7 +1811,7 @@ export type components = {
             key: string;
             /**
              * Format: int64
-             * @description when a person had seen it through its newest message; absent when
+             * @description when a person's read mark covered its newest finished reply; absent when
              *     it was cleared unseen.
              */
             seenAt?: number | null;
