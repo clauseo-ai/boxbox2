@@ -7,7 +7,7 @@
 
 import { For } from "solid-js";
 import { render } from "solid-js/web";
-import { applyPatches, bootSync, offerUndo, setOpenThread, setPrefs, setStream, state, syncNeedsReload } from "../../../store";
+import { applyPatches, bootSync, offerUndo, setNewThread, setOpenThread, setOutbox, setPrefs, setStream, state, syncNeedsReload } from "../../../store";
 import type { StreamStatus } from "../../../sync/messages";
 import { neutralPart } from "../../../sync/fixtures/neutral";
 import { type Extra, windowView } from "../../window/view";
@@ -105,9 +105,10 @@ export type HomeStory = NextStory | "live" | "stray" | "answer" | "answer-two" |
 
 /** home, what next (docs/design.md; ui/next): the stage with no thread chosen. quiet is every thread at work and folded; busy
     holds an ask, a failure and a finish beside the work; empty has nothing anywhere; offline is busy with the stream down;
-    the menus are the repo chip pressed and a token typed; back is a thread on the stage stepping back to home */
-export type NextStory = "next-quiet" | "next-busy" | "next-empty" | "next-offline" | "next-menu" | "next-typed" | "next-back";
-const NEXT: ReadonlySet<HomeStory> = new Set<HomeStory>(["next-quiet", "next-busy", "next-empty", "next-offline", "next-menu", "next-typed", "next-back"]);
+    the menus are the repo chip pressed and a token typed; back is a thread on the stage stepping back to home; refused is a
+    first message refused while a thread is on the stage, said over it with retry and edit */
+export type NextStory = "next-quiet" | "next-busy" | "next-empty" | "next-offline" | "next-menu" | "next-typed" | "next-back" | "next-refused";
+const NEXT: ReadonlySet<HomeStory> = new Set<HomeStory>(["next-quiet", "next-busy", "next-empty", "next-offline", "next-menu", "next-typed", "next-back", "next-refused"]);
 
 /** the recorded fleet at rest: three threads at work with nothing wrong, and nothing else, so everything folds */
 function withQuiet(fleet: typeof final.state.fleet): typeof final.state.fleet {
@@ -337,13 +338,16 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
       : story === "next-quiet" ? withQuiet(asks)
       : story === "next-busy" || story === "next-offline" || story === "next-menu" || story === "next-typed" ? withFailure(asks)
       : asks;
+    // the field's place and send live in the store for the page: each story starts with none
+    setNewThread({ place: null, sent: null, restored: [] });
     bootSync({ fleet, threads, drafts: {}, outbox: [], stream });
     unanswer = answerHomeReads();
     // at the strip and the rail the stage shows home until a thread is chosen: the stories that are about a thread choose the
     // asking one, as a relaunch restoring its url does; home's own stories leave the stage to home
     const wide = matchMedia("(min-width: 700px)").matches;
     if (wide && !NEXT.has(story) && story !== "stale" && story !== "empty" && story !== "stray") setOpenThread(wants);
-    if (story === "next-back") setOpenThread(wants);
+    if (story === "next-back" || story === "next-refused") setOpenThread(wants);
+    if (story === "next-refused") refuseWhileAway(wants);
     // the home prefs as the server holds them: the fold on (its default), or off for the story that shows home without it
     setPrefs({ devices: {}, repos: [], models: { favorites: [] }, home: { autoClear: "seen1h", foldWorking: story !== "fold-off", jobsAsNeeds: false } });
     if (story === "reload") syncNeedsReload();
@@ -410,6 +414,37 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     dispose?.();
     unanswer?.();
   };
+}
+
+/** a first message sent from home's field into a folder that is not there, refused while the asking thread is on the
+    stage: the send as the field left it in the store, and its outbox entry failed as the worker leaves it */
+function refuseWhileAway(wants: string): void {
+  const host = state.fleet.threads[wants]?.agent ?? "desk";
+  const directory = "/Users/dev/code/new-thing";
+  const target = { kind: "new", host, directory, place: "checkout" } as const;
+  setNewThread({ place: { host, directory, place: "checkout" }, sent: { clientID: "c-refused", at: Date.now(), host, directory } });
+  setOutbox([
+    {
+      clientID: "c-refused",
+      verb: "start",
+      target,
+      key: `new:${host}:${directory}`,
+      text: "sketch the onboarding flow for the new thing",
+      photos: 0,
+      files: 0,
+      photoBytes: 0,
+      model: null,
+      effort: null,
+      state: "failed",
+      provisional: null,
+      session: null,
+      error: `nothing at ${directory} on ${host}, so the thread did not start. pick another folder, or make it and retry.`,
+      attempts: 1,
+      at: Date.now(),
+      ackAt: null,
+      unsending: false,
+    },
+  ]);
 }
 
 /** home as the journal happened: starts two thirds in and applies the rest in real time, patch by patch, as the

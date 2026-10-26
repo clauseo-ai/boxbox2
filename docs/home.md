@@ -12,7 +12,7 @@ is binding the same way (AGENTS.md, design law).
 | `app/src/motion/` | the motion law as code: the two springs sampled into `linear()` curves, the short curves, and `play`/`flip`/`sweep`, the only way anything animates a transition; what animates per word or per batch is a css animation on a curve's property (`.settle-in` on `--settle-t`), since webkit keeps every finished web animation alive (gotchas.md, home) |
 | `app/src/ui/window/` | one window: the repo colours (`repo.ts`), the tail's grammar (`tail.ts`), the window's view of a session (`view.ts`), the component and its stylesheet |
 | `app/src/ui/home/` | home: membership (`membership.ts`, each thread's standing a memo of its own so a frame or a second costs what changed), each window's view as a memo of its own (`views.ts`), the arrangements, the order and its calm, the stage and its motion (`home.tsx`, `stage.tsx`), the folds at the rail and the strip (the fold and its swatches `fold.tsx`, `swatch.ts`, the windows toggle's words `windows.ts`; the stage card's edge moving `edge.ts`, `glide.ts`; the choice kept on the device `remembered.ts`), the budgets (`perf.ts`), the fixtures and the stories |
-| `app/src/ui/next/` | home, what next (`design.md`, home: what next; decisions 102 to 109): `next-up.tsx` the field and the list under it, `field.tsx` the field (the composer with the place chips in its top row via `lead`, its own token menu, the neutral `GROUND`), `tokens.ts` the typed `@repo`, `on <machine>` and `/model` (tested), `assemble.ts` what the list shows from the server's order (tested), `next.css` in the first load; a `later.ts` chunk (`NextUp`) warmed the moment home mounts. the start's state is `ui/composer/new-thread.ts` |
+| `app/src/ui/next/` | home, what next (`design.md`, home: what next; decisions 102 to 109): `next-up.tsx` the field and the list under it, `field.tsx` the field (the composer with the place chips in its top row via `lead`, its own token menu, the neutral `GROUND`), `tokens.ts` the typed `@repo`, `on <machine>` and `/model` (tested), `keys.ts` the keys over its menu (tested), `refused-line.tsx` a refusal said over the thread that covers the field (a `later.ts` chunk, `RefusedLine`), `assemble.ts` what the list shows from the server's order (tested), `next.css` in the first load; a `later.ts` chunk (`NextUp`) warmed the moment home mounts. the start's state is `ui/composer/new-thread.ts` |
 | `app/src/board/` | the board's digits on home (`docs/board.md`, the app): the first load's foothold (`lazy.ts`: the lazy pieces and the words a name carries), and the chunk fetched on the first board frame (`board.tsx`, `board.css`: the key on a window and a swatch, the pairing item and the stage's line; `pin.ts`: arming a pairing), with its stories |
 | `bench/windows.ts` | the windows world: five threads across two repos on a real daemon, for the fixture capture and the budget run |
 | `bench/home.ts` | the budget run |
@@ -169,10 +169,11 @@ is binding the same way (AGENTS.md, design law).
   dots shrink and clip.
 - **the field starts where you are looking** (`startPlace`: the open
   thread, else the window the deck is on, else the first window, else the
-  first host), by the repo root of its project. the field takes it once, as
-  it comes up, and keeps what is picked in it after that, so a scroll or a
-  fleet beat never moves the place under the words. (the dock and the
-  sheet that followed the window in view are gone, decision 103.)
+  first host), by the repo root of its project. the first field to come
+  up takes it once, and the store keeps what is picked after that
+  (`state.newThread`, written by `new-thread.ts` alone), so a scroll, a
+  fleet beat or the field mounted again by an arrangement change never
+  moves the place under the words.
 - **a thread the fleet does not hold never opens** (`stage-open.ts`): a
   `?thread=` for a thread that is gone, or a tap on one that just left,
   clears the url instead of leaving the deck inert under an empty stage.
@@ -842,8 +843,10 @@ guesses.
   in place of the ghost on the deck),
   `-offline` (the bar's quiet line over the list as last read),
   `-repo-menu` (the repo chip's menu open over the list), `-typed-token`
-  (an `@` typed in the field, its menu open) and `-from-thread` ("what next?"
-  pressed in the asking thread's bar, the thread stepping back). the composer's
+  (an `@` typed in the field, its menu open), `-from-thread` ("what next?"
+  pressed in the asking thread's bar, the thread stepping back) and
+  `-refused-over-thread` (a first message refused while the asking thread
+  is on the stage, said over it with retry and edit). the composer's
   `composer--home-field*` stories hold the field's own states (below,
   `composer.md`).
   `bun run shots:home` screenshots every still story at 390, 820 and 1512 and

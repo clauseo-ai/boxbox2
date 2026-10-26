@@ -39,6 +39,7 @@ export const HomeNextOffline = home("next-offline");
 export const HomeNextRepoMenu = home("next-menu");
 export const HomeNextTypedToken = home("next-typed");
 export const HomeNextFromThread = home("next-back");
+export const HomeNextRefusedOverThread = home("next-refused");
 export const HomeLongAsk = home("ask-long");
 export const HomeAnswerSheet = home("answer");
 export const HomeSpawnOnlyAgent = home("stray");

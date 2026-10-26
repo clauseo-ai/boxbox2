@@ -7,9 +7,12 @@
    nowhere else.
 
    starting goes through the one new-thread path (composer/new-thread.ts): a send does not close on a guess, a refusal is
-   said plainly with its words given back, and the stage opens on the thread the send made once it exists. */
+   said plainly with its words given back, and the stage opens on the thread the send made once it exists. the keys over
+   a menu are keys.ts: nothing is highlighted in a typed menu unless the word names a row exactly, so return sends the
+   words as typed. walking folders ("other folder", "up", "look inside") happens in the menu's own finder, never in the
+   words, so a path with a space in it never spills into them. */
 
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 import { play } from "../../motion/animate";
 import { SNAP } from "../../motion/springs";
 import { state } from "../../store";
@@ -24,6 +27,7 @@ import { modelName } from "../model-name";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { repoColour } from "../window/colours";
 import { colourStyle, type RepoColour, repoName } from "../window/repo";
+import { composing, firstActive, menuKey, type Row } from "./keys";
 import { matchMachines, matchModels, type TokenKind, type Typed, typedToken, withoutToken } from "./tokens";
 
 /** the field's own material: a neutral pair on the plane's recipe, so the composer is a quiet surface of the ground and
@@ -33,13 +37,18 @@ export const GROUND: RepoColour = { name: "ground", top: "#2a2c34", bottom: "#14
 /** rows a menu shows at most; the rest are a few more letters away */
 const MENU_ROWS = 24;
 
-/** what home asks of the field: put the caret in it, start somewhere, or pick a repo from the list under it */
+/** what home asks of the field: put the caret in it, start somewhere, pick a repo from the list under it, or answer a
+    refusal said away from it (home's refused line, refused-line.tsx) */
 export type FieldApi = {
   focus: () => void;
   startOn: (machine: string) => void;
   pick: (host: string, root: string) => void;
   /** words in the field, so escape on an empty field may go back to the thread it came from */
   empty: () => boolean;
+  /** the refused send again, with the same client id */
+  retry: () => void;
+  /** the refused send's words back in the field's draft */
+  edit: () => void;
 };
 
 /** the field's machine and its repos, for the list under it */
@@ -54,20 +63,15 @@ export type FieldProps = {
   onPlace?: (place: FieldPlace) => void;
 };
 
-/** a row of the open menu, flattened so the arrows and enter walk one list */
-type Row =
-  | { kind: "repo"; host: string; root: string; note: string }
-  | { kind: "folder"; host: string; dir: string; name: string; repo: boolean }
-  | { kind: "use"; host: string; dir: string }
-  | { kind: "up"; dir: string }
-  | { kind: "other" }
-  | { kind: "machine"; name: string }
-  | { kind: "model"; id: string; efforts: string[] };
-
-type Menu = { kind: TokenKind; by: "typed" | "tap"; typed: Typed | null };
+/** the open menu: what opened it, the token it was typed as, and whether a typed one moved into the finder to walk folders */
+type Menu = { kind: TokenKind; by: "typed" | "tap"; typed: Typed | null; walking: boolean };
 
 export function Field(props: FieldProps) {
-  const nt = createNewThread({ start: () => props.start, onBorn: (key, from) => props.onBorn(key, from) });
+  /* the element the send left, for the thread to open out of: this field's own, so it stays here; a field mounted again
+     mid-send opens the thread out of its own window instead */
+  let sentFrom: HTMLElement | undefined;
+  const bornFrom = (): HTMLElement => (sentFrom?.isConnected ? sentFrom : (root?.querySelector<HTMLElement>(".cz-window") ?? root ?? document.body));
+  const nt = createNewThread({ start: () => props.start, onBorn: (key) => props.onBorn(key, bornFrom()) });
   let root: HTMLElement | undefined;
   let findEl: HTMLInputElement | undefined;
   const words = () => root?.querySelector<HTMLTextAreaElement>(".cz-body textarea") ?? null;
@@ -75,14 +79,19 @@ export function Field(props: FieldProps) {
 
   /* —— the menu: opened by a typed token or by a tap on a chip —— */
   const [menu, setMenu] = createSignal<Menu | null>(null);
-  const [active, setActive] = createSignal(0);
-  /* the tap path's own filter: a finger opens the repo menu and may type a word or a path into it, never into the words */
+  /* the row the arrows moved to; until they move, the menu's own first (keys.ts, `firstActive`): none in a typed menu
+     unless the word names a row exactly */
+  const [picked, setPicked] = createSignal<number | null>(null);
+  /* the finder's own text: a finger opens the repo menu and may type a word or a path into it, and a walk through the
+     folders goes on in it, never in the words */
   const [find, setFind] = createSignal("");
-  const query = () => {
+  const inFinder = (m: Menu | null) => m !== null && m.kind === "repo" && (m.by === "tap" || m.walking);
+  // a memo: the menu is set anew at every caret read, and only a change of the words in it is a new query
+  const query = createMemo(() => {
     const m = menu();
     if (!m) return "";
-    return m.by === "typed" ? (m.typed?.query ?? "") : find();
-  };
+    return inFinder(m) ? find() : (m.typed?.query ?? "");
+  });
   createEffect(() => {
     const m = menu();
     nt.setQuery(m?.kind === "repo" ? query() : "");
@@ -113,16 +122,20 @@ export function Field(props: FieldProps) {
     const waits = host === nt.host() && root !== nt.directory() && nt.waiting().includes(root);
     return waits ? `${host} · words wait here` : `${host} · ${root}`;
   };
-  createEffect(() => {
-    // the active row stays inside the list as it narrows
-    const count = rows().length;
-    if (active() >= count) setActive(Math.max(0, count - 1));
+  const active = createMemo<number | null>(() => {
+    const m = menu();
+    if (!m) return null;
+    const moved = picked();
+    if (moved !== null && moved < rows().length) return moved;
+    return firstActive(rows(), inFinder(m) ? "tap" : "typed", query());
   });
+  // what the arrows chose holds only for the list they chose it in: a new letter starts the menu's own highlight again
+  createEffect(on(query, () => setPicked(null), { defer: true }));
 
   const close = () => {
     setMenu(null);
     setFind("");
-    setActive(0);
+    setPicked(null);
   };
   const caretTo = (at: number) => {
     const field = words();
@@ -146,8 +159,10 @@ export function Field(props: FieldProps) {
 
   const choose = (row: Row | undefined) => {
     if (!row) return;
-    if (row.kind === "up") return setQueryText(`${row.dir === "/" ? "" : row.dir}/`);
-    if (row.kind === "other") return setQueryText("~/");
+    if (row.kind === "up") return walkTo(`${row.dir === "/" ? "" : row.dir}/`);
+    if (row.kind === "other") return walkTo("~/");
+    // the place holds while a thread is being made, as the chips are disabled: a pick is refused, the token stays words
+    if (nt.making()) return close();
     const caret = takeToken();
     if (row.kind === "repo") nt.pickRepo(row.root, row.host);
     else if (row.kind === "folder" || row.kind === "use") nt.pickRepo(row.dir, row.host);
@@ -156,22 +171,22 @@ export function Field(props: FieldProps) {
     close();
     caretTo(caret ?? words()?.value.length ?? 0);
   };
-  /* "other folder" and "up" keep the menu open on the finder's text: typed, the token's words; tapped, the finder */
-  const setQueryText = (text: string) => {
+  /* "other folder", "up" and "look inside" keep the menu open and walk in its finder. a typed menu moves into the finder
+     too: the token stays in the words as it was typed until a pick takes it out, and the path walked never enters them */
+  const walkTo = (path: string) => {
     const m = menu();
     if (!m) return;
-    if (m.by === "tap") {
-      setFind(text);
-      queueMicrotask(() => findEl?.focus({ preventScroll: true }));
-      return;
-    }
-    const d = draft();
-    if (!d || !m.typed) return;
-    const replaced = `${d.text.slice(0, m.typed.start)}@${text}${d.text.slice(m.typed.end)}`;
-    const end = m.typed.start + 1 + text.length;
-    saveDraft(nt.draftKey(), { ...d, text: replaced, at: Date.now() }, false, "kept");
-    setMenu({ ...m, typed: { ...m.typed, query: text, end } });
-    caretTo(end);
+    setFind(path);
+    setPicked(null);
+    if (m.by === "typed" && !m.walking) setMenu({ ...m, walking: true });
+    queueMicrotask(() => {
+      findEl?.focus({ preventScroll: true });
+      findEl?.setSelectionRange(path.length, path.length);
+    });
+  };
+  /** a folder's own row picks it; its "look inside" walks into it, in the finder */
+  const lookInside = (row: Row | undefined) => {
+    if (row?.kind === "folder") walkTo(`${row.dir}/`);
   };
   const pickModel = (id: string, efforts: readonly string[]) => {
     const d = draft() ?? { text: "", photos: [], model: null, effort: null, at: 0 };
@@ -180,53 +195,59 @@ export function Field(props: FieldProps) {
     saveDraft(nt.draftKey(), { ...d, model: id, effort, at: Date.now() }, false, "kept");
   };
 
+  /* a typed menu escape closed: the same token, unchanged, does not open it again (escape's own keyup reads the caret) */
+  let dismissed: Typed | null = null;
   /* reading the words at the caret: a token being typed opens its menu, and its menu closes when it is no longer typed */
   const read = () => {
     const field = words();
     if (!field || document.activeElement !== field) return;
-    const typed = typedToken(field.value, field.selectionStart ?? field.value.length, nt.machines());
     const m = untrack(menu);
+    // while a thread is being made the place holds: a token typed meanwhile opens nothing and stays words
+    let typed = nt.making() ? null : typedToken(field.value, field.selectionStart ?? field.value.length, nt.machines());
+    if (typed && dismissed && typed.start === dismissed.start && typed.query === dismissed.query && typed.kind === dismissed.kind) typed = null;
+    else dismissed = null;
     if (typed) {
-      if (m?.by !== "typed" || m.kind !== typed.kind || m.typed?.start !== typed.start) setActive(0);
-      setMenu({ kind: typed.kind, by: "typed", typed });
+      if (m?.by !== "typed" || m.kind !== typed.kind || m.typed?.start !== typed.start) setPicked(null);
+      setMenu({ kind: typed.kind, by: "typed", typed, walking: false });
     } else if (m?.by === "typed") close();
   };
   const opener = (kind: TokenKind) => (event: MouseEvent) => {
     const m = menu();
     if (m?.by === "tap" && m.kind === kind) return close();
     setFind("");
-    setActive(0);
-    setMenu({ kind, by: "tap", typed: null });
+    setPicked(null);
+    setMenu({ kind, by: "tap", typed: null, walking: false });
     // a keyboard's press lands in the finder, so the arrows work at once; a finger's leaves the keyboard down
     if (kind === "repo" && event.detail === 0) queueMicrotask(() => findEl?.focus({ preventScroll: true }));
   };
 
   const onKey = (event: KeyboardEvent) => {
+    // an input method composing (japanese, chinese) owns return, tab and escape until it commits
+    if (composing(event)) return;
     const m = menu();
     const inWords = event.target === words();
     const inFind = event.target === findEl;
     if (m && (inWords || inFind)) {
-      const count = rows().length;
-      if (count && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      const atEnd = inFind && findEl !== undefined && findEl.selectionStart === findEl.value.length;
+      const act = menuKey(event, rows().length, active(), inFind, atEnd && rows()[active() ?? -1]?.kind === "folder");
+      if (act.kind !== "pass") {
         event.preventDefault();
         event.stopPropagation();
-        setActive((i) => (i + (event.key === "ArrowDown" ? 1 : -1) + count) % count);
+      }
+      if (act.kind === "move") {
+        setPicked(act.to);
         queueMicrotask(() => root?.querySelector(".nx-menu [data-active]")?.scrollIntoView({ block: "nearest" }));
         return;
       }
-      if (count && (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey))) {
-        event.preventDefault();
-        event.stopPropagation();
-        choose(rows()[active()]);
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
+      if (act.kind === "choose") return choose(rows()[act.index]);
+      if (act.kind === "look") return lookInside(rows()[act.index]);
+      if (act.kind === "close") {
+        if (m.by === "typed") dismissed = m.typed;
         close();
         if (inFind) words()?.focus({ preventScroll: true });
         return;
       }
+      if (act.kind === "hold") return;
     }
     // escape on an empty field, with nothing of the composer's open (its model menu, its dial), goes back to the thread
     if (!m && inWords && event.key === "Escape" && !event.defaultPrevented && !root?.querySelector(".cz-menu, .cz-dial")) {
@@ -262,14 +283,20 @@ export function Field(props: FieldProps) {
 
   /* the menu arrives as the stage's menu does: a short drop and a fade on the snap spring (transform and opacity only) */
   let menuEl: HTMLDivElement | undefined;
-  createEffect(() => {
-    const m = menu();
-    if (!m || !menuEl) return;
-    untrack(() => menuEl && play(menuEl, [{ opacity: 0, transform: "translateY(-6px) scale(.985)" }, { opacity: 1, transform: "none" }], SNAP));
-  });
+  // as it opens only: a letter typed, or a walk into the finder, changes the menu without opening it again
+  createEffect(
+    on(
+      () => menu() !== null,
+      (open) => {
+        if (open && menuEl) play(menuEl, [{ opacity: 0, transform: "translateY(-6px) scale(.985)" }, { opacity: 1, transform: "none" }], SNAP);
+      },
+    ),
+  );
 
   props.onPlace?.({ host: nt.host, repos: nt.repos, lastAt: nt.lastAt });
   props.api?.({
+    retry: nt.retry,
+    edit: nt.backToDraft,
     focus: () => {
       const field = words();
       if (!field) return;
@@ -282,20 +309,20 @@ export function Field(props: FieldProps) {
     },
     pick: (host, dir) => {
       close();
-      nt.pickRepo(dir, host);
-      caretTo(words()?.value.length ?? 0);
+      if (nt.pickRepo(dir, host)) caretTo(words()?.value.length ?? 0);
     },
     empty: () => (words()?.value ?? "") === "",
   });
 
   const chosen = () => nt.directory();
+  const fresh = () => chosen() !== null && nt.where() === "fresh";
   const repoChip = (
     <button
       type="button"
       class="cz-key me cz-chip nx-tok"
       data-empty={chosen() ? undefined : ""}
       style={chosen() ? colourStyle(repoColour({ host: nt.host(), root: chosen() as string })) : undefined}
-      aria-label={chosen() ? `repo for the new thread: ${repoName(chosen() as string)}` : `pick a repo on ${nt.host() || "a machine"}`}
+      aria-label={chosen() ? `repo for the new thread: ${repoName(chosen() as string)}${fresh() ? ", in a fresh worktree" : ""}` : `pick a repo on ${nt.host() || "a machine"}`}
       aria-haspopup="listbox"
       aria-expanded={menu()?.kind === "repo" ? "true" : "false"}
       disabled={nt.making()}
@@ -306,6 +333,13 @@ export function Field(props: FieldProps) {
         {(dir) => <RepoMark host={nt.host()} root={dir()} size={20} />}
       </Show>
       <span class="nx-tok-label">{chosen() ? repoName(chosen() as string) : "pick a repo"}</span>
+      {/* the switch lives in the menu, so the chip says it is on: the next send makes a worktree */}
+      <Show when={fresh()}>
+        <span class="nx-tok-wt" aria-hidden="true">
+          <Icon name="worktree" />
+          worktree
+        </span>
+      </Show>
     </button>
   );
   const machineChip = (
@@ -346,10 +380,13 @@ export function Field(props: FieldProps) {
 
   return (
     <section class="nx-field" ref={root} aria-label="start a thread" data-menu={menu() ? "" : undefined}>
-      <Composer target={nt.target()} mount="sheet" hint="what next?" menus={false} colour={GROUND} blocked={nt.blocked()} onStarted={nt.started} lead={<>{repoChip}{machineChip}</>} />
+      <Composer target={nt.target()} mount="sheet" hint="what next?" menus={false} colour={GROUND} blocked={nt.blocked()} onStarted={(id, from) => {
+          sentFrom = from;
+          nt.started(id);
+        }} lead={<>{repoChip}{machineChip}</>} />
       <Show when={menu()}>
         <div class="nx-menu" ref={menuEl} style={colourStyle(GROUND)}>
-          <Show when={menu()?.by === "tap" && menu()?.kind === "repo"}>
+          <Show when={inFinder(menu())}>
             <label class="nx-find">
               <Icon name="search" />
               <input
@@ -363,21 +400,18 @@ export function Field(props: FieldProps) {
                 autocorrect="off"
                 spellcheck={false}
                 enterkeyhint="go"
-                onInput={(e) => {
-                  setFind(e.currentTarget.value);
-                  setActive(0);
-                }}
+                onInput={(e) => setFind(e.currentTarget.value)}
               />
             </label>
           </Show>
           <div class="nx-rows" role="listbox" aria-label={menuLabel()} onPointerDown={(e) => e.preventDefault()}>
             <For each={rows()}>
               {(row, index) => {
-                const on = () => index() === active();
+                const lit = () => index() === active();
                 const pick = () => choose(row);
                 if (row.kind === "repo")
                   return (
-                    <button type="button" role="option" class="nx-row" data-active={on() ? "" : undefined} aria-selected={on() ? "true" : "false"} aria-label={`${repoName(row.root)} on ${row.host}, ${row.root}`} style={colourStyle(repoColour({ host: row.host, root: row.root }))} onClick={pick}>
+                    <button type="button" role="option" class="nx-row" data-active={lit() ? "" : undefined} aria-selected={lit() ? "true" : "false"} aria-label={`${repoName(row.root)} on ${row.host}, ${row.root}`} style={colourStyle(repoColour({ host: row.host, root: row.root }))} onClick={pick}>
                       <RepoMark host={row.host} root={row.root} size={28} />
                       <span class="nx-row-text">
                         <b>{repoName(row.root)}</b>
@@ -385,19 +419,34 @@ export function Field(props: FieldProps) {
                       </span>
                     </button>
                   );
-                if (row.kind === "folder" || row.kind === "use")
+                if (row.kind === "folder")
                   return (
-                    <button type="button" role="option" class="nx-row" data-active={on() ? "" : undefined} aria-selected={on() ? "true" : "false"} aria-label={`start in ${row.dir}`} onClick={pick}>
-                      <span class="nx-row-icon"><Icon name={row.kind === "use" ? "check" : row.repo ? "branch" : "folder"} /></span>
+                    <div class="nx-row-pair" role="none">
+                      <button type="button" role="option" class="nx-row" data-active={lit() ? "" : undefined} aria-selected={lit() ? "true" : "false"} aria-label={`start in ${row.dir}`} onClick={pick}>
+                        <span class="nx-row-icon"><Icon name={row.repo ? "branch" : "folder"} /></span>
+                        <span class="nx-row-text">
+                          <b>{row.name}</b>
+                          <small>{row.dir}</small>
+                        </span>
+                      </button>
+                      <button type="button" class="nx-row-in" tabindex="-1" aria-label={`look inside ${row.dir}`} onClick={() => lookInside(row)}>
+                        <Icon name="chevronRight" />
+                      </button>
+                    </div>
+                  );
+                if (row.kind === "use")
+                  return (
+                    <button type="button" role="option" class="nx-row" data-active={lit() ? "" : undefined} aria-selected={lit() ? "true" : "false"} aria-label={`start in ${row.dir}`} onClick={pick}>
+                      <span class="nx-row-icon"><Icon name="check" /></span>
                       <span class="nx-row-text">
-                        <b>{row.kind === "use" ? `use ${repoName(row.dir)}` : row.name}</b>
+                        <b>{`use ${repoName(row.dir)}`}</b>
                         <small>{row.dir}</small>
                       </span>
                     </button>
                   );
                 if (row.kind === "up")
                   return (
-                    <button type="button" role="option" class="nx-row" data-active={on() ? "" : undefined} aria-selected={on() ? "true" : "false"} aria-label={`look in ${row.dir}`} onClick={pick}>
+                    <button type="button" role="option" class="nx-row" data-active={lit() ? "" : undefined} aria-selected={lit() ? "true" : "false"} aria-label={`look in ${row.dir}`} onClick={pick}>
                       <span class="nx-row-icon"><Icon name="chevronUp" /></span>
                       <span class="nx-row-text">
                         <b>up</b>
@@ -407,7 +456,7 @@ export function Field(props: FieldProps) {
                   );
                 if (row.kind === "other")
                   return (
-                    <button type="button" role="option" class="nx-row nx-row-quiet" data-active={on() ? "" : undefined} aria-selected={on() ? "true" : "false"} aria-label={`other folder on ${nt.host()}`} onClick={pick}>
+                    <button type="button" role="option" class="nx-row nx-row-quiet" data-active={lit() ? "" : undefined} aria-selected={lit() ? "true" : "false"} aria-label={`other folder on ${nt.host()}`} onClick={pick}>
                       <span class="nx-row-icon"><Icon name="folder" /></span>
                       <span class="nx-row-text">
                         <b>other folder</b>
@@ -417,7 +466,7 @@ export function Field(props: FieldProps) {
                   );
                 if (row.kind === "machine")
                   return (
-                    <button type="button" role="option" class="nx-row" data-active={on() ? "" : undefined} aria-selected={on() ? "true" : "false"} aria-label={`start on ${row.name}`} aria-current={row.name === nt.host() ? "true" : undefined} onClick={pick}>
+                    <button type="button" role="option" class="nx-row" data-active={lit() ? "" : undefined} aria-selected={lit() ? "true" : "false"} aria-label={`start on ${row.name}`} aria-current={row.name === nt.host() ? "true" : undefined} onClick={pick}>
                       <span class="nx-row-icon"><Icon name="machine" /></span>
                       <span class="nx-row-text">
                         <b>{row.name}</b>
@@ -426,7 +475,7 @@ export function Field(props: FieldProps) {
                     </button>
                   );
                 return (
-                  <button type="button" role="option" class="nx-row" data-active={on() ? "" : undefined} aria-selected={on() ? "true" : "false"} aria-label={`model for the new thread: ${modelName(row.kind === "model" ? row.id : "")}`} onClick={pick}>
+                  <button type="button" role="option" class="nx-row" data-active={lit() ? "" : undefined} aria-selected={lit() ? "true" : "false"} aria-label={`model for the new thread: ${modelName(row.kind === "model" ? row.id : "")}`} onClick={pick}>
                     <span class="nx-row-text">
                       <b>{modelName(row.kind === "model" ? row.id : "")}</b>
                       <small>{row.kind === "model" ? row.id : ""}</small>

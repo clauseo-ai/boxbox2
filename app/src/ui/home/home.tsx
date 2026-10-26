@@ -51,7 +51,7 @@ import { createCaughtUp } from "../caught-up";
 import type { EdgeMove } from "./edge";
 import { Folded, FoldToggle, WINDOWS_ID } from "./fold";
 import { strayView } from "./layers";
-import { AskSheet, AwaySheet, type Edge, edgeIfLoaded, FoldList, NextUp, settling, UndoToast, warm, warmEdge, whenLoaded } from "../later";
+import { AskSheet, AwaySheet, type Edge, edgeIfLoaded, FoldList, NextUp, RefusedLine, settling, UndoToast, warm, warmEdge, whenLoaded } from "../later";
 import type { NextApi } from "../next/next-up";
 import { broughtBack } from "../window/clearing";
 import type { AwayThread } from "../../sync/protocol";
@@ -343,20 +343,28 @@ export function Home(props: HomeProps) {
   /* home's field (ui/next, a chunk warmed as home mounts): its verbs once it has drawn, and a press that beat it waits for
      it. `cameFrom` is the thread home was reached from, which escape on the empty field goes back to */
   let next: NextApi | undefined;
-  let nextWaiting: ((api: NextApi) => void) | null = null;
+  /* every press that beat the field, in the order they came (a board's machine key is a focus and then a pick) */
+  let nextWaiting: ((api: NextApi) => void)[] = [];
   const withNext = (run: (api: NextApi) => void) => {
     if (next) run(next);
-    else nextWaiting = run;
+    else nextWaiting.push(run);
   };
   /* the field's api as a signal too, for what home draws from it (the empty deck's ghost gives way to "start in") */
   const [nextApi, setNextApi] = createSignal<NextApi>();
   const takeNext = (api: NextApi) => {
     next = api;
     setNextApi(() => api);
-    const run = nextWaiting;
-    nextWaiting = null;
-    run?.(api);
+    const waiting = nextWaiting;
+    nextWaiting = [];
+    for (const run of waiting) run(api);
   };
+  /* the waits goHome and startHere leave behind: a home that unmounts first lets them go */
+  let homeTimer: ReturnType<typeof setTimeout> | undefined;
+  let focusTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => {
+    clearTimeout(homeTimer);
+    clearTimeout(focusTimer);
+  });
   void warm("NextUp").catch(() => undefined);
   const [cameFrom, setCameFrom] = createSignal<string | null>(null);
   /* the answer sheet over home: every pending ask of one thread, from its window's tray (asks/sheet.tsx) */
@@ -612,7 +620,7 @@ export function Home(props: HomeProps) {
       api.arrive();
       api.focus();
     });
-    setTimeout(
+    homeTimer = setTimeout(
       () => {
         setLayers((list) => list.filter((l) => !leaving.includes(l)));
         for (const a of faded) a.cancel();
@@ -638,7 +646,9 @@ export function Home(props: HomeProps) {
     }
     if (!open()) return withNext((api) => api.focus());
     shrink(event ?? null);
-    setTimeout(() => withNext((api) => api.focus()), prefersReducedMotion() ? 0 : CLOSED_MS + 20);
+    // a second press while the first waits is the same request: one focus, one handle
+    clearTimeout(focusTimer);
+    focusTimer = setTimeout(() => withNext((api) => api.focus()), prefersReducedMotion() ? 0 : CLOSED_MS + 20);
   };
 
   /** the deck with a thread open: the capsule swaps the stage (the current thread shrinks away, the other grows in) */
@@ -947,7 +957,7 @@ export function Home(props: HomeProps) {
   createEffect(() => {
     const key = state.openThread;
     if (!key || key === untrack(open)) return;
-    // open() without a layer that renders leaves the windows and the dock inert on the deck and every tap dead: a
+    // open() without a layer that renders leaves the windows and home's field inert on the deck and every tap dead: a
     // thread opens only once the fleet holds it, and one it never brings (archived, another install's url) is let go
     const verdict = openVerdict(state.fleet.threads[key] !== undefined, caughtUp());
     if (verdict === "wait") return;
@@ -1227,8 +1237,8 @@ export function Home(props: HomeProps) {
 
   /* —— the board (docs/board.md, the app; the rules in board/requests.ts): a digit key opens its thread through the tap's own
      path, with the tap's motion, and puts the caret in its composer without a scroll, so the dictation the keypad types next
-     lands there; a sheet holding words keeps the screen and its caret, and the thread opens behind it. a machine key opens
-     the new-thread sheet on that machine. each request is taken once, by whichever home is up: the shell brings home up for
+     lands there; a sheet holding words keeps the screen and its caret, and the thread opens behind it. a machine key puts
+     the caret in home's field, starting on that machine. each request is taken once, by whichever home is up: the shell brings home up for
      one that comes while the app is elsewhere —— */
   let boardFrame: number | undefined;
   onCleanup(() => cancelAnimationFrame(boardFrame ?? 0));
@@ -1692,6 +1702,10 @@ export function Home(props: HomeProps) {
           time lets go of it (a newer offer merges into the same store object, so the toast stays mounted through it) */}
       <Show when={state.undo} keyed>
         {(undo) => <UndoToast undo={undo} arrangement={arrangement()} keys={arrangement() !== "deck" && fineKeys} />}
+      </Show>
+      {/* a first message refused while a thread covers the field: said over the thread, never by taking the person home */}
+      <Show when={open() !== null}>
+        <RefusedLine arrangement={arrangement()} field={withNext} home={startHere} />
       </Show>
       {/* the toast's words, announced: this region is there from the first paint, empty, and takes them as a toast shows */}
       <p class="toast-live" role="status">{toastAnnouncement(state.undo)}</p>

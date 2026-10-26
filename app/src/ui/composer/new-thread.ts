@@ -6,18 +6,32 @@
 
    the words follow the place: a draft is kept per target (`new:<host>:<directory>`), and a pick moves it to the new key
    (place.ts, `followDraft`). the composer is never keyed on the target, so a pick, a fleet beat or a refused send never
-   rebuilds the words being typed. */
+   rebuilds the words being typed.
+
+   the place picked and the send in flight live in the store (`state.newThread`, this file its one writer), so a field
+   mounted again, as an arrangement change mounts it, keeps both: the thread still opens, the making line is still said,
+   and the words are still under the place they were typed for. the send's decisions are send-life.ts, pure and tested. */
 
 import { createEffect, createMemo, createResource, createSignal, onCleanup, untrack } from "solid-js";
-import { state } from "../../store";
+import { type NewPlace, type NewSent, setNewThread, state } from "../../store";
 import { discardSend, loadDraftPhotos, retrySend, saveDraft } from "../../sync/client";
-import { type Target, targetKey } from "../../sync/outbox";
+import { type OutboxView, type Target, targetKey } from "../../sync/outbox";
 import { repoName } from "../window/repo";
 import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentRepos, restoredDraft, splitPath } from "./place";
 import { folders, projects } from "./reads";
+import { blockedWords, bornKey, makingWords as makingSaid, orphanOf, refusedOf, slowIn } from "./send-life";
 
-/** how long a send waits for its thread before it says it is taking long (it keeps waiting) */
-const SLOW_MS = 8000;
+/** refused sends remembered as given back (`state.newThread.restored`): an entry is discarded within a beat, so a handful is plenty */
+const RESTORED_CAP = 16;
+
+/* the store's slice, as this file (its one writer) moves it */
+const setNewPlace = (place: NewPlace) => setNewThread({ place });
+const setNewSent = (sent: NewSent | null) => setNewThread({ sent });
+const markRestored = (clientID: string) => {
+  const list = state.newThread.restored;
+  if (!list.includes(clientID)) setNewThread({ restored: [...list, clientID].slice(-RESTORED_CAP) });
+};
+
 /** a pause in typing a folder this long reads the folder */
 const BROWSE_PAUSE_MS = 160;
 /** the repos offered as rows while a word filters them */
@@ -25,27 +39,47 @@ const ROWS = 40;
 
 export type Place = { host: string; directory: string | null };
 
-type Sent = { clientID: string; at: number; host: string; directory: string; from: HTMLElement };
-
-export type NewThreadOptions = {
-  /** where it starts until something is picked: the place you were looking at */
-  start: () => Place | null;
-  /** the thread this send made exists: open it, from the element the send left */
-  onBorn: (key: string, from: HTMLElement) => void;
+/** what the send says to the worker and reads from the machine; a test hands in its own (new-thread.reactive.test.ts) */
+export type NewThreadIo = {
+  saveDraft: typeof saveDraft;
+  discardSend: typeof discardSend;
+  retrySend: typeof retrySend;
+  loadDraftPhotos: typeof loadDraftPhotos;
+  projects: typeof projects;
+  folders: typeof folders;
 };
 
+const IO: NewThreadIo = { saveDraft, discardSend, retrySend, loadDraftPhotos, projects, folders };
+
+export type NewThreadOptions = {
+  /** where it starts until something is picked: the place you were looking at, taken by the first field to come up */
+  start: () => Place | null;
+  /** the thread this send made exists: open it */
+  onBorn: (key: string) => void;
+  io?: NewThreadIo;
+};
+
+const NOWHERE: NewPlace = { host: "", directory: null, place: "checkout" };
+
 export function createNewThread(options: NewThreadOptions) {
-  const first = untrack(options.start);
-  const [host, setHost] = createSignal(first?.host ?? state.fleet.agentNames[0] ?? "");
-  const [directory, setDirectory] = createSignal<string | null>(first?.directory ?? null);
-  const [place, setPlace] = createSignal<"checkout" | "fresh">("checkout");
-  const [listed] = createResource(() => host() || null, projects);
+  const io = options.io ?? IO;
+  if (!state.newThread.place) {
+    const first = untrack(options.start);
+    setNewPlace({ host: first?.host ?? state.fleet.agentNames[0] ?? "", directory: first?.directory ?? null, place: "checkout" });
+  }
+  const at = (): NewPlace => state.newThread.place ?? NOWHERE;
+  const host = () => at().host;
+  const directory = () => at().directory;
+  const place = () => at().place;
+  const setPlace = (next: "checkout" | "fresh") => setNewPlace({ ...at(), place: next });
+  const moveTo = (nextHost: string, nextDir: string | null) => setNewPlace({ ...at(), host: nextHost, directory: nextDir });
+  const [listed] = createResource(() => host() || null, (h) => io.projects(h));
   const machines = () => state.fleet.agentNames;
 
   // the first machine to come, when there was none (a launch before the agents' list): nothing typed is moved by it
   createEffect(() => {
     const name = machines()[0];
-    if (!untrack(host) && name) setHost(name);
+    if (!untrack(host) && name) moveTo(name, untrack(directory));
   });
 
   /* your repos by their newest thread, then the machine's other projects by their own activity */
@@ -109,30 +143,35 @@ export function createNewThread(options: NewThreadOptions) {
         if (state.composer.drafts[from]?.held) return;
         const moved = followDraft(state.composer.drafts[from], state.composer.drafts[to], Date.now());
         if (moved.clearLeaving && moved.arriving) {
-          saveDraft(to, moved.arriving);
-          saveDraft(from, null);
+          io.saveDraft(to, moved.arriving);
+          io.saveDraft(from, null);
         }
       };
       // the draft moves with its photos, so ones still on the device are read first (they are, as its composer opens)
-      if (state.composer.drafts[from]?.held) void loadDraftPhotos(from).then(move);
+      if (state.composer.drafts[from]?.held) void io.loadDraftPhotos(from).then(move);
       else move();
     }
-    setHost(nextHost);
-    setDirectory(nextDir);
+    moveTo(nextHost, nextDir);
   };
-  const pickRepo = (dir: string, at = host()) => {
+  /* while a thread is being made its place holds: the chips are disabled, and a typed token, the list's "start in" or a
+     board key is refused the same way (false), so nothing moves the target under the send */
+  const pickRepo = (dir: string, on = host()): boolean => {
+    if (making()) return false;
     // choosing another place after a refusal is editing: the refused words come back first
     if (failed()) backToDraft();
-    const canonical = canonicalDirectory(dir, aliases(), at);
-    if (at !== host() || canonical !== chosen()) retarget(at, canonical);
+    const canonical = canonicalDirectory(dir, aliases(), on);
+    if (on !== host() || canonical !== chosen()) retarget(on, canonical);
     setQuery("");
+    return true;
   };
-  const pickMachine = (name: string) => {
-    if (name === host()) return;
+  const pickMachine = (name: string): boolean => {
+    if (making()) return false;
+    if (name === host()) return true;
     if (failed()) backToDraft();
     // the recents of the other machine are read for it; until they come, no repo is chosen and the finder says so
     retarget(name, null);
     setQuery("");
+    return true;
   };
 
   /* the finder: a word filters the repos, a typed path reads the folders inside it */
@@ -149,7 +188,7 @@ export function createNewThread(options: NewThreadOptions) {
   };
   const [browsed] = createResource(
     () => (looksLikePath(typed()) && host() ? { at: host(), ...splitPath(typed()) } : null),
-    ({ at, dir, prefix }) => folders(at, dir, prefix),
+    ({ at, dir, prefix }) => io.folders(at, dir, prefix),
   );
   createEffect(() => {
     const read = browsed();
@@ -201,94 +240,77 @@ export function createNewThread(options: NewThreadOptions) {
   const looking = () => pathMode() && !lookProblem() && (browsed.loading || typed() !== query());
 
   /* —— the send: the thread is being made, and when it exists it opens —— */
-  const [sent, setSent] = createSignal<Sent | null>(null);
+  const sent = () => state.newThread.sent;
   const [slow, setSlow] = createSignal(false);
-  let slowTimer: ReturnType<typeof setTimeout> | undefined;
   let landing = false;
-  onCleanup(() => clearTimeout(slowTimer));
-  const started = (clientID: string, from: HTMLElement) => {
+  // slow is counted from when the send went, so a field mounted again mid-send says it at the same moment
+  createEffect(() => {
+    const s = sent();
+    const left = s ? slowIn(s.at, Date.now()) : null;
+    setSlow(left === 0);
+    if (!left) return;
+    const timer = setTimeout(() => setSlow(true), left);
+    onCleanup(() => clearTimeout(timer));
+  });
+  const started = (clientID: string) => {
     landing = false;
-    setSlow(false);
-    clearTimeout(slowTimer);
-    slowTimer = setTimeout(() => setSlow(true), SLOW_MS);
-    setSent({ clientID, at: Date.now(), host: host(), directory: chosen() ?? "", from });
+    setNewSent({ clientID, at: Date.now(), host: host(), directory: chosen() ?? "" });
   };
   const entry = () => {
     const s = sent();
     return s ? state.composer.outbox.find((e) => e.clientID === s.clientID) : undefined;
   };
-  /* the new thread is the one this send made, named by the worker from the server's answer to this client id (or from its
-     echo). never a thread that merely appeared on the machine meanwhile: another phone's, a subagent's */
+  /* the new thread is the one this send made (send-life.ts, `bornKey`) */
   createEffect(() => {
-    const s = sent();
-    if (!s) return;
-    const key = state.composer.born[s.clientID];
-    if (key && state.fleet.threads[key] && !landing) {
+    const key = bornKey(sent(), state.composer.born, state.fleet.threads);
+    if (key && !landing) {
       landing = true;
-      clearTimeout(slowTimer);
       untrack(() => {
-        setSent(null);
-        options.onBorn(key, s.from);
+        setNewSent(null);
+        options.onBorn(key);
       });
     }
   });
-  const failed = () => (entry()?.state === "failed" ? entry() : undefined);
+  const failed = () => refusedOf(sent(), state.composer.outbox);
   const retry = () => {
     const s = sent();
-    if (s) retrySend(s.clientID);
+    if (s && failed()) io.retrySend(s.clientID);
   };
   /* a first message that did not start goes back where it was written, and its outbox entry goes: left there it would be
      in indexeddb for good, counted against the outbox's cap, and shown nowhere */
-  const handled = new Set<string>();
   const restore = (refused: { clientID: string; text: string; model: string | null; effort: string | null; target: Target }) => {
-    if (handled.has(refused.clientID)) return;
-    handled.add(refused.clientID);
-    const at = targetKey(refused.target);
-    saveDraft(at, restoredDraft(state.composer.drafts[at], refused, Date.now()));
+    if (state.newThread.restored.includes(refused.clientID)) return;
+    markRestored(refused.clientID);
+    const key = targetKey(refused.target);
+    io.saveDraft(key, restoredDraft(state.composer.drafts[key], refused, Date.now()));
     // the photos it held follow its words back into the draft
-    discardSend(refused.clientID, true);
+    io.discardSend(refused.clientID, true);
+  };
+  /* the words go back to the place they were written for, and the field goes there too when nothing is typed where it is */
+  const takeBack = (refused: OutboxView) => {
+    const target = refused.target;
+    if (target.kind === "new" && !isDrafted(state.composer.drafts[draftKey()]) && (target.host !== host() || target.directory !== chosen())) moveTo(target.host, target.directory);
+    restore(refused);
   };
   const backToDraft = () => {
     const e = failed();
     if (!e) return;
-    restore(e);
-    setSent(null);
-    clearTimeout(slowTimer);
+    takeBack(e);
+    setNewSent(null);
   };
   /* a send that failed after its field had let go of it (a reload, another tab) is still in the outbox: the field that
-     comes up next puts its words back, and goes to its place if nothing is typed here */
+     comes up next takes it back the same way */
   createEffect(() => {
-    const orphan = state.composer.outbox.find((e) => e.verb === "start" && e.state === "failed" && e.clientID !== sent()?.clientID && !handled.has(e.clientID));
-    if (!orphan) return;
-    untrack(() => {
-      if (orphan.target.kind !== "new") return;
-      const here = state.composer.drafts[draftKey()];
-      if (!isDrafted(here) && (orphan.target.host !== host() || orphan.target.directory !== chosen())) {
-        setHost(orphan.target.host);
-        setDirectory(orphan.target.directory);
-      }
-      restore(orphan);
-    });
+    const orphan = orphanOf(state.composer.outbox, sent()?.clientID ?? null, state.newThread.restored);
+    if (orphan) untrack(() => takeBack(orphan));
   });
   const waitingOnDevice = () => entry()?.state === "waiting";
-  const makingWords = () => {
-    const s = sent();
-    const repo = repoName(s?.directory ?? chosen() ?? "");
-    if (waitingOnDevice()) return "the connection is down. the thread starts on its own when it is back.";
-    if (slow()) return `still making the thread in ${repo}. the machine is slow to answer; it opens when it is there.`;
-    return `making the thread in ${repo} on ${s?.host ?? host()}.`;
-  };
+  const makingWords = () => makingSaid({ sent: sent(), host: host(), directory: chosen(), waiting: waitingOnDevice(), slow: slow() });
   /** a send in flight that has not been refused: one thread is made at a time */
   const making = () => sent() !== null && !failed();
 
   /** why a send cannot go yet; the words are kept whatever it says */
-  const blocked = () => {
-    if (failed()) return "retry or edit the message below first.";
-    // one thread is made at a time: words typed meanwhile wait for the first to open
-    if (making()) return isDrafted(state.composer.drafts[draftKey()]) ? "one thread at a time. this one can start once the first is open." : undefined;
-    if (!host()) return "no machine is connected yet. add one from agents.";
-    return chosen() ? undefined : `pick a repo or a folder on ${host()} to start in`;
-  };
+  const blocked = () => blockedWords({ refused: failed() !== undefined, making: making(), drafted: isDrafted(state.composer.drafts[draftKey()]), host: host(), directory: chosen() });
 
   return {
     host,

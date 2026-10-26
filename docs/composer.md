@@ -12,8 +12,11 @@ starting a thread, input, the motion law) and is binding the same way
 |---|---|
 | `app/src/ui/composer/composer.tsx` | the component: a target, a mount, the window, the line, the queue's verbs, the menus, the full stage |
 | `app/src/ui/composer/queue.tsx` | the queue's strip above the window (one message, "+N", the edges behind, swipe and long press) and the list of every message with its verbs that a tap on it opens |
-| `app/src/ui/composer/new-thread.ts` | starting a thread without its drawing (`createNewThread`, the new-thread sheet's whole state moved out when the sheet became home's field, decision 103): the machine, repos by recency, the folder finder for any other folder, checkout or fresh worktree, the progress and the failure of the first send, the hand-over to the open thread |
+| `app/src/ui/composer/new-thread.ts` | starting a thread without its drawing (`createNewThread`, the new-thread sheet's whole state moved out when the sheet became home's field, decision 103): the machine, repos by recency, the folder finder for any other folder, checkout or fresh worktree, the progress and the failure of the first send, the hand-over to the open thread. the place picked and the send in flight are in the store (`state.newThread`, this file its one writer), so a field mounted again keeps them; the worker and the machine come through `NewThreadIo`, so a test stands in for them (`new-thread.reactive.test.ts`) |
+| `app/src/ui/composer/send-life.ts` | the first send's decisions as pure rules (tested): the thread born of its client id, its refusal, a refused send nobody holds, why another cannot go yet, the making words and when it is slow |
 | `app/src/ui/next/field.tsx` | home's field, the one surface that draws `new-thread.ts`: the composer with the place chips leading its top row, the token menu, the refusal and the making line (`home.md`, `design.md`, home: what next) |
+| `app/src/ui/next/keys.ts` | the keys over the field's menu as pure rules (tested): what is highlighted as a menu opens, what return, tab, the arrows, the right arrow and escape do, and keys while an input method composes |
+| `app/src/ui/next/refused-line.tsx` | a first message refused while a thread covers the field, said over the thread with retry and edit (a `later.ts` chunk, `RefusedLine`) |
 | `app/src/ui/composer/model-menu.tsx`, `models.ts` | the model menu (favorites, the whole list by provider, search, the keys) and its rules as pure functions (tested) |
 | `app/src/ui/composer/dial.tsx`, `thumbed.tsx`, `effort.ts` | the effort meter and the dial on the sliding-thumb control, and the ladder rules (tested) |
 | `app/src/ui/composer/marks.ts`, `marks-data.ts`, `marks-sprite.ts`, `mark.tsx` | which provider is which mark (in the script); the marks as data (not in it: the build writes them into `index.html` as an inline svg sprite, so they are in the document when it is parsed and a mark is drawn in the first frame, with no fetch and no pop-in; the script budget was the reason); and the tile that draws one with `<use>` (`THIRD_PARTY.md`) |
@@ -164,7 +167,7 @@ decision 103):
 | mount | where | what changes |
 |---|---|---|
 | **bar** | the stage's dock slot under a thread (`stage.tsx`, `.stage-dock[data-slot=composer]`) | the top row (the line, the model chip, the effort chip), then the words: on one line between the plus key and send, from a second line the window's full width with the plus and send on a row of their own under them (the layout, below); the queue's strip lives above it |
-| **sheet** | home's field (`ui/next/field.tsx`): the stage at strip and rail with no thread chosen, under the bar on the deck. `⌘n` (also plain `n` when not typing; control-n is left alone, it is the emacs next-line in every text field on a mac), the new thread pill, the folded rail's plus disc and a board machine key put the caret in it | the field passes `lead` (the repo and machine chips lead the top row, before the model and effort), `hint` ("what next?" in place of the mount's placeholder) and `menus={false}` (no `/`, `@` or `!` menu of the composer's own: the field reads those letters as tokens, decision 104); the fresh worktree switch is at the foot of the repo menu; sending shows the thread being made under the field, and when it exists the stage opens on it |
+| **sheet** | home's field (`ui/next/field.tsx`): the stage at strip and rail with no thread chosen, under the bar on the deck. `⌘n` (also plain `n` when not typing; control-n is left alone, it is the emacs next-line in every text field on a mac), the new thread pill, the folded rail's plus disc and a board machine key put the caret in it | the field passes `lead` (the repo and machine chips lead the top row, before the model and effort), `hint` ("what next?" in place of the mount's placeholder) and `menus={false}` (no `/`, `@` or `!` menu of the composer's own: the field reads those letters as tokens, decision 104); the fresh worktree switch is at the foot of the repo menu, and the repo chip says "worktree" while it is on; sending shows the thread being made under the field, and when it exists the stage opens on it |
 | **full stage** | the expand control once a draft passes six lines | the draft becomes the page, with the top row at its head, back returns to the bar with the caret where it was |
 
 the composer never reads viewport geometry itself: the stage owns the
@@ -369,19 +372,39 @@ new-thread route makes one before the session when asked.
   it. a chip opens its menu under the field, over the list; the repo
   menu's head is the finder ("find a repo, or type a path"), its rows the
   repos (and, for a word, the same repo on your other machines, with its
-  host), the folders of a typed path with "up" and "use <folder>", then
+  host), the folders of a typed path with "up" and "use <folder>", each
+  folder's row beside its "look inside" (a chevron, named "look inside
+  <path>"; the right arrow at the end of the finder does the same), then
   "other folder", and its foot "a fresh worktree" as one switch
   (`role="switch"`) with one line saying what the choice means, or why
-  this folder cannot have one. a pick closes the menu onto the words,
-  the caret in them. typed, `@`, `on ` and `/` open the same menus at the
-  caret (`ui/next/tokens.ts`), and a pick takes the token's letters out
-  of the words. the menu says "looking." while a folder is read, the
+  this folder cannot have one. while the switch is on the repo chip says
+  "worktree" beside the repo's name, its name ending ", in a fresh
+  worktree", since the switch is out of sight once the menu closes. a
+  pick closes the menu onto the words, the caret in them. typed, `@`,
+  `on ` and `/` open the same menus at the caret (`ui/next/tokens.ts`),
+  and a pick takes the token's letters out of the words. the keys are
+  `ui/next/keys.ts`: a typed menu has no row highlighted until the arrows
+  move, unless the typed word names a row exactly (a repo's name, a
+  machine's name, a model's name or id; never a path, which prose is full
+  of), so return with nothing highlighted sends the words as typed ("cc
+  @alice" stays "cc @alice") and tab does what tab does. a menu opened by
+  a tap highlights its first row, since it was opened on purpose; "other
+  folder" is never highlighted by itself. walking folders ("other
+  folder", "up", "look inside") happens in the menu's own finder: a typed
+  menu moves into it, the token left in the words as typed until a pick
+  takes it out, so a path with a space in it never spills into the
+  words. escape closes a typed menu and the same token, unchanged, does
+  not open it again. keys pressed while an input method composes are the
+  composition's (`isComposing`, or key code 229). while a thread is being
+  made a token opens nothing and a pick from the list or a board key is
+  refused, as the chips are disabled. the menu says "looking." while a folder is read, the
   read's own words when it failed, and "nothing has run on <host> yet.
   type a folder to start in, like ~/code." when the machine has answered
   with no repos. its stories, which replaced the sheet's and the dock's:
   `composer--home-field`, `-nowhere`, `-two-machines`, `-finder`,
   `-folders`, `-typed-repo`, `-typed-model`, `-typed-machine`,
-  `-starting`, `-failed`, `-fresh`, `-model` and `-effort`.
+  `-starting`, `-failed`, `-fresh`, `-model` and `-effort`; a refusal said
+  over the thread is `home--home-next-refused-over-thread`.
   **superseded by decision 103, kept for its reasons:**
   the sheet read at a glance (the native app's newthread, ported
   2026-10-16): the title and the stage bar's round of liquid glass to close
@@ -464,9 +487,10 @@ new-thread route makes one before the session when asked.
   finder: a field that filters the repos by name or
   path, or, when the text starts with `/` or `~`, lists the folders inside
   that path (`GET /api/hosts/{host}/folders`, which boxbox serves from
-  cmx2's `/global/fs`), with a row to go up, a row to look inside, a row
-  marked repo for a git folder, and "use <path>" for the typed path as is
-  (return takes it). switching the machine or the repo moves the draft to
+  cmx2's `/global/fs`), with a row to go up, a row to look inside each
+  folder, a row marked repo for a git folder, and "use <path>" for the
+  typed path as is (in the finder it is the first row, so return takes
+  it; typed in the words it waits for the arrows, like every row). switching the machine or the repo moves the draft to
   the new target's key, so words typed are not lost to a pick. that holds
   for every pick that changes the target: a recent repo, a folder from the
   finder, a machine, and the repo the field takes by itself once a machine's
@@ -509,9 +533,20 @@ new-thread route makes one before the session when asked.
   "the connection is down. the thread starts on its own when it is
   back.", and on a refusal it says "the thread did not start: <why>"
   with retry (one send, the same client id) and edit (the words go back to
-  the draft). the chips are disabled while a thread is being made, and one
-  thread is made at a time: words typed meanwhile wait, and a send says
-  "one thread at a time. this one can start once the first is open.".
+  the draft). the chips are disabled while a thread is being made, a
+  typed token opens nothing, and one thread is made at a time: words
+  typed meanwhile wait, and a send says "one thread at a time. this one
+  can start once the first is open.". the send in flight and the place
+  it went to are in the store (`state.newThread`), never only in the
+  field: an arrangement change that mounts the field again used to drop
+  them, so the thread was made and never opened. a refusal that comes
+  while a thread covers the field (hidden and `inert` under it) is said
+  over the thread where the undo toast sits (`ui/next/refused-line.tsx`,
+  `role="alert"`, above the toast when both are up), with "retry"
+  (named "retry starting the thread in <repo>") and "edit" ("edit the
+  message for <repo> in home's field"), which goes home to the field
+  with the words back. home does not move the person by itself: the
+  person chose the thread they are in.
   when the thread exists the stage opens on it out of the field's window,
   as a tap on a window does (`onBorn` to home's `openBorn`; if a
   transition refuses the grow the thread opens in place). the field
@@ -527,7 +562,8 @@ new-thread route makes one before the session when asked.
   `aria-description`; a tap on the dock, the new thread pill or `⌘n` brought
   the same sheet back as it opened, and a refusal brought it back by itself
   with the words, retry and edit. the thread grew from the dock while the
-  sheet was away.
+  sheet was away. (the field at first said a refusal only under itself,
+  where it went unseen while a thread covered it: the refused line.)
   **which thread it opens is the one this send made, and only that one.**
   the worker says `born {clientID, key}` once, from the server's answer to
   that client id (or from the echo, when the answer was missed); the field

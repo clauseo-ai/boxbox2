@@ -10,7 +10,7 @@ import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { api } from "../../../api/client";
 import { installMotionProperties } from "../../../motion/animate";
-import { bootSync, DEFAULT_HOME, setCompaction, setModels, setOutbox, setPrefs, state } from "../../../store";
+import { bootSync, DEFAULT_HOME, setCompaction, setModels, setNewThread, setOutbox, setPrefs, state } from "../../../store";
 import type { StreamStatus } from "../../../sync/messages";
 import type { Draft, OutboxView } from "../../../sync/outbox";
 import { EMPTY_FLEET } from "../../../sync/reducer";
@@ -441,6 +441,8 @@ function mountHome(el: HTMLElement, story: HomeStory, restore: () => void): () =
   if (hosts) bootSync({ fleet: { ...EMPTY_FLEET, threads: { [KEY]: IDLE }, order: [KEY], agentNames: [HOST, OTHER], asks: {} }, threads: {}, stream: LIVE, drafts: {}, outbox: [] });
   const starts = story === "field-failed" || story === "field-starting";
   const nowhere = story === "field-nowhere";
+  // the place and the send live in the store for the page: each story's field takes its own place, with nothing sent
+  setNewThread({ place: null, sent: null, restored: [] });
   const dispose = render(
     () => (
       <div class="nx-story" data-ready>

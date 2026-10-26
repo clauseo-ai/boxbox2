@@ -137,7 +137,7 @@ export type State = {
     drafts: Record<string, Draft>;
     /** sends the daemon has not echoed yet, oldest first */
     outbox: OutboxView[];
-    /** a new thread's session key by the client id of its first send: what a sheet waiting for its thread reads */
+    /** a new thread's session key by the client id of its first send: what home's field, waiting for its thread, reads */
     born: Record<string, string>;
     /** a thread's compaction, by session key: running (the daemon answers once the summary is in, which can take a
         while, so the composer says so even after the stage was left and came back), refused, or just done */
@@ -158,6 +158,26 @@ export type State = {
   undo: Undo | null;
   /** the clears waiting for the toast on screen to end (an auto-clear behind a hand clear's toast; home/undo.ts, `offered`) */
   undoNext: Undo[];
+  /** home's field's new thread (composer/new-thread.ts, its one writer): where it starts once taken or picked, the send in
+      flight until its thread opens or its refusal is handled, and the refused sends already given back. here and not in
+      the field, so a field mounted again (an arrangement change) keeps them. this page's ui alone, never kept: after a
+      reload a refused send is taken back from the outbox (the orphan rule), and the place is taken again */
+  newThread: NewThread;
+};
+
+/** where home's field starts a thread, as picked: a machine, a folder on it (none yet: null), its checkout or a fresh worktree */
+export type NewPlace = { host: string; directory: string | null; place: "checkout" | "fresh" };
+
+/** a first message on its way: its client id (what `born` and the outbox name it by), when it went, and where to */
+export type NewSent = { clientID: string; at: number; host: string; directory: string };
+
+export type NewThread = {
+  /** null until the first field comes up and takes the place you were looking at */
+  place: NewPlace | null;
+  sent: NewSent | null;
+  /** the client ids of refused sends whose words went back, newest last, at most 16 (new-thread.ts): their outbox
+      entries go at the worker's pace, and one is never given back twice meanwhile */
+  restored: string[];
 };
 
 /** one repo, by host and root, shown in one of the ten by name */
@@ -205,6 +225,7 @@ const [state, setState] = createStore<State>({
   colourPreview: null,
   undo: null,
   undoNext: [],
+  newThread: { place: null, sent: null, restored: [] },
 });
 
 export { state };
@@ -319,6 +340,13 @@ export function setDraft(key: string, draft: Draft | null): void {
   );
 }
 
+/* —— home's field's new thread (composer/new-thread.ts writes it; its rules live there, so the first load carries none) —— */
+
+/** sets parts of the slice; each part is set whole (a place, a send, the list), never merged into the one before */
+export function setNewThread(patch: Partial<NewThread>): void {
+  setState("newThread", (was) => ({ ...was, ...patch }));
+}
+
 /** applies one frame's patches: each sets a value at a path (undefined deletes it), or adds words to the text there */
 /* one beat per applied batch that wrote any fleet thread (or the fleet whole): what a reader that wants "the fleet moved"
    reads, in place of walking every thread to be woken by each (home's streaming label) */
@@ -378,7 +406,7 @@ export function setOpenThread(key: string | null): void {
 
 export function syncSignedOut(): void {
   threadCaches.clear();
-  setState({ gate: "signed-out", fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null, undo: null, undoNext: [] });
+  setState({ gate: "signed-out", fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null, undo: null, undoNext: [], newThread: { place: null, sent: null, restored: [] } });
   boardGone();
 }
 

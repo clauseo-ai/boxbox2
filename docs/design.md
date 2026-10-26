@@ -836,26 +836,44 @@ below (the sheet and the dock), the dock wherever this law names it, and
   slow line after 8 s, a refusal said plainly under the field with the
   words given back and retry and edit, and one thread made at a time
   ("one thread at a time. this one can start once the first is open.").
-  when the thread exists the stage opens on it out of the field's window,
-  as a tap opens a window.
+  a refusal that comes while a thread covers the field is said over the
+  thread, where the undo toast sits (`ui/next/refused-line.tsx`,
+  `role="alert"`): retry, and edit, which goes home to the field with the
+  words back; home never moves the person by itself. the place picked
+  and the send in flight live in the store (`state.newThread`), so the
+  field mounted again keeps both. when the thread exists the stage opens
+  on it out of the field's window, as a tap opens a window.
 - **tokens.** the place is typed into the sentence and read at the caret:
   `@` at a word's start is a repo (a word filters the machine's repos, a
   path walks its folders; a repo of that name on another machine you have
   threads on is offered with its host, and a pick moves both), `on `
   followed by the start of a machine's name is a machine (only with two
-  machines or more, never for `on ` alone), and `/` at a word's start with
-  no second slash is a model (a path in the prose is not one). a token
-  opens its menu as it is typed and resolves only when picked (return,
-  tab or a tap), never on a guess; a pick takes its letters out of the
-  words and becomes the chip. a token never picked stays words. the
-  composer's own `/`, `@` and `!` menus are off in the field.
+  machines or more, never for `on ` alone, never for letters inside a
+  name: "focus on a" stays words beside a machine called vm-a), and `/`
+  at a word's start with no second slash is a model (a path in the prose
+  is not one). a token opens its menu as it is typed and resolves only
+  when picked (return, tab or a tap), never on a guess: a typed menu has
+  no row highlighted until the arrows move, unless the word names a row
+  exactly (a repo's name, a machine's name, a model's name or id), so
+  return on "cc @alice" sends "cc @alice" and tab does what tab does. a
+  pick takes its letters out of the words and becomes the chip. a token
+  never picked stays words, and while a thread is being made a token
+  opens nothing, as the chips are disabled. keys while an input method
+  composes are the composition's. the composer's own `/`, `@` and `!`
+  menus are off in the field.
 - **every token is a tap away.** the repo chip opens the same menu with a
   finder ("find a repo, or type a path"), "other folder" for any folder by
   its path, and at the menu's foot the fresh worktree switch ("a fresh
   worktree", disabled with its reason on a folder that is not a git repo);
-  the machine chip lists the machines; the model and effort are the
-  composer's own chips. arrows walk a menu, return or tab picks, escape
-  closes it and keeps the words, and a press outside closes it.
+  while it is on, the repo chip says "worktree" beside the repo's name.
+  a folder's row picks it, and its chevron, "look inside", walks into it;
+  the walk ("other folder", "up", "look inside") is in the menu's own
+  finder, a typed menu moving into it too, so a path never enters the
+  words. the machine chip lists the machines; the model and effort are
+  the composer's own chips. a menu opened by a tap highlights its first
+  row (never "other folder"); arrows walk a menu, return or tab picks the
+  highlighted row, escape closes it and keeps the words, and a press
+  outside closes it.
 - **what next** (the list, at strip and rail). under the field, in the
   server's order and never ranked here: "waiting on you", the threads that
   want you, stopped, or finished unseen, each a row with its verb (answer
@@ -932,7 +950,8 @@ below (the sheet and the dock), the dock wherever this law names it, and
   connection is down waits in the outbox and the field says "the
   connection is down. the thread starts on its own when it is back.", and
   the list renders what was last read. a read that fails is said in the
-  menu in its own words; a refusal is said under the field.
+  menu in its own words; a refusal is said under the field, or over the
+  thread that covers it.
 - **its cost.** the field and the list are a chunk of their own
   (`ui/later.ts`, `NextUp`), warmed the moment home mounts; their styles
   (`ui/next/next.css`) are in the first load, so the chunk's arrival never

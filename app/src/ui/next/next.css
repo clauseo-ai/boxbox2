@@ -743,3 +743,106 @@
     transition: none;
   }
 }
+
+/* —— the send path's own elements (field.tsx, refused-line.tsx): kept together at the end —— */
+
+/* a folder's row and its "look inside" beside it: the row picks the folder, the chevron walks into it in the finder */
+.nx-row-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px;
+}
+
+.nx-row-in {
+  all: unset;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.nx-row-in .cz-i {
+  width: 16px;
+  height: 16px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .nx-row-in:hover {
+    background: var(--hover);
+  }
+}
+
+.nx-row-in:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* the repo chip says a fresh worktree is on: the switch is in the menu, and the next send makes one */
+.nx-tok-wt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cz-dim);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.nx-tok .nx-tok-wt .cz-i {
+  width: 14px;
+  height: 14px;
+}
+
+/* a refusal said over a thread, where the undo toast sits (settle.css), and above it when both are up */
+.nx-refused-line {
+  position: fixed;
+  z-index: 60;
+  box-sizing: border-box;
+  width: min(420px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 22px;
+  background: var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-filter);
+  backdrop-filter: var(--lg-filter);
+  box-shadow: var(--lg-rim), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 55%, transparent);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.nx-refused-line p {
+  margin: 0;
+}
+
+.nx-refused-line[data-arrangement="deck"] {
+  left: 50%;
+  translate: -50% 0;
+  bottom: calc(max(env(safe-area-inset-bottom, 0px), 0px) + 16px);
+}
+
+.nx-refused-line[data-arrangement="strip"] {
+  left: 50%;
+  translate: -50% 0;
+  bottom: 24px;
+}
+
+.nx-refused-line[data-arrangement="rail"] {
+  left: 18px;
+  bottom: 22px;
+  width: 286px;
+}
+
+.undo-toast ~ .nx-refused-line[data-arrangement="deck"] {
+  bottom: calc(max(env(safe-area-inset-bottom, 0px), 0px) + 76px);
+}
+
+.undo-toast ~ .nx-refused-line[data-arrangement="strip"] {
+  bottom: 88px;
+}
+
+.undo-toast ~ .nx-refused-line[data-arrangement="rail"] {
+  bottom: 92px;
+}
