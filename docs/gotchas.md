@@ -1917,7 +1917,8 @@ thread's details and turns panel (`thread/panel.tsx`, `DetailsPanel` in ui/later
 rail paints it into its fixed column the moment it is in, with nothing moving. the last settle commit (the deck's toast in
 the page dots' row) read 119.1 kb with no first-load code changed: renamed chunk files compress a little differently. the
 review fixes after it (the undo offers' rules in `home/offers.ts`, home's live region for the toast, the home prefs read
-field by field, the toast mounted keyed) read 119.6 kb: 0.4 kb of headroom left. measure the base before blaming a branch: build the commit it started
+field by field, the toast mounted keyed) read 119.6 kb, and the focus fix after them (`home/focus-back.ts` in home for the
+away line's dismiss) 119.7 kb: 0.3 kb of headroom left. measure the base before blaming a branch: build the commit it started
 from too.
 
 ## a row result is not a quiet button
