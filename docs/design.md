@@ -865,7 +865,10 @@ below (the sheet and the dock), the dock wherever this law names it, and
   finder ("find a repo, or type a path"), "other folder" for any folder by
   its path, and at the menu's foot the fresh worktree switch ("a fresh
   worktree", disabled with its reason on a folder that is not a git repo);
-  while it is on, the repo chip says "worktree" beside the repo's name.
+  while it is on, the repo chip says "worktree" beside the repo's name
+  (on a phone its glyph alone; the chip's name still says it). a chip is
+  never cut: chips that do not fit one row (a phone with two machines)
+  wrap to a second, and a long repo name ends in an ellipsis.
   a folder's row picks it, and its chevron, "look inside", walks into it;
   the walk ("other folder", "up", "look inside") is in the menu's own
   finder, a typed menu moving into it too, so a path never enters the

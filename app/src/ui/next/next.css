@@ -798,6 +798,32 @@
   height: 14px;
 }
 
+/* a phone's top row has room for the glyph and not the word: the chip's name still says it, and the menu's switch */
+@media (max-width: 699px) {
+  .nx-tok-wt-word {
+    display: none;
+  }
+}
+
+/* the top row never runs past the field and never cuts a chip: chips that do not fit one row (a phone with two machines)
+   wrap to a second, on the composer's 6 px gap; a long repo name ends in an ellipsis */
+.nx-field .composer[data-mount="sheet"] .cz-top {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  height: auto;
+  min-height: 48px;
+  padding: 6px 0;
+  box-sizing: border-box;
+}
+
+.nx-field .cz-top > * {
+  flex-shrink: 0;
+}
+
+.nx-field .cz-top .nx-tok-label {
+  max-width: 160px;
+}
+
 /* a refusal said over a thread, where the undo toast sits (settle.css), and above it when both are up */
 .nx-refused-line {
   position: fixed;

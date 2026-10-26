@@ -337,7 +337,7 @@ export function Field(props: FieldProps) {
       <Show when={fresh()}>
         <span class="nx-tok-wt" aria-hidden="true">
           <Icon name="worktree" />
-          worktree
+          <span class="nx-tok-wt-word">worktree</span>
         </span>
       </Show>
     </button>
