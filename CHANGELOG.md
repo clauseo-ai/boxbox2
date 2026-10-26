@@ -32,7 +32,8 @@ workflow publishes the section whose heading matches the version in
 - **settings has a "home" group** with the three: clear finished windows,
   fold working windows, job notices count as needs (`GET /api/prefs`
   gains `home`, `PUT /api/prefs/home`). the thread's details panel now
-  loads as a chunk to keep the first load at 118.9 kb (decision 100).
+  loads as a chunk to keep the first load under its budget, at 119.1 kb
+  (decision 100).
 
 - **see the script a run ran.** a script row (cmx2's `run`) opened to
   nothing; a press now opens it to the script itself, highlighted as
