@@ -149,7 +149,7 @@ const INERT = `(() => {
   const home = document.querySelector(".home[data-arrangement=deck]");
   if (!home) return "";
   const covered = document.querySelector(".stage .layer, .asks-sheet, .hsheet") !== null;
-  const inert = [...home.querySelectorAll(".bar, .wins, .nx-deck")].some((el) => el.inert);
+  const inert = [...home.querySelectorAll(".bar, .wins, .nx-room")].some((el) => el.inert);
   return inert && !covered ? "the deck is inert and no thread is on the stage" : "";
 })()`;
 

@@ -22,7 +22,6 @@ const views: Record<string, WindowView> = { "a:1": done, "a:2": seen, "a:3": fai
 const input = (over: Partial<NextInput> = {}): NextInput => ({
   order: ["a:5", "a:3", "a:1", "a:2", "a:4"],
   viewOf: (key) => views[key] ?? null,
-  fold: { working: 0, waiting: 0 },
   host: "mini",
   repos: ["/code/boxbox", "/code/ledger", "/code/site", "/code/notes", "/code/dotfiles"],
   lastAt: (_host, root) => (root === "/code/boxbox" ? 1_000 : null),
@@ -56,9 +55,8 @@ describe("the threads that need you", () => {
 });
 
 describe("the working fold", () => {
-  test("is one row when anything is in it, and none when nothing is", () => {
-    expect(nextUp(input()).fold).toBeNull();
-    expect(nextUp(input({ fold: { working: 3, waiting: 1 } })).fold).toEqual({ working: 3, waiting: 1 });
+  test("is not a row: its capsule says it, and only there", () => {
+    expect(Object.keys(nextUp(input()))).toEqual(["needs", "repos"]);
   });
 });
 
@@ -68,6 +66,12 @@ describe("the repos to start in", () => {
     expect(repos.map((row) => row.repo)).toEqual(["boxbox", "ledger", "site"]);
     expect(repos[0]).toMatchObject({ host: "mini", root: "/code/boxbox", detail: "mini · 2 hours ago", name: "start in boxbox on mini" });
     expect(repos[1]?.detail).toBe("mini");
+  });
+
+  test("two folders of one name on a machine are told apart by their path", () => {
+    const repos = nextUp(input({ repos: ["/code/site", "/fork/site", "/code/ledger"] })).repos;
+    expect(repos.map((row) => row.name)).toEqual(["start in site on mini, /code/site", "start in site on mini, /fork/site", "start in ledger on mini"]);
+    expect(repos[1]?.detail).toBe("/fork/site");
   });
 
   test("no room is no repos", () => {

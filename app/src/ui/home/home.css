@@ -206,7 +206,8 @@
   flex: 1 1 60%;
 }
 
-.home .sum:empty {
+.home .sum:empty,
+.home .sum[data-echo] {
   display: none;
 }
 
@@ -532,7 +533,8 @@
    the 1 px rim a box on it (`.rim`, inside the card, above the thread). a fold moves the card's edge, and the shadow follows it
    by scale and the rim by a cap and a clip (edge.ts) */
 .home[data-arrangement="strip"] .stage,
-.home[data-arrangement="strip"] .lift {
+.home[data-arrangement="strip"] .lift,
+.home[data-arrangement="strip"] .nx-room {
   grid-column: 1;
   grid-row: 3;
   margin: 0 14px 14px;
@@ -540,7 +542,8 @@
 }
 
 .home[data-arrangement="rail"] .stage,
-.home[data-arrangement="rail"] .lift {
+.home[data-arrangement="rail"] .lift,
+.home[data-arrangement="rail"] .nx-room {
   grid-column: 1 / -1;
   grid-row: 1 / span 2;
   margin: 14px var(--stage-right) 14px var(--stage-left);
@@ -550,13 +553,15 @@
 /* folded, the strip's card takes the room of the open bar and the row: it spans the grid from under the folded bar, and the
    open bar and windows stay laid out beneath it, so a fold only ever covers and uncovers them (edge.ts, the top edge) */
 .home[data-arrangement="strip"][data-strip="folded"] .stage,
-.home[data-arrangement="strip"][data-strip="folded"] .lift {
+.home[data-arrangement="strip"][data-strip="folded"] .lift,
+.home[data-arrangement="strip"][data-strip="folded"] .nx-room {
   grid-row: 1 / -1;
   margin-top: var(--strip-bar);
 }
 
 .home[data-arrangement="strip"][data-windows="hidden"] .stage,
-.home[data-arrangement="strip"][data-windows="hidden"] .lift {
+.home[data-arrangement="strip"][data-windows="hidden"] .lift,
+.home[data-arrangement="strip"][data-windows="hidden"] .nx-room {
   grid-row: 1 / -1;
   margin-top: 14px;
 }
@@ -589,6 +594,11 @@
    empty outline on the ground */
 .home:not(:has(.stage .layer)) :is(.lift, .rim, .rim-cap) {
   visibility: hidden;
+}
+
+/* with no thread on it the card is home's room (ui/next, .nx-room, under it): presses go through to the field and its list */
+.home:is([data-arrangement="strip"], [data-arrangement="rail"]) .stage:not(:has(.layer)) {
+  pointer-events: none;
 }
 
 .home .rim {
@@ -659,6 +669,14 @@
 
 .home[data-arrangement="rail"] .layer {
   --measure: 680px;
+}
+
+/* a portrait monitor is a strip too, and a wide one: its measure is the law's 720 (design.md, the layout table), the
+   tablet's 640 being for a strip under 1200 px wide */
+@media (min-width: 1200px) {
+  .home[data-arrangement="strip"] .layer {
+    --measure: 720px;
+  }
 }
 
 /* the window's own gradient over the stage, clear at rest: the deck's card is the colour of the window it grows out of, and of the one

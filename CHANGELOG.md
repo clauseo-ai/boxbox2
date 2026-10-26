@@ -8,14 +8,19 @@ workflow publishes the section whose heading matches the version in
 
 - **home, what next.** at the strip and the rail, with no thread chosen,
   the stage is home: one field to start a thread, and under it the threads
-  that want you, stopped or finished unseen in the server's order, the
-  working fold as one row, and the repos to start in (in the inspector's
-  column at the rail 1400 and up). the stage no longer pours the first
-  window by itself. on the deck the field sits under the bar, above the
-  windows. "what next?" in every thread's bar at strip and rail, or `esc`,
-  steps the thread back to home; `esc` on the empty field goes back to
-  it. home has no flood: the field stands on a neutral ground and a repo's
-  colour is only in its chip (decisions 102, 105 to 109).
+  that want you, stopped or finished unseen in the server's order, and
+  the repos to start in, one column centred in the stage at every size and
+  standing two fifths of its spare height down. the working fold stays its
+  capsule alone, and the bar's line is not drawn when it would only repeat
+  it. the stage no longer pours the first window by itself. on the deck
+  the field sits under the bar, above the windows, with "start in" under
+  it when no window shows. "what next?" in every thread's bar at strip and
+  rail, or `esc`, pours the thread back into its window and uncovers home;
+  `esc` on the empty field goes back to it. home has no flood: the field
+  stands on a neutral ground and a repo's colour is only in its chip; a
+  new thread's effort chip says "default" (decisions 102, 105 to 109). a
+  strip 1200 px wide or more (a portrait monitor) now takes the layout
+  table's 720 px measure, threads included; it was 640.
 - **the new-thread sheet and the dock become the field.** every way to
   start (⌘n, n, the new thread pill, the folded rail's plus disc, a board
   machine key) puts the caret in home's field. the place is typed into the

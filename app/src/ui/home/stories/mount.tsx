@@ -248,7 +248,7 @@ function watchFirstLeave(): void {
     let under = false;
     setTimeout(() => {
       // the windows are inert only under a layer that is drawn: never under nothing, while the stream catches up
-      const inert = [...document.querySelectorAll(".home .bar, .home .wins, .home .nx-deck")].some((el) => (el as HTMLElement).inert);
+      const inert = [...document.querySelectorAll(".home .bar, .home .wins, .home .nx-room")].some((el) => (el as HTMLElement).inert);
       under = inert && document.querySelector(".stage .layer") === null;
     }, 400);
     setTimeout(() => {

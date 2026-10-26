@@ -808,14 +808,26 @@ below (the sheet and the dock), the dock wherever this law names it, and
   home. on the deck the field leads home under the bar, and the deck's
   rows are the bar, the field, the windows and the page dots; the windows
   in their order are the list, so the deck draws the field alone, and the
-  pager law holds. there is no dock. the empty deck's ghost says "a thread
-  you start above, or in cmx2 on any of your machines, shows up here as a
-  live window."
+  pager law holds. a deck with no window to show (every thread folded, or
+  none at all) draws "start in" under the field instead of empty ground,
+  as many repos as the phone has room for (two to five); the empty deck's
+  ghost ("a thread you start above, or in cmx2 on any of your machines,
+  shows up here as a live window.") is drawn only when there is no repo to
+  offer either. there is no dock. home's field is mounted once, whatever
+  the arrangement, so its words, its place and a send being made live
+  through a resize across 700 px.
 - **the field** is the composer every thread has (the `sheet` mount),
   named "start a thread", its placeholder "what next?". it is the one
   place a thread starts. its top row leads with the place (the repo chip,
   then the machine chip with two machines or more), then the composer's
-  own model and effort chips; the plus is the photo key. its words are
+  own model and effort chips; the plus is the photo key. a thread not yet
+  made has no effort of its own: the effort chip says "default" (the
+  daemon runs the model's own level and its model list does not say
+  which, so the chip names the choice rather than guess a level), and a
+  pick says the level. the words stand two lines tall at every size, on
+  the composer's insets (12 above and at the sides, 8 above the keys' row,
+  which keeps a row of its own), so the placeholder never sits on the plus
+  and send. its words are
   named "first message for a new thread in <repo>", or "first message for
   a new thread" while no repo is chosen, and a send is held while nowhere
   is chosen: "pick a repo or a folder on <host> to start in". the send
@@ -847,26 +859,38 @@ below (the sheet and the dock), the dock wherever this law names it, and
 - **what next** (the list, at strip and rail). under the field, in the
   server's order and never ranked here: "waiting on you", the threads that
   want you, stopped, or finished unseen, each a row with its verb (answer
-  opens the answer sheet, open pours the thread); then the working fold as
-  one row that opens the fold's list ("see the working fold: 3 working",
-  named apart from the capsule); then "start in", the field's machine's
-  repos by the new-thread recency, each "start in <repo> on <host>",
-  which a tap picks into the field. as many repos as the stage has room
-  for, two to eight (ten in the inspector's column, below).
+  opens the answer sheet, open pours the thread); then "start in", the
+  field's machine's repos by the new-thread recency, each "start in <repo>
+  on <host>" (two folders of one name are told apart by their path, in the
+  row and its name), which a tap picks into the field. as many repos as
+  the stage has room for, two to eight. the working fold is not a row: its
+  capsule is on screen at every arrangement (the rail's column, the
+  strip's row, the deck's bar), and one thing is said in one place. a row's
+  mark is 26 px, under the two-letter size, so a repo reads as the one
+  letter its window, its chip and the capsule's beads show beside it (the
+  repo mark, below).
 - **neutral ground.** home has no flood. the field is the composer on a
   neutral pair (#2a2c34 to #141519, light tone #d4d7e0) on the plane's
   recipe: a quiet surface in dark, a lit card in light. a repo's colour is
   only in its own chip (a whisper of its deep colour on the key) and in
   its marks.
 - **where it sits.** the field is the stage's prose measure wide (640 at
-  the strip, 680 at the rail, 760 on a rail 2000 px wide or more), so it
-  stands where a thread's composer does. the field and the list stand two
-  fifths of the way down the room they leave, never more than 240 px down;
-  a list taller than the stage scrolls inside it. at the rail 1400 and up
-  with the inspector shown, "start in" sits in the inspector's column, its
-  heading level with the field's top (measured on resize, never per
-  frame). menus drop under the field over the list, the composer's model
-  menu too, and never push it.
+  the strip, 720 at a strip 1200 px wide or more (a portrait monitor), 680
+  at the rail, 760 on a rail 2000 px wide or more), so it stands where a
+  thread's composer does, and "waiting on you" and "start in" stand under
+  it in the same column at every size. home has no inspector column: at
+  the rail 1400 and up its room reaches the right edge, as the card does
+  with the inspector folded, and the column of field and list is centred
+  in it, never beside an empty column. the block stands two fifths of the
+  stage's spare height down (`PLACE`, a little above the middle, where the
+  eye rests), measured when the stage or the list changes size and never
+  per frame; the field growing as words are typed is left out, so typing
+  never walks it up the screen. a block taller than the stage flows from
+  the top and scrolls inside it. when rows arrive or leave, the block's
+  move plays from where it was on the snap spring (one box, transform
+  only), and the rows themselves move in home's reorder flip after the
+  calm, as the windows do. menus drop under the field over the list, the
+  composer's model menu too, and never push it.
 - **the way home.** at strip and rail every thread's bar carries "what
   next?" after the title, the field collapsed: a button named "what next?
   go home", with an "esc" key hint on a fine pointer only. a press, or
@@ -882,13 +906,22 @@ below (the sheet and the dock), the dock wherever this law names it, and
   and rail it steps back first). the new thread pill, the folded rail's
   plus disc and a board machine key do the same. `⌘k` is not built and
   stays reserved for the jump (input, below); nothing takes it.
-- **motion.** the thread steps back to `scale(.96)` on the sheet spring
-  while its words go on the fade curve, and the card's shadow and rim
-  and, at the widest rail, the inspector's details fade with it; the field
-  arrives 18 px from above after 90 ms and the list 10 px from below after
-  140 ms, both on the sheet spring; a menu drops 6 px on the snap spring.
-  transform and opacity only; reduced motion takes the app's rule.
-  `perf.paint` (control) and `perf.frames` (transition) call it `home`.
+- **motion.** the thread pours back into its window, the pour that
+  opened it played in reverse: the card's clip closes on the sheet spring
+  to a sliver at the edge its window sits beside (the rail's left, the
+  strip's top), as long as the window, drifting 22 px toward it, while its
+  parts fade where they are; the rim closes with the clip, and the shadow
+  and, at the widest rail, the inspector's details fade. a thread with no
+  window in view (folded, or the windows put away) steps back instead:
+  `scale(.94)` on the sheet spring, its opacity held for the first third
+  so the step is seen, then gone. home is uncovered as the clip closes, so
+  the two pages of words never cross. the field arrives 18 px from above
+  after 90 ms and the list 10 px from below after 140 ms, both on the sheet
+  spring; a menu drops 6 px on the snap spring. a thread poured from home
+  opens its rim with its clip and fades its shadow in, so no whole card's
+  outline stands in the first frame. clip-path, transform and opacity only;
+  reduced motion takes the app's rule. `perf.paint` (control) and
+  `perf.frames` (transition) call it `home`.
 - **empty, offline, failed.** with nothing waiting and no fold the list
   says "nothing needs you right now." and still offers "start in". a
   machine with no repos says "nothing has run on <host> yet. type a folder
@@ -903,7 +936,13 @@ below (the sheet and the dock), the dock wherever this law names it, and
 - **its cost.** the field and the list are a chunk of their own
   (`ui/later.ts`, `NextUp`), warmed the moment home mounts; their styles
   (`ui/next/next.css`) are in the first load, so the chunk's arrival never
-  reorders the cascade.
+  reorders the cascade. until it lands home draws the field's outline
+  ("what next?" on the field's surface, at its height), so the first frame
+  shows where a thread starts and the stage is never blank ground.
+- **the bar's line** does not repeat the capsule: a line that would say
+  only what the working fold's capsule under it says (every thread
+  working, all of them folded) is not drawn; a want, a done, offline or an
+  update brings it back (`home.md`, the bar's line).
 
 ## starting a thread
 
@@ -1555,8 +1594,9 @@ is `aria-hidden`. one component, `RepoMark`
   cannot reach into the mark.
 - **size** is the one custom property `--mark` (as `composer/mark.css`'s),
   set by the component; letters, ring and plate are fractions of it.
-  sizes as used: 20 (the stage's repo line, the fold's hover card), 22 (a
-  window header, a sheet chip), 30 (a folded swatch), 32 (a sheet row), 34
+  sizes as used: 20 (the stage's repo line, the fold's hover card, home's
+  field chip), 22 (a window header), 26 (home's list and field menu rows,
+  one letter like the windows beside them), 30 (a folded swatch), 32 (a sheet row), 34
   (the capsule, beside its 34 px "open"), 36 (a history row, a settings
   row).
 - **the governing rule** (learned in v1): show the mark wherever identity
@@ -1568,8 +1608,8 @@ is `aria-hidden`. one component, `RepoMark`
 | window header (deck, strip, rail) | yes, 22, leads the name | the name is the only identity the header carries; the window's gradient is shared with its neighbours of the same repo |
 | history row | yes, 36, replaces the colour bar | the bar said the repo's colour; the mark says it with the favicon, so colour is not said twice. the repo's name stays in the meta line |
 | home's field: the repo chip | yes, 20, leads the name | the chip is the only place the field shows a repo's colour (decision 105); the sheet's repo chips at 22 are gone with it |
-| home's field: menu rows | yes, 28, spans the name and the path | a list of repos by name, and the leading mark is the scan line (the sheet's finder rows were 32) |
-| home's list: what next and start in | yes, 32, leads the row | a row names a thread or a repo on the neutral ground, and the mark is its colour there |
+| home's field: menu rows | yes, 26, spans the name and the path | a list of repos by name, and the leading mark is the scan line; under 28, so one letter as the windows and the chip beside it show (the sheet's finder rows were 32) |
+| home's list: what next and start in | yes, 26, leads the row | a row names a thread or a repo on the neutral ground, and the mark is its colour there; one letter, as the window, the field's chip and the capsule's beads on the same screen say it (a 32 px row mark spelled two, "le" beside "l") |
 | folded rail swatch | yes, 30, `bare` | the swatch is already the repo's colour and spelled its initials, so a tile in a tile is not drawn until there is a favicon; then the plate shows (its state moves out to the corner the plate leaves free, and rings in the swatch's colour) |
 | fold hover card | yes, 20, leads the repo name | a name on glass with no colour of its own |
 | capsule, "X wants you" | yes, 34, replaces the colour dot | it is the one place a repo speaks over another's window |

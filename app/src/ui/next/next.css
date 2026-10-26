@@ -20,6 +20,12 @@
   --nx-measure: 640px;
 }
 
+@media (min-width: 1200px) {
+  .home[data-arrangement="strip"] .nx {
+    --nx-measure: 720px;
+  }
+}
+
 .home[data-arrangement="rail"] .nx {
   --nx-measure: 680px;
 }
@@ -45,69 +51,62 @@
 
 /* —— where it sits —— */
 
-/* the strip and the rail: the stage with no thread on it. the field stands a measured way down, never centred in a tall
-   stage (a vertical monitor would leave it floating), and the list scrolls under it inside the stage's own box */
-.home .nx-stage {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
+/* the strip and the rail: home's room is the stage's own place (home.css puts it in the card's grid area, under the card),
+   and at the rail it reaches the right edge as the card does with the inspector folded: home has no details to show, so
+   the field and its list are centred in the whole stage at every size, never beside an empty column (decision 107). the
+   block stands PLACE of the spare height down (next-up.tsx measures it, never per frame), a little above the middle;
+   taller than the stage, it flows from the top and scrolls inside the room */
+.home .nx-room {
+  position: relative;
+  z-index: 6;
+  min-width: 0;
+  min-height: 0;
+}
+
+.home:is([data-arrangement="strip"], [data-arrangement="rail"]) .nx-room {
   overflow: hidden auto;
   overscroll-behavior-y: contain;
   scrollbar-width: none;
-  display: flex;
-  flex-direction: column;
   padding: 32px 24px;
   transition: opacity var(--fade-t), visibility 0s linear 0s;
 }
 
-/* the field and its list stand two fifths of the way down the room they leave, and never more than 240 px down: a short
-   list on a tall stage is not left at the top under empty ground, nor floated in the middle of a vertical monitor. a list
-   taller than the stage takes the room and scrolls */
-.home .nx-stage::before,
-.home .nx-stage::after {
-  content: "";
-  min-height: 0;
+.home[data-arrangement="rail"] .nx-room {
+  margin-right: 14px;
 }
 
-.home .nx-stage::before {
-  flex: 2 1 0;
-  max-height: 240px;
-}
-
-.home .nx-stage::after {
-  flex: 3 1 0;
-}
-
-.home .nx-stage > .nx {
-  flex: none;
-}
-
-.home .nx-stage::-webkit-scrollbar {
+.home .nx-room::-webkit-scrollbar {
   display: none;
 }
 
 /* a thread on the stage: home is under its layer, faded out and out of the tree (inert), its words and its place kept */
-.home .nx-stage[data-away] {
+.home .nx-room[data-away] {
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--fade-t), visibility 0s linear var(--fade-ms, 160ms);
 }
 
 /* the deck: the field leads the windows, as wide as a window is with the deck's gutters */
-.home .nx-deck {
-  position: relative;
-  z-index: 6;
+.home[data-arrangement="deck"] .nx-room {
+  grid-row: 2;
+  grid-column: 1;
   padding: 4px calc((100vw - var(--window-width)) / 2) 12px;
 }
 
-.home .nx-deck .nx {
-  gap: 0;
+.home[data-arrangement="deck"] .nx {
+  gap: 24px;
 }
 
-/* the inspector's column at the widest rail holds the repos to start in, as it holds a thread's details */
-.nx-aside {
-  /* its heading stands level with the field's top edge across the stage (next-up.tsx measures it) */
-  padding: var(--nx-aside-top, 26px) 22px 26px;
+/* the field's outline while its chunk comes: the composer's window, quiet, at the field's height */
+.nx-shell-field {
+  min-height: 176px;
+  padding: 64px 22px 0;
+  border-radius: 28px;
+  background: color-mix(in srgb, #fbfbfa calc(var(--L) * 100%), #1d1e23);
+  box-shadow: var(--pill-edge);
+  color: var(--text-3);
+  font-family: var(--read);
+  font-size: 17px;
 }
 
 /* —— the field: the composer, a quiet neutral surface —— */
@@ -132,16 +131,17 @@
   grid-row: 2;
 }
 
-.nx-field .composer[data-mount="sheet"] textarea {
-  min-height: calc(1.42em + 15px);
-  max-height: min(40vh, calc(8 * 1.42em + 15px));
-  padding: 11px 10px 4px;
+/* the words stand two lines tall at every size, with the composer's own insets (12 above, 12 at the sides, 8 above the keys'
+   row), so the placeholder never sits on the plus and send */
+.nx-field .composer[data-mount="sheet"] .cz-body {
+  row-gap: 8px;
+  padding: 8px;
 }
 
-@media (min-width: 700px) {
-  .nx-field .composer[data-mount="sheet"] textarea {
-    min-height: calc(2 * 1.42em + 15px);
-  }
+.nx-field .composer[data-mount="sheet"] textarea {
+  min-height: calc(2 * 1.42em + 20px);
+  max-height: min(40vh, calc(8 * 1.42em + 20px));
+  padding: 12px 12px 8px;
 }
 
 @media (min-width: 700px) {
@@ -557,7 +557,8 @@
   content: "";
   position: absolute;
   top: 0;
-  left: 60px;
+  /* from the words' edge: the list's 4, the row's 12, the mark's 26 and the gap's 12 */
+  left: 54px;
   right: 16px;
   height: 1px;
   background: var(--hairline);
@@ -651,27 +652,6 @@
 .nx-verb-icon .cz-i {
   width: 16px;
   height: 16px;
-}
-
-/* the working fold's beads: the first three marks, overlapping by a third, each ringed in the list's surface */
-.nx-beads {
-  display: flex;
-  width: 32px;
-  justify-content: center;
-}
-
-.nx-beads:has(> :nth-child(2)) {
-  width: auto;
-  min-width: 32px;
-}
-
-.nx-beads > * + * {
-  margin-left: -6px;
-}
-
-.nx-beads > * {
-  border-radius: 7px;
-  box-shadow: 0 0 0 2px color-mix(in srgb, #fbfbfa calc(var(--L) * 100%), #17181d);
 }
 
 .nx-quiet {

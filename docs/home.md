@@ -134,6 +134,11 @@ is binding the same way (AGENTS.md, design law).
   under the pill on the installed unit). `home-shots.ts` fails a story
   whose line leaves its box or comes within 6 px of a pill, and the "home
   long repo name" story holds a 46 character repo name at every width.
+  a line that would only repeat the working fold's capsule under it (every
+  thread working, every one of them folded: "3 working" over "3
+  working") is not drawn, so the capsule is the one place it is said
+  (decision 106); anything more (a want, a done, offline, an update) and
+  the line is back.
 - **"update ready" sits in the bar's line** ("update ready. it applies the
   next time boxbox opens.") until settings exist (m7); the protocol break
   is the one screen with the one button.
@@ -831,8 +836,10 @@ guesses.
   window previews), offline, after a protocol break, with a long repo
   name, a live replay, and the moments (the birth and the sweep, played on cue).
   home, what next has its own: `home--home-next-quiet` (nothing waiting:
-  the working fold and the repos to start in), `-busy` (asks and a
-  stopped thread), `-empty` (no windows: "nothing needs you right now."),
+  every thread in the working fold, the repos to start in under the field,
+  on the deck too), `-busy` (asks and a stopped thread), `-empty` (no
+  windows: "nothing needs you right now." at strip and rail, "start in"
+  in place of the ghost on the deck),
   `-offline` (the bar's quiet line over the list as last read),
   `-repo-menu` (the repo chip's menu open over the list), `-typed-token`
   (an `@` typed in the field, its menu open) and `-from-thread` ("what next?"

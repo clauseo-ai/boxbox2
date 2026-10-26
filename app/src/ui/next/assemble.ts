@@ -1,7 +1,8 @@
 /* what home lists under the field (docs/design.md, home: what next), assembled from what the server already gave: the
    threads that need you, in the inbox's order and never re-ranked here (decision 16: the order is the inbox), each with
-   the one verb that answers it; then the working fold, as one row; then the repos to start in, in the recency the
-   new-thread path has always used (composer/place.ts, `recentRepos`). pure, so assemble.test.ts is the whole story. */
+   the one verb that answers it; then the repos to start in, in the recency the new-thread path has always used
+   (composer/place.ts, `recentRepos`). the working fold is not a row here: its capsule is already on screen at every
+   arrangement, and one thing is said in one place (decision 106). pure, so assemble.test.ts is the whole story. */
 
 import { repoName } from "../window/repo";
 import type { WindowView } from "../window/view";
@@ -26,8 +27,6 @@ export type RepoRow = { host: string; root: string; repo: string; detail: string
 
 export type NextUp = {
   needs: NeedRow[];
-  /** the working fold, when anything is in it */
-  fold: { working: number; waiting: number } | null;
   repos: RepoRow[];
 };
 
@@ -35,7 +34,6 @@ export type NextInput = {
   /** home's windows in the order the server gave, the folded ones not among them */
   order: readonly string[];
   viewOf: (key: string) => WindowView | null;
-  fold: { working: number; waiting: number };
   /** the field's machine, and its repos in recency order (`recentRepos`) */
   host: string;
   repos: readonly string[];
@@ -55,9 +53,12 @@ export function nextUp(input: NextInput): NextUp {
     if (!view || !NEEDS.has(view.state)) continue;
     needs.push(needRow(view));
   }
-  const fold = input.fold.working + input.fold.waiting > 0 ? { ...input.fold } : null;
-  const repos = input.repos.slice(0, Math.max(0, input.repoLimit)).map((root) => repoRow(input.host, root, input.lastAt(input.host, root), input.now));
-  return { needs, fold, repos };
+  const offered = input.repos.slice(0, Math.max(0, input.repoLimit));
+  // two folders of one name on a machine (a clone and a fork) are told apart by their path, in the words and the name
+  const names = new Map<string, number>();
+  for (const root of offered) names.set(repoName(root), (names.get(repoName(root)) ?? 0) + 1);
+  const repos = offered.map((root) => repoRow(input.host, root, input.lastAt(input.host, root), input.now, (names.get(repoName(root)) ?? 0) > 1));
+  return { needs, repos };
 }
 
 function needRow(view: WindowView): NeedRow {
@@ -74,10 +75,11 @@ function needRow(view: WindowView): NeedRow {
   return { ...base, state: "done", verb: "open", head: view.title, detail: `${view.repo} · done`, name: `open ${of}, done` };
 }
 
-function repoRow(host: string, root: string, last: number | null, now: number): RepoRow {
+function repoRow(host: string, root: string, last: number | null, now: number, twin: boolean): RepoRow {
   const repo = repoName(root);
   const when = last === null ? null : agoWords(now - last);
-  return { host, root, repo, detail: when ? `${host} · ${when}` : host, name: `start in ${repo} on ${host}` };
+  const where = twin ? root : host;
+  return { host, root, repo, detail: when ? `${where} · ${when}` : where, name: twin ? `start in ${repo} on ${host}, ${root}` : `start in ${repo} on ${host}` };
 }
 
 /** how long ago, in the fewest plain words: "just now", "4 minutes ago", "2 hours ago", "3 days ago" */

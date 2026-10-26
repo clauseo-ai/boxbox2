@@ -21,7 +21,7 @@
      what leaves and uncovers what arrives (edge.ts); the person's choice is
      kept on this device (remembered.ts). */
 
-import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
+import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, Suspense, untrack } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { flip, insetOf, installMotionProperties, play, prefersReducedMotion, settleIn } from "../../motion/animate";
 import { birth } from "../../motion/fly";
@@ -82,6 +82,9 @@ const CAPSULE_MS = 6000;
 const IN_VIEW = 0.35;
 /** a layer that shrinks into its window is taken off the stage when its clip is nearly there */
 const CLOSED_MS = SHEET.duration * 0.62;
+/** a thread stepping back with no window to pour into: its opacity holds while the step is seen, then goes (decoration, so
+    reduced motion lands it at once) */
+const STEP_BACK = { easing: "cubic-bezier(.4, 0, .6, 1)", duration: SHEET.duration };
 
 export function arrangementOf(width: number, height: number): Arrangement {
   if (width < 700) return "deck";
@@ -195,6 +198,8 @@ export function Home(props: HomeProps) {
   /** which window the deck is on: the index the scroll settled at */
   const [pagerOn, setPagerOn] = createSignal(0);
   const elements = new Map<string, HTMLElement>();
+  /** home, what next's room (ui/next): the field and its list */
+  let nxStageEl: HTMLDivElement | undefined;
   let touching = false;
   /** when a finger last let go or the deck last scrolled; nothing has yet */
   let lastCalm = Number.NEGATIVE_INFINITY;
@@ -238,7 +243,10 @@ export function Home(props: HomeProps) {
     const born = next.filter((key) => !held.has(key));
     watchTransition("reorder", SNAP.duration, "home");
     // the swatches of a folded rail are windows too: they close up and make room on the same spring
-    flip([...elements.values(), ...swatchEls.values()], () => {
+    // home's list under the field moves with them: its rows come from the same order (ui/next), so a row that arrives or
+    // leaves makes room on the same spring, after the same calm
+    const listed = nxStageEl && arrangement() !== "deck" && !open() ? [...nxStageEl.querySelectorAll(".nx-field, .nx-group, .nx-quiet")] : [];
+    flip([...elements.values(), ...swatchEls.values(), ...listed], () => {
       setOrder(next);
       takeFold(nextFold);
       setAwayShown(nextAway);
@@ -340,8 +348,11 @@ export function Home(props: HomeProps) {
     if (next) run(next);
     else nextWaiting = run;
   };
+  /* the field's api as a signal too, for what home draws from it (the empty deck's ghost gives way to "start in") */
+  const [nextApi, setNextApi] = createSignal<NextApi>();
   const takeNext = (api: NextApi) => {
     next = api;
+    setNextApi(() => api);
     const run = nextWaiting;
     nextWaiting = null;
     run?.(api);
@@ -469,6 +480,20 @@ export function Home(props: HomeProps) {
     }
   };
 
+  /** where a thread pours from and back to at the strip and the rail: a sliver of the card at the edge its window sits beside
+      (the rail's left, the strip's top), as long as the window, and the drift toward it */
+  const pourEdge = (box: DOMRect, rect: DOMRect): { clip: string; drift: string } => {
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+    if (arrangement() === "rail") {
+      const top = clamp(rect.top - box.top, 0, box.height - 60);
+      const bottom = clamp(box.bottom - rect.bottom, 0, box.height - top - 60);
+      return { clip: `inset(${top}px ${box.width - 4}px ${bottom}px 0px round 22px)`, drift: "translateX(-22px)" };
+    }
+    const left = clamp(rect.left - box.left, 0, box.width - 60);
+    const right = clamp(box.right - rect.right, 0, box.width - left - 60);
+    return { clip: `inset(0px ${right}px ${box.height - 4}px ${left}px round 22px)`, drift: "translateY(-22px)" };
+  };
+
   /** strip and rail: the thread pours out of its window onto the stage */
   const pour = (key: string, from: HTMLElement, event: Event | null) => {
     // a thread the fleet does not hold has nothing to draw: opening it made the effect that lets go of it open it again
@@ -485,22 +510,15 @@ export function Home(props: HomeProps) {
     if (layer) {
       const box = stageEl.getBoundingClientRect();
       const rect = from.getBoundingClientRect();
-      const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-      let start: string;
-      let drift: string;
-      if (arrangement() === "rail") {
-        const top = clamp(rect.top - box.top, 0, box.height - 60);
-        const bottom = clamp(box.bottom - rect.bottom, 0, box.height - top - 60);
-        start = `inset(${top}px ${box.width - 4}px ${bottom}px 0px round 22px)`;
-        drift = "translateX(-22px)";
-      } else {
-        const left = clamp(rect.left - box.left, 0, box.width - 60);
-        const right = clamp(box.right - rect.right, 0, box.width - left - 60);
-        start = `inset(0px ${right}px ${box.height - 4}px ${left}px round 22px)`;
-        drift = "translateY(-22px)";
-      }
+      const { clip: start, drift } = pourEdge(box, rect);
       play(layer, [{ clipPath: start }, { clipPath: "inset(0px 0px 0px 0px round 0px)" }], SHEET, { fill: "backwards" });
       arrive(layer, drift, 60);
+      // from home the stage had no card: its rim opens with the clip and its shadow comes in under it, rather than a whole
+      // card's outline being there in the first frame
+      if (leaving.length === 0) {
+        if (rimEl) play(rimEl, [{ clipPath: start }, { clipPath: "inset(0px 0px 0px 0px round 0px)" }], SHEET, { fill: "backwards" });
+        if (liftEl) play(liftEl, [{ opacity: 0 }, { opacity: 1 }], SHEET, { fill: "backwards" });
+      }
       watchTransition("pour", SHEET.duration, "thread");
     }
     for (const old of leaving) {
@@ -539,7 +557,38 @@ export function Home(props: HomeProps) {
 
   /* —— home, what next (design.md): at strip and rail the thread steps back and the field drops out of its bar; on the deck
      the thread shrinks into its window and the field leads the deck. escape on the empty field goes back —— */
-  let nxStageEl: HTMLDivElement | undefined;
+  /** the thread leaves the stage for home (decision 109): it pours back into its window, the reverse of the pour that
+      opened it (its clip closes to the window's edge of the card and drifts toward it), while its parts fade where they
+      are; the card's rim closes with it and its shadow fades. a thread with no window in view (folded, or the windows put
+      away) steps back instead: it shrinks on the sheet spring and fades late, so the step is seen before it goes */
+  const pourBack = (key: string, leaving: readonly StageLayer[]): Animation[] => {
+    const faded: Animation[] = [];
+    const keep = (a: Animation | null) => {
+      if (a) faded.push(a);
+    };
+    const box = stageEl?.getBoundingClientRect();
+    const win = originOf(key);
+    const rect = win?.isConnected && !windowsHidden() ? win.getBoundingClientRect() : null;
+    const towards = box && rect && rect.width > 0 ? pourEdge(box, rect) : null;
+    for (const entry of leaving) {
+      const el = layerEls.get(entry.id);
+      if (!el) continue;
+      el.inert = true;
+      if (towards) {
+        keep(play(el, [{ clipPath: "inset(0px 0px 0px 0px round 0px)", transform: "none" }, { clipPath: towards.clip, transform: towards.drift }], SHEET, { fill: "forwards" }));
+        leave(el);
+      } else {
+        keep(play(el, [{ transform: "none" }, { transform: "scale(.94)" }], SHEET, { fill: "forwards" }));
+        keep(play(el, [{ opacity: 1 }, { opacity: 1, offset: 0.35 }, { opacity: 0 }], STEP_BACK, { fill: "forwards" }));
+      }
+    }
+    if (towards && rimEl) keep(play(rimEl, [{ clipPath: "inset(0px 0px 0px 0px round 0px)" }, { clipPath: towards.clip }], SHEET, { fill: "forwards" }));
+    // the shadow, the rim when it does not close with the clip, and at the widest rail the thread's details go with it
+    const card = [liftEl, towards ? undefined : rimEl, capEl, wide() ? inspectorEl() : undefined].filter((el): el is HTMLElement => el !== undefined);
+    for (const el of card) keep(play(el, [{ opacity: 1 }, { opacity: 0 }], FADE, { fill: "forwards" }));
+    return faded;
+  };
+
   const goHome = (event: Event | null) => {
     const key = open();
     if (!key || busy || !stageEl || arrangement() === "deck") return;
@@ -553,23 +602,7 @@ export function Home(props: HomeProps) {
     }
     if (event) tapped(event, "home", arrangement(), "home");
     const leaving = layers();
-    // the card's shadow and rim, and the thread's details in the inspector's column, go with it
-    const card = [liftEl, rimEl, capEl, wide() ? inspectorEl() : undefined].filter((el): el is HTMLElement => el !== undefined);
-    const faded: Animation[] = [];
-    for (const entry of leaving) {
-      const el = layerEls.get(entry.id);
-      if (!el) continue;
-      el.inert = true;
-      // the card steps back on the sheet spring while its words go quickly, so the thread and home are never two pages of
-      // words over each other
-      const back = play(el, [{ transform: "none" }, { transform: "scale(.96)" }], SHEET, { fill: "forwards" });
-      const gone = play(el, [{ opacity: 1 }, { opacity: 0 }], FADE, { fill: "forwards" });
-      for (const a of [back, gone]) if (a) faded.push(a);
-    }
-    for (const el of card) {
-      const a = play(el, [{ opacity: 1 }, { opacity: 0 }], FADE, { fill: "forwards" });
-      if (a) faded.push(a);
-    }
+    const faded = pourBack(key, leaving);
     setCameFrom(key);
     batch(() => setOpen(null));
     closeThread();
@@ -1273,7 +1306,11 @@ export function Home(props: HomeProps) {
     const done = all.filter((v) => v.state === "done").length;
     const idle = all.filter((v) => v.state === "idle").length;
     const rest = [working ? `${working} working` : "", done ? `${done} done` : "", idle ? `${idle} idle` : ""].filter(Boolean);
-    return { wants, rest };
+    // a line that would only say what the capsule under it says (every thread working, all of them in the fold) is not drawn:
+    // the capsule is the one place it is said. the line stays a live region, so what comes next is still announced
+    const folded = new Set(foldShown());
+    const echo = wants.length === 0 && done === 0 && idle === 0 && working > 0 && all.every((v) => v.state !== "working" && v.state !== "queued" ? true : folded.has(v.key));
+    return { wants, rest, echo };
   });
 
   /* a count that changes in front of you fades in, as a streamed word does; the line as it was
@@ -1386,29 +1423,11 @@ export function Home(props: HomeProps) {
     </>
   );
 
-  /** how many repos the list has room for under what needs you: the stage's height less the field and the rows above */
-  const repoRoom = () => Math.max(2, Math.min(8, Math.floor((size().height - 470) / 64)));
-  /** home, what next (ui/next): the field alone on the deck, the field and the list on the stage at strip and rail */
-  const nextUp = (deck: boolean) => (
-    <NextUp
-      deck={deck}
-      asideRepos={!deck && wide() && inspectorShown()}
-      aside={!open() && layers().length === 0 ? inspectorEl() : undefined}
-      start={startPlace()}
-      order={order()}
-      viewOf={viewOf}
-      foldKeys={foldKeys()}
-      kindOf={kindOf}
-      now={now()}
-      repoRoom={repoRoom()}
-      onOpen={(key, from) => activate(key, from, null)}
-      onAnswer={(key, from) => whenLoaded("AskSheet", () => setAskSheet({ key, from }))}
-      onFold={(from) => whenLoaded("FoldList", () => setFoldOpen(from))}
-      onBorn={openBorn}
-      onEscape={!deck && cameFrom() !== null ? backToThread : undefined}
-      api={takeNext}
-    />
-  );
+  /** how many repos the list has room for under what needs you: the stage's height less the field and the rows above (on
+      the deck, the bar and the capsule above the field too) */
+  const repoRoom = () => (arrangement() === "deck" ? Math.max(2, Math.min(5, Math.floor((size().height - 520) / 64))) : Math.max(2, Math.min(8, Math.floor((size().height - 470) / 64))));
+  /** the deck shows no window: every one is folded, or there are none */
+  const bare = () => arrangement() === "deck" && order().length === 0;
 
   return (
     <div
@@ -1427,7 +1446,7 @@ export function Home(props: HomeProps) {
       <header class="bar" ref={barEl} inert={(arrangement() === "deck" && staged()) || sheetUp() || railOff()}>
         <span class="mark">boxbox</span>
         <span class="grow" />
-        <p class="sum" aria-live="polite">
+        <p class="sum" aria-live="polite" data-echo={!offline() && summary().echo && !updateReady() ? "" : undefined}>
           <Show
             when={!offline()}
             fallback={
@@ -1465,7 +1484,7 @@ export function Home(props: HomeProps) {
                 );
               }}
             </Show>
-            <For each={summary().rest}>
+            <For each={summary().echo ? [] : summary().rest}>
               {(part, i) => (
                 <>
                   {i() > 0 || summary().wants.length > 0 ? " " : ""}
@@ -1532,11 +1551,29 @@ export function Home(props: HomeProps) {
           </Show>
         </div>
       </header>
-      <Show when={arrangement() === "deck"}>
-        <div class="nx-deck" inert={staged() || sheetUp()}>
-          {nextUp(true)}
-        </div>
-      </Show>
+      {/* home, what next (ui/next), mounted once whatever the arrangement, so the field and a send in flight live through a
+          resize across 700 px. on the deck it is the row under the bar; at the strip and the rail it lies in the stage's own
+          place, under the card (home.css places it), and spans the inspector's column too: home has no details to show there.
+          a thread on the stage fades it out and takes it out of the tree, its words and its place kept; a thread stepping back
+          uncovers it (goHome) */}
+      <div class="nx-room" ref={nxStageEl} data-away={arrangement() !== "deck" && open() ? "" : undefined} inert={(arrangement() === "deck" ? staged() : open() !== null) || sheetUp()}>
+        <Suspense fallback={<FieldShell />}>
+          <NextUp
+            deck={arrangement() === "deck"}
+            bare={bare()}
+            start={startPlace()}
+            order={order()}
+            viewOf={viewOf}
+            now={now()}
+            repoRoom={repoRoom()}
+            onOpen={(key, from) => activate(key, from, null)}
+            onAnswer={(key, from) => whenLoaded("AskSheet", () => setAskSheet({ key, from }))}
+            onBorn={openBorn}
+            onEscape={arrangement() !== "deck" && cameFrom() !== null ? backToThread : undefined}
+            api={takeNext}
+          />
+        </Suspense>
+      </div>
       <div
         class="wins"
         id={arrangement() !== "deck" ? WINDOWS_ID : undefined}
@@ -1550,7 +1587,7 @@ export function Home(props: HomeProps) {
         <Show when={arrangement() === "strip" && (foldShown().length > 0 || awayShown())}>
           <div class="wlead">{settle()}</div>
         </Show>
-        <For each={order()} fallback={<Show when={foldShown().length === 0}><Empty /></Show>}>
+        <For each={order()} fallback={<Show when={foldShown().length === 0 && !(bare() && (nextApi()?.offers() ?? 0) > 0)}><Empty /></Show>}>
           {(key, index) => <Slot key={key} index={index()} />}
         </For>
       </div>
@@ -1580,13 +1617,6 @@ export function Home(props: HomeProps) {
         <div class="lift" ref={(el) => (liftEl = el)} aria-hidden="true" style={stageColour()} />
       </Show>
       <main class="stage" ref={stageEl} data-open={open() ? "" : undefined} inert={sheetUp()}>
-        <Show when={arrangement() !== "deck"}>
-          {/* home, what next: under the thread's layer, there while a thread is on the stage (its words and its place kept),
-              faded out and out of the tree; a thread stepping back uncovers it (goHome) */}
-          <div class="nx-stage" ref={nxStageEl} data-away={open() ? "" : undefined} inert={open() !== null}>
-            {nextUp(false)}
-          </div>
-        </Show>
         <For each={layers()}>
           {(entry) => (
             <Show when={layerView(entry.key)}>
@@ -1756,6 +1786,16 @@ function Empty() {
 
 /** the way home from a thread at strip and rail (design.md, home: what next): the field, collapsed in the thread's bar. a
     press, or escape with no field focused, and the thread steps back while the field drops out of the bar */
+/** the field's outline while its chunk comes (ui/later.ts warms it as home mounts): the first frame already shows where a
+    thread starts, and the stage is never blank ground meanwhile */
+function FieldShell() {
+  return (
+    <div class="nx nx-shell" aria-hidden="true">
+      <div class="nx-shell-field">what next?</div>
+    </div>
+  );
+}
+
 function WhatNext(props: { onPress: (event: Event) => void }) {
   return (
     <button class="bar-next" type="button" aria-label="what next? go home" aria-keyshortcuts="Escape" onClick={(event) => props.onPress(event)}>

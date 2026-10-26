@@ -347,9 +347,20 @@
   something with an agent, and `design.md`'s agent rows and dock words wait
   for it. · a field menu row per assistant, and its first message making
   the thread, driven against the openclaw bench.
-- [home] the six-size screenshot sweep of home, what next is manual
-  (agent-browser); `home-shots.ts` covers three widths (390, 820, 1512). ·
-  the sweep scripted, or the shots taking the other three sizes.
+- [home] the six-size screenshot sweep runs by hand: `home-shots.ts
+  --sizes all` takes the six sizes, and the default run (what a check
+  would call) takes three (390, 820, 1512). · the six in the default run
+  once its time (about two minutes per appearance) is acceptable.
+- [home] a new thread's effort chip says "default", not a level: the
+  daemon's model list (`/config/providers`, read by `GET
+  /api/hosts/{host}/models`) carries a default model but no default
+  effort, and cmx2 picks the level from its routing table. · a cmx2 ask
+  for the default effort per model in that list, then the chip names it.
+- [home] the per-repo model and effort defaults in settings
+  (`PUT /api/prefs/repos`, "the model and effort a new thread there starts
+  with") are stored and shown, but nothing applies them to a new thread,
+  on main before this branch too. · the field's draft taking the repo's
+  saved model and effort when the place is chosen, and the chip showing it.
 
 ### housekeeping
 
