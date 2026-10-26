@@ -359,7 +359,9 @@ four places, each its own decision where the law was silent.
   "cleared N", "undo" in the accent, a 20 px ring draining clockwise by
   clip-path. at the rail it sits at the column's foot, the column's width,
   with the one thread's title under "cleared 1" and the ⌘z hint; on the deck
-  it is centred over the dock. its time stops while a pointer or focus is on
+  it is 48 px tall and centred in the page dots' row, between the window in
+  view and the dock (measured once as it shows), so it never covers a
+  window's clear or the dock. its time stops while a pointer or focus is on
   it. ⌘z undoes from anywhere but a text field. undo brings back exactly
   what the clear cleared, and a failure stays on the pill in the server's
   words with "try again".

@@ -14,6 +14,9 @@ import { dropUndo, type Undo } from "../../store";
 import { undoLast } from "./settle-api";
 import { DRAIN_FRAMES, Lifetime, TOAST_MS, toastWords, undoName } from "./undo";
 
+/** the deck's toast height (settle.css): the page dots' row is 44, and the toast stands 2 px past it each way */
+const DECK_HEIGHT = 48;
+
 const clock = { now: () => performance.now(), after: (ms: number, run: () => void) => setTimeout(run, ms), cancel: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>) };
 
 export function UndoToast(props: {
@@ -55,11 +58,21 @@ export function UndoToast(props: {
     time.stop();
     drain?.cancel();
   });
+  /* on the deck it sits in the row of the page dots, between the window in view and the dock, so it never covers a window's
+     clear or the dock; measured once as it mounts (the dots row is there with two windows or more, else above the dock) */
+  const placed = ((): Record<string, string> => {
+    if (props.arrangement !== "deck") return {};
+    const dots = document.querySelector(".home .pager")?.getBoundingClientRect();
+    if (dots && dots.height > 0) return { bottom: `${Math.round(innerHeight - dots.bottom + (dots.height - DECK_HEIGHT) / 2)}px` };
+    const dock = document.querySelector(".home .home-dock")?.getBoundingClientRect();
+    return dock ? { bottom: `${Math.round(innerHeight - dock.top + 8)}px` } : {};
+  })();
   const one = () => props.undo.keys.length === 1 && props.undo.title !== null && props.arrangement === "rail";
   return (
     <div
       class="undo-toast"
       data-arrangement={props.arrangement}
+      style={placed}
       role="status"
       onPointerEnter={() => set("pointer", true)}
       onPointerLeave={() => set("pointer", false)}
