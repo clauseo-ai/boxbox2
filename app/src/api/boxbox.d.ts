@@ -105,6 +105,26 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/away/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * acknowledges the away summary on every device: the threads it held stay
+         *     cleared and leave it (decision 94). every stream hears the empty summary.
+         */
+        post: operations["away_seen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/board/pin": {
         parameters: {
             query?: never;
@@ -995,6 +1015,27 @@ export type paths = {
         patch?: never;
         trace?: never;
     };
+    "/api/prefs/home": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * sets the person's home prefs, the same on every device (decisions 93 to
+         *     95). answered once the row is committed and the fleet follows them: the
+         *     sweep's rule from its next run, the order and the badge at once.
+         */
+        put: operations["home"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/prefs/models": {
         parameters: {
             query?: never;
@@ -1194,6 +1235,27 @@ export type paths = {
         get?: never;
         put?: never;
         post: operations["ingest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/unclear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * brings threads back to home on every device, where their order puts
+         *     them, and keeps the sweep off each until it is updated again
+         *     (decision 93).
+         */
+        post: operations["unclear"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1642,7 +1704,7 @@ export type components = {
          *     every kind. the board's own frames (`view`, `pin`, `replaced`) reach
          *     only a stream that declared the board view.
          */
-        AgentStreamFrame: components["schemas"]["AgentControl"] | components["schemas"]["ColourFrame"] | components["schemas"]["AppFrame"] | components["schemas"]["AgentJournalEntry"];
+        AgentStreamFrame: components["schemas"]["AgentControl"] | components["schemas"]["ColourFrame"] | components["schemas"]["SettleFrame"] | components["schemas"]["AppFrame"] | components["schemas"]["AgentJournalEntry"];
         /**
          * @description what app windows on the board's mac receive on `/api/stream?board=1`:
          *     id-less frames outside the journal (they carry no seq and move no
@@ -1722,6 +1784,36 @@ export type components = {
         AudioTranscript: {
             lang?: string | null;
             text: string;
+        };
+        /**
+         * @description when a finished thread leaves home by itself (decision 93).
+         * @enum {string}
+         */
+        AutoClear: "seen1h" | "any3h" | "never";
+        /** @description the device that acknowledged the away summary. */
+        AwaySeenBody: {
+            device: string;
+            deviceClass: string;
+        };
+        /**
+         * @description one thread the sweep cleared while nobody was looking: a row of the away
+         *     summary. times are ms on the server's clock.
+         */
+        AwayThread: {
+            /** Format: int64 */
+            clearedAt: number;
+            /**
+             * Format: int64
+             * @description when it settled: its done was raised, or it went quiet.
+             */
+            doneAt: number;
+            key: string;
+            /**
+             * Format: int64
+             * @description when a person had seen it through its newest message; absent when
+             *     it was cleared unseen.
+             */
+            seenAt?: number | null;
         };
         /** @description the thread a birth made. */
         Born: {
@@ -2080,6 +2172,23 @@ export type components = {
             /** @description `<host>:<sessionID>`. */
             key: string;
         };
+        /** @description the person's home, the same on every device. */
+        HomePrefs: {
+            /** @default seen1h */
+            autoClear: components["schemas"]["AutoClear"];
+            /**
+             * @description working and queued windows with nothing for the person fold into one
+             *     capsule above the windows (the app's).
+             * @default true
+             */
+            foldWorking: boolean;
+            /**
+             * @description a background job's notice counts as a need: in the badge, in the
+             *     order and as unseen (decision 95). off by default.
+             * @default false
+             */
+            jobsAsNeeds: boolean;
+        };
         /** @description what the daemon says about its own memory. */
         HostMemory: {
             /**
@@ -2240,7 +2349,7 @@ export type components = {
          * @description how a need was served. the names are telemetry values.
          * @enum {string}
          */
-        How: "answered" | "seen" | "continued" | "settled" | "dropped" | "gone" | "expired";
+        How: "answered" | "seen" | "continued" | "settled" | "dropped" | "gone" | "expired" | "cleared";
         ImagePart: {
             alt?: string | null;
             at?: components["schemas"]["PartAt"] | null;
@@ -2500,6 +2609,18 @@ export type components = {
         };
         /** @enum {string} */
         NotClearedWhy: "working" | "asking" | "subagent" | "unknown";
+        /** @description a thread that was not brought back, and why. */
+        NotUncleared: {
+            key: string;
+            message: string;
+            why: components["schemas"]["NotUnclearedWhy"];
+        };
+        /**
+         * @description `notcleared`: it is on home already (it came back by itself), so a client
+         *     may take it as done; `unknown`: the fleet does not hold it.
+         * @enum {string}
+         */
+        NotUnclearedWhy: "notcleared" | "unknown";
         /** @description ["-", i, n] removes n keys at index i; ["+", i, keys] inserts keys at index i */
         OrderOp: [
             "-",
@@ -2609,6 +2730,8 @@ export type components = {
             devices: {
                 [key: string]: components["schemas"]["DevicePrefs"];
             };
+            /** @description the person's home, shared by every device; the defaults until set. */
+            home: components["schemas"]["HomePrefs"];
             /** @description shared by every device. */
             models: components["schemas"]["ModelPrefs"];
             /** @description by host, then directory. */
@@ -2921,6 +3044,21 @@ export type components = {
         SendStateKind: "checking" | "uncertain" | "cancelled";
         Session: {
             signedIn: boolean;
+        };
+        /**
+         * @description finished work clearing itself (decisions 93 and 94): id-less frames
+         *     outside the journal, like the colours.
+         */
+        SettleFrame: {
+            threads: components["schemas"]["AwayThread"][];
+            /** @enum {string} */
+            type: "away";
+        } | {
+            /** Format: int64 */
+            at: number;
+            keys: string[];
+            /** @enum {string} */
+            type: "autoCleared";
         };
         /** @description who settled an ask first, as the daemon says (cmx2 a6). */
         SettledBy: {
@@ -3279,6 +3417,25 @@ export type components = {
             end?: number | null;
             /** Format: double */
             start?: number | null;
+        };
+        /** @description threads to bring back to home, and from which control. */
+        UnclearBody: {
+            device: string;
+            deviceClass: string;
+            /** @description `host:session`, at most 300. */
+            keys: string[];
+            source: components["schemas"]["UnclearSource"];
+        };
+        /**
+         * @description which control brought them back, for telemetry.
+         * @enum {string}
+         */
+        UnclearSource: "undo" | "away";
+        /** @description how an unclear went: the threads back on home, and the ones that were not cleared. */
+        Uncleared: {
+            refused: components["schemas"]["NotUncleared"][];
+            /** @description the threads back on home, kept from the sweep until they are updated. */
+            uncleared: string[];
         };
         /** @description a machine that did not answer, and why. */
         Unreached: {
@@ -3708,6 +3865,55 @@ export interface operations {
             };
             /** @description the agent could not be reached (`agent-unreachable`), or took the fork and did not answer in time (`agent-uncertain`: a retry with the same clientID answers the first fork) */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    away_seen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AwaySeenBody"];
+            };
+        };
+        responses: {
+            /** @description acknowledged */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not a device */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the server is stopping */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -6545,6 +6751,57 @@ export interface operations {
             };
         };
     };
+    home: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HomePrefs"];
+            };
+        };
+        responses: {
+            /** @description saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HomePrefs"];
+                };
+            };
+            /** @description not a home pref */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the store is not answering, or the server is stopping */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     favorite_models: {
         parameters: {
             query?: never;
@@ -7120,6 +7377,57 @@ export interface operations {
                 };
             };
             /** @description the writer is backed up; send again */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    unclear: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnclearBody"];
+            };
+        };
+        responses: {
+            /** @description which threads came back and which were not cleared */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Uncleared"];
+                };
+            };
+            /** @description not an unclear */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description not signed in */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description the server is stopping */
             503: {
                 headers: {
                     [name: string]: unknown;

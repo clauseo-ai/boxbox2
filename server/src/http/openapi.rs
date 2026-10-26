@@ -23,18 +23,21 @@ use super::review::{MergeBody, WorktreeDiscarded, WorktreeFile, WorktreeMerged, 
 use super::session::{ModelRef, Send, SendPart};
 use super::telemetry::{Accepted, TelemetryBatch};
 use super::threads::{
-    Archived, ClearBody, ClearSource, Cleared, NotCleared, NotClearedWhy, RenameBody, Renamed,
+    Archived, AwaySeenBody, ClearBody, ClearSource, Cleared, NotCleared, NotClearedWhy,
+    NotUncleared, NotUnclearedWhy, RenameBody, Renamed, UnclearBody, UnclearSource, Uncleared,
 };
 use crate::config::Origin;
 use crate::fleet::needs::{By, How, Need, NeedKind};
 use crate::fleet::read::ReadMark;
-use crate::prefs::{DevicePrefs, ModelPrefs, Motion, Prefs, RepoPrefs, Theme};
+use crate::prefs::{
+    AutoClear, DevicePrefs, HomePrefs, ModelPrefs, Motion, Prefs, RepoPrefs, Theme,
+};
 use crate::pty::routes::{NewTerminal, TerminalChange, TerminalSize};
 use crate::push::Kind;
 use crate::push::presence::Report;
 use crate::upstream::system::{Cpu, Daemon, Disk, Machine, MemoryUse, Os};
 use crate::upstream::{Connection, FrameCounts, Health, HostStatus, Memory, System};
-use crate::wire::{ColourFrame, RepoColour};
+use crate::wire::{AwayThread, ColourFrame, RepoColour, SettleFrame};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -57,6 +60,7 @@ use crate::wire::{ColourFrame, RepoColour};
         super::prefs::repo,
         super::prefs::favorite_models,
         super::prefs::colour,
+        super::prefs::home,
         super::stream::stream,
         super::stream::interest,
         crate::board::routes::pin,
@@ -79,6 +83,8 @@ use crate::wire::{ColourFrame, RepoColour};
         super::push::presence,
         super::history::page,
         super::threads::clear,
+        super::threads::unclear,
+        super::threads::away_seen,
         super::threads::archive,
         super::threads::rename,
         super::threads::adopt,
@@ -157,6 +163,12 @@ use crate::wire::{ColourFrame, RepoColour};
         Cleared,
         NotCleared,
         NotClearedWhy,
+        UnclearBody,
+        UnclearSource,
+        Uncleared,
+        NotUncleared,
+        NotUnclearedWhy,
+        AwaySeenBody,
         HistoryPage,
         HistoryRow,
         Unreached,
@@ -194,6 +206,10 @@ use crate::wire::{ColourFrame, RepoColour};
         RepoColour,
         ColourChoice,
         ColourFrame,
+        SettleFrame,
+        AwayThread,
+        HomePrefs,
+        AutoClear,
         Reloaded,
         Restarting,
         Theme,

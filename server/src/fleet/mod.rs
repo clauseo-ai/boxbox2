@@ -73,14 +73,15 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::journal::{Cursor, Journal, frame_data, sse_frame};
+use crate::prefs::HomePrefs;
 use crate::push::presence::Looking;
 use crate::push::{Push, Thread};
 use crate::source::cmx2::translate;
 use crate::source::{SourceEvent, ThreadFacts};
 use crate::store::Store;
 use crate::wire::{
-    Change, ColourFrame, Control, ENCODER, Interest, InterestPost, JournalEntry, PROTOCOL,
-    RepoColour, ResetReason,
+    AwayThread, Change, ColourFrame, Control, ENCODER, Interest, InterestPost, JournalEntry,
+    PROTOCOL, RepoColour, ResetReason, SettleFrame,
 };
 use clears::Clears;
 use colours::Colours;
@@ -88,6 +89,7 @@ use encode::Encoder;
 use keys::StreamKeys;
 use model::{
     ClearRefused, ColourRefused, Device, Effect, Model, ReadRefused, ReviewTarget, TailRequest,
+    UnclearRefused,
 };
 use needs::{Moved, Need, Needs};
 use read::{Mark, Reads};
@@ -111,6 +113,10 @@ pub const MAX_HOLDS: usize = 16;
 const PERSIST_CAPACITY: usize = 1024;
 /// served needs `GET /api/needs` lists.
 pub const SERVED_LISTED: usize = 50;
+/// how long after a start the first sweep runs: the hosts have been read by then.
+const SWEEP_FIRST: Duration = Duration::from_secs(60);
+/// how often the auto-clear sweep runs after that (decision 93).
+const SWEEP_EVERY: Duration = Duration::from_secs(5 * 60);
 /// tail reads waiting for the reader: more than the windows there can be
 /// (`model::MAX_ORDER`). when it is full a request is not queued and the
 /// session goes back to unread, so the next change to it asks again.
@@ -296,6 +302,26 @@ enum Command {
         rows: Vec<(String, f64)>,
         reply: oneshot::Sender<Vec<bool>>,
     },
+    Unclear {
+        keys: Vec<String>,
+        reply: oneshot::Sender<Vec<(String, Result<(), UnclearRefused>)>>,
+    },
+    /// a person acknowledged the away summary; the reply is how many rows it held.
+    AwaySeen {
+        reply: oneshot::Sender<usize>,
+    },
+    /// the person's home prefs, as just committed.
+    Home {
+        home: HomePrefs,
+        reply: oneshot::Sender<()>,
+    },
+    /// a sweep on a clock of the test's choosing: the integration test's way
+    /// past the hour without a production knob.
+    #[cfg(test)]
+    SweepAt {
+        at: i64,
+        reply: oneshot::Sender<model::Swept>,
+    },
     Adopt {
         host: String,
         thread: Box<ThreadFacts>,
@@ -394,6 +420,8 @@ pub struct Wiring {
     pub adopted: Vec<(String, Option<ThreadFacts>)>,
     /// each repo's colour.
     pub colours: Colours,
+    /// the person's home prefs.
+    pub home: HomePrefs,
     /// where window tails to read go (`upstream/tails.rs`).
     pub tails: mpsc::Sender<TailRequest>,
     /// the stream as `boxbox.db` kept it (`persist::resume`).
@@ -408,6 +436,7 @@ pub struct Restored {
     pub clears: Clears,
     pub adopted: Vec<(String, Option<ThreadFacts>)>,
     pub colours: Colours,
+    pub home: HomePrefs,
 }
 
 /// the ledger, the read marks, the clears, the adopted threads and the repo colours as
@@ -426,6 +455,11 @@ pub async fn restore(store: &Store) -> Result<Restored, crate::store::StoreError
             for key in dropped {
                 clears::remove(connection, &key)?;
             }
+            let (clears, dropped) = clears.with_kept(clears::load_kept(connection)?);
+            for key in dropped {
+                clears::remove_kept(connection, &key)?;
+            }
+            let home = crate::prefs::load_home(connection)?;
             let adopted = adopted::load(connection)?
                 .into_iter()
                 .filter_map(|(key, info)| {
@@ -444,6 +478,7 @@ pub async fn restore(store: &Store) -> Result<Restored, crate::store::StoreError
                 clears,
                 adopted,
                 colours,
+                home,
             })
         })
         .await
@@ -657,6 +692,51 @@ impl Fleet {
         answer.await.map_err(|_| Stopped)
     }
 
+    /// brings each of `keys` back to home and keeps it from the sweep until
+    /// it is updated (`model::Model::unclear`).
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn unclear(
+        &self,
+        keys: Vec<String>,
+    ) -> Result<Vec<(String, Result<(), UnclearRefused>)>, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::Unclear { keys, reply }).await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
+    /// a person acknowledged the away summary; how many rows it held.
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn away_seen(&self) -> Result<usize, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::AwaySeen { reply }).await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
+    /// the person's home prefs, once committed: the sweep and the badge follow them now.
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    pub async fn home(&self, home: HomePrefs) -> Result<(), Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::Home { home, reply }).await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
+    /// runs a sweep now, on the clock `at`.
+    ///
+    /// # Errors
+    /// the actor has stopped.
+    #[cfg(test)]
+    pub async fn sweep_at(&self, at: i64) -> Result<model::Swept, Stopped> {
+        let (reply, answer) = oneshot::channel();
+        self.command(Command::SweepAt { at, reply }).await?;
+        answer.await.map_err(|_| Stopped)
+    }
+
     /// a thread read from its daemon joins the fleet, if it is not in it.
     ///
     /// # Errors
@@ -863,6 +943,8 @@ pub fn spawn(
         wiring.adopted,
         wiring.colours,
     );
+    // no session is held yet, so this moves no order
+    model.set_home(wiring.home);
     let broken = model.resume(resumed.model);
     info!(
         epoch = resumed.epoch,
@@ -893,7 +975,10 @@ pub fn spawn(
         persist: persist::Persist::new(resumed.reserved, resumed.graves, Some(batch_tx)),
         cursors: resumed.cursors,
         unasked: Vec::new(),
+        away: Vec::new(),
+        next_sweep: tokio::time::Instant::now() + SWEEP_FIRST,
     };
+    actor.away = actor.model.away();
     if resumed.rewrite || broken > 0 {
         actor.mark_all();
     }
@@ -998,6 +1083,10 @@ struct Actor {
     /// each connection's cursor whose effects the model holds: its epoch
     /// from the last host read, its seq the newest event applied.
     cursors: std::collections::HashMap<String, Cursor>,
+    /// the away summary as every stream last heard it.
+    away: Vec<AwayThread>,
+    /// when the auto-clear sweep runs next.
+    next_sweep: tokio::time::Instant,
 }
 
 /// where the model's effects go.
@@ -1033,6 +1122,12 @@ enum Persist {
     Unadopt(String),
     /// with where to say it was committed, for a person's choice.
     Colour(colours::Write, Option<oneshot::Sender<bool>>),
+    Keep {
+        key: String,
+        kept: clears::Kept,
+    },
+    Unkeep(String),
+    AwayAcked,
 }
 
 /// the fleet's writer: raises, serves and marks go to the store in order,
@@ -1049,6 +1144,8 @@ async fn persister(store: Store, mut writes: mpsc::Receiver<Persist>) {
             Persist::Forget(key) => format!("read marks of {key}"),
             Persist::Clear { key, .. } => format!("clear mark on {key}"),
             Persist::Unclear(key) => format!("clear mark of {key}"),
+            Persist::Keep { key, .. } | Persist::Unkeep(key) => format!("kept mark of {key}"),
+            Persist::AwayAcked => "the away summary's acknowledgement".to_owned(),
             Persist::Adopt { key, .. } | Persist::Unadopt(key) => format!("adopted thread {key}"),
             Persist::Colour(
                 colours::Write::Put { host, root, .. } | colours::Write::Remove { host, root },
@@ -1065,6 +1162,9 @@ async fn persister(store: Store, mut writes: mpsc::Receiver<Persist>) {
                 Persist::Adopt { key, info, at } => adopted::save(connection, &key, &info, at),
                 Persist::Unadopt(key) => adopted::remove(connection, &key),
                 Persist::Colour(write, _) => colours::save(connection, &write),
+                Persist::Keep { key, kept } => clears::save_kept(connection, &key, kept),
+                Persist::Unkeep(key) => clears::remove_kept(connection, &key),
+                Persist::AwayAcked => clears::ack_away(connection),
             })
             .await;
         if let Some(ack) = ack {
@@ -1132,6 +1232,10 @@ impl Actor {
                 // ahead of the events, so a stream of them cannot starve held text
                 () = tokio::time::sleep(until(deltas_due)), if deltas_due.is_some() => self.flush_deltas(),
                 () = tokio::time::sleep(until(due)), if due.is_some() => self.flush_tails(),
+                () = tokio::time::sleep_until(self.next_sweep) => {
+                    self.next_sweep = tokio::time::Instant::now() + SWEEP_EVERY;
+                    self.sweep(crate::now_ms());
+                }
                 // exists only while a board listens and its picture may move
                 () = tokio::time::sleep_until(board_due.unwrap_or_else(tokio::time::Instant::now)), if board_due.is_some() => self.board_tick(),
                 changed = looking.changed(), if watching => match changed {
@@ -1213,6 +1317,32 @@ impl Actor {
             }
             Command::ClearedAmong { rows, reply } => {
                 let _ = reply.send(self.model.cleared_among(&rows));
+            }
+            Command::Unclear { keys, reply } => {
+                let (changes, answers) = self.model.unclear(&keys);
+                self.publish_all(changes);
+                let _ = reply.send(answers);
+            }
+            Command::AwaySeen { reply } => {
+                let held = self.model.away_seen();
+                self.publish_all(Vec::new());
+                let _ = reply.send(held);
+            }
+            Command::Home { home, reply } => {
+                let before = self.model.home();
+                let changes = self.model.set_home(home);
+                info!(
+                    auto_clear = home.auto_clear.as_str(),
+                    jobs_as_needs = home.jobs_as_needs,
+                    was = before.auto_clear.as_str(),
+                    "the fleet follows the new home prefs"
+                );
+                self.publish_all(changes);
+                let _ = reply.send(());
+            }
+            #[cfg(test)]
+            Command::SweepAt { at, reply } => {
+                let _ = reply.send(self.sweep(at));
             }
             Command::Adopt {
                 host,
@@ -1415,6 +1545,52 @@ impl Actor {
         self.model.at(now);
         let changes = self.model.flush_tails();
         self.publish_all(changes);
+    }
+
+    /// the auto-clear sweep, on the clock `now` (decision 93): one log line
+    /// whatever it did; a telemetry row when it cleared; an `autoCleared`
+    /// frame when a device was looking. the away summary follows from the
+    /// clears it took (`publish_all`).
+    fn sweep(&mut self, now: i64) -> model::Swept {
+        let started = std::time::Instant::now();
+        #[cfg(feature = "record")]
+        record::sweep(now);
+        self.model.at(now);
+        let (changes, swept) = self.model.sweep();
+        self.publish_all(changes);
+        // with auto-clear off the timer still fires, to spend kept marks, and says nothing
+        if swept.mode == crate::prefs::AutoClear::Never {
+            return swept;
+        }
+        let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        info!(
+            swept = swept.windows,
+            cleared = swept.cleared.len(),
+            mode = swept.mode.as_str(),
+            away = swept.away,
+            ms,
+            "home swept"
+        );
+        if !swept.cleared.is_empty() {
+            self.outside.telemetry.record(&json!({
+                "kind": "home.swept",
+                "ok": true,
+                "ms": ms,
+                "props": {
+                    "mode": swept.mode.as_str(),
+                    "swept": swept.windows,
+                    "cleared": swept.cleared.len(),
+                    "away": u8::from(swept.away),
+                },
+            }));
+            if !swept.away {
+                self.settle_frame(&SettleFrame::AutoCleared {
+                    keys: swept.cleared.clone(),
+                    at: now,
+                });
+            }
+        }
+        swept
     }
 
     /// the text deltas whose 100 ms batch is due go into the journal.
@@ -1699,10 +1875,25 @@ impl Actor {
         if self.board.is_some() {
             self.board_tick();
         }
+        let mut away_moved = false;
         for effect in self.model.drain() {
             match effect {
                 Effect::ReadTail(request) => self.ask_tail(request),
-                effect => self.outside.effect(effect),
+                effect => {
+                    away_moved |= matches!(
+                        effect,
+                        Effect::Cleared { .. } | Effect::Uncleared(_) | Effect::AwayAcked
+                    );
+                    self.outside.effect(effect);
+                }
+            }
+        }
+        // only a clear taken, spent or acknowledged moves the away summary
+        if away_moved {
+            let away = self.model.away();
+            if away != self.away {
+                self.away.clone_from(&away);
+                self.settle_frame(&SettleFrame::Away { threads: away });
             }
         }
         for key in std::mem::take(&mut self.unasked) {
@@ -1905,6 +2096,28 @@ impl Actor {
         }
     }
 
+    /// a settle frame for every stream: id-less, outside the journal.
+    fn settle_frame(&mut self, frame: &SettleFrame) {
+        match serde_json::to_vec(frame) {
+            Ok(json) => self.deliver(&sse_frame(None, &json), None),
+            Err(e) => error!(error = %e, "a settle frame did not serialize; it is not sent"),
+        }
+    }
+
+    /// the away summary as it stands, as every stream gets it after the colours.
+    fn away_frame(&self) -> Option<Bytes> {
+        let frame = SettleFrame::Away {
+            threads: self.away.clone(),
+        };
+        match serde_json::to_vec(&frame) {
+            Ok(json) => Some(sse_frame(None, &json)),
+            Err(e) => {
+                error!(error = %e, "the away summary did not serialize; it is not sent");
+                None
+            }
+        }
+    }
+
     /// the whole colour map, as every stream gets it first.
     fn colour_map(&self) -> Option<Bytes> {
         let frame = ColourFrame::Colours {
@@ -1965,6 +2178,7 @@ impl Actor {
         let mut frames = Vec::new();
         frames.extend(self.hello(id, &opening.interest));
         frames.extend(self.colour_map());
+        frames.extend(self.away_frame());
         let head = self.journal.head();
         let reason = match &opening.from {
             From::Start => Some(ResetReason::None),
@@ -2305,10 +2519,10 @@ impl Outside {
                     self.push
                         .served(need.id.clone(), by.label().to_owned(), how.as_str());
                 } else {
-                    let cleared = if how == needs::How::Expired {
-                        "expired"
-                    } else {
-                        "agent"
+                    let cleared = match how {
+                        needs::How::Expired => "expired",
+                        needs::How::Cleared => "auto",
+                        _ => "agent",
                     };
                     self.telemetry.record(&json!({
                         "kind": "need.cleared",
@@ -2337,6 +2551,9 @@ impl Outside {
             Effect::ReadForgotten(key) => self.persist(Persist::Forget(key)),
             Effect::Cleared { key, clear } => self.persist(Persist::Clear { key, clear }),
             Effect::Uncleared(key) => self.persist(Persist::Unclear(key)),
+            Effect::Kept { key, kept } => self.persist(Persist::Keep { key, kept }),
+            Effect::Unkept(key) => self.persist(Persist::Unkeep(key)),
+            Effect::AwayAcked => self.persist(Persist::AwayAcked),
             Effect::Adopted { key, info } => self.persist(Persist::Adopt {
                 key,
                 info: info.get().to_owned(),
@@ -2404,6 +2621,8 @@ mod tests {
             persist: persist::Persist::detached(),
             cursors: std::collections::HashMap::new(),
             unasked: Vec::new(),
+            away: Vec::new(),
+            next_sweep: tokio::time::Instant::now() + SWEEP_FIRST,
         }
     }
 
@@ -3241,6 +3460,7 @@ mod tests {
                 clears: Clears::default(),
                 adopted: Vec::new(),
                 colours: Colours::default(),
+                home: HomePrefs::default(),
                 tails: mpsc::channel(TAIL_REQUESTS).0,
                 resumed,
             },

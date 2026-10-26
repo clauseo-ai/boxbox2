@@ -231,6 +231,35 @@ const MIGRATIONS: &[&str] = &[
          epoch TEXT NOT NULL,
          seq INTEGER NOT NULL CHECK (seq >= 0)
      ) STRICT;",
+    // 12. a fifth pref scope (`src/prefs.rs`): the person's own settings,
+    // one document for every device (subject `home`: auto-clear, the working
+    // fold, job notices; decision 93). rebuilt around its rows, as in 6.
+    "CREATE TABLE prefs_next (
+         scope TEXT NOT NULL CHECK (scope IN ('device', 'repo', 'models', 'colour', 'person')),
+         subject TEXT NOT NULL CHECK (length(subject) BETWEEN 1 AND 1024),
+         value TEXT NOT NULL CHECK (json_valid(value)),
+         updated_at INTEGER NOT NULL,
+         PRIMARY KEY (scope, subject)
+     ) STRICT;
+     INSERT INTO prefs_next SELECT scope, subject, value, updated_at FROM prefs;
+     DROP TABLE prefs;
+     ALTER TABLE prefs_next RENAME TO prefs;",
+    // 13. auto-clear and the away summary (`src/fleet/clears.rs`, decisions
+    // 93 and 94): who took each clear (`hand` or `auto`), whether nobody was
+    // looking, when the thread settled and was seen (server ms, auto-clears
+    // only), and whether a person acknowledged the away summary that held
+    // it; and the threads a person brought back, kept from the sweep until
+    // their `time.updated` moves past the one they had then.
+    "ALTER TABLE clears ADD COLUMN cause TEXT NOT NULL DEFAULT 'hand' CHECK (cause IN ('hand', 'auto'));
+     ALTER TABLE clears ADD COLUMN away INTEGER NOT NULL DEFAULT 0 CHECK (away IN (0, 1));
+     ALTER TABLE clears ADD COLUMN done_at INTEGER;
+     ALTER TABLE clears ADD COLUMN seen_at INTEGER;
+     ALTER TABLE clears ADD COLUMN acked INTEGER NOT NULL DEFAULT 0 CHECK (acked IN (0, 1));
+     CREATE TABLE kept (
+         session TEXT PRIMARY KEY,
+         updated REAL NOT NULL,
+         kept_at INTEGER NOT NULL
+     ) STRICT;",
 ];
 
 // the board's pairings (`src/board/store.rs`) are not a migration: the
@@ -378,6 +407,53 @@ mod tests {
             .query_row("SELECT count(*) FROM prefs", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 2);
+    }
+
+    #[test]
+    fn the_person_scope_and_the_auto_clear_columns_keep_what_was_there() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        migrate_with(&mut connection, &MIGRATIONS[..11]).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO prefs (scope, subject, value, updated_at) VALUES ('colour', 'desk:/w', '{}', 7);
+                 INSERT INTO clears (session, mark, cleared_at) VALUES ('desk:ses_1', 5.0, 9);",
+            )
+            .unwrap();
+        assert_eq!(migrate(&mut connection).unwrap(), VERSION - 11);
+        connection
+            .execute(
+                "INSERT INTO prefs (scope, subject, value, updated_at) VALUES ('person', 'home', '{}', 8)",
+                [],
+            )
+            .unwrap();
+        let rows: i64 = connection
+            .query_row("SELECT count(*) FROM prefs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(rows, 2);
+        // a clear taken before the sweep existed reads as a hand clear nobody has to acknowledge
+        let (cause, away, done, acked): (String, i64, Option<i64>, i64) = connection
+            .query_row(
+                "SELECT cause, away, done_at, acked FROM clears WHERE session = 'desk:ses_1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!((cause.as_str(), away, done, acked), ("hand", 0, None, 0));
+        assert!(
+            connection
+                .execute(
+                    "INSERT INTO clears (session, mark, cleared_at, cause) VALUES ('d:x', 1.0, 1, 'robot')",
+                    [],
+                )
+                .is_err(),
+            "a cause is hand or auto"
+        );
+        connection
+            .execute(
+                "INSERT INTO kept (session, updated, kept_at) VALUES ('desk:ses_1', 5.0, 10)",
+                [],
+            )
+            .unwrap();
     }
 
     #[test]

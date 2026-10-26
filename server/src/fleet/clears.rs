@@ -12,6 +12,12 @@
 //! clearing is not destructive. the thread stays in the daemon and in
 //! history; only home's membership changes.
 //!
+//! a mark is taken by hand (`POST /api/clear`) or by the auto-clear sweep
+//! (`Model::sweep`, decision 93), which keeps beside it when the thread
+//! settled and was seen and whether anyone was looking (the away summary,
+//! decision 94). an unclear takes a mark back and keeps the thread from the
+//! sweep until it is updated again (`Kept`).
+//!
 //! the model owns the marks in memory and the actor mirrors every move to
 //! the `clears` table in `boxbox.db`, loading them back at start. a mark is
 //! a session key and two numbers, so the cap below bounds the table and the
@@ -26,12 +32,80 @@ use rusqlite::{Connection, params};
 /// the last 12 hours), so the oldest is the least likely to be missed.
 pub const MAX_CLEARS: usize = 2000;
 
+/// who took a clear.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Cause {
+    /// a person, from a window or the bar.
+    #[default]
+    Hand,
+    /// the server's sweep: the thread settled and the person's rule said it may go.
+    Auto,
+}
+
+impl Cause {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Hand => "hand",
+            Self::Auto => "auto",
+        }
+    }
+
+    fn parse(text: &str) -> Self {
+        if text == "auto" {
+            Self::Auto
+        } else {
+            Self::Hand
+        }
+    }
+}
+
 /// one thread's clear.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Clear {
     /// the session's `time.updated` when it was cleared, ms on the daemon's clock.
     pub mark: f64,
     /// when the server took the clear, ms on its own clock: what the cap evicts by.
+    pub at: i64,
+    pub cause: Cause,
+    /// an auto-clear no device was looking at (decision 23): it joins the away
+    /// summary until a person acknowledges it.
+    pub away: bool,
+    /// when the thread settled (its done was raised, or it went quiet), ms on
+    /// the server's clock; auto-clears only.
+    pub done_at: Option<i64>,
+    /// when a person had seen it through its newest message, ms on the
+    /// server's clock; auto-clears only, and only when it was seen.
+    pub seen_at: Option<i64>,
+    /// a person acknowledged the away summary that held it.
+    pub acked: bool,
+}
+
+impl Clear {
+    /// a clear by hand, as `POST /api/clear` takes it.
+    #[must_use]
+    pub fn hand(mark: f64, at: i64) -> Self {
+        Self {
+            mark,
+            at,
+            ..Self::default()
+        }
+    }
+
+    /// whether it belongs in the away summary, while it holds.
+    #[must_use]
+    pub fn in_away(&self) -> bool {
+        self.cause == Cause::Auto && self.away && !self.acked
+    }
+}
+
+/// a thread a person brought back (an undo, or "bring back" from the away
+/// summary): the sweep leaves it alone until it is updated past `updated`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Kept {
+    /// the session's `time.updated` at the unclear, ms on the daemon's clock.
+    pub updated: f64,
+    /// when the server took the unclear, ms on its own clock: what the cap evicts by.
     pub at: i64,
 }
 
@@ -39,6 +113,8 @@ pub struct Clear {
 pub struct Clears {
     /// by session key.
     marks: HashMap<String, Clear>,
+    /// by session key, at most `MAX_CLEARS`.
+    kept: HashMap<String, Kept>,
 }
 
 impl Clears {
@@ -59,14 +135,83 @@ impl Clears {
         (
             Self {
                 marks: kept.into_iter().collect(),
+                kept: HashMap::new(),
             },
             dropped,
         )
     }
 
+    /// the same, holding the kept marks the store kept too (newest
+    /// `MAX_CLEARS`), and the keys of the older ones to delete.
+    #[must_use]
+    pub fn with_kept(mut self, mut kept: Vec<(String, Kept)>) -> (Self, Vec<String>) {
+        kept.sort_by_key(|(_, k)| std::cmp::Reverse(k.at));
+        let dropped = if kept.len() > MAX_CLEARS {
+            kept.split_off(MAX_CLEARS)
+                .into_iter()
+                .map(|(key, _)| key)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.kept = kept.into_iter().collect();
+        (self, dropped)
+    }
+
     #[must_use]
     pub fn get(&self, key: &str) -> Option<Clear> {
         self.marks.get(key).copied()
+    }
+
+    /// every mark, in no order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Clear)> {
+        self.marks.iter().map(|(key, clear)| (key.as_str(), clear))
+    }
+
+    /// acknowledges every auto-clear in the away summary; returns their keys.
+    pub fn ack_away(&mut self) -> Vec<String> {
+        let mut acked = Vec::new();
+        for (key, clear) in &mut self.marks {
+            if clear.in_away() {
+                clear.acked = true;
+                acked.push(key.clone());
+            }
+        }
+        acked
+    }
+
+    #[must_use]
+    pub fn kept(&self, key: &str) -> Option<Kept> {
+        self.kept.get(key).copied()
+    }
+
+    /// keeps `key` from the sweep. returns the keys the cap pushed out.
+    pub fn keep(&mut self, key: &str, kept: Kept) -> Vec<String> {
+        self.kept.insert(key.to_owned(), kept);
+        let mut evicted = Vec::new();
+        while self.kept.len() > MAX_CLEARS {
+            let Some(oldest) = self
+                .kept
+                .iter()
+                .min_by(|a, b| a.1.at.cmp(&b.1.at).then_with(|| a.0.cmp(b.0)))
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            self.kept.remove(&oldest);
+            evicted.push(oldest);
+        }
+        evicted
+    }
+
+    /// true when `key` was kept.
+    pub fn unkeep(&mut self, key: &str) -> bool {
+        self.kept.remove(key).is_some()
+    }
+
+    /// the kept threads, in no order.
+    pub fn kept_iter(&self) -> impl Iterator<Item = (&str, &Kept)> {
+        self.kept.iter().map(|(key, kept)| (key.as_str(), kept))
     }
 
     /// holds `clear` for `key`, replacing its last one. returns the keys the cap pushed out.
@@ -91,6 +236,21 @@ impl Clears {
     /// true when `key` had a mark.
     pub fn remove(&mut self, key: &str) -> bool {
         self.marks.remove(key).is_some()
+    }
+
+    /// drops every kept mark of `host`'s sessions; returns their keys.
+    pub fn forget_host_kept(&mut self, host: &str) -> Vec<String> {
+        let prefix = format!("{host}:");
+        let gone: Vec<String> = self
+            .kept
+            .keys()
+            .filter(|key| key.starts_with(&prefix))
+            .cloned()
+            .collect();
+        for key in &gone {
+            self.kept.remove(key);
+        }
+        gone
     }
 
     /// drops every mark of `host`'s sessions; returns their keys.
@@ -133,7 +293,9 @@ impl Clears {
 /// # Errors
 /// sqlite's.
 pub fn load(connection: &Connection) -> rusqlite::Result<Vec<(String, Clear)>> {
-    let mut statement = connection.prepare("SELECT session, mark, cleared_at FROM clears")?;
+    let mut statement = connection.prepare(
+        "SELECT session, mark, cleared_at, cause, away, done_at, seen_at, acked FROM clears",
+    )?;
     statement
         .query_map([], |row| {
             Ok((
@@ -141,10 +303,68 @@ pub fn load(connection: &Connection) -> rusqlite::Result<Vec<(String, Clear)>> {
                 Clear {
                     mark: row.get(1)?,
                     at: row.get(2)?,
+                    cause: Cause::parse(&row.get::<_, String>(3)?),
+                    away: row.get(4)?,
+                    done_at: row.get(5)?,
+                    seen_at: row.get(6)?,
+                    acked: row.get(7)?,
                 },
             ))
         })?
         .collect()
+}
+
+/// every kept mark in the store, as `(session key, kept)`.
+///
+/// # Errors
+/// sqlite's.
+pub fn load_kept(connection: &Connection) -> rusqlite::Result<Vec<(String, Kept)>> {
+    let mut statement = connection.prepare("SELECT session, updated, kept_at FROM kept")?;
+    statement
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                Kept {
+                    updated: row.get(1)?,
+                    at: row.get(2)?,
+                },
+            ))
+        })?
+        .collect()
+}
+
+/// writes one session's kept mark, replacing the one it had.
+///
+/// # Errors
+/// sqlite's.
+pub fn save_kept(connection: &Connection, key: &str, kept: Kept) -> rusqlite::Result<()> {
+    connection.execute(
+        "INSERT INTO kept (session, updated, kept_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT (session) DO UPDATE SET updated = excluded.updated, kept_at = excluded.kept_at",
+        params![key, kept.updated, kept.at],
+    )?;
+    Ok(())
+}
+
+/// forgets a session's kept mark: it was updated, went away or was evicted.
+///
+/// # Errors
+/// sqlite's.
+pub fn remove_kept(connection: &Connection, key: &str) -> rusqlite::Result<()> {
+    connection.execute("DELETE FROM kept WHERE session = ?1", [key])?;
+    Ok(())
+}
+
+/// acknowledges every auto-clear the away summary holds, in one statement.
+///
+/// # Errors
+/// sqlite's.
+pub fn ack_away(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute(
+        "UPDATE clears SET acked = 1 WHERE cause = 'auto' AND away = 1 AND acked = 0",
+        [],
+    )?;
+    Ok(())
 }
 
 /// writes one session's mark, replacing the one it had.
@@ -153,9 +373,21 @@ pub fn load(connection: &Connection) -> rusqlite::Result<Vec<(String, Clear)>> {
 /// sqlite's.
 pub fn save(connection: &Connection, key: &str, clear: Clear) -> rusqlite::Result<()> {
     connection.execute(
-        "INSERT INTO clears (session, mark, cleared_at) VALUES (?1, ?2, ?3)
-         ON CONFLICT (session) DO UPDATE SET mark = excluded.mark, cleared_at = excluded.cleared_at",
-        params![key, clear.mark, clear.at],
+        "INSERT INTO clears (session, mark, cleared_at, cause, away, done_at, seen_at, acked)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT (session) DO UPDATE SET mark = excluded.mark, cleared_at = excluded.cleared_at,
+           cause = excluded.cause, away = excluded.away, done_at = excluded.done_at,
+           seen_at = excluded.seen_at, acked = excluded.acked",
+        params![
+            key,
+            clear.mark,
+            clear.at,
+            clear.cause.as_str(),
+            clear.away,
+            clear.done_at,
+            clear.seen_at,
+            clear.acked
+        ],
     )?;
     Ok(())
 }
@@ -174,7 +406,7 @@ mod tests {
     use super::*;
 
     fn clear(mark: f64, at: i64) -> Clear {
-        Clear { mark, at }
+        Clear::hand(mark, at)
     }
 
     #[test]
@@ -251,5 +483,75 @@ mod tests {
             restored.get("d:s0").is_none(),
             "the oldest five are dropped"
         );
+    }
+
+    #[test]
+    fn an_auto_clear_keeps_its_cause_times_and_away_flag_through_the_store() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        crate::store::migrate_for_tests(&mut connection);
+        let auto = Clear {
+            mark: 7.0,
+            at: 100,
+            cause: Cause::Auto,
+            away: true,
+            done_at: Some(40),
+            seen_at: None,
+            acked: false,
+        };
+        save(&connection, "d:a", auto).unwrap();
+        save(&connection, "d:h", clear(3.0, 50)).unwrap();
+        let (mut clears, _) = Clears::restore(load(&connection).unwrap());
+        assert_eq!(clears.get("d:a"), Some(auto));
+        assert_eq!(clears.get("d:h"), Some(clear(3.0, 50)));
+
+        assert_eq!(clears.ack_away(), ["d:a"]);
+        ack_away(&connection).unwrap();
+        let (again, _) = Clears::restore(load(&connection).unwrap());
+        assert!(again.get("d:a").unwrap().acked, "the ack is kept");
+        assert!(!clears.get("d:a").unwrap().in_away());
+        assert!(clears.ack_away().is_empty(), "nothing left to acknowledge");
+    }
+
+    #[test]
+    fn kept_marks_round_trip_and_honour_the_cap() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        crate::store::migrate_for_tests(&mut connection);
+        let kept = Kept {
+            updated: 9.0,
+            at: 5,
+        };
+        save_kept(&connection, "d:k", kept).unwrap();
+        let (clears, dropped) = Clears::default().with_kept(load_kept(&connection).unwrap());
+        assert!(dropped.is_empty());
+        assert_eq!(clears.kept("d:k"), Some(kept));
+        remove_kept(&connection, "d:k").unwrap();
+        assert!(load_kept(&connection).unwrap().is_empty());
+
+        let mut clears = Clears::default();
+        for n in 0..i64::try_from(MAX_CLEARS).unwrap() {
+            assert!(
+                clears
+                    .keep(
+                        &format!("d:k{n}"),
+                        Kept {
+                            updated: 1.0,
+                            at: n + 1
+                        }
+                    )
+                    .is_empty()
+            );
+        }
+        assert_eq!(
+            clears.keep(
+                "d:new",
+                Kept {
+                    updated: 1.0,
+                    at: 1_000_000
+                }
+            ),
+            ["d:k0"]
+        );
+        assert!(clears.unkeep("d:new"));
+        assert!(!clears.unkeep("d:new"));
     }
 }

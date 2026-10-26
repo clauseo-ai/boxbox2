@@ -44,9 +44,9 @@ pub use part::{
 };
 pub use send::{Accepted, AcceptedState, AnswerBody, Attachment, Born, Send, Start, Unsupported};
 pub use stream::{
-    Change, ColourFrame, Control, ENCODER, Fleet, Interest, InterestPost, JournalEntry, OrderOp,
-    PROTOCOL, RepoColour, ResetReason, StreamFrame, TailPatch, TextOf, ThreadField, ThreadPatch,
-    ThreadSet,
+    AwayThread, Change, ColourFrame, Control, ENCODER, Fleet, Interest, InterestPost, JournalEntry,
+    OrderOp, PROTOCOL, RepoColour, ResetReason, SettleFrame, StreamFrame, TailPatch, TextOf,
+    ThreadField, ThreadPatch, ThreadSet,
 };
 pub use thread::{
     Activity, Changes, Context, ForkedFrom, Place, SendState, SendStateKind, TailItem, TailKind,

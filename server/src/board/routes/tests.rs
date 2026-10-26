@@ -49,6 +49,7 @@ fn real_fleet(
             clears: fleet::clears::Clears::default(),
             adopted: Vec::new(),
             colours: fleet::colours::Colours::default(),
+            home: crate::prefs::HomePrefs::default(),
             tails: mpsc::channel(fleet::TAIL_REQUESTS).0,
             resumed: fleet::persist::Resumed::fresh(),
         },

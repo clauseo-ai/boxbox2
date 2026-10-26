@@ -1,5 +1,6 @@
-//! a thread leaving and returning: clear it off home, archive it, and open
-//! one the fleet does not hold (`docs/home.md`, clearing; `docs/design.md`,
+//! a thread leaving and returning: clear it off home, bring it back
+//! (unclear), acknowledge what the sweep cleared while nobody looked, archive
+//! it, and open one the fleet does not hold (`docs/home.md`, clearing; `docs/design.md`,
 //! the thread menu).
 //!
 //! clearing is boxbox's own state (`fleet/clears.rs`) and never touches the
@@ -25,7 +26,7 @@ use super::AppState;
 use super::agents;
 use super::asks::{device_of, segment};
 use super::error::{ApiError, ErrorBody};
-use crate::fleet::model::{ClearRefused, session_key};
+use crate::fleet::model::{ClearRefused, UnclearRefused, session_key};
 use crate::push::Thread;
 use crate::source::cmx2::translate;
 #[cfg(test)]
@@ -181,6 +182,183 @@ pub async fn clear(
         },
     }));
     Ok(Json(done))
+}
+
+/// threads to bring back to home, and from which control.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UnclearBody {
+    pub device: String,
+    pub device_class: String,
+    /// `host:session`, at most 300.
+    pub keys: Vec<String>,
+    pub source: UnclearSource,
+}
+
+/// which control brought them back, for telemetry.
+#[derive(Clone, Copy, Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum UnclearSource {
+    /// the undo after a clear, from this device or the sweep.
+    Undo,
+    /// "bring back" in the away summary.
+    Away,
+}
+
+impl UnclearSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Undo => "undo",
+            Self::Away => "away",
+        }
+    }
+}
+
+/// how an unclear went: the threads back on home, and the ones that were not cleared.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct Uncleared {
+    /// the threads back on home, kept from the sweep until they are updated.
+    pub uncleared: Vec<String>,
+    pub refused: Vec<NotUncleared>,
+}
+
+/// a thread that was not brought back, and why.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NotUncleared {
+    pub key: String,
+    pub why: NotUnclearedWhy,
+    pub message: String,
+}
+
+/// `notcleared`: it is on home already (it came back by itself), so a client
+/// may take it as done; `unknown`: the fleet does not hold it.
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum NotUnclearedWhy {
+    Notcleared,
+    Unknown,
+}
+
+impl NotUnclearedWhy {
+    fn words(self) -> &'static str {
+        match self {
+            Self::Notcleared => "it is on home already",
+            Self::Unknown => "boxbox does not hold that thread any more",
+        }
+    }
+}
+
+/// brings threads back to home on every device, where their order puts
+/// them, and keeps the sweep off each until it is updated again
+/// (decision 93).
+#[utoipa::path(
+    post,
+    path = "/api/unclear",
+    request_body = UnclearBody,
+    responses(
+        (status = 200, description = "which threads came back and which were not cleared", body = Uncleared),
+        (status = 400, description = "not an unclear", body = ErrorBody),
+        (status = 401, description = "not signed in", body = ErrorBody),
+        (status = 503, description = "the server is stopping", body = ErrorBody),
+    ),
+)]
+pub async fn unclear(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<UnclearBody>,
+) -> Result<Json<Uncleared>, ApiError> {
+    let device = device_of(&body.device, &body.device_class)?;
+    if body.keys.is_empty() || body.keys.len() > MAX_KEYS {
+        return Err(ApiError::BadRequest(format!(
+            "send between 1 and {MAX_KEYS} threads to bring back"
+        )));
+    }
+    if let Some(bad) = body.keys.iter().find(|key| Thread::parse(key).is_none()) {
+        return Err(ApiError::BadRequest(format!(
+            "\"{bad}\" is not a thread; send host:session"
+        )));
+    }
+    let answers = state
+        .fleet
+        .unclear(body.keys)
+        .await
+        .map_err(|_| ApiError::Stopping)?;
+    let mut done = Uncleared {
+        uncleared: Vec::new(),
+        refused: Vec::new(),
+    };
+    for (key, answer) in answers {
+        match answer {
+            Ok(()) => done.uncleared.push(key),
+            Err(refused) => {
+                let why = match refused {
+                    UnclearRefused::NotCleared => NotUnclearedWhy::Notcleared,
+                    UnclearRefused::NoSuchSession => NotUnclearedWhy::Unknown,
+                };
+                done.refused.push(NotUncleared {
+                    key,
+                    why,
+                    message: why.words().to_owned(),
+                });
+            }
+        }
+    }
+    info!(
+        device = %device.id,
+        uncleared = done.uncleared.len(),
+        refused = done.refused.len(),
+        source = body.source.as_str(),
+        "threads brought back to home"
+    );
+    state.telemetry.record(&json!({
+        "kind": "thread.uncleared",
+        "ok": done.refused.is_empty(),
+        "props": {
+            "source": body.source.as_str(),
+            "count": done.uncleared.len(),
+            "refused": done.refused.len(),
+        },
+    }));
+    Ok(Json(done))
+}
+
+/// the device that acknowledged the away summary.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AwaySeenBody {
+    pub device: String,
+    pub device_class: String,
+}
+
+/// acknowledges the away summary on every device: the threads it held stay
+/// cleared and leave it (decision 94). every stream hears the empty summary.
+#[utoipa::path(
+    post,
+    path = "/api/away/seen",
+    request_body = AwaySeenBody,
+    responses(
+        (status = 204, description = "acknowledged"),
+        (status = 400, description = "not a device", body = ErrorBody),
+        (status = 401, description = "not signed in", body = ErrorBody),
+        (status = 503, description = "the server is stopping", body = ErrorBody),
+    ),
+)]
+pub async fn away_seen(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<AwaySeenBody>,
+) -> Result<StatusCode, ApiError> {
+    let device = device_of(&body.device, &body.device_class)?;
+    let held = state
+        .fleet
+        .away_seen()
+        .await
+        .map_err(|_| ApiError::Stopping)?;
+    info!(device = %device.id, held, "the away summary was acknowledged");
+    state.telemetry.record(&json!({
+        "kind": "away.seen",
+        "ok": true,
+        "props": { "count": held, "class": device.class },
+    }));
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// the part of a session an archive's answer is read for.

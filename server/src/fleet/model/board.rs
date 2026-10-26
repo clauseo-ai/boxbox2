@@ -81,7 +81,7 @@ impl Model {
 
     /// `windowKeys`, for one key of the order: not a subagent, not cleared
     /// off home, and active (a status, or an ask) or touched in the last 12 h.
-    fn is_home_window(
+    pub(super) fn is_home_window(
         &self,
         key: &str,
         subagent: bool,

@@ -1,5 +1,6 @@
 //! preferences: `GET /api/prefs`, `PUT /api/prefs/devices/{device}`,
-//! `PUT /api/prefs/repos`, `PUT /api/prefs/models` and `PUT /api/prefs/colours`. what each
+//! `PUT /api/prefs/repos`, `PUT /api/prefs/models`, `PUT /api/prefs/colours` and
+//! `PUT /api/prefs/home`. what each
 //! holds and how long it is kept is `src/prefs.rs`; a repo's colour is the fleet's
 //! (`src/fleet/colours.rs`), and every client hears it on the stream.
 
@@ -15,7 +16,7 @@ use super::error::{ApiError, ErrorBody};
 use crate::fleet::Chosen;
 use crate::fleet::colours;
 use crate::fleet::model::ColourRefused;
-use crate::prefs::{self, DevicePrefs, ModelPrefs, Prefs, RepoPrefs};
+use crate::prefs::{self, DevicePrefs, HomePrefs, ModelPrefs, Prefs, RepoPrefs};
 use crate::wire::RepoColour;
 
 /// a model id or an effort longer than this is not one a daemon lists.
@@ -75,6 +76,41 @@ pub async fn device(
         .await
         .map_err(|_| ApiError::StoreDown)?;
     tracing::info!(%device, theme = ?value.theme, motion = ?value.motion, "device prefs saved");
+    Ok(Json(value))
+}
+
+/// sets the person's home prefs, the same on every device (decisions 93 to
+/// 95). answered once the row is committed and the fleet follows them: the
+/// sweep's rule from its next run, the order and the badge at once.
+#[utoipa::path(
+    put,
+    path = "/api/prefs/home",
+    request_body = HomePrefs,
+    responses(
+        (status = 200, description = "saved", body = HomePrefs),
+        (status = 400, description = "not a home pref", body = ErrorBody),
+        (status = 401, description = "not signed in", body = ErrorBody),
+        (status = 503, description = "the store is not answering, or the server is stopping", body = ErrorBody),
+    ),
+)]
+pub async fn home(
+    State(state): State<Arc<AppState>>,
+    Json(value): Json<HomePrefs>,
+) -> Result<Json<HomePrefs>, ApiError> {
+    prefs::put_home(&state.store, value)
+        .await
+        .map_err(|_| ApiError::StoreDown)?;
+    state
+        .fleet
+        .home(value)
+        .await
+        .map_err(|_| ApiError::Stopping)?;
+    tracing::info!(
+        auto_clear = value.auto_clear.as_str(),
+        fold_working = value.fold_working,
+        jobs_as_needs = value.jobs_as_needs,
+        "home prefs saved"
+    );
     Ok(Json(value))
 }
 

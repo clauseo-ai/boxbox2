@@ -398,8 +398,8 @@ export const EVENTS = {
       need: { type: "TEXT", doc: "which kind", required: true },
       by: {
         type: "TEXT",
-        doc: "who cleared it. the SERVER always fills this — the need tracker owns the attribution because only it knows when the raise happened and whether serving evidence landed. a client emitting this kind is sending a signal, not a record: the route hands it to the tracker and never stores the client's row.",
-        values: ["him", "agent", "expired"],
+        doc: "who cleared it. the SERVER always fills this — the need tracker owns the attribution because only it knows when the raise happened and whether serving evidence landed. a client emitting this kind is sending a signal, not a record: the route hands it to the tracker and never stores the client's row. auto: the auto-clear sweep took the thread off home and served its done and job needs (decision 93).",
+        values: ["him", "agent", "expired", "auto"],
       },
       ageMs: { type: "INTEGER", doc: "how long it stood." },
     },
@@ -624,6 +624,30 @@ export const EVENTS = {
       refused: { type: "INTEGER", doc: "threads asked for and not cleared." },
     },
   },
+  "thread.uncleared": {
+    doc: "v2: threads were brought back to home: the undo after a clear (from this device, or after the sweep cleared while he was looking) or 'bring back' in the away summary (decision 93). a thread brought back is kept from the sweep until it is updated. ok is 1 when every thread asked for came back; refused counts the ones that were not cleared (already back on their own, or not in the fleet). the share of auto-clears undone says whether the sweep's rule clears what people still want.",
+    props: {
+      source: { type: "TEXT", doc: "the control: undo (the toast or cmd-z) or away (the away summary's bring back).", values: ["undo", "away"], required: true },
+      count: { type: "INTEGER", doc: "threads brought back.", required: true },
+      refused: { type: "INTEGER", doc: "threads asked for and not brought back." },
+    },
+  },
+  "home.swept": {
+    doc: "v2: the server's auto-clear sweep cleared finished threads off home (decision 93). one row per sweep that cleared at least one; every sweep, clearing or not, logs one line. ms is how long the sweep took on the fleet task.",
+    props: {
+      mode: { type: "TEXT", doc: "the person's rule: seen1h (an hour after seen through the newest message) or any3h (three hours after it settled).", values: ["seen1h", "any3h"], required: true },
+      swept: { type: "INTEGER", doc: "home windows the sweep looked at (at most 300).", required: true },
+      cleared: { type: "INTEGER", doc: "threads it cleared.", required: true },
+      away: { type: "INTEGER", doc: "1: no device was looking (decision 23), so the clears joined the away summary. 0: a looking device was offered the undo." },
+    },
+  },
+  "away.seen": {
+    doc: "v2: a device acknowledged the away summary ('N cleared while you were away'), by opening show or dismissing the line (decision 94). its threads stay cleared and leave the summary on every device.",
+    props: {
+      count: { type: "INTEGER", doc: "rows the summary held when it was acknowledged.", required: true },
+      class: { type: "TEXT", doc: "the device class that acknowledged it (iphone, mac, ...)." },
+    },
+  },
   "thread.archived": {
     doc: "v2: a thread was archived from its menu. ok is the daemon's answer (cmx2's PATCH with time.archived), never the tap: null when the daemon took the patch and did not answer in time, or answered past reading (it may be archived).",
     props: {},
@@ -730,8 +754,8 @@ export const EVENTS = {
     props: {
       control: {
         type: "TEXT",
-        doc: "what was tapped: a window, the capsule, back, or a window's answer pill (option was a window's own option button, which no longer exists)",
-        values: ["window", "capsule", "back", "option", "answer"],
+        doc: "what was tapped: a window, the capsule, back, a window's answer pill, or a row of the working fold's list (option was a window's own option button, which no longer exists)",
+        values: ["window", "capsule", "back", "option", "answer", "fold"],
         required: true,
       },
       arrangement: { type: "TEXT", doc: "the layout at the time", values: ["deck", "strip", "rail"], required: true },

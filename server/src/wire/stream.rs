@@ -544,6 +544,36 @@ pub enum ColourFrame {
     Colour { colour: RepoColour },
 }
 
+/// one thread the sweep cleared while nobody was looking: a row of the away
+/// summary. times are ms on the server's clock.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayThread {
+    pub key: String,
+    /// when it settled: its done was raised, or it went quiet.
+    pub done_at: i64,
+    /// when a person had seen it through its newest message; absent when
+    /// it was cleared unseen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seen_at: Option<i64>,
+    pub cleared_at: i64,
+}
+
+/// finished work clearing itself (decisions 93 and 94): id-less frames
+/// outside the journal, like the colours.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type")]
+pub enum SettleFrame {
+    /// the whole away summary, newest clear first: after `hello`, and each
+    /// time it changes. an empty list means no line.
+    #[serde(rename = "away")]
+    Away { threads: Vec<AwayThread> },
+    /// a sweep cleared these threads while a device was looking: a client
+    /// whose document is visible offers the undo.
+    #[serde(rename = "autoCleared")]
+    AutoCleared { keys: Vec<String>, at: i64 },
+}
+
 /// one frame's data on `GET /api/stream`, discriminated on `type` across
 /// every kind. the board's own frames (`view`, `pin`, `replaced`) reach
 /// only a stream that declared the board view.
@@ -558,6 +588,7 @@ pub enum ColourFrame {
 pub enum StreamFrame {
     Control(Control),
     Colour(ColourFrame),
+    Settle(SettleFrame),
     Board(boxbox_board_wire::AppFrame),
     Entry(JournalEntry),
 }

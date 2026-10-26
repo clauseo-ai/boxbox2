@@ -58,6 +58,8 @@ pub enum Input {
     },
     /// the actor's clock fired for a held window tail.
     FlushTails,
+    /// the actor's clock fired for the auto-clear sweep.
+    Sweep,
     /// push told the actor who is looking.
     Looking(Vec<Looking>),
     /// a command from a route or a client stream.
@@ -143,6 +145,14 @@ pub enum Command {
     },
     ClearedAmong {
         rows: Vec<(String, f64)>,
+    },
+    Unclear {
+        keys: Vec<String>,
+    },
+    AwaySeen,
+    /// `prefs::HomePrefs`, as its json.
+    Home {
+        home: Box<RawValue>,
     },
     Adopt {
         host: String,

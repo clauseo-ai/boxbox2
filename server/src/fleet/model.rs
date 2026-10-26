@@ -46,10 +46,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use tracing::{info, warn};
 
-use super::clears::{Clear, Clears};
+use super::clears::{Cause, Clear, Clears, Kept};
 use super::colours::{self, Colours};
 use super::needs::{By, How, Moved, Need, NeedKind, Needs, last_sentences};
 use super::read::{Mark, Reads};
+use crate::prefs::{AutoClear, HomePrefs};
 use crate::push::presence::Looking;
 use crate::push::{About, AskKind as PushAsk, Notice, Origin, Thread};
 use crate::source::{
@@ -63,6 +64,11 @@ pub const MAX_SESSIONS: usize = 1000;
 /// the window order lists at most this many sessions (architecture: 300
 /// sessions with windows).
 pub const MAX_ORDER: usize = 300;
+/// `seen1h`: how long after a person saw a thread through its newest message
+/// the sweep clears it (decision 93).
+pub const SEEN_FOR_MS: i64 = 60 * 60 * 1000;
+/// `any3h`: how long after a thread settled the sweep clears it, seen or not.
+pub const SETTLED_FOR_MS: i64 = 3 * 60 * 60 * 1000;
 /// threads opened from history that the fleet holds beyond its host's newest
 /// 300 (`Model::adopt`). the oldest idle one goes when another comes in; a
 /// thread on a device's stage never does.
@@ -307,6 +313,12 @@ pub enum Effect {
     /// a thread's mark is spent (it came back, went away, or the cap took
     /// it): forget it.
     Uncleared(String),
+    /// a person brought a thread back: the sweep leaves it until it is updated.
+    Kept { key: String, kept: Kept },
+    /// a thread's kept mark is spent (updated, gone, or the cap took it).
+    Unkept(String),
+    /// a person acknowledged the away summary: every row of it leaves.
+    AwayAcked,
     /// a thread was opened from history and the fleet holds it past its host's
     /// newest listing: persist its info.
     Adopted { key: String, info: Box<RawValue> },
@@ -437,6 +449,13 @@ pub struct Model {
     own: HashMap<String, i64>,
     /// the devices looking at boxbox now, as push last saw them.
     looking: Vec<Looking>,
+    /// the person's home prefs: the sweep's rule, and whether job notices count.
+    home: HomePrefs,
+    /// per home window with no status, the `time.updated` it had when a sweep
+    /// first found it idle and when that was (server ms): `any3h`'s last
+    /// resort for when it settled. kept by the sweep alone, for the windows it
+    /// looked at, so at most `MAX_ORDER`.
+    quiet: HashMap<String, (f64, i64)>,
     /// sessions whose tail took streamed text their journaled entry does
     /// not have yet. at most one per session held, so it is bounded by
     /// `MAX_SESSIONS`; a session that goes leaves it.
@@ -961,6 +980,10 @@ impl Model {
         for key in self.clears.forget_host(host) {
             self.effects.push(Effect::Uncleared(key));
         }
+        for key in self.clears.forget_host_kept(host) {
+            self.effects.push(Effect::Unkept(key));
+        }
+        self.quiet.retain(|key, _| !key.starts_with(&prefix));
         let mut changes: Vec<Change> = threads
             .into_iter()
             .map(|key| Change::ThreadRemoved { key })
@@ -2041,6 +2064,10 @@ impl Model {
         if self.clears.remove(key) {
             self.effects.push(Effect::Uncleared(key.to_owned()));
         }
+        if self.clears.unkeep(key) {
+            self.effects.push(Effect::Unkept(key.to_owned()));
+        }
+        self.quiet.remove(key);
         let mut asks: Vec<(u64, (String, String))> = self
             .asks
             .iter()
@@ -2258,8 +2285,9 @@ impl Model {
             .iter()
             .map(|(key, s)| {
                 #[allow(clippy::cast_precision_loss, reason = "ms stamps stay far below 2^52")]
+                // a job notice ranks only when the person counts it as a need (decision 95)
                 let rank = match (
-                    self.needs.lead(key),
+                    self.needs.lead_counting(key, self.home.jobs_as_needs),
                     self.statuses.get(key).map(|st| st.activity),
                 ) {
                     // a cleared thread is off home: it ranks below every other, whatever need it still holds (a
@@ -2314,6 +2342,37 @@ impl Model {
 
 /// how each thread of a clear went, in the order asked.
 pub type ClearAnswers = Vec<(String, Result<(), ClearRefused>)>;
+
+/// how each thread of an unclear went, in the order asked.
+pub type UnclearAnswers = Vec<(String, Result<(), UnclearRefused>)>;
+
+/// why a thread could not be brought back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UnclearRefused {
+    /// the fleet does not hold it.
+    NoSuchSession,
+    /// it is not cleared: never was, or it came back by itself already.
+    NotCleared,
+}
+
+/// what one sweep did, for its log line and its telemetry row.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Swept {
+    /// the home windows it looked at.
+    pub windows: usize,
+    /// the threads it cleared, in the window order.
+    pub cleared: Vec<String>,
+    /// no device was looking: the clears join the away summary.
+    pub away: bool,
+    pub mode: AutoClear,
+}
+
+/// when an eligible thread settled and was seen, for its clear mark.
+#[derive(Clone, Copy, Debug)]
+struct Settled {
+    done_at: i64,
+    seen_at: Option<i64>,
+}
 
 /// why a repo's colour could not be chosen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2385,10 +2444,15 @@ impl Model {
             &by,
             How::Seen,
         );
-        let clear = Clear {
-            mark: updated,
-            at: self.now,
-        };
+        // cleared again by hand: what the last unclear kept it from is moot
+        if self.clears.unkeep(key) {
+            self.effects.push(Effect::Unkept(key.to_owned()));
+        }
+        self.put_clear(key, Clear::hand(updated, self.now));
+        Ok(())
+    }
+
+    fn put_clear(&mut self, key: &str, clear: Clear) {
         for evicted in self.clears.put(key, clear) {
             self.effects.push(Effect::Uncleared(evicted));
         }
@@ -2396,7 +2460,6 @@ impl Model {
             key: key.to_owned(),
             clear,
         });
-        Ok(())
     }
 
     /// forgets the marks of threads that did something new: the daemon's
@@ -2520,6 +2583,256 @@ impl Model {
             let Some(victim) = victim.cloned() else { break };
             self.remove_session(&victim, changes);
         }
+    }
+}
+
+/* —— finished work clearing itself: the sweep, unclear, the away summary (decisions 93 to 95) —— */
+
+impl Model {
+    /// the person's home prefs changed: the sweep follows the new rule from
+    /// its next run, and the order re-ranks at once when job notices start or
+    /// stop counting.
+    pub fn set_home(&mut self, home: HomePrefs) -> Vec<Change> {
+        self.home = home;
+        let mut changes = Vec::new();
+        self.reorder(&mut changes);
+        self.journaled(&changes);
+        changes
+    }
+
+    #[must_use]
+    pub fn home(&self) -> HomePrefs {
+        self.home
+    }
+
+    /// a device is looking at boxbox now (decision 23: visible, focused,
+    /// reported in the last 90 s).
+    #[must_use]
+    pub fn anyone_looking(&self) -> bool {
+        self.looking.iter().any(|l| l.until >= self.now)
+    }
+
+    /// clears every home window that finished and that the person's rule
+    /// says may go: at most `MAX_ORDER` windows, the ones on home by the
+    /// app's own membership rule, so a first sweep after an upgrade looks at
+    /// what home shows and nothing older. an auto-clear is a clear like a
+    /// hand one (the thread comes back the same ways), marked `auto`, with its
+    /// done and job needs served so the badge drops.
+    pub fn sweep(&mut self) -> (Vec<Change>, Swept) {
+        let from = self.effects.len();
+        self.spend_kept();
+        let mode = self.home.auto_clear;
+        let mut swept = Swept {
+            away: !self.anyone_looking(),
+            mode,
+            ..Swept::default()
+        };
+        if mode == AutoClear::Never {
+            self.quiet.clear();
+            return (self.settle_moves(from), swept);
+        }
+        let windows = self.home_windows();
+        let held: HashSet<&str> = windows.iter().map(String::as_str).collect();
+        self.quiet.retain(|key, _| held.contains(key.as_str()));
+        swept.windows = windows.len();
+        for key in windows {
+            if let Some(settled) = self.sweepable(&key, mode) {
+                self.auto_clear(&key, settled, swept.away);
+                swept.cleared.push(key);
+            }
+        }
+        (self.settle_moves(from), swept)
+    }
+
+    /// the home windows in the window order, at most `MAX_ORDER`.
+    fn home_windows(&self) -> Vec<String> {
+        let asking: HashSet<&str> = self.asks.values().map(|p| p.neutral.key.as_str()).collect();
+        #[allow(clippy::cast_precision_loss, reason = "ms stamps stay far below 2^52")]
+        let now = self.now as f64;
+        self.order
+            .iter()
+            .filter(|key| {
+                self.sessions.get(*key).is_some_and(|s| {
+                    self.is_home_window(key, s.parent.is_some(), s.updated, now, &asking)
+                })
+            })
+            .take(MAX_ORDER)
+            .cloned()
+            .collect()
+    }
+
+    /// when `key` settled and was seen, if the sweep may clear it under
+    /// `mode` now. never one that is a subagent, cleared, working, retrying,
+    /// parked (on agents or on jobs alone), has prompts queued, asks, failed or
+    /// stopped, waits on a review, or was brought back and not updated since.
+    fn sweepable(&mut self, key: &str, mode: AutoClear) -> Option<Settled> {
+        let session = self.sessions.get(key)?;
+        if session.parent.is_some() || self.cleared_mark(key).is_some() {
+            return None;
+        }
+        if self.statuses.contains_key(key) {
+            self.quiet.remove(key);
+            return None;
+        }
+        let (updated, queued, newest) = (
+            session.updated,
+            session.thread.queued,
+            session.turn.newest.as_ref().map(|(_, at)| *at),
+        );
+        let now = self.now;
+        // the first sweep to find it idle at this `updated` starts its quiet
+        let quiet_since = match self.quiet.get(key) {
+            Some(&(at_updated, since)) if at_updated.total_cmp(&updated).is_eq() => since,
+            _ => {
+                self.quiet.insert(key.to_owned(), (updated, now));
+                now
+            }
+        };
+        if queued > 0 || self.asks.values().any(|p| p.neutral.key == key) {
+            return None;
+        }
+        let mut done = None;
+        for need in self.needs.open_iter().filter(|n| n.key == key) {
+            match need.kind {
+                NeedKind::Permission | NeedKind::Question | NeedKind::Fault | NeedKind::Review => {
+                    return None;
+                }
+                NeedKind::Done => done = done.max(Some(need.raised_at)),
+                NeedKind::Job => {}
+            }
+        }
+        if self
+            .clears
+            .kept(key)
+            .is_some_and(|kept| updated <= kept.updated)
+        {
+            return None;
+        }
+        let seen_at = newest
+            .filter(|at| self.reads.seen(key, *at))
+            .and_then(|_| self.reads.merged(key))
+            .map(|mark| mark.marked_at);
+        let done_at = done.unwrap_or_else(|| seen_at.map_or(quiet_since, |s| s.min(quiet_since)));
+        let due = match mode {
+            AutoClear::Seen1h => seen_at.is_some_and(|seen| now - seen >= SEEN_FOR_MS),
+            // settled: its done was raised, else it was seen through its newest, else it went quiet
+            AutoClear::Any3h => now - done.or(seen_at).unwrap_or(quiet_since) >= SETTLED_FOR_MS,
+            AutoClear::Never => false,
+        };
+        due.then_some(Settled { done_at, seen_at })
+    }
+
+    fn auto_clear(&mut self, key: &str, settled: Settled, away: bool) {
+        let Some(updated) = self.sessions.get(key).map(|s| s.updated) else {
+            return;
+        };
+        self.serve_session(
+            key,
+            |n| matches!(n.kind, NeedKind::Done | NeedKind::Job),
+            &By::Agent,
+            How::Cleared,
+        );
+        self.quiet.remove(key);
+        self.put_clear(
+            key,
+            Clear {
+                mark: updated,
+                at: self.now,
+                cause: Cause::Auto,
+                away,
+                done_at: Some(settled.done_at),
+                seen_at: settled.seen_at,
+                acked: false,
+            },
+        );
+    }
+
+    /// forgets the kept marks of threads updated since, or gone.
+    fn spend_kept(&mut self) {
+        let spent: Vec<String> = self
+            .clears
+            .kept_iter()
+            .filter(|(key, kept)| {
+                self.sessions
+                    .get(*key)
+                    .is_none_or(|s| s.updated > kept.updated)
+            })
+            .map(|(key, _)| key.to_owned())
+            .collect();
+        for key in spent {
+            self.clears.unkeep(&key);
+            self.effects.push(Effect::Unkept(key));
+        }
+    }
+
+    /// brings each of `keys` back to home (an undo, or "bring back" from the
+    /// away summary) and keeps it from the sweep until it is updated again.
+    /// it returns where its order puts it.
+    pub fn unclear(&mut self, keys: &[String]) -> (Vec<Change>, UnclearAnswers) {
+        let from = self.effects.len();
+        let answers = keys
+            .iter()
+            .map(|key| (key.clone(), self.unclear_one(key)))
+            .collect();
+        (self.settle_moves(from), answers)
+    }
+
+    fn unclear_one(&mut self, key: &str) -> Result<(), UnclearRefused> {
+        let updated = self
+            .sessions
+            .get(key)
+            .map(|s| s.updated)
+            .ok_or(UnclearRefused::NoSuchSession)?;
+        if self.cleared_mark(key).is_none() {
+            return Err(UnclearRefused::NotCleared);
+        }
+        self.clears.remove(key);
+        self.effects.push(Effect::Uncleared(key.to_owned()));
+        let kept = Kept {
+            updated,
+            at: self.now,
+        };
+        for evicted in self.clears.keep(key, kept) {
+            self.effects.push(Effect::Unkept(evicted));
+        }
+        self.effects.push(Effect::Kept {
+            key: key.to_owned(),
+            kept,
+        });
+        Ok(())
+    }
+
+    /// a person acknowledged the away summary: its rows stay cleared and
+    /// leave it on every device. how many it held.
+    pub fn away_seen(&mut self) -> usize {
+        let held = self.away().len();
+        if !self.clears.ack_away().is_empty() {
+            self.effects.push(Effect::AwayAcked);
+        }
+        held
+    }
+
+    /// the away summary: auto-clears nobody was looking at, not
+    /// acknowledged, whose mark still holds, newest clear first.
+    #[must_use]
+    pub fn away(&self) -> Vec<wire::AwayThread> {
+        let mut threads: Vec<wire::AwayThread> = self
+            .clears
+            .iter()
+            .filter(|(key, clear)| clear.in_away() && self.cleared_mark(key).is_some())
+            .map(|(key, clear)| wire::AwayThread {
+                key: key.to_owned(),
+                done_at: clear.done_at.unwrap_or(clear.at),
+                seen_at: clear.seen_at,
+                cleared_at: clear.at,
+            })
+            .collect();
+        threads.sort_by(|a, b| {
+            b.cleared_at
+                .cmp(&a.cleared_at)
+                .then_with(|| a.key.cmp(&b.key))
+        });
+        threads
     }
 }
 
@@ -3177,7 +3490,8 @@ impl Model {
             );
             return;
         };
-        let badge = u32::try_from(self.needs.sessions_waiting()).unwrap_or(u32::MAX);
+        let badge =
+            u32::try_from(self.needs.waiting_counting(self.home.jobs_as_needs)).unwrap_or(u32::MAX);
         self.effects.push(Effect::Notice(Notice {
             id,
             about,
@@ -4641,6 +4955,9 @@ mod tests {
                 Effect::ReadForgotten(key) => format!("forgot {key}"),
                 Effect::Cleared { key, .. } => format!("cleared {key}"),
                 Effect::Uncleared(key) => format!("uncleared {key}"),
+                Effect::Kept { key, .. } => format!("kept {key}"),
+                Effect::Unkept(key) => format!("unkept {key}"),
+                Effect::AwayAcked => "away acked".to_owned(),
                 Effect::Adopted { key, .. } => format!("adopted {key}"),
                 Effect::Unadopted(key) => format!("unadopted {key}"),
                 Effect::Colour(write) => format!("colour {write:?}"),

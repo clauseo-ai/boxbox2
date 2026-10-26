@@ -503,6 +503,60 @@
         }
       }
     },
+    "/api/away/seen": {
+      "post": {
+        "tags": [
+          "super::threads"
+        ],
+        "summary": "acknowledges the away summary on every device: the threads it held stay\ncleared and leave it (decision 94). every stream hears the empty summary.",
+        "operationId": "away_seen",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwaySeenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "acknowledged"
+          },
+          "400": {
+            "description": "not a device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/board/pin": {
       "post": {
         "tags": [
@@ -4267,6 +4321,67 @@
         }
       }
     },
+    "/api/prefs/home": {
+      "put": {
+        "tags": [
+          "super::prefs"
+        ],
+        "summary": "sets the person's home prefs, the same on every device (decisions 93 to\n95). answered once the row is committed and the fleet follows them: the\nsweep's rule from its next run, the order and the badge at once.",
+        "operationId": "home",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HomePrefs"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "saved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomePrefs"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not a home pref",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the store is not answering, or the server is stopping",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/prefs/models": {
       "put": {
         "tags": [
@@ -4992,6 +5107,67 @@
           },
           "503": {
             "description": "the writer is backed up; send again",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/unclear": {
+      "post": {
+        "tags": [
+          "super::threads"
+        ],
+        "summary": "brings threads back to home on every device, where their order puts\nthem, and keeps the sweep off each until it is updated again\n(decision 93).",
+        "operationId": "unclear",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnclearBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "which threads came back and which were not cleared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Uncleared"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "not an unclear",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "not signed in",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "the server is stopping",
             "content": {
               "application/json": {
                 "schema": {
@@ -6639,6 +6815,9 @@
             "$ref": "#/components/schemas/ColourFrame"
           },
           {
+            "$ref": "#/components/schemas/SettleFrame"
+          },
+          {
             "$ref": "#/components/schemas/AppFrame"
           },
           {
@@ -6930,6 +7109,63 @@
           },
           "text": {
             "type": "string"
+          }
+        }
+      },
+      "AutoClear": {
+        "type": "string",
+        "description": "when a finished thread leaves home by itself (decision 93).",
+        "enum": [
+          "seen1h",
+          "any3h",
+          "never"
+        ]
+      },
+      "AwaySeenBody": {
+        "type": "object",
+        "description": "the device that acknowledged the away summary.",
+        "required": [
+          "device",
+          "deviceClass"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AwayThread": {
+        "type": "object",
+        "description": "one thread the sweep cleared while nobody was looking: a row of the away\nsummary. times are ms on the server's clock.",
+        "required": [
+          "key",
+          "doneAt",
+          "clearedAt"
+        ],
+        "properties": {
+          "clearedAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "doneAt": {
+            "type": "integer",
+            "format": "int64",
+            "description": "when it settled: its done was raised, or it went quiet."
+          },
+          "key": {
+            "type": "string"
+          },
+          "seenAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "when a person had seen it through its newest message; absent when\nit was cleared unseen."
           }
         }
       },
@@ -7898,6 +8134,26 @@
           }
         }
       },
+      "HomePrefs": {
+        "type": "object",
+        "description": "the person's home, the same on every device.",
+        "properties": {
+          "autoClear": {
+            "$ref": "#/components/schemas/AutoClear",
+            "default": "seen1h"
+          },
+          "foldWorking": {
+            "type": "boolean",
+            "description": "working and queued windows with nothing for the person fold into one\ncapsule above the windows (the app's).",
+            "default": true
+          },
+          "jobsAsNeeds": {
+            "type": "boolean",
+            "description": "a background job's notice counts as a need: in the badge, in the\norder and as unseen (decision 95). off by default.",
+            "default": false
+          }
+        }
+      },
       "HostMemory": {
         "type": "object",
         "description": "what the daemon says about its own memory.",
@@ -8276,7 +8532,8 @@
           "settled",
           "dropped",
           "gone",
-          "expired"
+          "expired",
+          "cleared"
         ]
       },
       "ImagePart": {
@@ -9056,6 +9313,34 @@
           "unknown"
         ]
       },
+      "NotUncleared": {
+        "type": "object",
+        "description": "a thread that was not brought back, and why.",
+        "required": [
+          "key",
+          "why",
+          "message"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "why": {
+            "$ref": "#/components/schemas/NotUnclearedWhy"
+          }
+        }
+      },
+      "NotUnclearedWhy": {
+        "type": "string",
+        "description": "`notcleared`: it is on home already (it came back by itself), so a client\nmay take it as done; `unknown`: the fleet does not hold it.",
+        "enum": [
+          "notcleared",
+          "unknown"
+        ]
+      },
       "OrderOp": {
         "oneOf": [
           {
@@ -9395,7 +9680,8 @@
         "required": [
           "devices",
           "repos",
-          "models"
+          "models",
+          "home"
         ],
         "properties": {
           "devices": {
@@ -9407,6 +9693,10 @@
             "propertyNames": {
               "type": "string"
             }
+          },
+          "home": {
+            "$ref": "#/components/schemas/HomePrefs",
+            "description": "the person's home, shared by every device; the defaults until set."
           },
           "models": {
             "$ref": "#/components/schemas/ModelPrefs",
@@ -10265,6 +10555,60 @@
             "type": "boolean"
           }
         }
+      },
+      "SettleFrame": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "the whole away summary, newest clear first: after `hello`, and each\ntime it changes. an empty list means no line.",
+            "required": [
+              "threads",
+              "type"
+            ],
+            "properties": {
+              "threads": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AwayThread"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "away"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "a sweep cleared these threads while a device was looking: a client\nwhose document is visible offers the undo.",
+            "required": [
+              "keys",
+              "at",
+              "type"
+            ],
+            "properties": {
+              "at": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "autoCleared"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "finished work clearing itself (decisions 93 and 94): id-less frames\noutside the journal, like the colours."
       },
       "SettledBy": {
         "type": "object",
@@ -11490,6 +11834,66 @@
               "null"
             ],
             "format": "double"
+          }
+        }
+      },
+      "UnclearBody": {
+        "type": "object",
+        "description": "threads to bring back to home, and from which control.",
+        "required": [
+          "device",
+          "deviceClass",
+          "keys",
+          "source"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "deviceClass": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`host:session`, at most 300."
+          },
+          "source": {
+            "$ref": "#/components/schemas/UnclearSource"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UnclearSource": {
+        "type": "string",
+        "description": "which control brought them back, for telemetry.",
+        "enum": [
+          "undo",
+          "away"
+        ]
+      },
+      "Uncleared": {
+        "type": "object",
+        "description": "how an unclear went: the threads back on home, and the ones that were not cleared.",
+        "required": [
+          "uncleared",
+          "refused"
+        ],
+        "properties": {
+          "refused": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotUncleared"
+            }
+          },
+          "uncleared": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "the threads back on home, kept from the sweep until they are updated."
           }
         }
       },

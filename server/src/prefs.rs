@@ -5,6 +5,13 @@
 //! way in and read back leniently (a document from a newer build keeps
 //! what this build knows), so the app never gets a value it cannot render.
 //!
+//! the person's own settings are one more document for every device,
+//! scope `person`, subject `home` (`HomePrefs`, decisions 93 to 95): when
+//! finished work clears itself, whether working windows fold, and whether a
+//! job notice counts as a need. the fleet reads it too (`fleet::restore`, and
+//! `PUT /api/prefs/home` tells it at once), since the sweep and the badge
+//! follow it.
+//!
 //! a device's push kinds are the one preference kept elsewhere: push
 //! decides from the subscription row that carries them (`docs/push.md`),
 //! so the settings screen changes them through that subscription.
@@ -81,6 +88,55 @@ pub struct ModelPrefs {
     pub favorites: Vec<String>,
 }
 
+/// when a finished thread leaves home by itself (decision 93).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum AutoClear {
+    /// an hour after a person saw it through its newest message.
+    #[default]
+    #[serde(rename = "seen1h")]
+    Seen1h,
+    /// three hours after it settled, seen or not.
+    #[serde(rename = "any3h")]
+    Any3h,
+    /// never: only a person clears.
+    #[serde(rename = "never")]
+    Never,
+}
+
+impl AutoClear {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Seen1h => "seen1h",
+            Self::Any3h => "any3h",
+            Self::Never => "never",
+        }
+    }
+}
+
+/// the person's home, the same on every device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct HomePrefs {
+    pub auto_clear: AutoClear,
+    /// working and queued windows with nothing for the person fold into one
+    /// capsule above the windows (the app's).
+    pub fold_working: bool,
+    /// a background job's notice counts as a need: in the badge, in the
+    /// order and as unseen (decision 95). off by default.
+    pub jobs_as_needs: bool,
+}
+
+impl Default for HomePrefs {
+    fn default() -> Self {
+        Self {
+            auto_clear: AutoClear::Seen1h,
+            fold_working: true,
+            jobs_as_needs: false,
+        }
+    }
+}
+
 #[derive(Debug, Default, Serialize, ToSchema)]
 pub struct Prefs {
     /// by device id.
@@ -89,10 +145,14 @@ pub struct Prefs {
     pub repos: Vec<RepoPrefs>,
     /// shared by every device.
     pub models: ModelPrefs,
+    /// the person's home, shared by every device; the defaults until set.
+    pub home: HomePrefs,
 }
 
 /// the one row of the `models` scope.
 const MODELS_SUBJECT: &str = "favorites";
+/// the home row of the `person` scope.
+const HOME_SUBJECT: &str = "home";
 
 #[derive(Serialize, Deserialize, Default)]
 struct RepoValue {
@@ -140,6 +200,7 @@ pub async fn load(store: &Store) -> Result<Prefs, StoreError> {
                     Err(error) => warn!(%subject, %error, "a repo's prefs do not read; left out"),
                 }
             }
+            "person" if subject == HOME_SUBJECT => prefs.home = read_home(&value),
             "models" if subject == MODELS_SUBJECT => {
                 match serde_json::from_str::<ModelPrefs>(&value) {
                     Ok(models) => prefs.models = models,
@@ -150,6 +211,40 @@ pub async fn load(store: &Store) -> Result<Prefs, StoreError> {
         }
     }
     Ok(prefs)
+}
+
+/// the home document as stored, leniently: what does not read is the defaults.
+fn read_home(value: &str) -> HomePrefs {
+    serde_json::from_str(value).unwrap_or_else(|error| {
+        warn!(%error, "the home prefs do not read; they are the defaults");
+        HomePrefs::default()
+    })
+}
+
+/// the home prefs, from the fleet's own start (`fleet::restore`), on the
+/// store's thread.
+///
+/// # Errors
+/// sqlite's.
+pub fn load_home(connection: &rusqlite::Connection) -> rusqlite::Result<HomePrefs> {
+    use rusqlite::OptionalExtension;
+    let value: Option<String> = connection
+        .query_row(
+            "SELECT value FROM prefs WHERE scope = 'person' AND subject = ?1",
+            [HOME_SUBJECT],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(value.as_deref().map(read_home).unwrap_or_default())
+}
+
+/// sets the person's home prefs; the answer waits for the commit.
+///
+/// # Errors
+/// the store is not answering.
+pub async fn put_home(store: &Store, value: HomePrefs) -> Result<(), StoreError> {
+    let json = serde_json::to_string(&value).unwrap_or_default();
+    upsert(store, "person", HOME_SUBJECT.to_owned(), Some(json)).await
 }
 
 /// sets one device's appearance.
@@ -277,6 +372,41 @@ mod tests {
         drop(store);
         thread.join().unwrap();
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn home_prefs_default_until_set_and_read_back_leniently() {
+        let (store, thread, dir) = crate::store::tests::scratch();
+        assert_eq!(load(&store).await.unwrap().home, HomePrefs::default());
+        let set = HomePrefs {
+            auto_clear: AutoClear::Any3h,
+            fold_working: false,
+            jobs_as_needs: true,
+        };
+        put_home(&store, set).await.unwrap();
+        assert_eq!(load(&store).await.unwrap().home, set);
+        assert_eq!(store.call(|c| load_home(c)).await.unwrap(), set);
+        drop(store);
+        thread.join().unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+
+        let partial: HomePrefs =
+            serde_json::from_str(r#"{"autoClear":"never","later":1}"#).unwrap();
+        assert_eq!(
+            partial,
+            HomePrefs {
+                auto_clear: AutoClear::Never,
+                ..HomePrefs::default()
+            }
+        );
+        assert_eq!(
+            read_home("{\"autoClear\":\"weekly\"}"),
+            HomePrefs::default()
+        );
+        assert_eq!(
+            serde_json::to_string(&HomePrefs::default()).unwrap(),
+            r#"{"autoClear":"seen1h","foldWorking":true,"jobsAsNeeds":false}"#
+        );
     }
 
     #[test]

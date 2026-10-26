@@ -132,6 +132,7 @@ fn router_waiting(state: Arc<AppState>, photo_wait: Duration) -> Router {
         )
         .route("/api/prefs/repos", axum::routing::put(prefs::repo))
         .route("/api/prefs/colours", axum::routing::put(prefs::colour))
+        .route("/api/prefs/home", axum::routing::put(prefs::home))
         .route(
             "/api/prefs/models",
             axum::routing::put(prefs::favorite_models),
@@ -456,6 +457,8 @@ fn lifecycle() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/history", get(history::page))
         .route("/api/clear", post(threads::clear))
+        .route("/api/unclear", post(threads::unclear))
+        .route("/api/away/seen", post(threads::away_seen))
         .route(
             "/api/hosts/{host}/sessions/{session}/archive",
             post(threads::archive),

@@ -339,6 +339,7 @@ async fn start_fleet(
             clears: restored.clears,
             adopted: restored.adopted,
             colours: restored.colours,
+            home: restored.home,
             tails,
             resumed,
         },

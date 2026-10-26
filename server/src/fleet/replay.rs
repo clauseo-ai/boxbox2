@@ -108,6 +108,8 @@ impl Replay {
             persist: super::persist::Persist::detached(),
             cursors: std::collections::HashMap::new(),
             unasked: Vec::new(),
+            away: Vec::new(),
+            next_sweep: tokio::time::Instant::now(),
         };
         Self {
             actor,
@@ -155,6 +157,9 @@ impl Replay {
         let fail = |what: String| ReplayError::Step { step: index, what };
         match step.input {
             Input::FlushTails => self.actor.flush_tails(),
+            Input::Sweep => {
+                self.actor.sweep(step.at);
+            }
             Input::Looking(devices) => self.actor.looking(
                 devices
                     .into_iter()
@@ -269,7 +274,7 @@ impl Replay {
                 let (sender, agent) = source(&host);
                 sender.envelope(&agent, seq, event)
             }
-            Input::FlushTails | Input::Looking(_) | Input::Command(_) => {
+            Input::FlushTails | Input::Sweep | Input::Looking(_) | Input::Command(_) => {
                 return Err("not an upstream input".into());
             }
         };
@@ -400,6 +405,21 @@ impl Replay {
                 reply: oneshot::channel().0,
             }),
             tape::Command::Unadopt { key } => self.actor.command(Command::Unadopt { key }),
+            tape::Command::Unclear { keys } => self.actor.command(Command::Unclear {
+                keys,
+                reply: oneshot::channel().0,
+            }),
+            tape::Command::AwaySeen => self.actor.command(Command::AwaySeen {
+                reply: oneshot::channel().0,
+            }),
+            tape::Command::Home { home } => {
+                let home =
+                    serde_json::from_str(home.get()).map_err(|e| format!("home prefs: {e}"))?;
+                self.actor.command(Command::Home {
+                    home,
+                    reply: oneshot::channel().0,
+                });
+            }
             tape::Command::ReviewTarget { key } => self.actor.command(Command::ReviewTarget {
                 key,
                 reply: oneshot::channel().0,

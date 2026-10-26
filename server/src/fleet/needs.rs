@@ -110,6 +110,8 @@ pub enum How {
     Gone,
     /// the ledger was full and it was the oldest.
     Expired,
+    /// the thread was cleared off home by the server's sweep (decision 93).
+    Cleared,
 }
 
 impl How {
@@ -123,6 +125,7 @@ impl How {
             Self::Dropped => "dropped",
             Self::Gone => "gone",
             Self::Expired => "expired",
+            Self::Cleared => "cleared",
         }
     }
 
@@ -136,6 +139,7 @@ impl How {
             "dropped" => Self::Dropped,
             "gone" => Self::Gone,
             "expired" => Self::Expired,
+            "cleared" => Self::Cleared,
             _ => return None,
         })
     }
@@ -382,6 +386,17 @@ impl Needs {
             .min()
     }
 
+    /// the same, leaving job notices out unless they count as needs
+    /// (`HomePrefs::jobs_as_needs`, decision 95): what the window order ranks by.
+    #[must_use]
+    pub fn lead_counting(&self, key: &str, jobs: bool) -> Option<(u8, i64)> {
+        self.open
+            .values()
+            .filter(|n| n.key == key && (jobs || n.kind != NeedKind::Job))
+            .map(Need::sort_key)
+            .min()
+    }
+
     /// every open need, in no order.
     pub fn open_iter(&self) -> impl Iterator<Item = &Need> {
         self.open.values()
@@ -405,10 +420,16 @@ impl Needs {
         self.served.iter().rev().take(limit).cloned().collect()
     }
 
-    /// sessions with an open need: the app icon's badge.
+    /// sessions with an open need, job notices only when they count as needs
+    /// (decision 95): the app icon's badge.
     #[must_use]
-    pub fn sessions_waiting(&self) -> usize {
-        let mut keys: Vec<&str> = self.open.values().map(|n| n.key.as_str()).collect();
+    pub fn waiting_counting(&self, jobs: bool) -> usize {
+        let mut keys: Vec<&str> = self
+            .open
+            .values()
+            .filter(|n| jobs || n.kind != NeedKind::Job)
+            .map(|n| n.key.as_str())
+            .collect();
         keys.sort_unstable();
         keys.dedup();
         keys.len()
@@ -519,7 +540,7 @@ mod tests {
         let ids: Vec<String> = needs.open().into_iter().map(|n| n.id).collect();
         assert_eq!(ids, ["ask:old", "ask:new", "fault:c", "review:e", "done:a"]);
         assert_eq!(needs.lead("d:b"), Some((0, 30)));
-        assert_eq!(needs.sessions_waiting(), 5);
+        assert_eq!(needs.waiting_counting(true), 5);
     }
 
     #[test]

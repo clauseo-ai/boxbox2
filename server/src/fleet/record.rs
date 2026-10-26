@@ -385,6 +385,10 @@ pub(super) fn flush_tails(at: i64) {
     write(at, Input::FlushTails);
 }
 
+pub(super) fn sweep(at: i64) {
+    write(at, Input::Sweep);
+}
+
 pub(super) fn looking(at: i64, devices: &[Looking]) {
     if recorder().is_none() {
         return;
@@ -468,6 +472,17 @@ pub(super) fn command(at: i64, command: &Command) {
             device: device(d),
         },
         Command::ClearedAmong { rows, .. } => tape::Command::ClearedAmong { rows: rows.clone() },
+        Command::Unclear { keys, .. } => tape::Command::Unclear { keys: keys.clone() },
+        Command::AwaySeen { .. } => tape::Command::AwaySeen,
+        Command::Home { home, .. } => {
+            let Some(home) = serde_json::value::to_raw_value(home).ok() else {
+                warn!("the home prefs did not serialize; the recording misses them");
+                return;
+            };
+            tape::Command::Home { home }
+        }
+        #[cfg(test)]
+        Command::SweepAt { .. } => return,
         Command::Adopt { host, thread, .. } => {
             let Some(info) = adopted(host, thread) else {
                 return;
