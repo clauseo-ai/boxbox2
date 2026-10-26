@@ -519,7 +519,11 @@ is the law, and decisions 93 to 100 say why; how it is built:
   clear's toast is never replaced by an auto-clear: the auto-clear waits
   (`state.undoNext`, one auto offer joining the one waiting, at most 4) and
   shows for its own full 6 s when the hand toast ends, so ⌘z always undoes
-  the toast on screen. `Lifetime` owns the 6 s and holds it
+  the toast on screen. home mounts it through a keyed `<Show>`, handing it
+  the offer as a value, and its time (`toast-life.ts`) names the offer by a
+  copy of its serial: an accessor read after the store let go of the offer
+  threw and left the toast up with its undo disabled
+  (`toast.reactive.test.ts`). `Lifetime` owns the 6 s and holds it
   while a pointer is over the toast, focus is in it, or its undo is out,
   and tells the offer when it runs out (`until`, Infinity while held): home
   unmounts off home, and an offer read after its time (`liveUndo`, as home

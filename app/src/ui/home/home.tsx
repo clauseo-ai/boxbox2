@@ -1541,7 +1541,8 @@ export function Home(props: HomeProps) {
           />
         )}
       </Show>
-      <Show when={foldOpen()}>
+      {/* keyed, as the toast's: what opened a list is a value its sheet holds, never an accessor that goes stale as it closes */}
+      <Show when={foldOpen()} keyed>
         {(from) => (
           <FoldList
             keys={foldKeys()}
@@ -1550,16 +1551,20 @@ export function Home(props: HomeProps) {
             now={now()}
             showHost={hosts() > 1}
             arrangement={arrangement()}
-            from={from()}
+            from={from}
             onClose={() => setFoldOpen(null)}
             onOpenThread={(key, el, event) => activate(key, el, event)}
           />
         )}
       </Show>
-      <Show when={awayOpen()}>
-        {(at) => <AwaySheet rows={at().rows} mode={homePrefs().autoClear} arrangement={arrangement()} from={at().from} onClose={() => setAwayOpen(null)} />}
+      <Show when={awayOpen()} keyed>
+        {(at) => <AwaySheet rows={at.rows} mode={homePrefs().autoClear} arrangement={arrangement()} from={at.from} onClose={() => setAwayOpen(null)} />}
       </Show>
-      <Show when={state.undo}>{(undo) => <UndoToast undo={undo()} arrangement={arrangement()} keys={arrangement() !== "deck" && fineKeys} />}</Show>
+      {/* keyed: the toast holds the offer itself, so its time and its cleanup never read a stale accessor once an undo or the
+          time lets go of it (a newer offer merges into the same store object, so the toast stays mounted through it) */}
+      <Show when={state.undo} keyed>
+        {(undo) => <UndoToast undo={undo} arrangement={arrangement()} keys={arrangement() !== "deck" && fineKeys} />}
+      </Show>
       {/* the toast's words, announced: this region is there from the first paint, empty, and takes them as a toast shows */}
       <p class="toast-live" role="status">{toastAnnouncement(state.undo)}</p>
       <Show when={viewOf(cue() ?? "")}>{(view) => <div class="cue" aria-hidden="true" style={colourStyle(view().colour)} />}</Show>
