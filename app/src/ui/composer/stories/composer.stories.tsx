@@ -7,6 +7,7 @@
 import { createElement, type ReactElement, useEffect, useRef } from "react";
 import { type ComposerStory, mountComposer } from "./mount";
 import "./stories.css";
+import "../../next/next.css";
 
 function Host(props: { story: ComposerStory }): ReactElement {
   const ref = useRef<HTMLDivElement>(null);
@@ -91,18 +92,18 @@ export const ModelsHostListsNone = story("models-empty");
 export const ModelsLoading = story("models-loading");
 export const ModelsFailed = story("models-failed");
 export const ModelsFailedEffort = story("models-failed-dial");
-export const HomeDock = story("dock");
-export const HomeDockNowhere = story("dock-nowhere");
-export const NewThreadSheet = story("sheet");
-export const NewThreadSheetTwoMachines = story("sheet-hosts");
-export const NewThreadSheetFilter = story("sheet-finder");
-export const NewThreadSheetFolders = story("sheet-browse");
-export const NewThreadSheetStarting = story("sheet-starting");
-export const NewThreadSheetFailed = story("sheet-failed");
-export const NewThreadSheetFresh = story("sheet-fresh");
-export const NewThreadSheetModel = story("sheet-model");
-export const NewThreadSheetEffort = story("sheet-dial");
-export const NewThreadSheetPlace = story("sheet-place");
-export const NewThreadSheetLetsGo = story("sheet-away");
+export const HomeField = story("field");
+export const HomeFieldNowhere = story("field-nowhere");
+export const HomeFieldTwoMachines = story("field-hosts");
+export const HomeFieldFinder = story("field-finder");
+export const HomeFieldFolders = story("field-browse");
+export const HomeFieldTypedRepo = story("field-typed");
+export const HomeFieldTypedModel = story("field-typed-model");
+export const HomeFieldTypedMachine = story("field-typed-machine");
+export const HomeFieldStarting = story("field-starting");
+export const HomeFieldFailed = story("field-failed");
+export const HomeFieldFresh = story("field-fresh");
+export const HomeFieldModel = story("field-model");
+export const HomeFieldEffort = story("field-dial");
 
 export default { title: "composer" };

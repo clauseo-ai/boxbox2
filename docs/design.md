@@ -96,7 +96,7 @@ a drawer.
 | stack prompts | prompts are often queued behind a busy turn | the composer and its queue |
 | know when to come back | people open the app just to find out whether anything needs them | push, the windows' order, the badge |
 | answer an ask | questions are infrequent; permissions come from other users | in the thread, where it was asked; the window says it waits and opens the thread to it |
-| start a thread | most compose opens start a new thread | the dock, one gesture from anywhere |
+| start a thread | most compose opens start a new thread | home's field, one gesture from anywhere (home: what next) |
 | switch threads | phone: hub and spoke; mac: thread to thread, and the board | the deck (phone), the rail (ipad, mac), `⌘k` |
 | everything else | terminal, machines, fork and revert are used rarely | the thread menu and settings |
 
@@ -360,9 +360,9 @@ four places, each its own decision where the law was silent.
   clip-path. at the rail it sits at the column's foot, the column's width,
   with the one thread's title under "cleared 1" and, on an apple desktop,
   the ⌘z hint; on the deck
-  it is 48 px tall and centred in the page dots' row, between the window in
-  view and the dock (measured once as it shows), so it never covers a
-  window's clear or the dock. its time stops while a pointer or focus is on
+  it is 48 px tall and centred in the page dots' row under the window in
+  view (measured once as it shows), so it never covers a window's clear;
+  with no dots (one window) it sits 16 px over the safe area. its time stops while a pointer or focus is on
   it. ⌘z undoes from anywhere but a text field. undo brings back exactly
   what the clear cleared, and a failure stays on the pill in the server's
   words with "try again", coming back on screen if a newer pill took over.
@@ -648,8 +648,9 @@ about a thread is on its resting screen, and the long tail lives behind
   person just archived. the call is
   boxbox's `POST /api/hosts/:host/sessions/:id/archive`, which sends
   cmx2's session PATCH with `time.archived`. on success the deck closes
-  the thread back to home; the strip and the rail put the next window on
-  the stage, since their stage never empties. a refusal (the daemon says
+  the thread back to home; at the strip and the rail home lets go of it
+  when the fleet drops it, a beat later, and the stage is home (decision
+  102). a refusal (the daemon says
   no, or a thread it no longer has: "that thread is not on <machine> any
   more. it may have been archived") shows the words in the menu. cmx2 archives imported
   history too at the pin; it refuses nothing here. archived threads leave
@@ -758,22 +759,24 @@ into the mac a window is open on, that window's windows wear its digits.
 - **focus.** a digit key opens its thread through home's own tap path, with
   the tap's motion, wherever the app is: from the machines, history,
   settings or a terminal, home comes back on its own travel first. a focus
-  never discards or buries typed words: while a sheet (the new-thread one
-  or the answer sheet) holds words, the thread opens behind it and the
+  never discards or buries typed words: while the answer sheet holds words
+  (home's field is never over the stage, and its words stay in it), the thread opens behind it and the
   sheet keeps the screen and its caret. an empty sheet is put away. with no
   words in the way the caret goes into the thread's composer without a
   scroll, so the dictation the keypad types next lands there (a draft in
   another thread's composer is kept per thread, so moving the caret loses
   nothing), and only once the thread is on the stage: a tap a running
   transition refused moves nothing.
-- **compose.** a machine key opens the new-thread sheet on that machine, at
-  the repo on stage when that repo is on it. the key names a machine as its
-  agents' `label.machine`, which for cmx2 is the host's name, and the sheet
-  starts threads on the fleet's hosts: a machine it cannot start one on is
-  dropped. a sheet already up is someone writing, and is left as it is.
+- **compose.** a machine key lands on home's field set to that machine,
+  the caret in it (decision 103; a thread on the stage steps back first, or
+  shrinks first on the deck); words already in the field go with it, as a
+  pick in the field moves them. the key names a machine as its agents'
+  `label.machine`, which for cmx2 is the host's name, and the field starts
+  threads on the fleet's hosts: a machine it cannot start one on is
+  dropped.
 - **what the app cannot take** is dropped where the person is, without
   leaving the screen: a focus for a key home draws no window for, a compose
-  for a machine the sheet cannot start a thread on, and any request while a
+  for a machine the field cannot start a thread on, and any request while a
   terminal holds the keyboard.
 - **a hidden window** (another tab, minimised) does neither: the window in
   front of the person is the one that moves.
@@ -789,7 +792,125 @@ into the mac a window is open on, that window's windows wear its digits.
   happened and what to do ("the board is not plugged into this mac now.
   plug it in, then pair again.").
 
+## home: what next (2026-10-26)
+
+home is where a thread starts and where you see what to do next
+(decisions 102 to 109; `app/src/ui/next/`, the start's state in
+`app/src/ui/composer/new-thread.ts`). it supersedes "starting a thread"
+below (the sheet and the dock), the dock wherever this law names it, and
+"the stage never empties" at strip and rail sizes.
+
+- **at each size.** at the strip and the rail, when no thread is chosen,
+  the stage is home: the field, and what next under it, on the neutral
+  ground. nothing pours a window onto the stage by itself: a launch with
+  no thread in its url, a thread that leaves the fleet (archived here or
+  elsewhere) and an arrangement change with no thread open all land on
+  home. on the deck the field leads home under the bar, and the deck's
+  rows are the bar, the field, the windows and the page dots; the windows
+  in their order are the list, so the deck draws the field alone, and the
+  pager law holds. there is no dock. the empty deck's ghost says "a thread
+  you start above, or in cmx2 on any of your machines, shows up here as a
+  live window."
+- **the field** is the composer every thread has (the `sheet` mount),
+  named "start a thread", its placeholder "what next?". it is the one
+  place a thread starts. its top row leads with the place (the repo chip,
+  then the machine chip with two machines or more), then the composer's
+  own model and effort chips; the plus is the photo key. its words are
+  named "first message for a new thread in <repo>", or "first message for
+  a new thread" while no repo is chosen, and a send is held while nowhere
+  is chosen: "pick a repo or a folder on <host> to start in". the send
+  keeps every rule the sheet had (`composer.md`, the first message does
+  not close on a guess): "making the thread in <repo> on <host>.", the
+  slow line after 8 s, a refusal said plainly under the field with the
+  words given back and retry and edit, and one thread made at a time
+  ("one thread at a time. this one can start once the first is open.").
+  when the thread exists the stage opens on it out of the field's window,
+  as a tap opens a window.
+- **tokens.** the place is typed into the sentence and read at the caret:
+  `@` at a word's start is a repo (a word filters the machine's repos, a
+  path walks its folders; a repo of that name on another machine you have
+  threads on is offered with its host, and a pick moves both), `on `
+  followed by the start of a machine's name is a machine (only with two
+  machines or more, never for `on ` alone), and `/` at a word's start with
+  no second slash is a model (a path in the prose is not one). a token
+  opens its menu as it is typed and resolves only when picked (return,
+  tab or a tap), never on a guess; a pick takes its letters out of the
+  words and becomes the chip. a token never picked stays words. the
+  composer's own `/`, `@` and `!` menus are off in the field.
+- **every token is a tap away.** the repo chip opens the same menu with a
+  finder ("find a repo, or type a path"), "other folder" for any folder by
+  its path, and at the menu's foot the fresh worktree switch ("a fresh
+  worktree", disabled with its reason on a folder that is not a git repo);
+  the machine chip lists the machines; the model and effort are the
+  composer's own chips. arrows walk a menu, return or tab picks, escape
+  closes it and keeps the words, and a press outside closes it.
+- **what next** (the list, at strip and rail). under the field, in the
+  server's order and never ranked here: "waiting on you", the threads that
+  want you, stopped, or finished unseen, each a row with its verb (answer
+  opens the answer sheet, open pours the thread); then the working fold as
+  one row that opens the fold's list ("see the working fold: 3 working",
+  named apart from the capsule); then "start in", the field's machine's
+  repos by the new-thread recency, each "start in <repo> on <host>",
+  which a tap picks into the field. as many repos as the stage has room
+  for, two to eight (ten in the inspector's column, below).
+- **neutral ground.** home has no flood. the field is the composer on a
+  neutral pair (#2a2c34 to #141519, light tone #d4d7e0) on the plane's
+  recipe: a quiet surface in dark, a lit card in light. a repo's colour is
+  only in its own chip (a whisper of its deep colour on the key) and in
+  its marks.
+- **where it sits.** the field is the stage's prose measure wide (640 at
+  the strip, 680 at the rail, 760 on a rail 2000 px wide or more), so it
+  stands where a thread's composer does. the field and the list stand two
+  fifths of the way down the room they leave, never more than 240 px down;
+  a list taller than the stage scrolls inside it. at the rail 1400 and up
+  with the inspector shown, "start in" sits in the inspector's column, its
+  heading level with the field's top (measured on resize, never per
+  frame). menus drop under the field over the list, the composer's model
+  menu too, and never push it.
+- **the way home.** at strip and rail every thread's bar carries "what
+  next?" after the title, the field collapsed: a button named "what next?
+  go home", with an "esc" key hint on a fine pointer only. a press, or
+  escape from a thread with no field focused and nothing open over it (a
+  sheet, a modal dialog, the thread's menu), and the thread steps back
+  while the field drops out of the bar, the caret in it; an agent's layer
+  steps back to its parent first, as its back does. escape on the empty
+  field pours the thread you came from back. the deck keeps its back, and
+  the deck it returns to is led by the field.
+- **keys.** `esc` from a thread at strip and rail is home; `⌘n` from
+  anywhere, typing included, and `n` when not typing land on the field
+  with the caret in it (on the deck an open thread shrinks first, at strip
+  and rail it steps back first). the new thread pill, the folded rail's
+  plus disc and a board machine key do the same. `⌘k` is not built and
+  stays reserved for the jump (input, below); nothing takes it.
+- **motion.** the thread steps back to `scale(.96)` on the sheet spring
+  while its words go on the fade curve, and the card's shadow and rim
+  and, at the widest rail, the inspector's details fade with it; the field
+  arrives 18 px from above after 90 ms and the list 10 px from below after
+  140 ms, both on the sheet spring; a menu drops 6 px on the snap spring.
+  transform and opacity only; reduced motion takes the app's rule.
+  `perf.paint` (control) and `perf.frames` (transition) call it `home`.
+- **empty, offline, failed.** with nothing waiting and no fold the list
+  says "nothing needs you right now." and still offers "start in". a
+  machine with no repos says "nothing has run on <host> yet. type a folder
+  to start in, like ~/code." in the repo menu, and no machine at all "no
+  machine is connected yet. add one from agents.". offline, home's bar
+  says so in its quiet line ("offline, last update 14:02") as it always
+  has; the field still takes words, a first message sent while the
+  connection is down waits in the outbox and the field says "the
+  connection is down. the thread starts on its own when it is back.", and
+  the list renders what was last read. a read that fails is said in the
+  menu in its own words; a refusal is said under the field.
+- **its cost.** the field and the list are a chunk of their own
+  (`ui/later.ts`, `NextUp`), warmed the moment home mounts; their styles
+  (`ui/next/next.css`) are in the first load, so the chunk's arrival never
+  reorders the cascade.
+
 ## starting a thread
+
+**superseded by home: what next (decisions 102 and 103).** the sheet and
+the dock are gone; every entry below lands on home's field. what still
+holds is the send's behaviour: it does not close on a guess, says
+plainly if the machine refused, and opens the stage on the new thread.
 
 on every arrangement the home bar has a "new thread" pill (a plus on the
 deck, the plus and the words on strip and rail), and on the deck the dock
@@ -817,11 +938,14 @@ gets the ipad-portrait layout. three arrangements:
 
 | arrangement | when | home | a thread |
 |---|---|---|---|
-| **deck** | width under 700 | full-height windows in a snap pager, one per screen, the next one peeking | fills the screen; back by button, edge swipe or pulling the header down |
-| **strip** | 700 and up, portrait | the windows as a row across the top, 2 to 4 visible, tails live; the row folds to a bar of swatches | always on stage below the strip |
-| **rail** | 1000 and up, landscape | the windows as a column on the left, tails live | always on stage beside the rail; the inspector joins at 1400; both columns fold |
+| **deck** | width under 700 | home's field under the bar, then full-height windows in a snap pager, one per screen, the next one peeking | fills the screen; back by button, edge swipe or pulling the header down |
+| **strip** | 700 and up, portrait | the windows as a row across the top, 2 to 4 visible, tails live; the row folds to a bar of swatches; with no thread chosen the stage is home's field and what next | on stage below the strip once chosen; "what next?" in its bar goes home |
+| **rail** | 1000 and up, landscape | the windows as a column on the left, tails live; with no thread chosen the stage is home's field and what next | on stage beside the rail once chosen; "what next?" in its bar goes home; the inspector joins at 1400; both columns fold |
 
-why the stage never empties at strip and rail sizes: on the mac, home was
+**superseded in part by decision 102:** the stage at strip and rail sizes
+is home (its field and what next) until a thread is chosen, and nothing
+pours a window onto it by itself; the rail stays the switcher and the
+watch beside a thread. what follows was why the stage never emptied: on the mac, home was
 a corridor, passed through on the way to the next thread, and people go
 thread to thread directly. the rail is the
 switcher and the watch: other agents stay visible and live while you read
@@ -848,13 +972,17 @@ collapse (2026-10-02). as built:
   and up: 330 px, flat on the ground (padding 26 by 22, its scrollbar
   hidden), holding the thread's details or its turns (the header, the
   details and the menu, above). it is quieter than the stage on purpose:
-  figures to glance at beside the thing you read.
+  figures to glance at beside the thing you read. at home, with no thread
+  on the stage and the column shown, it holds "start in", the repos to
+  start a thread in, its heading level with home's field (decision 107),
+  so the column is never empty ground and the card's edge stays where a
+  thread puts it.
 - **the rail folds** to a 76 px column while the details need its room
   (one layout law's table: the open rail gives way first, the native app's
   ipadfit), not to nothing, because the rail is the switcher and the
   watch: the windows' toggle (its middle on the stage
   bar's control line, 46 px down), a new-thread disc (44 px, the solid
-  pill's material), one swatch per window in the inbox order, scrolling
+  pill's material; it lands on home's field), one swatch per window in the inbox order, scrolling
   and fading under the disc and the foot, and history and machines at the
   foot. a swatch is its window folded to 44 by 44: the window's gradient,
   lit top edge and highlight, its repo's first two letters in the light
@@ -913,9 +1041,10 @@ glide to an ask after 4 s idle, the cue and the capsule are as before.
 | | touch (phone, ipad) | keyboard (mac, ipad with a keyboard) |
 |---|---|---|
 | open a window | tap | `⌘1` to `⌘9` by position, or `⌥↑` `⌥↓` through the order |
-| back | edge swipe, pull the header down, `‹` | `esc` (deck only; rail and strip have no back) |
-| jump anywhere | pull down on the deck: all threads | `⌘k`: threads, repos, commands, "new thread in ..." |
-| new thread | the dock | `⌘n` |
+| back | edge swipe, pull the header down, `‹` | `esc` (the deck; at rail and strip there is no back, and `esc` from a thread is home, decision 108) |
+| home, what next (rail, strip) | "what next?" in the thread's bar | `esc` from a thread with no field focused and nothing open over it; `esc` on the empty field goes back to the thread |
+| jump anywhere | pull down on the deck: all threads | `⌘k`: threads, repos, commands, "new thread in ..." (reserved: not built yet, and nothing else takes it) |
+| new thread | the new thread pill or the folded rail's plus disc: home's field, the caret in it | `⌘n`, or `n` when not typing: home's field |
 | send | the send button (return is a newline on touch) | `return`; `shift return` for a newline |
 | steer instead of queue | long-press send | `⌘return` |
 | stop the turn | the stop control in the header's live line | `⌘.` |
@@ -1251,8 +1380,8 @@ colour matched (2026-10-02). what holds both appearances together now:
 - **the window plane is lit in its own colour** (2026-10-02: dark
   slabs on a light page read as an afterthought; this
   replaces the earlier rule that the plane kept its deep colours in both
-  appearances). windows, the composer's window and what it raises, the
-  new-thread sheet, the capsule, a machine, a folded rail's swatches and a
+  appearances). windows, the composer's window and what it raises, home's
+  field, the capsule, a machine, a folded rail's swatches and a
   repo's mark follow the page's appearance and are built from the plane's
   own tokens (`--win-*`, `--accent`, `--on-accent` on the plane block in
   `app/src/styles.css`), read from the surface's palette (`--p1..3`: the
@@ -1438,15 +1567,16 @@ is `aria-hidden`. one component, `RepoMark`
 |---|---|---|
 | window header (deck, strip, rail) | yes, 22, leads the name | the name is the only identity the header carries; the window's gradient is shared with its neighbours of the same repo |
 | history row | yes, 36, replaces the colour bar | the bar said the repo's colour; the mark says it with the favicon, so colour is not said twice. the repo's name stays in the meta line |
-| new-thread sheet: repo chips | yes, 22, replaces the 8 px dot | the dot was this slot's colour; the selected chip's light fill still reads it |
-| new-thread sheet: finder rows | yes, 32, spans the name and the path | a list of repos by name, and the leading mark is the scan line |
+| home's field: the repo chip | yes, 20, leads the name | the chip is the only place the field shows a repo's colour (decision 105); the sheet's repo chips at 22 are gone with it |
+| home's field: menu rows | yes, 28, spans the name and the path | a list of repos by name, and the leading mark is the scan line (the sheet's finder rows were 32) |
+| home's list: what next and start in | yes, 32, leads the row | a row names a thread or a repo on the neutral ground, and the mark is its colour there |
 | folded rail swatch | yes, 30, `bare` | the swatch is already the repo's colour and spelled its initials, so a tile in a tile is not drawn until there is a favicon; then the plate shows (its state moves out to the corner the plate leaves free, and rings in the swatch's colour) |
 | fold hover card | yes, 20, leads the repo name | a name on glass with no colour of its own |
 | capsule, "X wants you" | yes, 34, replaces the colour dot | it is the one place a repo speaks over another's window |
 | stage's repo line | yes, 20, leads the name | the line names the repo; the flood is its colour but the favicon is its face. the name is now the project root's, as the window says it (it was the worktree directory's) |
 | settings, per-repo defaults | yes, 36 | a list of repos on the plain page |
 | home's summary line ("api wants you, 2 working") | no | a sentence of parts that wrap between them; an inline mark would break the line's measure, and the ink colour already carries the repo; the capsule and the window carry the mark |
-| composer dock and the composer | no | they are windows of the repo's own colour, and the window in view above says the repo |
+| the composer | no | it is a window of the repo's own colour (home's field: the neutral ground, its repo chip carries the mark), and the stage above says the repo |
 | composer full head | no | it carries the thread's title, not a repo |
 | clear and ask cards | no | named by the window they sit in |
 
@@ -1858,20 +1988,20 @@ three planes, and every element belongs to exactly one:
 | plane | what | material |
 |---|---|---|
 | ground | the page | flat, with a soft glow of the window in view |
-| windows | windows, the stage, asks, the composer in the sheet and on the full stage, what the composer raises, a machine, a swatch, a repo's mark | the repo's material for the appearance (the deep pair on dark, the light tone in white on light), a lit top edge, a highlight falling from the top left, a long soft shadow in the window's own colour; the composer's menus, its queue's list, the edges behind its strip, the new-thread sheet and the pair sheet are deeper cards of the same plane (`--win-deep-1..2`), not glass |
+| windows | windows, the stage, asks, the composer in home's field and on the full stage, what the composer raises, a machine, a swatch, a repo's mark | the repo's material for the appearance (the deep pair on dark, the light tone in white on light), a lit top edge, a highlight falling from the top left, a long soft shadow in the window's own colour; the composer's menus, its queue's list, the edges behind its strip, the new-thread sheet and the pair sheet are deeper cards of the same plane (`--win-deep-1..2`), not glass |
 | glass | the stage's menu, cards that float over the stage (the ruler's, the pinned ask), a fold's name card, the shell picker's menu, the terminal's keys row and its ended plate | backdrop blur 24 px, saturate 1.4, a hairline lit edge |
-| liquid glass | the controls over content that a finger touches (the native app's decision 22): home's bar and fold controls, the dock, the capsule, the composer, the jump to the latest | `.lg` in `styles.css`: regular (blur 14 px, saturate 1.8, a breath of fill) or `.clear` (blur 3 px, a thinner fill, for a pane that lays its own shade behind its words); one even hairline rim, brighter along the top where the lens catches the light, and a soft drop that falls away below (no lit foot and no tight contact shadow: the foot's line and a 1 px dark blur under the hairline read as a bevel, a dark outline hugging a light one); `--lg-tint` at `--lg-tint-mix` washes in a colour. `.lg-press` answers a press by swelling 6% with a light under the finger. reduced transparency, or no backdrop-filter, gives the solid `--lg-solid` in the same shape, and the press dims to 0.6 instead |
+| liquid glass | the controls over content that a finger touches (the native app's decision 22): home's bar and fold controls, the capsule, the composer, the jump to the latest | `.lg` in `styles.css`: regular (blur 14 px, saturate 1.8, a breath of fill) or `.clear` (blur 3 px, a thinner fill, for a pane that lays its own shade behind its words); one even hairline rim, brighter along the top where the lens catches the light, and a soft drop that falls away below (no lit foot and no tight contact shadow: the foot's line and a 1 px dark blur under the hairline read as a bevel, a dark outline hugging a light one); `--lg-tint` at `--lg-tint-mix` washes in a colour. `.lg-press` answers a press by swelling 6% with a light under the finger. reduced transparency, or no backdrop-filter, gives the solid `--lg-solid` in the same shape, and the press dims to 0.6 instead |
 
 options in an ask are pressed *into* the window (inset shadow); the
 primary option sits *on* it in the accent (the light tone on dark, the
 deep top colour on light). the composer under a thread and its queue's strip are
-clear liquid glass with a pool of shade behind their words; in the sheet and on
+clear liquid glass with a pool of shade behind their words; in home's field and on
 the full stage, and under reduced transparency, the composer is a window
 (`composer.md`, the glass).
 
 **the close.** every surface that closes (a photo full size, a report's
-sheet, the details panel and the spend, the assistant's image viewer, the
-new-thread sheet) closes with one control, `Close` (`app/src/ui/close.tsx`,
+sheet, the details panel and the spend, the assistant's image viewer)
+closes with one control, `Close` (`app/src/ui/close.tsx`,
 the look `.close-round` in `styles.css`): a 36 px round of liquid glass
 (`.lg .lg-press`, the stage bar's and the sheet's rounds) with a drawn
 cross, about 12 px corner to corner, two 1.75 px strokes with round caps in
@@ -1949,6 +2079,13 @@ motion pass.
   on the snap spring, so nothing paints per frame); a message you send settles
   into the queue from slightly small; the counts in home's summary line fade
   in when they change in front of you.
+- **home, what next** (decision 109; home: what next, above). a thread
+  stepping back to home scales to .96 on the sheet spring while its words
+  go on the fade curve, and the card's shadow, rim and, at the widest
+  rail, the inspector's details fade with it; the field comes down 18 px
+  after 90 ms and the list rises 10 px after 140 ms, both on the sheet
+  spring; the field's menus drop 6 px on the snap spring. `perf.frames`
+  counts it as `home`.
 - **recording a voice note** (2026-10-15; `composer.md`, voice, files and
   assistants). a press on the mic key turns the composer into the
   recorder in one content swap (the fade curve): the words and the chips
@@ -2013,7 +2150,7 @@ motion pass.
 |---|---|
 | tests go green after running in front of you | one sweep of light across the window; the chip draws a tick: "118 passed" |
 | you answer an ask | none yet: the card says "sent" and settles when the stream does. the option's flight into your message played only from the window's options, which the window no longer holds (`open.md`) |
-| a new thread is sent | the sheet closes into the new window at the front |
+| a new thread is sent | the stage opens on it out of home's field, as a tap opens a window |
 | the queue advances | the next card slides up into the thread as your message |
 | a worktree merges | the review card folds into one line, "merged into main", with the tick |
 
@@ -2287,7 +2424,7 @@ what can I do.
   deck), a plus in a round pill, "add a machine" and one line, "run `cmx2
   pair` on it, then paste what it prints." the whole ghost is the button.
   pressed, it opens in its place as a deeper card of the window plane
-  (`--win-deep`, as the new-thread sheet), brought into view where it
+  (`--win-deep`, as the new-thread sheet was), brought into view where it
   runs past the fold: the line on how, the address, the token and an
   optional name, "pair" in the primary tone and "cancel"; `esc` cancels
   and focus goes back to the ghost, as it does after a pairing. a paste of

@@ -326,8 +326,8 @@
   independent review and a frame-by-frame motion compare pass.
 - **the same thread's stage is mounted again from scratch.** the owner's
   safari heap snapshots (2026-10-21) held four stages of one root thread:
-  closing and reopening it, back then the strip's pour (home.tsx, the stage
-  never empties), and a resize across strip and rail (home.tsx, moving
+  closing and reopening it, back then the strip's pour (home.tsx, the effect
+  decision 102 removed), and a resize across strip and rail (home.tsx, moving
   between arrangements) each give `layers()` a new entry for the same key,
   so the stage is built again, its turns rebuilt, and hide then show makes
   the worker send the whole thread again (about 17 mb of store objects for
@@ -335,6 +335,21 @@
   dom (`ui/thread/release.ts`), so this costs churn, not a leak. · the
   same thread keeps its stage where the screen shows it unchanged, or a
   remount within a task does not drop and re-send a thread the worker holds.
+
+### left open by home, what next (2026-10-26)
+
+- [home] the field's tokens resolve only by a pick (return, tab or a tap):
+  a typed exact name followed by a space stays words, by design (decision
+  104: nothing resolves on a guess). · revisit if people expect a typed
+  `@ledger ` to become the chip.
+- [home] an assistant that declares `threads` is not offered as a place in
+  the field (the sheet did not offer one either); `composer.md`, start
+  something with an agent, and `design.md`'s agent rows and dock words wait
+  for it. · a field menu row per assistant, and its first message making
+  the thread, driven against the openclaw bench.
+- [home] the six-size screenshot sweep of home, what next is manual
+  (agent-browser); `home-shots.ts` covers three widths (390, 820, 1512). ·
+  the sweep scripted, or the shots taking the other three sizes.
 
 ### housekeeping
 

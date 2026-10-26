@@ -112,6 +112,8 @@ export type StageProps = {
   room?: DetailsRoom;
   /** what home puts at the start of the bar (the windows' toggle while they are put away) */
   barStart?: JSX.Element;
+  /** what follows the title: home's way home, the field collapsed (home.tsx, `WhatNext`), at strip and rail */
+  barEnd?: JSX.Element;
   /** the thread this one was opened over, when it is an agent's (home's stacked layer knows it): back and the title block name
       it even when the fleet does not hold the agent's session, whose `parentID` would say it */
   parent?: string;
@@ -1256,8 +1258,8 @@ export function Stage(props: StageProps) {
       <div class="stage-body">
         <div class="stage-col">
           <header class="stage-bar" ref={(el) => { barEl = el; props.headerRef?.(el); }} classList={{ on: condensed(), still: still() }} data-deck={props.deck ? "" : undefined}>
-            {/* only the deck has a back: at strip and rail the stage never empties (design.md, input; the route table).
-                an agent's stage has one everywhere: it sits over its parent, and back returns there */}
+            {/* only the deck has a back: at strip and rail the way home is the field collapsed after the title (design.md, home:
+                what next). an agent's stage has one everywhere: it sits over its parent, and back returns there */}
             <Show when={props.deck !== false || parentKey()}>
               <button class="back" aria-label={parentKey() ? `back to ${parentTitle()}` : "back to all windows"} aria-keyshortcuts={`${mod}+BracketLeft`} onClick={goBack} />
             </Show>
@@ -1266,6 +1268,7 @@ export function Stage(props: StageProps) {
               <b>{title()}</b>
               <span><Show when={status().live}><i /></Show>{status().text}</span>
             </div>
+            {props.barEnd}
             {/* stop follows the title: once the status line has gone under the bar, the bar carries it, in reach at any scroll */}
             <Show when={condensed() && data.working()}><button class="round bar-stop" aria-label="stop" aria-keyshortcuts={`${mod}+Period`} onClick={() => void stop()} disabled={stopping()}><i /></button></Show>
             <Show when={wide()}><DetailsToggle expanded={shown() === "details"} controls={panelId} shortcut={props.inspector !== undefined} onClick={toggleDetails} /></Show>

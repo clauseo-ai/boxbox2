@@ -1,5 +1,5 @@
 /* a swatch is a window folded to its colour: two letters of its repo and what state it is in, which is all
-   the folded rail has room for (design.md, why the stage never empties). what it says is decided here, pure,
+   the folded rail has room for (design.md, inspector and folds). what it says is decided here, pure,
    so a test pins it; fold.tsx draws it. */
 
 import { clockOf, type WindowState, type WindowView } from "../window/view";

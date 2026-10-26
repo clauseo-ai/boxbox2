@@ -50,14 +50,12 @@ export function UndoToast(props: {
     // focus was in the toast (its undo, done): it goes to the bar's first control, not the body
     if (life.focused()) queueMicrotask(() => document.activeElement === null || document.activeElement === document.body || !document.activeElement.isConnected ? focusBack(null, barControl) : undefined);
   });
-  /* on the deck it sits in the row of the page dots, between the window in view and the dock, so it never covers a window's
-     clear or the dock; measured once as it mounts (the dots row is there with two windows or more, else above the dock) */
+  /* on the deck it sits in the row of the page dots, under the window in view, so it never covers a window's clear;
+     measured once as it mounts (the dots row is there with two windows or more, else it keeps its place in settle.css) */
   const placed = ((): Record<string, string> => {
     if (props.arrangement !== "deck") return {};
     const dots = document.querySelector(".home .pager")?.getBoundingClientRect();
-    if (dots && dots.height > 0) return { bottom: `${Math.round(innerHeight - dots.bottom + (dots.height - DECK_HEIGHT) / 2)}px` };
-    const dock = document.querySelector(".home .home-dock")?.getBoundingClientRect();
-    return dock ? { bottom: `${Math.round(innerHeight - dock.top + 8)}px` } : {};
+    return dots && dots.height > 0 ? { bottom: `${Math.round(innerHeight - dots.bottom + (dots.height - DECK_HEIGHT) / 2)}px` } : {};
   })();
   const one = () => props.undo.keys.length === 1 && props.undo.title !== null && props.arrangement === "rail";
   return (

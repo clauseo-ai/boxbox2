@@ -458,8 +458,10 @@ why solid:
   what runs only after the server answers (notifications, this device's
   prefs, presence, the perf emitter: each a chunk read from the worker's
   precache as it starts), and warmed when the page is idle after the
-  launch: the surfaces that open at a press (`app/src/ui/later.ts`: the
-  new-thread sheet, home's answer sheet, the model menu, the effort dial,
+  launch: the surfaces that open at a press (`app/src/ui/later.ts`:
+  home's field and what next (`ui/next/`, warmed the moment home mounts
+  rather than when idle, about 25.8 kb raw; its styles stay in the first
+  load), home's answer sheet, the model menu, the effort dial,
   the plus menu's rows, the composer's suggestions, the queue's list and
   its verbs, a report's sheet, the file reader, the spend dialog, a
   picture full size), which open through `whenLoaded` so none opens onto
@@ -709,7 +711,7 @@ left-edge swipe (`backOf`, table-tested in `routes.test.ts`). checked at
 | route | deck, under 700 | strip, 700 and up in portrait | rail, 1000 and up in landscape |
 |---|---|---|---|
 | home | no back | no back | no back |
-| thread | covers home; `‹`, `esc`, the left edge or pulling the bar down shrink it into its window (home's own motion) | no back: on stage under the strip, and the stage never empties | no back: on stage beside the rail |
+| thread | covers home; `‹`, `esc`, the left edge or pulling the bar down shrink it into its window (home's own motion) | no back: on stage under the strip; "what next?" in its bar or `esc` goes home (decision 108) | no back: on stage beside the rail; "what next?" in its bar or `esc` goes home (decision 108) |
 | machines | `‹ windows`, `esc`, the left edge: home | `‹ windows`, `esc`: home | `‹ windows`, `esc`: home |
 | history | `‹ windows`, `esc`, the left edge: home | `‹ windows`, `esc`: home | `‹ windows`, `esc`: home |
 | settings | `‹ machines`, `esc`, the left edge: machines | `‹ machines`, `esc` | `‹ machines`, `esc` |

@@ -1,7 +1,7 @@
 /* the solid side of the composer's stories (docs/composer.md, every state):
    each story boots the real store from the fixtures, answers the menus'
    reads the way boxbox's routes do, and renders the real composer in its
-   mount: the bar under a thread, the dock, the sheet. a story that needs
+   mount: the bar under a thread, and home's field. a story that needs
    focus or a menu gets it the way a person would, by focusing the words
    and typing. */
 
@@ -18,8 +18,7 @@ import type { Ask, Thread } from "../../../sync/protocol";
 import { colourStyle, hashColour, REPO_COLOURS } from "../../window/repo";
 import { Composer } from "../composer";
 import type { BtwActions, BtwDone } from "../../btw/types";
-import { NewThreadDock } from "../dock";
-import { NewThreadSheet } from "../sheet";
+import { Field } from "../../next/field";
 import { AT, browse, COMMANDS, DIRECTORY, DROPPED, draft, FAVORITES, FILES, fileOf, HOST, IDLE, IDLE_NEARLY_FULL, IDLE_ON_OPUS, IDLE_WITH_CONTEXT, KEY, MODELS, MODELS_MANY, OTHER, PROMPTS, photoUrl, QUESTION, SESSION, sent, TARGET, WORKING, WORKING_MARKDOWN, WORKING_WITH_CONTEXT } from "./fixtures";
 
 export type ComposerStory =
@@ -89,19 +88,19 @@ export type ComposerStory =
   | "models-loading"
   | "models-failed"
   | "models-failed-dial"
-  | "dock"
-  | "dock-nowhere"
-  | "sheet"
-  | "sheet-hosts"
-  | "sheet-finder"
-  | "sheet-browse"
-  | "sheet-starting"
-  | "sheet-failed"
-  | "sheet-fresh"
-  | "sheet-model"
-  | "sheet-dial"
-  | "sheet-place"
-  | "sheet-away"
+  | "field"
+  | "field-nowhere"
+  | "field-hosts"
+  | "field-finder"
+  | "field-browse"
+  | "field-typed"
+  | "field-typed-model"
+  | "field-typed-machine"
+  | "field-starting"
+  | "field-failed"
+  | "field-fresh"
+  | "field-model"
+  | "field-dial"
   | "btw"
   | "btw-working"
   | "btw-empty"
@@ -109,7 +108,7 @@ export type ComposerStory =
   | "btw-slash"
   | "btw-tools";
 
-const HOME_STORIES = ["dock", "dock-nowhere", "sheet", "sheet-hosts", "sheet-finder", "sheet-browse", "sheet-starting", "sheet-failed", "sheet-fresh", "sheet-model", "sheet-dial", "sheet-place", "sheet-away"] as const;
+const HOME_STORIES = ["field", "field-nowhere", "field-hosts", "field-finder", "field-browse", "field-typed", "field-typed-model", "field-typed-machine", "field-starting", "field-failed", "field-fresh", "field-model", "field-dial"] as const;
 type HomeStory = (typeof HOME_STORIES)[number];
 const isHome = (story: ComposerStory): story is HomeStory => (HOME_STORIES as readonly string[]).includes(story);
 
@@ -393,7 +392,7 @@ function typeInto(el: HTMLElement, text: string | undefined, focus: boolean): vo
 }
 
 export function mountComposer(el: HTMLElement, story: ComposerStory): () => void {
-  if (isHome(story)) return mountHome(el, story, answerReads(undefined, undefined, story === "sheet-model"));
+  if (isHome(story)) return mountHome(el, story, answerReads(undefined, undefined, story === "field-model" || story === "field-typed-model"));
   const setup = SETUPS[story]();
   const restore = answerReads(setup.models, setup.compact, setup.many ?? false, setup.starsRefused, setup.none);
   installMotionProperties();
@@ -436,66 +435,68 @@ export function mountComposer(el: HTMLElement, story: ComposerStory): () => void
 
 function mountHome(el: HTMLElement, story: HomeStory, restore: () => void): () => void {
   installMotionProperties();
-  boot({ entry: IDLE, many: story === "sheet-model", favorites: FAVORITES });
-  if (story === "sheet-hosts") bootSync({ fleet: { ...EMPTY_FLEET, threads: { [KEY]: IDLE }, order: [KEY], agentNames: [HOST, OTHER], asks: {} }, threads: {}, stream: LIVE, drafts: {}, outbox: [] });
-  const nowhere = story === "dock-nowhere";
-  // the sheet that lets go on send, wired as home wires it: away and the dock's making line, a tap on the dock brings it back
-  const [away, setAway] = createSignal(false);
-  const [making, setMaking] = createSignal<string | null>(null);
-  const letsGo = story === "sheet-away";
-  const starts = story === "sheet-failed" || story === "sheet-starting" || letsGo;
+  const many = story === "field-model" || story === "field-typed-model";
+  boot({ entry: IDLE, many, favorites: FAVORITES });
+  const hosts = story === "field-hosts" || story === "field-typed-machine";
+  if (hosts) bootSync({ fleet: { ...EMPTY_FLEET, threads: { [KEY]: IDLE }, order: [KEY], agentNames: [HOST, OTHER], asks: {} }, threads: {}, stream: LIVE, drafts: {}, outbox: [] });
+  const starts = story === "field-failed" || story === "field-starting";
+  const nowhere = story === "field-nowhere";
   const dispose = render(
     () => (
-      <div class="cz-story home-story" data-ready>
-        <div class="cz-story-deck plane-window" aria-hidden="true" />
-        <NewThreadDock host={HOST} directory={nowhere ? null : DIRECTORY} showHost={false} making={making()} onOpen={() => away() && setAway(false)} />
-        {story.startsWith("sheet") ? (
-          <NewThreadSheet
-            host={HOST}
-            directory={starts ? "/Users/dev/code/new-thing" : DIRECTORY}
-            {...(letsGo ? { away: away(), onAway: setAway, onMaking: setMaking } : {})}
-            onOpened={() => undefined}
-            onClose={() => undefined}
-          />
-        ) : null}
+      <div class="nx-story" data-ready>
+        <div class="nx">
+          <Field start={{ host: HOST, directory: nowhere ? null : starts ? "/Users/dev/code/new-thing" : DIRECTORY }} onBorn={() => undefined} />
+        </div>
       </div>
     ),
     el,
   );
-  // the finder and the sends are driven the way a person drives them
+  // the chips, the menus and the sends are driven the way a person drives them
   queueMicrotask(() => {
     // a tap, like the bar's stories: a click with no keyboard behind it leaves focus where it was
     const press = driving(el).press;
+    const words = () => el.querySelector<HTMLTextAreaElement>(".cz-body textarea");
+    const typeWords = (text: string) => {
+      const field = words();
+      if (!field) return;
+      field.focus();
+      field.value = text;
+      field.setSelectionRange(text.length, text.length);
+      field.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }));
+    };
     const typeFinder = (text: string) => {
-      const field = el.querySelector<HTMLInputElement>(".cz-find");
+      const field = el.querySelector<HTMLInputElement>(".nx-find input");
       if (!field) return;
       field.value = text;
       field.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }));
     };
-    if (story === "sheet-model") setTimeout(() => press("model for the new thread"), 80);
-    if (story === "sheet-dial") setTimeout(() => press("effort for the new thread"), 80);
-    if (story === "sheet-fresh") setTimeout(() => press("a fresh worktree"), 80);
-    // the finder is behind the place line: it is opened first, as a person would
-    if (story === "sheet-place" || story === "sheet-hosts") setTimeout(() => press("starts in"), 40);
-    if (story === "sheet-finder" || story === "sheet-browse") {
-      setTimeout(() => press("starts in"), 20);
-      setTimeout(() => typeFinder(story === "sheet-browse" ? "/Users/dev/code/" : "stra"), 60);
+    if (story === "field-model") setTimeout(() => press("model for the new thread"), 80);
+    if (story === "field-dial") setTimeout(() => press("effort for the new thread"), 80);
+    if (story === "field-hosts") setTimeout(() => press("machine for the new thread"), 60);
+    if (story === "field-fresh") {
+      setTimeout(() => press("repo for the new thread"), 40);
+      setTimeout(() => press("a fresh worktree"), 100);
     }
-    if (story === "sheet-starting" || story === "sheet-failed" || story === "sheet-away") {
-      const words = el.querySelector<HTMLTextAreaElement>(".cz-body textarea");
-      if (words) {
-        words.value = PROMPTS.first;
-        words.dispatchEvent(new InputEvent("input", { bubbles: true, data: PROMPTS.first, inputType: "insertText" }));
-        // no worker runs in a story: the send goes nowhere, and a refusal is put in the outbox the way the worker would
-        const id = "c-new-thread";
-        const real = crypto.randomUUID.bind(crypto);
-        crypto.randomUUID = (() => id) as unknown as typeof crypto.randomUUID;
-        setTimeout(() => {
-          el.querySelector<HTMLButtonElement>(".cz-send")?.click();
-          crypto.randomUUID = real;
-          if (story === "sheet-failed") setTimeout(() => setOutbox([sent(id, PROMPTS.first, "failed", { verb: "start", target: { kind: "new", host: HOST, directory: "/Users/dev/code/new-thing", place: "checkout" }, key: "new:desk:/Users/dev/code/new-thing", error: `nothing at /Users/dev/code/new-thing on ${HOST}, so the thread did not start. pick another folder, or make it and retry.` })]), 120);
-        }, 80);
-      }
+    // the finder is behind the repo chip: it is opened first, as a finger would
+    if (story === "field-finder" || story === "field-browse") {
+      setTimeout(() => press("repo for the new thread"), 20);
+      setTimeout(() => typeFinder(story === "field-browse" ? "/Users/dev/code/" : "stra"), 60);
+    }
+    // the place typed into the sentence: the menu opens at the caret
+    if (story === "field-typed") setTimeout(() => typeWords("fix the three failing invoice tests @str"), 60);
+    if (story === "field-typed-model") setTimeout(() => typeWords("port the queue to sqlite /op"), 60);
+    if (story === "field-typed-machine") setTimeout(() => typeWords(`run the migration on ${OTHER.slice(0, 2)}`), 60);
+    if (starts) {
+      typeWords(PROMPTS.first);
+      // no worker runs in a story: the send goes nowhere, and a refusal is put in the outbox the way the worker would
+      const id = "c-new-thread";
+      const real = crypto.randomUUID.bind(crypto);
+      crypto.randomUUID = (() => id) as unknown as typeof crypto.randomUUID;
+      setTimeout(() => {
+        el.querySelector<HTMLButtonElement>(".cz-send")?.click();
+        crypto.randomUUID = real;
+        if (story === "field-failed") setTimeout(() => setOutbox([sent(id, PROMPTS.first, "failed", { verb: "start", target: { kind: "new", host: HOST, directory: "/Users/dev/code/new-thing", place: "checkout" }, key: "new:desk:/Users/dev/code/new-thing", error: `nothing at /Users/dev/code/new-thing on ${HOST}, so the thread did not start. pick another folder, or make it and retry.` })]), 120);
+      }, 80);
     }
   });
   return () => {

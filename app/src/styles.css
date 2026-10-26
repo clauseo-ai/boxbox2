@@ -84,8 +84,7 @@
 .capsule,
 .cz-window,
 .cz-card,
-.cz-menu,
-.cz-sheet {
+.cz-menu {
   /* the surface's palette, whichever names it came in */
   --p1: var(--c1, var(--window-top));
   --p2: var(--c2, var(--window-bottom));
@@ -139,8 +138,7 @@
 .capsule,
 .cz-window,
 .cz-card,
-.cz-menu,
-.cz-sheet {
+.cz-menu {
   --ground: color-mix(in srgb, #f3f3f1 calc(var(--L) * 100%), #0b0c0f);
   --text: color-mix(in srgb, #101114 calc(var(--L) * 100%), #f4f4f6);
   /* the second and third inks. light holds both at 4.5:1 on the ground and on a window's lightest material, as the

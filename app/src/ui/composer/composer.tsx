@@ -17,7 +17,7 @@
    menu) and how many lines its words may grow to, on the viewport's own
    resize events, never in a frame loop. */
 
-import { For, Show, createComputed, createEffect, createMemo, createSignal, lazy, on, onCleanup, onMount, untrack } from "solid-js";
+import { For, type JSX, Show, createComputed, createEffect, createMemo, createSignal, lazy, on, onCleanup, onMount, untrack } from "solid-js";
 import { flyInto } from "../../motion/fly";
 import { flip, play } from "../../motion/animate";
 import { ROLL_IN, SNAP } from "../../motion/springs";
@@ -103,6 +103,12 @@ export type ComposerProps = {
   /** the btw verbs, given only where the thread's agent answers btws (`capabilities.btw`): the composer offers btw mode then
       (docs/composer.md, btw) */
   btw?: BtwActions | undefined;
+  /** what leads the top row, before the model and the effort: home's field puts the place it starts in there */
+  lead?: JSX.Element;
+  /** the words before any are typed, in place of the mount's own */
+  hint?: string;
+  /** false: no `/`, `@` or `!` menu of the composer's own, for a field that reads those letters itself (ui/next) */
+  menus?: boolean;
 };
 
 const EMPTY: Draft = { text: "", photos: [], model: null, effort: null, at: 0 };
@@ -359,7 +365,7 @@ export function Composer(props: ComposerProps) {
       return;
     }
     write({ text });
-    const opened = inBtw() ? null : menuOf(text);
+    const opened = inBtw() || props.menus === false ? null : menuOf(text);
     setMenuIndex(0);
     if (opened !== menu() && (opened || (menu() !== "model" && menu() !== "tools"))) setMenu(opened);
     if (opened === "@") readFiles(text);
@@ -993,7 +999,7 @@ export function Composer(props: ComposerProps) {
   const when = () => (props.target.kind === "new" ? "the new thread starts on it" : agent() === "idle" ? "changes from this message on" : "changes from your next message when the agent is done");
 
   const label = () =>
-    props.mount === "sheet" ? `first message for a new thread in ${repo()}` : inBtw() ? `btw about ${props.title ?? repo()}, the agent won't see it` : `message to ${props.title ?? repo()}`;
+    props.mount === "sheet" ? `first message for a new thread${repo() ? ` in ${repo()}` : ""}` : inBtw() ? `btw about ${props.title ?? repo()}, the agent won't see it` : `message to ${props.title ?? repo()}`;
 
   return (
     <div class="composer" ref={rootEl} data-mount={props.mount} data-full={full() ? "" : undefined} style={{ ...colourStyle(colour()), ...(room() === null ? {} : { "--room": `${room()}px` }) }}>
@@ -1120,6 +1126,7 @@ export function Composer(props: ComposerProps) {
                 </div>
                 </Show>
                 {/* a btw runs on the thread's own model and settings (that keeps it on the prompt cache): no pick is offered in btw mode */}
+                {props.lead}
                 <Show when={!inBtw()}>
                 <button class="cz-key me cz-chip" type="button" aria-label={`model${ofThread()}: ${modelLabel()}${listWhy()}${waits() && draft().model ? ", waits for your next message" : ""}`} aria-expanded={menu() === "model" ? "true" : "false"} data-pending={waits() && draft().model ? "" : undefined} data-quiet={list() === "ready" ? undefined : ""} onPointerDown={(e) => (e.preventDefault(), void warm("ModelMenu").catch(() => undefined))} onClick={() => (menu() === "model" ? toggleMenu("model") : whenLoaded("ModelMenu", () => toggleMenu("model")))}>
                   <MarkGlyph provider={chosenProvider()} class="cz-chip-mark" />
@@ -1201,7 +1208,7 @@ export function Composer(props: ComposerProps) {
             rows={1}
             value={draft().text}
             aria-label={label()}
-            placeholder={inBtw() ? BTW_PLACEHOLDER : placeholder(props.mount, agent(), repo(), shell())}
+            placeholder={inBtw() ? BTW_PLACEHOLDER : (props.hint ?? placeholder(props.mount, agent(), repo(), shell()))}
             enterkeyhint="enter"
             spellcheck={true}
             autofocus={props.autofocus}

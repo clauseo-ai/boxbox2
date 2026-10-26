@@ -1632,14 +1632,15 @@
         {
           "name": "control",
           "type": "TEXT",
-          "doc": "what was tapped: a window, the capsule, back, a window's answer pill, or a row of the working fold's list (option was a window's own option button, which no longer exists)",
+          "doc": "what was tapped: a window, the capsule, back, a window's answer pill, a row of the working fold's list, or the way home in a thread's bar (option was a window's own option button, which no longer exists)",
           "values": [
             "window",
             "capsule",
             "back",
             "option",
             "answer",
-            "fold"
+            "fold",
+            "home"
           ],
           "required": true
         },
@@ -1715,7 +1716,7 @@
         {
           "name": "transition",
           "type": "TEXT",
-          "doc": "which motion",
+          "doc": "which motion (home: a thread stepping back at strip and rail while home's field drops out of its bar)",
           "values": [
             "grow",
             "shrink",
@@ -1724,7 +1725,8 @@
             "capsule",
             "back",
             "agent",
-            "agent-back"
+            "agent-back",
+            "home"
           ],
           "required": true
         },

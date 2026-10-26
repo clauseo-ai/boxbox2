@@ -32,6 +32,8 @@ export type LayerProps = {
   room?: DetailsRoom;
   /** what leads the stage's bar: the windows' toggle while they are put away, the only way back to them on screen */
   barStart?: JSX.Element;
+  /** what sits after the bar's title: the way home, what next, at strip and rail */
+  barEnd?: JSX.Element;
 };
 
 export function Layer(props: LayerProps) {
@@ -53,6 +55,7 @@ export function Layer(props: LayerProps) {
         {...(props.inspector ? { inspector: props.inspector } : {})}
         {...(props.room ? { room: props.room } : {})}
         {...(props.barStart ? { barStart: props.barStart } : {})}
+        {...(props.barEnd ? { barEnd: props.barEnd } : {})}
       />
       <Show when={props.deck}>
         <div class="veil plane-window" aria-hidden="true" />

@@ -12,14 +12,18 @@
    window runs an animation of transform and opacity whose clock and
    computed values change frame by frame.
 
-   bun .ladle/home-shots.ts [--only <substring>] [--out <dir>] [--port <n>] [--theme light|dark]   (from app/) */
+   bun .ladle/home-shots.ts [--only <substring>] [--out <dir>] [--port <n>] [--theme light|dark] [--sizes all]   (from app/) */
 
 import { $ } from "bun";
 
+/* `--sizes all` adds the other three of the six the design is judged at: a landscape ipad, a large monitor and a vertical one */
 const WIDTHS: Array<[string, number, number]> = [
   ["phone", 390, 844],
   ["ipad", 820, 1180],
   ["mac", 1512, 945],
+  ...(process.argv.includes("--sizes") && process.argv[process.argv.indexOf("--sizes") + 1] === "all"
+    ? ([["ipad-landscape", 1180, 820], ["monitor", 2560, 1440], ["vertical", 1440, 2560]] as Array<[string, number, number]>)
+    : []),
 ];
 const args = process.argv.slice(2);
 const only = args.includes("--only") ? args[args.indexOf("--only") + 1] : undefined;
@@ -138,19 +142,20 @@ const BAR = `(() => {
   return "";
 })()`;
 
-/* home is never inert under nothing: on the deck the windows and the dock are inert only while a thread's layer is on
-   the stage, or a sheet is up over them (the answer sheet, the working fold's list or the away sheet, a new-thread sheet that has not let go). a thread opened from
+/* home is never inert under nothing: on the deck the windows and the field are inert only while a thread's layer is on
+   the stage, or a sheet is up over them (the answer sheet, the working fold's list or the away sheet). a thread opened from
    a url the fleet does not hold once left every tap dead */
 const INERT = `(() => {
   const home = document.querySelector(".home[data-arrangement=deck]");
   if (!home) return "";
-  const covered = document.querySelector(".stage .layer, .asks-sheet, .hsheet, .cz-sheet:not([data-away])") !== null;
-  const inert = [...home.querySelectorAll(".bar, .wins, .home-dock")].some((el) => el.inert);
+  const covered = document.querySelector(".stage .layer, .asks-sheet, .hsheet") !== null;
+  const inert = [...home.querySelectorAll(".bar, .wins, .nx-deck")].some((el) => el.inert);
   return inert && !covered ? "the deck is inert and no thread is on the stage" : "";
 })()`;
 
-/* the thread on the stage leaves the fleet while it is first in the order: home must settle on the next window, with
-   one write of the url, no long task and one layer, not chase its own effects (home--home-first-leaves reports on
+/* the thread on the stage leaves the fleet while it is first in the order: home must settle, on home's field at the strip
+   and the rail (the stage is home when no thread is chosen), with few writes of the url, no long task and no layer left,
+   not chase its own effects (home--home-first-leaves reports on
    window.__gone, after the strip's and the rail's stage has a thread to lose) */
 const GONE = `JSON.stringify(window.__gone ?? null)`;
 type Gone = { error?: string; left?: string; landedOn?: string | null; layers?: number; writes?: number; longest?: number; held?: boolean; under?: boolean; deck?: boolean };
@@ -159,10 +164,10 @@ function judgeGone(g: Gone | null, arrangement: string): string {
   if (g.error) return g.error;
   const problems: string[] = [];
   if (g.under) problems.push("the deck was inert with no layer on the stage while the stream caught up");
-  // the deck lets go to its windows (no stage to land on); strip and rail land on the next window
+  // the deck lets go to its windows; strip and rail let go to home (no thread chosen, no layer)
   if (g.deck) return problems.join(", ");
-  if (g.landedOn === g.left || !g.held) problems.push(`the stage did not land on a thread the fleet holds (${g.landedOn})`);
-  if ((g.layers ?? 0) !== 1) problems.push(`${g.layers} layers on the stage`);
+  if (g.landedOn !== null) problems.push(`the stage opened ${g.landedOn} by itself instead of showing home`);
+  if ((g.layers ?? 0) !== 0) problems.push(`${g.layers} layers on the stage`);
   if ((g.writes ?? 99) > 3) problems.push(`${g.writes} writes of the url`);
   if ((g.longest ?? 0) > 200) problems.push(`a ${Math.round(g.longest ?? 0)} ms task`);
   return problems.join(", ");

@@ -24,7 +24,7 @@ const STAGE_TOKENS = declarations(STYLES, ":where(.thread-stage, .thread, .detai
 const PLANE = declarations(STYLES, ".plane-window,\n.win,\n.host");
 const FLOOD_ROOT = declarations(STAGE, ".stage-bg {");
 const BTW = declarations(CARD, ".btw {");
-const CZ = declarations(COMPOSER, ".cz-window, .cz-card, .cz-strip, .cz-edge, .cz-menu, .cz-sheet {");
+const CZ = declarations(COMPOSER, ".cz-window, .cz-card, .cz-strip, .cz-edge, .cz-menu {");
 
 const SAMPLES = Array.from({ length: 21 }, (_, i) => i / 20);
 const ratioOn = (ink: Colour, back: Colour) => contrast(toHex(over(ink, back)), toHex(back));

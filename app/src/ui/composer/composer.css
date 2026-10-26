@@ -9,12 +9,10 @@
    face (styles.css). the composer sizes every control itself, so its
    buttons start bare: one class of specificity beats the base rule in any
    load order, and every cz rule below, written later, still wins */
-.composer :where(button),
-.cz-sheet :where(button) { min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; transition: none; }
+.composer :where(button) { min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; transition: none; }
 
 /* every control shows where the keyboard is: the place's accent, outside the shape, never on a tap */
-.composer button:focus-visible,
-.cz-sheet button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.composer button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* the icons (icons.tsx): one drawing grammar, sized by where they sit */
 .cz-i { flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -34,7 +32,7 @@
      strong, where black reads as mud */
   --cast-ink: color-mix(in srgb, var(--c2) calc(var(--L) * 100%), #000);
 }
-.cz-window, .cz-card, .cz-strip, .cz-menu, .cz-sheet { color: var(--cz-text); }
+.cz-window, .cz-card, .cz-strip, .cz-menu { color: var(--cz-text); }
 
 /* the composer's own recipes, declared on the plane's surfaces beside styles.css's --win-* tokens (a token is resolved
    where it is declared, and these read --p1, the surface's deep top colour). each is written once, light side first,
@@ -43,7 +41,7 @@
    is a crisp white lip and the same colour at a whisper, a shadow is cast in it. the words come in three inks: on a pale
    card only the full ink, a touch under it and the plane's second ink hold 4.5:1, so every quieter dark tone lands on the
    second */
-.cz-window, .cz-card, .cz-strip, .cz-edge, .cz-menu, .cz-sheet {
+.cz-window, .cz-card, .cz-strip, .cz-edge, .cz-menu {
   /* the ink: the base ink with the surface's deep bottom colour in it on light (a hue-black, as the stage's), so words on
      the lit card take the repo's hue and never read grey. dark, the base ink as it was. three steps: the full ink, a touch
      under it, and the second ink, which holds 4.5:1 on the lit card and on every fill below */
@@ -102,23 +100,6 @@
 .cz-window[data-bad] { box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.18)), inset 0 0 0 1.5px color-mix(in srgb, var(--red) 70%, transparent); }
 /* a drag the composer can take is over it, or over the stage it stands on: its edge lights in the accent */
 .cz-window[data-drop] { box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.18)), inset 0 0 0 2px var(--accent); }
-/* the dock: a button of regular glass in the window's 28 px shape (dock.tsx; the native app's decision 22). it floats at
-   home's foot as a system bottom bar does, so it is glass, tinted with its window material (50% dark, 60% light) so it
-   still says which repo the thread starts in; its plus disc keeps the accent. the window's own light and long shadow are
-   not drawn on it (they are a window's, and the glass has its rim and drop). under reduced transparency the tint lies on
-   the solid fill */
-.cz-window.cz-dock { background: color-mix(in srgb, var(--win-1) calc(50% + var(--L) * 10%), var(--lg-fill)); -webkit-backdrop-filter: var(--lg-filter); backdrop-filter: var(--lg-filter); box-shadow: var(--lg-rim), var(--lg-drop); transition: transform var(--press-t), opacity var(--fade-t); }
-.cz-window.cz-dock::before { background: radial-gradient(closest-side, var(--lg-press-light), transparent); opacity: 0; transition: opacity var(--press-t); }
-.cz-window.cz-dock::after { display: none; }
-.cz-window.cz-dock:active { transform: scale(calc(1 + (var(--lg-press-scale) - 1) / 3)); opacity: var(--lg-press-dim, 1); }
-.cz-window.cz-dock:active::before { opacity: 1; }
-.cz-dock { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 8px 8px 8px 20px; text-align: left; color: var(--cz-text); cursor: pointer; font: inherit; }
-.cz-dock:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.cz-dock-text { flex: 1; min-width: 0; display: grid; gap: 1px; }
-.cz-dock-text b { font-size: 16px; font-weight: 640; font-stretch: 106%; letter-spacing: -0.01em; }
-.cz-dock-text small { font-size: 13px; color: var(--cz-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cz-disc { flex: none; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); box-shadow: var(--cz-raise-disc); }
-.cz-disc svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; }
 
 /* the line: the agent's newest step, or what send will do */
 /* one height always: the line takes at most two rows of its text, the chips and the dial are as tall as a finger needs,
@@ -674,137 +655,17 @@
 .cz-back { width: 36px; height: 36px; border-radius: 50%; background: var(--cz-fill-well); display: grid; place-items: center; flex: none; }
 .cz-back::after { content: ""; width: 8px; height: 8px; border-left: 2px solid color-mix(in srgb, var(--cz-text) calc(var(--L) * 100%), #fff); border-bottom: 2px solid color-mix(in srgb, var(--cz-text) calc(var(--L) * 100%), #fff); transform: translateX(1.5px) rotate(45deg); }
 
-/* ---------- the new-thread sheet: a window in the colour of where it will run ---------- */
-/* the page dimmed into the colour of where the thread will run (as the stage's scrim is): the deep bottom colour at a fifth on
-   light, black as before on dark. the sheet gives the scrim its palette */
-.cz-scrim { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, color-mix(in srgb, var(--c2) 22%, transparent) calc(var(--L) * 100%), rgb(0 0 0 / 0.5)); }
-.cz-sheet {
-  --cast-ink: color-mix(in srgb, var(--p2) calc(var(--L) * 100%), #000);
-  position: fixed;
-  z-index: 61;
-  left: 12px;
-  right: 12px;
-  bottom: calc(12px + var(--keyboard, 0px));
-  max-height: calc(100% - 24px - var(--keyboard, 0px));
-  overflow-y: auto;
-  border-radius: 34px;
-  padding: 22px 12px 12px;
-  isolation: isolate;
-  background: linear-gradient(172deg, color-mix(in srgb, var(--win-deep-1) calc(var(--L) * 100%), color-mix(in srgb, var(--p1) 55%, #14151a)), color-mix(in srgb, var(--win-deep-2) calc(var(--L) * 100%), #0e0f13) 70%);
-  box-shadow: var(--cz-edge-float), 0 40px 80px -20px color-mix(in srgb, var(--cast-ink) calc(90% - var(--L) * 48%), transparent);
-}
-@media (min-width: 700px) {
-  .cz-sheet { left: 50%; right: auto; width: 600px; margin-left: -300px; bottom: auto; top: 12vh; }
-}
-.cz-sheet-head { display: flex; align-items: center; gap: 12px; margin-top: -6px; }
-/* the close is the one close (ui/close.tsx, styles.css `.close-round`): the stage bar's round of liquid glass */
-.cz-sheet h2 { flex: 1; min-width: 0; padding: 0 10px; font-size: 22px; font-weight: 680; font-stretch: 116%; letter-spacing: -0.035em; }
-/* the place: one line as tall as a field, the repo's mark in it, that opens in place into the pickers. its card is pressed
-   into the sheet on dark and a sheet of light over it on light, the line's corner the card's so it opens without changing
-   shape (the native app's NewThreadPlace) */
-.cz-place-card { margin-top: 16px; border-radius: 28px; overflow: hidden; background: color-mix(in srgb, rgb(255 255 255 / 0.62) calc(var(--L) * 100%), var(--cz-fill-key)); box-shadow: var(--cz-edge-card); }
-.cz-sheet .cz-place { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 0 18px 0 11px; text-align: left; }
-.cz-place-text { flex: 1; min-width: 0; display: grid; line-height: 1.3; }
-.cz-place-text b { font-size: 16px; font-weight: 640; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cz-place-text small { font-size: 13px; color: var(--cz-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cz-place-none { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--cz-fill-field); color: var(--cz-dim); }
-.cz-place-none .cz-i { width: 18px; height: 18px; }
-.cz-place > .cz-i { flex: none; width: 18px; height: 18px; color: var(--cz-dim); transition: transform var(--snap-t); }
-.cz-place-card[data-open] .cz-place > .cz-i { transform: rotate(180deg); }
-.cz-pickers { display: grid; gap: 14px; padding: 0 0 12px; }
-.cz-pickers::before { content: ""; height: 1px; margin: 0 16px; background: var(--cz-rule, color-mix(in srgb, var(--cz-text) 10%, transparent)); }
-/* the recent repos as their marks, newest first, the chosen one ringed in its own colour with a hair of the card between */
-.cz-recents { display: flex; gap: 4px; padding: 2px 8px; overflow-x: auto; scrollbar-width: none; }
-.cz-recents::-webkit-scrollbar { display: none; }
-.cz-sheet .cz-recent { flex: none; width: 68px; display: grid; justify-items: center; gap: 6px; padding: 2px 0; }
-.cz-recent-mark { width: 62px; height: 62px; display: grid; place-items: center; border-radius: 20px; }
-.cz-recent[aria-checked="true"] .cz-recent-mark { box-shadow: inset 0 0 0 2px var(--accent); }
-.cz-recent-name { width: 68px; font-size: var(--chip); text-align: center; color: var(--cz-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cz-recent[aria-checked="true"] .cz-recent-name { color: var(--cz-text); font-weight: 600; }
-.cz-recent[data-waiting]:not([aria-checked="true"]) .cz-recent-mark { position: relative; }
-.cz-recent[data-waiting]:not([aria-checked="true"]) .cz-recent-mark::after { content: ""; position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--cz-fill-key); }
-.cz-recents-none { padding: 0 18px; }
-.cz-repos { display: flex; gap: 6px; margin-top: 16px; padding: 4px 28px 4px 10px; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); }
-.cz-repos button { height: 38px; padding: 0 15px 0 8px; border-radius: 19px; display: inline-flex; gap: 8px; align-items: center; font-size: 14px; font-weight: 620; white-space: nowrap; flex: none; color: color-mix(in srgb, var(--cz-ink-1) calc(var(--L) * 100%), rgb(244 244 246 / 0.86)); background: var(--cz-fill-key); box-shadow: var(--cz-edge-key); }
-/* a repo's own button and row carry that repo's palette, so they read their accent from it and not the sheet's */
-.cz-repos button, .cz-row-main, .cz-recent { --accent: color-mix(in srgb, var(--c1) calc(var(--L) * 100%), var(--hi)); --on-accent: color-mix(in srgb, #f7f7f5 calc(var(--L) * 100%), var(--c2)); }
-.cz-repos button[aria-checked="true"] { background: var(--accent); color: var(--on-accent); box-shadow: var(--cz-raise-chip); }
-@media (pointer: coarse) {
-  .cz-repos button { height: 44px; }
-}
-/* where it runs: one quiet switch under the words, its meaning on one line under its words */
-.cz-where { margin-top: 14px; }
-.cz-sheet .cz-wt { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 0 4px 0 18px; text-align: left; }
-.cz-wt > .cz-i { flex: none; width: 22px; height: 18px; color: var(--cz-dim); }
-.cz-wt[aria-checked="true"] > .cz-i { color: var(--accent); }
-.cz-wt b { flex: 1; min-width: 0; font-size: 16px; font-weight: 620; }
-.cz-sheet .cz-wt:disabled { opacity: 0.5; }
-.cz-wt .cz-switch { flex: none; position: relative; width: 51px; height: 31px; border-radius: 16px; background: var(--cz-fill-well); box-shadow: var(--cz-edge-track); }
-.cz-wt .cz-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgb(0 0 0 / 0.25); transition: transform var(--snap-t); }
-.cz-wt[aria-checked="true"] .cz-switch { background: var(--accent); box-shadow: none; }
-.cz-wt[aria-checked="true"] .cz-switch::after { transform: translateX(20px); }
-.cz-where-note { padding: 2px 8px 2px 52px; }
-
-/* the machine row sits close above the repos: one choice in two rows */
-.cz-repos [data-waiting]:not([aria-checked="true"])::after { content: ""; width: 6px; height: 6px; margin-left: 7px; border-radius: 50%; background: var(--accent); flex: none; }
-.cz-pickers .cz-machines { margin-top: 0; }
-.cz-machines button { padding: 0 15px 0 12px; }
-.cz-machines button .cz-i { width: 16px; height: 16px; opacity: 0.78; }
-.cz-machines button[aria-checked="true"] { background: var(--accent); color: var(--on-accent); box-shadow: var(--cz-raise-chip); }
-
-/* the finder: one field that filters the repos or reads a typed folder, and the rows it finds */
-.cz-finder { margin: 0 12px; display: grid; gap: 6px; }
+/* a search field in a menu (the model menu's filter, model-menu.tsx): it lights up with the place's colour while you type in it */
 .cz-find { width: 100%; min-height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: var(--cz-fill-field); box-shadow: var(--cz-edge-find); color: var(--cz-text); font: inherit; font-size: 17px; caret-color: var(--accent); outline: none; }
 @media (hover: hover) and (pointer: fine) {
   .cz-find { font-size: 15px; }
 }
 .cz-find::placeholder { color: var(--cz-faint); }
 .cz-find:focus-visible { box-shadow: var(--cz-in-45), inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 75%, transparent); }
-/* a search field: the glass lights up with the place's colour while you type in it */
 .cz-search { position: relative; display: block; }
 .cz-search > .cz-i { position: absolute; left: 16px; top: 50%; width: 16px; height: 16px; translate: 0 -50%; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.42)); pointer-events: none; }
 .cz-search:focus-within > .cz-i { color: var(--accent); }
 .cz-search .cz-find { padding-left: 42px; }
-.cz-search:has(.cz-clear) .cz-find { padding-right: 46px; }
-.cz-search .cz-clear { position: absolute; right: 6px; top: 50%; translate: 0 -50%; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.6)); }
-.cz-search .cz-clear .cz-i { width: 15px; height: 15px; }
-@media (hover: hover) and (pointer: fine) {
-  .cz-search .cz-clear:hover { color: var(--cz-text); background: var(--cz-fill-well); }
-}
-@media (pointer: coarse) {
-  .cz-search .cz-clear { right: 0; width: 44px; height: 44px; }
-}
-.cz-rows { display: grid; gap: 2px; max-height: min(260px, 30svh); overflow-y: auto; scrollbar-width: none; }
-.cz-row { display: flex; align-items: stretch; }
-.cz-row-main { flex: 1; min-width: 0; display: grid; gap: 1px; padding: 8px 12px; min-height: 48px; border-radius: 15px; text-align: left; align-content: center; }
-.cz-row-main { position: relative; transition: background-color 0.12s; }
-.cz-row-main:hover { background: var(--cz-hover-row); }
-/* the row enter would pick, lit in that repo's own colour */
-.cz-row-main[data-active] { background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent); }
-@media (hover: hover) and (pointer: fine) {
-  .cz-row-main[data-active]::after { content: "↵"; position: absolute; right: 14px; top: 50%; translate: 0 -50%; font-family: var(--mono); font-size: 15px; color: var(--accent); opacity: 0.85; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .cz-row-main { transition: none; }
-}
-.cz-row-main > b { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* a repo the finder knows leads with its mark, which spans the name and the path beside it */
-.cz-row-main[data-lead] { grid-template-columns: auto minmax(0, 1fr); column-gap: 11px; align-items: center; }
-.cz-row-main[data-lead] .rm { grid-row: 1 / 3; }
-.cz-row-main b .cz-i { width: 15px; height: 15px; color: var(--accent); opacity: 0.9; }
-.cz-row-main b em { font-style: normal; font-family: var(--mono); font-stretch: 90%; font-size: 11px; font-weight: 500; color: var(--accent); }
-.cz-row-main > span:not(.rm) { font-family: var(--mono); font-stretch: 90%; font-size: 11.5px; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.46)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cz-row-in { flex: none; width: 44px; min-height: 48px; display: grid; place-items: center; border-radius: 15px; color: color-mix(in srgb, var(--cz-ink-2) calc(var(--L) * 100%), rgb(244 244 246 / 0.6)); }
-.cz-row-in:hover { background: var(--cz-hover-row); }
-.cz-row-in svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-
-/* a first message went: the thread is being made, or refused, said where the person is looking */
-.cz-making { margin: 10px 10px 0; padding: 12px 14px; border-radius: 18px; background: var(--cz-fill-key); font-size: 14px; line-height: 1.4; color: color-mix(in srgb, var(--cz-ink-1) calc(var(--L) * 100%), rgb(244 244 246 / 0.82)); }
-.cz-making[data-bad] { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--red) 60%, transparent); color: color-mix(in srgb, var(--red) calc(var(--L) * 100%), rgb(255 190 190 / 0.97)); }
-.cz-making-acts { display: flex; gap: 6px; margin-top: 10px; }
-.cz-sheet[data-sent] :is(.cz-place-card, .cz-where) { opacity: 0.5; pointer-events: none; }
-/* the sheet let go of the screen while its thread is being made (sheet.tsx, away): kept, with its send, and not drawn */
-.cz-sheet[data-away], .cz-scrim[data-away] { visibility: hidden; }
 
 /* ---------- btw mode (docs/composer.md, btw) ---------- */
 /* the window wears the btw tint while the draft is a btw: its palette is the citron (btw/tint.ts, set on the window by

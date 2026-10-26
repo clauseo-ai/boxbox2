@@ -3,7 +3,9 @@
 
    - the arrangement follows the window's size, never the device: the deck
      under 700 wide, the rail at 1000 and up in landscape, the strip
-     between. the stage never empties at strip and rail sizes.
+     between. at strip and rail sizes the stage shows home's field and
+     what to do next when no thread is chosen (ui/next, design.md, home:
+     what next); on the deck the field leads the windows.
    - the order is the server's inbox. a reorder waits while a finger is on
      the deck and lands 1 s after it lets go, on the snap spring, with the
      window in view kept where it is.
@@ -49,7 +51,8 @@ import { createCaughtUp } from "../caught-up";
 import type { EdgeMove } from "./edge";
 import { Folded, FoldToggle, WINDOWS_ID } from "./fold";
 import { strayView } from "./layers";
-import { AskSheet, AwaySheet, type Edge, edgeIfLoaded, FoldList, NewThreadSheet, settling, UndoToast, warmEdge, warmOn, whenLoaded } from "../later";
+import { AskSheet, AwaySheet, type Edge, edgeIfLoaded, FoldList, NextUp, settling, UndoToast, warm, warmEdge, whenLoaded } from "../later";
+import type { NextApi } from "../next/next-up";
 import { broughtBack } from "../window/clearing";
 import type { AwayThread } from "../../sync/protocol";
 import { type FoldKind, foldOf, leaverOf } from "./working-fold";
@@ -61,11 +64,11 @@ import { doing, launchPainted, startPerf, tapped, watchTransition } from "./perf
 import { type Beside, detailsPlace } from "./windows";
 import { type FocusState, type InspectorState, type RailState, readFocus, readInspector, readStrip, rememberFocus, rememberInspector, rememberStrip } from "./remembered";
 import { Layer } from "./stage";
-import { NewThreadDock } from "../composer/dock";
 import "../asks/sheet.css";
 import "../window/window.css";
 import "./home.css";
 import "./settle.css";
+import "../next/next.css";
 
 /** the stream may be down this long before home says so (design.md, honesty) */
 const OFFLINE_AFTER_MS = 5000;
@@ -314,12 +317,9 @@ export function Home(props: HomeProps) {
   createEffect(() => setWindowsInView((open() && arrangement() === "deck") || folded() ? [] : inView()));
 
   /* —— the stage —— */
-  /* the sheet holds the place it opened at: a fleet beat or a reorder while it is open must never rebuild it, or the
-     words being typed lose their element and the phone's keyboard drops (the composer would remount) */
   type Place = { host: string; directory: string | null };
-  const [sheet, setSheet] = createSignal<Place | null>(null);
-  /* a new thread starts where you are looking: the thread on stage, else the window the deck is on (the dock, the
-     ambient and the sheet all follow it as you scroll), else the first window, else the first host */
+  /* a new thread starts where you are looking: the thread on stage, else the window the deck is on, else the first window,
+     else the first host. the field takes it once, as it comes up, and keeps what is picked in it after that */
   const startPlace = createMemo<Place | null>(
     () => {
       const list = order();
@@ -332,30 +332,28 @@ export function Home(props: HomeProps) {
     null,
     { equals: (a, b) => a?.host === b?.host && a?.directory === b?.directory },
   );
-  /* the sheet lets go of the screen once its first message goes (the native app's decision 21): it stays mounted, holding
-     the send, while home is usable under it; the dock says the thread is being made, and a refusal or a tap on the dock
-     (or the new thread pill, or ⌘n) brings the same sheet back. `making` is the words the dock shows meanwhile */
-  const [away, setAway] = createSignal(false);
-  const [making, setMaking] = createSignal<string | null>(null);
+  /* home's field (ui/next, a chunk warmed as home mounts): its verbs once it has drawn, and a press that beat it waits for
+     it. `cameFrom` is the thread home was reached from, which escape on the empty field goes back to */
+  let next: NextApi | undefined;
+  let nextWaiting: ((api: NextApi) => void) | null = null;
+  const withNext = (run: (api: NextApi) => void) => {
+    if (next) run(next);
+    else nextWaiting = run;
+  };
+  const takeNext = (api: NextApi) => {
+    next = api;
+    const run = nextWaiting;
+    nextWaiting = null;
+    run?.(api);
+  };
+  void warm("NextUp").catch(() => undefined);
+  const [cameFrom, setCameFrom] = createSignal<string | null>(null);
   /* the answer sheet over home: every pending ask of one thread, from its window's tray (asks/sheet.tsx) */
   const [askSheet, setAskSheet] = createSignal<{ key: string; from: HTMLElement } | null>(null);
-  /** a sheet is on the screen (the new-thread one, mounted and not let go, or the answer sheet): home under it is inert */
+  /** a sheet is on the screen (the answer sheet, a list): home under it is inert */
   /* the working fold opened (lists.tsx): the capsule it hangs from */
   const [foldOpen, setFoldOpen] = createSignal<HTMLElement | null>(null);
-  const sheetUp = (): boolean => (sheet() !== null && !away()) || askSheet() !== null || foldOpen() !== null || awayOpen() !== null;
-  const openSheet = () => {
-    if (untrack(sheet) && untrack(away)) {
-      setAway(false);
-      return;
-    }
-    // the sheet's chunk (ui/later.ts) is in by now unless the press beat the warming; then it opens when it lands
-    whenLoaded("NewThreadSheet", () => setSheet(untrack(startPlace)));
-  };
-  const closeSheet = () => {
-    setSheet(null);
-    setAway(false);
-    setMaking(null);
-  };
+  const sheetUp = (): boolean => askSheet() !== null || foldOpen() !== null || awayOpen() !== null;
   const [layers, setLayers] = createSignal<StageLayer[]>([]);
   let layerSerial = 0;
   let stageEl: HTMLElement | undefined;
@@ -532,13 +530,82 @@ export function Home(props: HomeProps) {
     else if (open() !== key) swap(key, from, event);
   };
 
-  /** a thread just started from the sheet: the stage opens on it, growing from the sheet's window like a tap on a window */
+  /** a thread just started from the field: the stage opens on it, out of the field's window as a tap opens a window */
   const openBorn = (key: string, from: HTMLElement) => {
-    // a sheet that let go is off the screen: the thread grows from the dock that said it was being made, where there is one
-    const dock = untrack(away) ? document.querySelector<HTMLElement>(".home-dock .cz-dock") : null;
-    activate(key, dock ?? from, null);
+    activate(key, from, null);
     // a transition still running refuses the grow: the thread opens in place rather than not at all
     if (open() !== key) openThread(key);
+  };
+
+  /* —— home, what next (design.md): at strip and rail the thread steps back and the field drops out of its bar; on the deck
+     the thread shrinks into its window and the field leads the deck. escape on the empty field goes back —— */
+  let nxStageEl: HTMLDivElement | undefined;
+  const goHome = (event: Event | null) => {
+    const key = open();
+    if (!key || busy || !stageEl || arrangement() === "deck") return;
+    busy = true;
+    const top = layers().at(-1);
+    // an agent's stage steps back to its parent first, as the back on its bar does
+    if (top?.over) {
+      busy = false;
+      backFromAgent(event);
+      return;
+    }
+    if (event) tapped(event, "home", arrangement(), "home");
+    const leaving = layers();
+    // the card's shadow and rim, and the thread's details in the inspector's column, go with it
+    const card = [liftEl, rimEl, capEl, wide() ? inspectorEl() : undefined].filter((el): el is HTMLElement => el !== undefined);
+    const faded: Animation[] = [];
+    for (const entry of leaving) {
+      const el = layerEls.get(entry.id);
+      if (!el) continue;
+      el.inert = true;
+      // the card steps back on the sheet spring while its words go quickly, so the thread and home are never two pages of
+      // words over each other
+      const back = play(el, [{ transform: "none" }, { transform: "scale(.96)" }], SHEET, { fill: "forwards" });
+      const gone = play(el, [{ opacity: 1 }, { opacity: 0 }], FADE, { fill: "forwards" });
+      for (const a of [back, gone]) if (a) faded.push(a);
+    }
+    for (const el of card) {
+      const a = play(el, [{ opacity: 1 }, { opacity: 0 }], FADE, { fill: "forwards" });
+      if (a) faded.push(a);
+    }
+    setCameFrom(key);
+    batch(() => setOpen(null));
+    closeThread();
+    // the field comes down out of the bar where its collapsed form was, the list settles in under it (next-up.tsx)
+    watchTransition("home", SHEET.duration, "home");
+    withNext((api) => {
+      api.arrive();
+      api.focus();
+    });
+    setTimeout(
+      () => {
+        setLayers((list) => list.filter((l) => !leaving.includes(l)));
+        for (const a of faded) a.cancel();
+        busy = false;
+        applyOrder();
+      },
+      prefersReducedMotion() ? 0 : SHEET.duration,
+    );
+  };
+  /** escape on the empty field: the thread home was reached from pours back onto the stage */
+  const backToThread = () => {
+    const key = cameFrom();
+    if (!key || !held(key)) return;
+    const from = originOf(key) ?? nxStageEl?.querySelector<HTMLElement>(".nx-field .cz-window") ?? null;
+    if (from) pour(key, from, null);
+  };
+  /** ⌘n, n, the new thread pill, the fold's plus, a board's machine key: the field, with the caret in it */
+  const startHere = (event?: Event) => {
+    if (arrangement() !== "deck") {
+      if (open()) goHome(event ?? null);
+      else withNext((api) => api.focus());
+      return;
+    }
+    if (!open()) return withNext((api) => api.focus());
+    shrink(event ?? null);
+    setTimeout(() => withNext((api) => api.focus()), prefersReducedMotion() ? 0 : CLOSED_MS + 20);
   };
 
   /** the deck with a thread open: the capsule swaps the stage (the current thread shrinks away, the other grows in) */
@@ -893,16 +960,8 @@ export function Home(props: HomeProps) {
     });
   });
 
-  /* strip and rail: the stage never empties */
-  createEffect(() => {
-    // the first window the fleet still holds: `order()` trails the fleet by the calm, so its first key can be a thread that
-    // has just left, and pouring it was the loop that froze the page
-    const first = order().find(held);
-    if (arrangement() !== "deck" && open() === null && first) {
-      const el = elements.get(first);
-      if (el) untrack(() => pour(first, el, null));
-    }
-  });
+  /* strip and rail: with no thread chosen the stage is home, what next (design.md). it no longer pours the first window on
+     its own: a launch, a thread that left, or escape all land on the field */
   /* moving between arrangements rebuilds the stage for the new one, in place */
   createEffect(
     on(
@@ -1063,11 +1122,18 @@ export function Home(props: HomeProps) {
       else shrink(event);
       return;
     }
-    // ⌘n starts a thread from anywhere, typing included (a browser tab keeps it, the installed app does not). only the
-    // command key: control-n is the emacs next-line in every text field on a mac, and a browser keeps it for a new window
-    if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "n" && startPlace() && !sheetUp()) {
+    // escape at the strip and the rail is home, what next: from a thread, with no field focused and nothing open over it (a
+    // sheet, a dialog, the thread's menu, which take their own escape first). ⌘k stays the jump (design.md, input)
+    if (event.key === "Escape" && arrangement() !== "deck" && open() && !typing && !sheetUp() && !event.defaultPrevented && !document.querySelector("[aria-modal='true'], .menu.on")) {
       event.preventDefault();
-      openSheet();
+      startHere(event);
+      return;
+    }
+    // ⌘n starts a thread from anywhere, typing included (a browser tab keeps it, the installed app does not): the field, with
+    // the caret in it. only the command key: control-n is the emacs next-line in every text field on a mac
+    if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "n" && !sheetUp()) {
+      event.preventDefault();
+      startHere(event);
       return;
     }
     if (typing) return;
@@ -1078,9 +1144,9 @@ export function Home(props: HomeProps) {
       void settling().then((m) => m.undoLast());
       return;
     }
-    if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "n" && startPlace() && !sheetUp()) {
+    if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "n" && !sheetUp()) {
       event.preventDefault();
-      openSheet();
+      startHere(event);
       return;
     }
     // ⇧⌘F puts the windows away and brings them back at the strip and the rail, typing or not (the native app's windows menu)
@@ -1161,9 +1227,9 @@ export function Home(props: HomeProps) {
           const el = originOf(focus.key);
           if (!el || !held(focus.key)) return;
           const over = (up: boolean, selector: string): Over => (!up ? "none" : holdsWords(document.querySelector(selector)) ? "words" : "empty");
-          const plan = focusPlan(over(sheet() !== null && !away(), ".cz-sheet"), over(askSheet() !== null, ".asks-sheet"));
+          // the field is never over the stage: its words stay in it, as every draft does, while the thread opens
+          const plan = focusPlan(over(askSheet() !== null, ".asks-sheet"));
           if (plan.closeAnswer) setAskSheet(null);
-          if (plan.closeNewThread) closeSheet();
           activate(focus.key, el, null);
           // a tap a running transition refused opened nothing: the caret stays where it was
           if (plan.caret && open() === focus.key) caret(focus.key, 30);
@@ -1177,12 +1243,12 @@ export function Home(props: HomeProps) {
       (compose) => {
         if (!compose) return;
         boardCompose(null);
-        // a sheet already up is someone's words: it is left as it is
+        // the field on that machine, with the caret in it: words already there go with it, as a pick in the field moves them
         const host = composeHost(state.fleet.agentNames, compose.machine);
-        if (host === null || untrack(sheet)) return;
+        if (host === null) return;
         setAskSheet(null);
-        const here = untrack(startPlace);
-        whenLoaded("NewThreadSheet", () => setSheet(here?.host === host ? here : { host, directory: null }));
+        startHere();
+        withNext((api) => api.startOn(host));
       },
     ),
   );
@@ -1320,6 +1386,30 @@ export function Home(props: HomeProps) {
     </>
   );
 
+  /** how many repos the list has room for under what needs you: the stage's height less the field and the rows above */
+  const repoRoom = () => Math.max(2, Math.min(8, Math.floor((size().height - 470) / 64)));
+  /** home, what next (ui/next): the field alone on the deck, the field and the list on the stage at strip and rail */
+  const nextUp = (deck: boolean) => (
+    <NextUp
+      deck={deck}
+      asideRepos={!deck && wide() && inspectorShown()}
+      aside={!open() && layers().length === 0 ? inspectorEl() : undefined}
+      start={startPlace()}
+      order={order()}
+      viewOf={viewOf}
+      foldKeys={foldKeys()}
+      kindOf={kindOf}
+      now={now()}
+      repoRoom={repoRoom()}
+      onOpen={(key, from) => activate(key, from, null)}
+      onAnswer={(key, from) => whenLoaded("AskSheet", () => setAskSheet({ key, from }))}
+      onFold={(from) => whenLoaded("FoldList", () => setFoldOpen(from))}
+      onBorn={openBorn}
+      onEscape={!deck && cameFrom() !== null ? backToThread : undefined}
+      api={takeNext}
+    />
+  );
+
   return (
     <div
       class="home"
@@ -1395,7 +1485,7 @@ export function Home(props: HomeProps) {
             machines, and clear N sits at the end of the line's row */}
         <div class="pills acts">
           <Show when={arrangement() !== "deck" && startPlace()}>
-            <button class="pill new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onPointerDown={warmOn("NewThreadSheet")} onClick={openSheet}>
+            <button class="pill new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onClick={(event) => startHere(event)}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               <span class="new-word" aria-hidden="true">new thread</span>
             </button>
@@ -1433,7 +1523,7 @@ export function Home(props: HomeProps) {
             </svg>
           </button>
           <Show when={arrangement() === "deck" && startPlace()}>
-            <button class="pill icon new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onPointerDown={warmOn("NewThreadSheet")} onClick={openSheet}>
+            <button class="pill icon new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onClick={(event) => startHere(event)}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
             </button>
           </Show>
@@ -1442,6 +1532,11 @@ export function Home(props: HomeProps) {
           </Show>
         </div>
       </header>
+      <Show when={arrangement() === "deck"}>
+        <div class="nx-deck" inert={staged() || sheetUp()}>
+          {nextUp(true)}
+        </div>
+      </Show>
       <div
         class="wins"
         id={arrangement() !== "deck" ? WINDOWS_ID : undefined}
@@ -1473,7 +1568,7 @@ export function Home(props: HomeProps) {
           current={open()}
           onOpen={(key, el, event) => activate(key, el, event)}
           onUnfold={toggleWindows}
-          onNew={startPlace() ? openSheet : undefined}
+          onNew={() => startHere()}
           onHistory={props.onHistory}
           onMachines={() => props.onMachines()}
           returns={folded()}
@@ -1481,17 +1576,17 @@ export function Home(props: HomeProps) {
           swatchRef={(key, el) => (el ? swatchEls.set(key, el) : swatchEls.delete(key))}
         />
       </Show>
-      <Show when={arrangement() === "deck" && startPlace()}>
-        {(place) => (
-          <div class="home-dock" inert={staged() || sheetUp()}>
-            <NewThreadDock host={place().host} directory={place().directory} showHost={hosts() > 1} making={making()} onOpen={openSheet} />
-          </div>
-        )}
-      </Show>
       <Show when={arrangement() !== "deck"}>
         <div class="lift" ref={(el) => (liftEl = el)} aria-hidden="true" style={stageColour()} />
       </Show>
       <main class="stage" ref={stageEl} data-open={open() ? "" : undefined} inert={sheetUp()}>
+        <Show when={arrangement() !== "deck"}>
+          {/* home, what next: under the thread's layer, there while a thread is on the stage (its words and its place kept),
+              faded out and out of the tree; a thread stepping back uncovers it (goHome) */}
+          <div class="nx-stage" ref={nxStageEl} data-away={open() ? "" : undefined} inert={open() !== null}>
+            {nextUp(false)}
+          </div>
+        </Show>
         <For each={layers()}>
           {(entry) => (
             <Show when={layerView(entry.key)}>
@@ -1511,6 +1606,7 @@ export function Home(props: HomeProps) {
                   {...(arrangement() === "rail" && wide() && layers().at(-1) === entry ? { inspector } : {})}
                   {...(arrangement() !== "deck" && !wide() && layers().at(-1) === entry ? { room } : {})}
                   {...(arrangement() !== "deck" && windowsHidden() && layers().at(-1) === entry ? { barStart: <FoldToggle form={beside()} state="hidden" round onToggle={toggleFocus} /> } : {})}
+                  {...(arrangement() !== "deck" && layers().at(-1) === entry ? { barEnd: <WhatNext onPress={startHere} /> } : {})}
                 />
               )}
             </Show>
@@ -1531,11 +1627,6 @@ export function Home(props: HomeProps) {
             onCleanup(() => setInspectorEl(undefined));
           }}
         />
-      </Show>
-      <Show when={sheet()}>
-        {(at) => (
-          <NewThreadSheet host={at().host} directory={at().directory} away={away()} onAway={setAway} onMaking={setMaking} onOpened={openBorn} onClose={closeSheet} />
-        )}
       </Show>
       <Show when={askSheet()}>
         {(at) => (
@@ -1658,7 +1749,18 @@ function Empty() {
   return (
     <article class="win ghost" data-state="idle">
       <h2>nothing is running</h2>
-      <p class="win-note">a thread you start in cmx2 on any of your machines shows up here as a live window.</p>
+      <p class="win-note">a thread you start above, or in cmx2 on any of your machines, shows up here as a live window.</p>
     </article>
+  );
+}
+
+/** the way home from a thread at strip and rail (design.md, home: what next): the field, collapsed in the thread's bar. a
+    press, or escape with no field focused, and the thread steps back while the field drops out of the bar */
+function WhatNext(props: { onPress: (event: Event) => void }) {
+  return (
+    <button class="bar-next" type="button" aria-label="what next? go home" aria-keyshortcuts="Escape" onClick={(event) => props.onPress(event)}>
+      <span class="bar-next-words">what next?</span>
+      <kbd class="bar-next-key" aria-hidden="true">esc</kbd>
+    </button>
   );
 }

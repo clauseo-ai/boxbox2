@@ -12,6 +12,7 @@ is binding the same way (AGENTS.md, design law).
 | `app/src/motion/` | the motion law as code: the two springs sampled into `linear()` curves, the short curves, and `play`/`flip`/`sweep`, the only way anything animates a transition; what animates per word or per batch is a css animation on a curve's property (`.settle-in` on `--settle-t`), since webkit keeps every finished web animation alive (gotchas.md, home) |
 | `app/src/ui/window/` | one window: the repo colours (`repo.ts`), the tail's grammar (`tail.ts`), the window's view of a session (`view.ts`), the component and its stylesheet |
 | `app/src/ui/home/` | home: membership (`membership.ts`, each thread's standing a memo of its own so a frame or a second costs what changed), each window's view as a memo of its own (`views.ts`), the arrangements, the order and its calm, the stage and its motion (`home.tsx`, `stage.tsx`), the folds at the rail and the strip (the fold and its swatches `fold.tsx`, `swatch.ts`, the windows toggle's words `windows.ts`; the stage card's edge moving `edge.ts`, `glide.ts`; the choice kept on the device `remembered.ts`), the budgets (`perf.ts`), the fixtures and the stories |
+| `app/src/ui/next/` | home, what next (`design.md`, home: what next; decisions 102 to 109): `next-up.tsx` the field and the list under it, `field.tsx` the field (the composer with the place chips in its top row via `lead`, its own token menu, the neutral `GROUND`), `tokens.ts` the typed `@repo`, `on <machine>` and `/model` (tested), `assemble.ts` what the list shows from the server's order (tested), `next.css` in the first load; a `later.ts` chunk (`NextUp`) warmed the moment home mounts. the start's state is `ui/composer/new-thread.ts` |
 | `app/src/board/` | the board's digits on home (`docs/board.md`, the app): the first load's foothold (`lazy.ts`: the lazy pieces and the words a name carries), and the chunk fetched on the first board frame (`board.tsx`, `board.css`: the key on a window and a swatch, the pairing item and the stage's line; `pin.ts`: arming a pairing), with its stories |
 | `bench/windows.ts` | the windows world: five threads across two repos on a real daemon, for the fixture capture and the budget run |
 | `bench/home.ts` | the budget run |
@@ -49,22 +50,24 @@ is binding the same way (AGENTS.md, design law).
   edge or pulling the header down (the gesture follows the finger, can be
   abandoned, and releases on progress over 28% or a flick). strip and rail:
   the thread pours out of its window onto the stage and the old layer
-  fades back. an asking window never grows, so the stage never moves for
+  fades back. with no thread chosen the strip's and the rail's stage is
+  home's field and what next (decision 102): nothing pours a window there
+  by itself, and "what next?" in a thread's bar, or `esc`, steps the
+  thread back to it (`goHome`, decisions 108 and 109). on the deck the
+  field sits under the bar, above the windows. an asking window never grows, so the stage never moves for
   an ask (`design.md`, one layout law). a
   thread opened from outside (a relaunch restoring the url, a push tap)
   paints in place.
 - **home's controls are liquid glass, its windows are not** (the native
   app's decision 22). the bar's pills and rounds (new thread, clear N,
   history, machines, the windows toggle), the fold's new-thread
-  disc, rounds and toggle, the dock, the capsule, the working fold's
+  disc, rounds and toggle, the capsule, the working fold's
   capsule and the undo toast float over the windows
   as the stage bar's rounds float over the log, so they are one family:
   regular glass from `styles.css` (`.lg`'s tokens; `.home .pill` is
   `all: unset` and reads them). the folded column's disc is the glass
-  tinted with the ink, the dock the glass tinted 50% (dark) or 60% (light)
-  with its repo's window material, its plus disc still the accent; the
-  capsule tinted 70% with the asking window's. a press swells the glass and
-  lights it under the finger. windows, swatches, the sheet, the stage's
+  tinted with the ink; the capsule tinted 70% with the asking window's. a press swells the glass and
+  lights it under the finger. windows, swatches, home's field, the stage's
   card, the docked details and every chip inside a window keep their solid
   materials, and so does the reload screen's one act. reduced
   transparency, or a browser without backdrop-filter, gives every glass
@@ -139,9 +142,10 @@ is binding the same way (AGENTS.md, design law).
   "history" and "machines" the other. "machines" is a mark (two stacked
   boxes) in the pill's own material, its name kept for a screen reader and
   the drive.
-  every arrangement has the new thread entry, because the one it had was the
-  phone's dock alone, and a repo or folder with no threads has no window to
-  start from. on the rail the bar is three rows by rule at any count (the
+  every arrangement has the new thread entry, because a repo or folder
+  with no threads has no window to start from; it lands on home's field
+  with the caret in it (decision 103), where the phone's dock once was the
+  only entry. on the rail the bar is three rows by rule at any count (the
   wordmark with where you go, then what you do, then the line), because
   four pills and a wordmark do not fit one row at 390 with a two digit
   "clear 23", and a pill that wraps by chance is left alone on a row at
@@ -158,11 +162,12 @@ is binding the same way (AGENTS.md, design law).
   the dots wider than a phone, the single `auto` column grew to them, and
   the bar's pills ran off the screen; the column is `minmax(0, 1fr)` and the
   dots shrink and clip.
-- **the dock and the sheet follow the window in view** on the deck
-  (`startPlace`: the open thread, else the window the pager is on, else the
-  newest), by the repo root of its project, so their colour matches its
-  window. only the dock's props change when you scroll; nothing mounts. the
-  dock is a real button (the old one was a read-only mock of the composer).
+- **the field starts where you are looking** (`startPlace`: the open
+  thread, else the window the deck is on, else the first window, else the
+  first host), by the repo root of its project. the field takes it once, as
+  it comes up, and keeps what is picked in it after that, so a scroll or a
+  fleet beat never moves the place under the words. (the dock and the
+  sheet that followed the window in view are gone, decision 103.)
 - **a thread the fleet does not hold never opens** (`stage-open.ts`): a
   `?thread=` for a thread that is gone, or a tap on one that just left,
   clears the url instead of leaving the deck inert under an empty stage.
@@ -181,14 +186,16 @@ is binding the same way (AGENTS.md, design law).
   first-leaves` holds the real effects: it takes the stage's thread out of
   the fleet and fails on more than one layer, three url writes, a 200 ms
   task or a stage on a thread the fleet does not hold; it overflowed the
-  stack on the old effects.
+  stack on the old effects. since decision 102 the effect is gone: at strip
+  and rail no thread chosen is home's field, not the first window, and the
+  rules above still guard every open.
 - **the deck is inert only under a layer that renders** (`staged()`: the
   open thread has a layer and a view), not under `open()` alone. after a
   reconnect, when the open thread had left while the stream was down, the
-  bar, the windows and the dock were inert for about a second until
+  bar, the windows and the dock (now the field) were inert for about a second until
   `caughtUp` (measured 1,009 ms), under nothing.
-- **a thread started from the sheet opens like a tap** (`openBorn`): the
-  stage grows from the sheet's window; if a transition refuses, it opens in
+- **a thread started from the field opens like a tap** (`openBorn`): the
+  stage grows from the field's window; if a transition refuses, it opens in
   place.
 - **a cleared window closes its hole at once.** when every key leaving the
   order is one the person just cleared (`handCleared`) and none is born,
@@ -320,7 +327,8 @@ how the board's keys on home are built; how they look and move is
 - **requests are taken once.** a focus or a compose is a request in the
   store with a serial of its own (a second press of the same key is a new
   request). the rules are `board/requests.ts`, pure and tested: which
-  requests the app can take, what a focus does with a sheet over home,
+  requests the app can take, what a focus does with the answer sheet over
+  home (`focusPlan`; home's field is never over the stage),
   and which host a machine light composes on. the shell drops one it
   cannot take, or any while a terminal holds the keyboard, and brings home
   up for the rest; whichever home is up takes it, clears it, and acts a
@@ -594,7 +602,9 @@ is the law, and decisions 93 to 100 say why; how it is built:
 an assistant's threads are windows on the same deck, in the same order,
 under the same membership and calm laws as cmx's (`design.md`, agents:
 who a window belongs to). the approved screens change four things: the
-palette and the mark, the tail's lines, the footer, and the dock's words.
+palette and the mark, the tail's lines, the footer, and the dock's words
+(the dock is gone, decision 103; how an assistant is offered in home's
+field is open, `open.md`).
 on the web the window, the agents screen's card and the start something
 row and picker are built as standalone components with a story per state
 (`app/src/ui/assistant/home/`, ladle group `assistant-home`), waiting for
@@ -636,7 +646,8 @@ the app's protocol 3 store.
 - **the bar's line** names the assistant as it names a repo: "<name>
   wants you, 2 working, 1 done", the name in its light tone. the capsule
   carries the round mark.
-- **the dock** reads "start something" over the place it starts in:
+- **the dock** (gone with decision 103; kept here as the approved words
+  until the field offers an agent) reads "start something" over the place it starts in:
   "with <name>" for an assistant, "in ledger" for cmx, "in ledger · cmx
   · vm-a" once more than one agent is paired. its colour and key follow
   the window in view, as today. for an agent without `threads` it reads
@@ -814,9 +825,20 @@ guesses.
   you three times: the recorded "which greeting", a long ask of a header, a
   four line question and three options of three to five lines each, and an
   ask of two questions; `ui/thread/stories/asks.ts`), plus home as recorded,
-  with each of those two asks (the thread on the stage holds the question
-  the window previews), offline, after a protocol break, with a long repo
+  with each of those two asks (at strip and rail the story opens the asking
+  thread as a relaunch restoring its url would, since the stage no longer
+  pours one by itself; the thread on the stage holds the question the
+  window previews), offline, after a protocol break, with a long repo
   name, a live replay, and the moments (the birth and the sweep, played on cue).
+  home, what next has its own: `home--home-next-quiet` (nothing waiting:
+  the working fold and the repos to start in), `-busy` (asks and a
+  stopped thread), `-empty` (no windows: "nothing needs you right now."),
+  `-offline` (the bar's quiet line over the list as last read),
+  `-repo-menu` (the repo chip's menu open over the list), `-typed-token`
+  (an `@` typed in the field, its menu open) and `-from-thread` ("what next?"
+  pressed in the asking thread's bar, the thread stepping back). the composer's
+  `composer--home-field*` stories hold the field's own states (below,
+  `composer.md`).
   `bun run shots:home` screenshots every still story at 390, 820 and 1512 and
   fails on a console error, a story that never became ready, a page that
   scrolls sideways, a control without a unique name, a bar line that

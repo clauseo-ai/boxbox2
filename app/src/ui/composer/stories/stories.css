@@ -14,6 +14,3 @@
 .cz-story[data-under] .cz-story-log { padding-bottom: 0; }
 .cz-story[data-under] .cz-story-stage > .composer { margin-top: -150px; }
 .cz-story-keyboard { flex: none; height: 336px; background: rgb(43 43 46); }
-.home-story { justify-content: flex-end; }
-/* a window standing in for the deck, in the green of the repo palette, made of the plane's material like the real one */
-.cz-story-deck { --c1: #1b4a33; --c2: #0c2419; --hi: #8fe6a5; flex: 1; margin: 72px 28px 16px; border-radius: 34px; background: linear-gradient(170deg, var(--win-1), var(--win-2)); box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255 / 0.95) calc(var(--L) * 100%), rgb(255 255 255 / 0.16)), 0 26px 50px -22px color-mix(in srgb, color-mix(in srgb, var(--p2) 32%, transparent) calc(var(--L) * 100%), transparent); }

@@ -170,8 +170,8 @@ or replaces the stale one, and the digits and focus follow.
   the same motion, and puts the caret in its composer, as v1 did for every
   focus: a key press aims you at a thread to talk to it, and dictation types
   into whatever holds focus. a double tap is the same focus to the app.
-- **compose.** a machine key opens the new-thread sheet with that machine
-  picked.
+- **compose.** a machine key lands on home's field set to that machine,
+  the caret in it (decision 103; the new-thread sheet is gone).
 - **pairing.** a thread's menu offers "pair with a board key" while a board
   is here; the next digit pressed takes it.
 - the board code is its own lazy chunk (`app/src/board/board.tsx`),

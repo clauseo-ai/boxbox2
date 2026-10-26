@@ -756,8 +756,8 @@ export const EVENTS = {
     props: {
       control: {
         type: "TEXT",
-        doc: "what was tapped: a window, the capsule, back, a window's answer pill, or a row of the working fold's list (option was a window's own option button, which no longer exists)",
-        values: ["window", "capsule", "back", "option", "answer", "fold"],
+        doc: "what was tapped: a window, the capsule, back, a window's answer pill, a row of the working fold's list, or the way home in a thread's bar (option was a window's own option button, which no longer exists)",
+        values: ["window", "capsule", "back", "option", "answer", "fold", "home"],
         required: true,
       },
       arrangement: { type: "TEXT", doc: "the layout at the time", values: ["deck", "strip", "rail"], required: true },
@@ -788,8 +788,8 @@ export const EVENTS = {
     props: {
       transition: {
         type: "TEXT",
-        doc: "which motion",
-        values: ["grow", "shrink", "pour", "reorder", "capsule", "back", "agent", "agent-back"],
+        doc: "which motion (home: a thread stepping back at strip and rail while home's field drops out of its bar)",
+        values: ["grow", "shrink", "pour", "reorder", "capsule", "back", "agent", "agent-back", "home"],
         required: true,
       },
       frames: { type: "INTEGER", doc: "frames painted during it.", required: true },

@@ -1,0 +1,765 @@
+/* home, what next (docs/design.md, home: what next; ui/next). the field and the list under it on the neutral ground:
+   no repo floods home, a chosen repo shows its colour in its own chip. spacing keeps the system's scale (4, 8, 12, 16, 24,
+   32); the field is the stage's prose measure wide, so it stands where a thread's composer stands and the list lines up
+   under it. only transform, opacity, clip-path and filter animate; the field's arrival and the menus are played from
+   home.tsx and field.tsx on the springs. these styles are in the first load, imported by home, so the chunk's arrival never
+   reorders the cascade. */
+
+.nx {
+  --nx-measure: 100%;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 32px;
+  width: min(100%, var(--nx-measure));
+  margin: 0 auto;
+  color: var(--text);
+}
+
+.home[data-arrangement="strip"] .nx {
+  --nx-measure: 640px;
+}
+
+.home[data-arrangement="rail"] .nx {
+  --nx-measure: 680px;
+}
+
+/* a large monitor's stage is two thousand pixels wide: the field takes the widest prose measure the law has (the mac
+   portrait's 720) and a step more, so it holds the middle of the screen and does not read as a phone's field in a hall */
+@media (min-width: 2000px) {
+  .home[data-arrangement="rail"] .nx {
+    --nx-measure: 760px;
+  }
+}
+
+/* the title is the field's own placeholder ("what next?"); for the tree it is the page's heading */
+.nx-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* —— where it sits —— */
+
+/* the strip and the rail: the stage with no thread on it. the field stands a measured way down, never centred in a tall
+   stage (a vertical monitor would leave it floating), and the list scrolls under it inside the stage's own box */
+.home .nx-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 24px;
+  transition: opacity var(--fade-t), visibility 0s linear 0s;
+}
+
+/* the field and its list stand two fifths of the way down the room they leave, and never more than 240 px down: a short
+   list on a tall stage is not left at the top under empty ground, nor floated in the middle of a vertical monitor. a list
+   taller than the stage takes the room and scrolls */
+.home .nx-stage::before,
+.home .nx-stage::after {
+  content: "";
+  min-height: 0;
+}
+
+.home .nx-stage::before {
+  flex: 2 1 0;
+  max-height: 240px;
+}
+
+.home .nx-stage::after {
+  flex: 3 1 0;
+}
+
+.home .nx-stage > .nx {
+  flex: none;
+}
+
+.home .nx-stage::-webkit-scrollbar {
+  display: none;
+}
+
+/* a thread on the stage: home is under its layer, faded out and out of the tree (inert), its words and its place kept */
+.home .nx-stage[data-away] {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--fade-t), visibility 0s linear var(--fade-ms, 160ms);
+}
+
+/* the deck: the field leads the windows, as wide as a window is with the deck's gutters */
+.home .nx-deck {
+  position: relative;
+  z-index: 6;
+  padding: 4px calc((100vw - var(--window-width)) / 2) 12px;
+}
+
+.home .nx-deck .nx {
+  gap: 0;
+}
+
+/* the inspector's column at the widest rail holds the repos to start in, as it holds a thread's details */
+.nx-aside {
+  /* its heading stands level with the field's top edge across the stage (next-up.tsx measures it) */
+  padding: var(--nx-aside-top, 26px) 22px 26px;
+}
+
+/* —— the field: the composer, a quiet neutral surface —— */
+
+.nx-field {
+  position: relative;
+  z-index: 2;
+}
+
+.nx-field .composer {
+  padding: 0;
+  max-width: none;
+}
+
+/* the words are the hero: a size up from a reply's, two lines tall before a word is typed, the keys in the corners */
+.nx-field .cz-body :is(textarea, .cz-ruler) {
+  font-size: 17px;
+}
+
+/* the keys keep a row of their own under the words at any length, so a word never runs under the plus or send */
+.nx-field .cz-body > :is(.cz-key.plus, .cz-send) {
+  grid-row: 2;
+}
+
+.nx-field .composer[data-mount="sheet"] textarea {
+  min-height: calc(1.42em + 15px);
+  max-height: min(40vh, calc(8 * 1.42em + 15px));
+  padding: 11px 10px 4px;
+}
+
+@media (min-width: 700px) {
+  .nx-field .composer[data-mount="sheet"] textarea {
+    min-height: calc(2 * 1.42em + 15px);
+  }
+}
+
+@media (min-width: 700px) {
+  .nx-field .cz-body :is(textarea, .cz-ruler) {
+    font-size: 20px;
+  }
+}
+
+/* the composer's own menus (the model's) drop under the field as the field's do, over the list, never pushing it */
+.nx-field .composer[data-mount="sheet"] .cz-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  bottom: auto;
+  left: 0;
+  right: 0;
+  margin: 0;
+  max-height: min(360px, 46svh);
+}
+
+/* the place chips lead the composer's top row, made as its model chip is (`.cz-key.me`): the repo with its mark and a
+   whisper of its colour, the machine quiet */
+.nx-tok {
+  padding: 0 12px 0 7px;
+}
+
+.nx-tok:not(:has(.rm)) {
+  padding-left: 12px;
+}
+
+.nx-tok[data-empty] {
+  padding-left: 10px;
+  color: var(--cz-dim);
+}
+
+.nx-tok .cz-i {
+  width: 16px;
+  height: 16px;
+  opacity: 0.8;
+}
+
+.nx-tok-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nx-tok-on {
+  color: var(--cz-dim);
+  font-weight: 500;
+}
+
+/* the chosen repo's chip wears its colour as a whisper on the key, the only colour on home's field; pressed open it is the
+   accent as every chip is */
+.nx-tok[style*="--c1"]:not([aria-expanded="true"]) {
+  background: color-mix(in srgb, color-mix(in srgb, var(--c1) 12%, transparent) calc(var(--L) * 100%), color-mix(in srgb, var(--c1) 46%, rgb(0 0 0 / 0.2)));
+}
+
+.nx-tok[aria-expanded="true"] .nx-tok-on {
+  color: inherit;
+  opacity: 0.72;
+}
+
+.nx-tok:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media (pointer: coarse) {
+  .nx-tok {
+    height: 40px;
+    border-radius: 20px;
+  }
+}
+
+/* —— the field's menu: the repos, the folders, the machines, the models —— */
+
+.nx-menu {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 8px);
+  left: 0;
+  width: min(100%, 460px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  padding: 8px;
+  border-radius: 24px;
+  background: var(--glass-deep);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: var(--glass-edge), var(--lift);
+  transform-origin: top left;
+  color: var(--text);
+}
+
+/* the rows scroll inside the menu, its finder and its switch standing still; the foot fades so a row cut by the scroll
+   reads as more to come, never as a row clipped by the menu's edge */
+.nx-rows::-webkit-scrollbar {
+  display: none;
+}
+
+.home[data-arrangement="deck"] .nx-menu {
+  width: 100%;
+}
+
+.nx-find {
+  position: relative;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.nx-find .cz-i {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  translate: 0 -50%;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+.nx-find input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px 0 40px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+  color: var(--text);
+  font: inherit;
+  /* 16 px or more on touch, or ios zooms (decision 19) */
+  font-size: 16px;
+  outline: none;
+}
+
+.nx-find input::placeholder {
+  color: var(--text-3);
+}
+
+.nx-find input:focus-visible {
+  box-shadow: var(--well-edge), inset 0 0 0 1.5px var(--focus);
+}
+
+.nx-rows {
+  display: grid;
+  gap: 2px;
+  /* a row is as tall as its two lines need: a scroller of a set height would otherwise squeeze rows to their min-height */
+  grid-auto-rows: max-content;
+  max-height: min(340px, 44svh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  padding-bottom: 8px;
+  mask-image: linear-gradient(#000 calc(100% - 20px), transparent);
+}
+
+.nx-row,
+.nx-wt {
+  all: unset;
+  position: relative;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+}
+
+.nx-row:not(:has(> .rm, > .nx-row-icon)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.nx-row[data-active] {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--hairline);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .nx-row:hover {
+    background: var(--hover);
+  }
+
+  /* the row return picks: its key says so, for a keyboard */
+  .nx-row[data-active] {
+    padding-right: 36px;
+  }
+
+  .nx-row[data-active]::after {
+    content: "↵";
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    translate: 0 -50%;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-3);
+  }
+}
+
+.nx-row:focus-visible,
+.nx-wt:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.nx-row-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: var(--well);
+  color: var(--text-2);
+}
+
+.nx-row-icon .cz-i {
+  width: 16px;
+  height: 16px;
+}
+
+.nx-row-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nx-row-text b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 620;
+}
+
+.nx-row-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.nx-row-quiet .nx-row-text b {
+  color: var(--text-2);
+}
+
+.nx-note {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+/* where it runs, at the menu's foot: a hairline above, the switch at its end */
+.nx-wt {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-top: 4px;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0 0 16px 16px;
+  padding-top: 12px;
+}
+
+.nx-wt > .cz-i {
+  width: 20px;
+  height: 20px;
+  margin: 0 4px;
+  color: var(--text-2);
+}
+
+.nx-wt[aria-checked="true"] > .cz-i {
+  color: var(--focus);
+}
+
+.nx-wt:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.nx-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--well);
+  box-shadow: var(--well-edge);
+}
+
+.nx-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.25);
+  transition: transform var(--snap-t);
+}
+
+.nx-wt[aria-checked="true"] .nx-switch {
+  background: var(--focus);
+  box-shadow: none;
+}
+
+.nx-wt[aria-checked="true"] .nx-switch::after {
+  transform: translateX(18px);
+}
+
+/* —— a send's life under the field: being made, or refused with its words given back —— */
+
+.nx-making,
+.nx-refused {
+  margin: 12px 0 0;
+  padding: 12px 16px;
+  border-radius: 18px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.nx-making {
+  color: var(--text-2);
+  background: var(--pill);
+  box-shadow: var(--pill-edge);
+}
+
+.nx-refused {
+  background: var(--pill);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--red) 55%, transparent);
+  color: var(--text);
+}
+
+.nx-refused p {
+  margin: 0;
+}
+
+.nx-refused-acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.nx-pill {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-grid;
+  place-items: center;
+  min-width: 72px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 18px;
+  background: var(--knob);
+  box-shadow: var(--pill-edge);
+  font-size: 14px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.nx-pill.on {
+  background: var(--text);
+  color: var(--ground);
+}
+
+.nx-pill:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* —— the list under the field —— */
+
+.nx-lists {
+  display: grid;
+  gap: 24px;
+}
+
+.nx-group {
+  display: grid;
+  gap: 8px;
+}
+
+.nx-group h2 {
+  margin: 0;
+  padding: 0 16px;
+  font-size: var(--meta);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+/* a group of rows is one quiet surface on the ground, rows divided by a hairline inset past their marks */
+.nx-list {
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border-radius: 22px;
+  /* a quiet surface: a breath of white on the dark ground, a sheet of paper with a soft cast on the light one */
+  background: color-mix(in srgb, rgb(255 255 255 / 0.78) calc(var(--L) * 100%), rgb(255 255 255 / 0.06));
+  box-shadow: var(--pill-edge), 0 10px 24px -16px color-mix(in srgb, rgb(16 17 20 / 0.22) calc(var(--L) * 100%), transparent);
+}
+
+.nx-list > li + li {
+  position: relative;
+}
+
+.nx-list > li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 60px;
+  right: 16px;
+  height: 1px;
+  background: var(--hairline);
+}
+
+.nx-item {
+  all: unset;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  cursor: pointer;
+  transition: transform var(--press-t);
+}
+
+.nx-item:active {
+  transform: scale(0.985);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .nx-item:hover {
+    background: var(--hover);
+  }
+}
+
+.nx-item:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.nx-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nx-text b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+.nx-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--meta);
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+/* red is failure and nothing else: a stopped thread's line says so in it */
+.nx-item[data-state="failed"] .nx-text b {
+  color: var(--red);
+}
+
+.nx-verb {
+  display: inline-grid;
+  place-items: center;
+  min-width: 64px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 18px;
+  background: var(--knob);
+  box-shadow: var(--pill-edge);
+  font-size: 13.5px;
+  font-weight: 620;
+  color: var(--text);
+}
+
+.nx-verb[data-on] {
+  background: var(--text);
+  color: var(--ground);
+  box-shadow: none;
+}
+
+.nx-verb-icon {
+  min-width: 36px;
+  width: 36px;
+  padding: 0;
+}
+
+.nx-verb-icon .cz-i {
+  width: 16px;
+  height: 16px;
+}
+
+/* the working fold's beads: the first three marks, overlapping by a third, each ringed in the list's surface */
+.nx-beads {
+  display: flex;
+  width: 32px;
+  justify-content: center;
+}
+
+.nx-beads:has(> :nth-child(2)) {
+  width: auto;
+  min-width: 32px;
+}
+
+.nx-beads > * + * {
+  margin-left: -6px;
+}
+
+.nx-beads > * {
+  border-radius: 7px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #fbfbfa calc(var(--L) * 100%), #17181d);
+}
+
+.nx-quiet {
+  margin: 0;
+  padding: 0 16px;
+  font-size: var(--meta);
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+/* the stories' page: the field on the ground, at the deck's gutters or the stage's measure */
+.nx-story {
+  min-height: 100vh;
+  padding: 32px 12px;
+  background: var(--ground);
+}
+
+@media (min-width: 700px) {
+  .nx-story .nx {
+    --nx-measure: 680px;
+  }
+}
+
+/* —— the way home in a thread's bar: the field, collapsed —— */
+
+.bar-next {
+  all: unset;
+  box-sizing: border-box;
+  flex: 0 1 240px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px 0 14px;
+  border-radius: 18px;
+  background: var(--knob);
+  box-shadow: var(--pill-edge);
+  color: var(--text-2);
+  font-family: var(--read);
+  font-size: 14.5px;
+  cursor: text;
+  transition: transform var(--press-t);
+}
+
+.bar-next:active {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .bar-next:hover {
+    color: var(--text);
+  }
+}
+
+.bar-next:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.bar-next-words {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-next-key {
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--well);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* the key's hint is a keyboard's: a finger has no escape */
+@media not ((hover: hover) and (pointer: fine)) {
+  .bar-next-key {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nx-item,
+  .bar-next {
+    transition: none;
+  }
+}

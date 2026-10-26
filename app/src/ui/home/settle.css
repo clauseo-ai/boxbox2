@@ -566,11 +566,11 @@
   white-space: nowrap;
 }
 
-/* the deck: centred in the page dots' row, between the window in view and the dock, where the thumb already is (toast.tsx
-   measures the row once; this is the place before it does) */
+/* the deck: centred in the page dots' row under the window in view, where the thumb already is (toast.tsx measures the row
+   once; this is the place before it does, and with one window) */
 .undo-toast[data-arrangement="deck"] {
   left: 50%;
-  bottom: calc(max(env(safe-area-inset-bottom, 0px), 0px) + 78px);
+  bottom: calc(max(env(safe-area-inset-bottom, 0px), 0px) + 16px);
   height: 48px;
   border-radius: 24px;
   translate: -50% 0;

@@ -15,12 +15,12 @@ export function holdsWords(sheet: Pick<Element, "querySelectorAll" | "querySelec
 /** what is over home when a focus comes: a sheet that holds words, an empty one, or none */
 export type Over = "words" | "empty" | "none";
 
-/** a focus never discards or buries typed words: while a sheet (the new-thread one or the answer sheet) holds words, the
+/** a focus never discards or buries typed words: while the answer sheet holds words, the
     thread opens behind it and the sheet keeps the screen and its caret. an empty sheet is put away, and the caret goes to
     the thread's composer (a draft in another thread's composer is kept per thread, so moving it loses nothing) */
-export function focusPlan(newThread: Over, answer: Over): { closeNewThread: boolean; closeAnswer: boolean; caret: boolean } {
-  const words = newThread === "words" || answer === "words";
-  return { closeNewThread: !words && newThread === "empty", closeAnswer: !words && answer === "empty", caret: !words };
+export function focusPlan(answer: Over): { closeAnswer: boolean; caret: boolean } {
+  const words = answer === "words";
+  return { closeAnswer: !words && answer === "empty", caret: !words };
 }
 
 /** a focus the app can take: home draws a window for the key now */

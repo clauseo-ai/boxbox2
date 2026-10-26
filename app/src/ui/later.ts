@@ -1,5 +1,5 @@
-/* the surfaces that open only after a person acts, split from the first load (architecture.md, the script budget): the
-   new-thread sheet, home's answer sheet, the composer's model menu, effort dial, plus menu, suggestions (a `/`, `@` or
+/* the surfaces that open only after a person acts, split from the first load (architecture.md, the script budget): home's
+   field and what next (warmed the moment home mounts, so it is in before a person looks for it), home's answer sheet, the composer's model menu, effort dial, plus menu, suggestions (a `/`, `@` or
    `!` draft), queue list and queue verbs, an agent's report in its sheet, a file in the reader, the details' spend
    dialog, a tool's picture full size, an opened row's file bed, script bed, slip, diff or agent's, search's, plan's, files or thoughts body, and a settled question's record, home's working fold opened, its away sheet and its undo toast. each is a chunk of its own. the shell warms them all once the launch
    has painted and the page is idle (the machines, history, settings and the terminal load when first asked for), and a trigger warms its own
@@ -11,7 +11,7 @@
 
 import { type Component, lazy } from "solid-js";
 
-export const NewThreadSheet = lazy(() => import("./composer/sheet").then((m) => ({ default: m.NewThreadSheet })));
+export const NextUp = lazy(() => import("./next/next-up").then((m) => ({ default: m.NextUp })));
 export const AskSheet = lazy(() => import("./asks/sheet").then((m) => ({ default: m.AskSheet })));
 export const ModelMenu = lazy(() => import("./composer/model-menu").then((m) => ({ default: m.ModelMenu })));
 export const EffortDial = lazy(() => import("./composer/effort-dial").then((m) => ({ default: m.EffortDial })));
@@ -53,7 +53,7 @@ export const AwaySheet = lazy(() => import("./home/lists").then((m) => ({ defaul
 export const UndoToast = lazy(() => import("./home/toast").then((m) => ({ default: m.UndoToast })));
 
 type Surface = Component<never> & { preload: () => Promise<unknown> };
-const surfaces = { NewThreadSheet, AskSheet, ModelMenu, EffortDial, ToolsMenu, Suggestions, QueueList, QueueVerbs, ReportSheet, FileReader, SpendDialog, PictureViewer, FileBed, ScriptBed, Slip, AskRecord, PermitRecord, FoldList, AwaySheet, UndoToast, DetailsPanel, AgentBody, HitsBody, PlanBody, FilesBody, DiffBed, ThoughtsBody } satisfies Record<string, Surface>;
+const surfaces = { NextUp, AskSheet, ModelMenu, EffortDial, ToolsMenu, Suggestions, QueueList, QueueVerbs, ReportSheet, FileReader, SpendDialog, PictureViewer, FileBed, ScriptBed, Slip, AskRecord, PermitRecord, FoldList, AwaySheet, UndoToast, DetailsPanel, AgentBody, HitsBody, PlanBody, FilesBody, DiffBed, ThoughtsBody } satisfies Record<string, Surface>;
 export type SurfaceName = keyof typeof surfaces;
 
 const loaded = new Set<SurfaceName>();

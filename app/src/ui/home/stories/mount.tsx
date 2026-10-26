@@ -19,8 +19,9 @@ import { FOCUS_KEY, INSPECTOR_KEY, STRIP_KEY } from "../remembered";
 import { heavyTranscripts, notesTranscript } from "../../thread/stories/transcript";
 import { askWith, asking, fleetAsking, LONG_ASK, type Question, TWO_QUESTIONS } from "../../thread/stories/asks";
 import { sweep } from "../../../motion/animate";
-import { NewThreadDock } from "../../composer/dock";
 import { colourStyle } from "../../window/repo";
+import type { Middleware } from "openapi-fetch";
+import { api } from "../../../api/client";
 import { RepoMark } from "../../repo-mark/repo-mark";
 import "../../window/window.css";
 import "../home.css";
@@ -100,7 +101,65 @@ export function mountState(el: HTMLElement, story: StateStory): () => void {
   );
 }
 
-export type HomeStory = "live" | "stray" | "answer" | "answer-two" | "ask-long" | "ask-two" | "offline" | "reload" | "long" | "stale" | "crowd" | "gone" | "empty" | "windows-hidden" | "inspector-folded" | "hidden-inspector-folded" | "inspector-turns" | "strip-folded" | "details" | "heavy" | "fold-open" | "fold-off" | "away" | "away-open" | "toast" | "toast-many";
+export type HomeStory = NextStory | "live" | "stray" | "answer" | "answer-two" | "ask-long" | "ask-two" | "offline" | "reload" | "long" | "stale" | "crowd" | "gone" | "empty" | "windows-hidden" | "inspector-folded" | "hidden-inspector-folded" | "inspector-turns" | "strip-folded" | "details" | "heavy" | "fold-open" | "fold-off" | "away" | "away-open" | "toast" | "toast-many";
+
+/** home, what next (docs/design.md; ui/next): the stage with no thread chosen. quiet is every thread at work and folded; busy
+    holds an ask, a failure and a finish beside the work; empty has nothing anywhere; offline is busy with the stream down;
+    the menus are the repo chip pressed and a token typed; back is a thread on the stage stepping back to home */
+export type NextStory = "next-quiet" | "next-busy" | "next-empty" | "next-offline" | "next-menu" | "next-typed" | "next-back";
+const NEXT: ReadonlySet<HomeStory> = new Set<HomeStory>(["next-quiet", "next-busy", "next-empty", "next-offline", "next-menu", "next-typed", "next-back"]);
+
+/** the recorded fleet at rest: three threads at work with nothing wrong, and nothing else, so everything folds */
+function withQuiet(fleet: typeof final.state.fleet): typeof final.state.fleet {
+  const keys = fleet.order.slice(0, 3);
+  const threads: typeof fleet.threads = {};
+  for (const key of keys) {
+    const entry = fleet.threads[key];
+    if (entry) threads[key] = { ...entry, activity: { state: "busy", since: AT - 4 * 60_000 }, needs: [] };
+  }
+  return { ...fleet, threads, asks: {}, order: keys, away: [] };
+}
+
+/** the recorded fleet with one thread stopped by a fault, as the server sends an open fault need */
+function withFailure(fleet: typeof final.state.fleet): typeof final.state.fleet {
+  const asked = new Set(Object.values(fleet.asks).map((a) => a.key));
+  // a thread at rest, not the finished one the busy story shows as done
+  const key = [...fleet.order].reverse().find((k) => !asked.has(k) && fleet.threads[k]?.activity.state === "idle" && !fleet.threads[k]?.needs.some((n) => n.kind === "done"));
+  const entry = key ? fleet.threads[key] : undefined;
+  if (!key || !entry) return fleet;
+  const fault = { id: `fault:${key}`, kind: "fault" as const, key, rank: 2, raisedAt: AT - 12 * 60_000, title: "stopped", body: "bun test invoices, 3 failed", servedAt: null };
+  return { ...fleet, threads: { ...fleet.threads, [key]: { ...entry, activity: { state: "idle" }, needs: [fault] } } };
+}
+
+/** the routes home's field reads, answered as a machine would: its projects (your repos and two it has never run a thread
+    in) and its models. a story has no server */
+function answerHomeReads(): () => void {
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  const answers: Middleware = {
+    async onRequest({ request }) {
+      const url = new URL(request.url, location.href);
+      const projects = /^\/api\/hosts\/([^/]+)\/projects$/.exec(url.pathname);
+      if (projects) {
+        const host = decodeURIComponent(projects[1] ?? "");
+        const roots = [...new Set(Object.values(state.fleet.threads).filter((t) => t.agent === host).map((t) => t.place?.root ?? ""))].filter(Boolean);
+        const home = roots[0]?.replace(/\/[^/]*$/, "") ?? "/Users/dev/code";
+        return json([...roots.map((directory) => ({ directory, updated: AT - 3_600_000 })), { directory: `${home}/dotfiles`, updated: AT - 3 * 86_400_000 }, { directory: `${home}/site`, updated: AT - 6 * 86_400_000 }]);
+      }
+      if (/^\/api\/hosts\/[^/]+\/models$/.test(url.pathname)) return json(HOME_MODELS);
+      return undefined;
+    },
+  };
+  api.use(answers);
+  return () => api.eject(answers);
+}
+const HOME_MODELS = {
+  default: "anthropic/claude-opus-5-5",
+  models: [
+    { id: "anthropic/claude-opus-5-5", name: "Claude Opus 5.5", provider: "anthropic", efforts: ["low", "medium", "high", "max"] },
+    { id: "anthropic/claude-sonnet-5-5", name: "Claude Sonnet 5.5", provider: "anthropic", efforts: ["low", "medium", "high"] },
+    { id: "openai/gpt-5.2-codex", name: "GPT 5.2 Codex", provider: "openai", efforts: ["low", "medium", "high"] },
+  ],
+};
 
 /** what each story's device remembers of the rail and the inspector (home.tsx, `memory`): its own, so no story leaks into the next */
 const FOLDS: Partial<Record<HomeStory, Record<string, string>>> = {
@@ -154,7 +213,7 @@ function withCrowd(fleet: typeof final.state.fleet): typeof final.state.fleet {
     fleet by the calm, so for a moment its first key is a thread the fleet does not hold: home's own effects (pour the
     first window, let go of a thread that left) once chased each other for seconds. this lets the stage settle, takes the
     first thread out of the fleet the way the reducer does, and reports what home did about it on `window.__gone`: how many
-    times it wrote the url, the longest task, the layers on the stage, and which thread the stage landed on */
+    times it wrote the url, the longest task, the layers on the stage, and which thread the stage landed on (none: home) */
 function watchFirstLeave(): void {
   const longest: number[] = [];
   try {
@@ -189,7 +248,7 @@ function watchFirstLeave(): void {
     let under = false;
     setTimeout(() => {
       // the windows are inert only under a layer that is drawn: never under nothing, while the stream catches up
-      const inert = [...document.querySelectorAll(".home .bar, .home .wins, .home .home-dock")].some((el) => (el as HTMLElement).inert);
+      const inert = [...document.querySelectorAll(".home .bar, .home .wins, .home .nx-deck")].some((el) => (el as HTMLElement).inert);
       under = inert && document.querySelector(".stage .layer") === null;
     }, 400);
     setTimeout(() => {
@@ -254,8 +313,9 @@ function openStray(el: HTMLElement, wants: string): void {
     widths home puts the window that wants you on the stage, so its transcript is held as the worker would hold it */
 export function mountHome(el: HTMLElement, story: HomeStory): () => void {
   const stream: StreamStatus =
-    story === "offline" ? { state: "down", since: Date.now() - 60_000, lastEventAt: AT } : { state: "live", since: Date.now() - 60_000, lastEventAt: AT };
+    story === "offline" || story === "next-offline" ? { state: "down", since: Date.now() - 60_000, lastEventAt: AT } : { state: "live", since: Date.now() - 60_000, lastEventAt: AT };
   let dispose: (() => void) | undefined;
+  let unanswer: (() => void) | undefined;
   let gone = false;
   void (async () => {
     const wants = keyOf(final.state, TITLES.wants);
@@ -269,8 +329,21 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     const others = story === "heavy" ? await heavyTranscripts(asks.order.filter((key) => key !== wants)) : {};
     const threads = { ...others, [wants]: pending ? asking(transcript, pending) : transcript };
     if (gone) return;
-    const fleet = story === "long" ? withLongRepo(asks) : story === "crowd" ? withCrowd(asks) : story === "empty" ? { ...asks, threads: {}, asks: {}, order: [] } : story === "away" || story === "away-open" ? withAway(asks) : asks;
+    const fleet =
+      story === "long" ? withLongRepo(asks)
+      : story === "crowd" ? withCrowd(asks)
+      : story === "empty" || story === "next-empty" ? { ...asks, threads: {}, asks: {}, order: [] }
+      : story === "away" || story === "away-open" ? withAway(asks)
+      : story === "next-quiet" ? withQuiet(asks)
+      : story === "next-busy" || story === "next-offline" || story === "next-menu" || story === "next-typed" ? withFailure(asks)
+      : asks;
     bootSync({ fleet, threads, drafts: {}, outbox: [], stream });
+    unanswer = answerHomeReads();
+    // at the strip and the rail the stage shows home until a thread is chosen: the stories that are about a thread choose the
+    // asking one, as a relaunch restoring its url does; home's own stories leave the stage to home
+    const wide = matchMedia("(min-width: 700px)").matches;
+    if (wide && !NEXT.has(story) && story !== "stale" && story !== "empty" && story !== "stray") setOpenThread(wants);
+    if (story === "next-back") setOpenThread(wants);
     // the home prefs as the server holds them: the fold on (its default), or off for the story that shows home without it
     setPrefs({ devices: {}, repos: [], models: { favorites: [] }, home: { autoClear: "seen1h", foldWorking: story !== "fold-off", jobsAsNeeds: false } });
     if (story === "reload") syncNeedsReload();
@@ -287,9 +360,11 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     // settle's stories press what a person would: the capsule, "show", or a clear's toast as the clear leaves it
     const pressing = story === "fold-open" ? ".wfold" : story === "away-open" ? ".away-show" : null;
     const toasting = story === "toast" || story === "toast-many";
+    // home's menus: the repo chip pressed as a finger would, or a token typed at the caret
+    const nexting = story === "next-menu" || story === "next-typed" || story === "next-back";
     dispose = render(
       () => (
-        <div data-ready={answering || detailing || pressing || toasting || story === "stray" ? undefined : ""}>
+        <div data-ready={answering || detailing || pressing || toasting || nexting || story === "stray" ? undefined : ""}>
           <Home onMachines={() => undefined} onHistory={() => undefined} at={AT} measure={false} memory={memory} />
         </div>
       ),
@@ -309,6 +384,22 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
       setTimeout(() => offerUndo(story === "toast" ? resting.slice(0, 1) : state.fleet.order.slice(0, 3)), 600);
       setTimeout(() => el.querySelector("div")?.setAttribute("data-ready", ""), 1500);
     }
+    if (nexting) {
+      const press = (selector: string) => el.querySelector<HTMLButtonElement>(selector)?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+      if (story === "next-menu") setTimeout(() => press('.nx-field [aria-label^="repo for the new thread"]'), 900);
+      if (story === "next-typed")
+        setTimeout(() => {
+          const words = el.querySelector<HTMLTextAreaElement>(".nx-field .cz-body textarea");
+          if (!words) return;
+          const text = "fix the three failing invoice tests, the old rows are dollars @led";
+          words.focus();
+          words.value = text;
+          words.setSelectionRange(text.length, text.length);
+          words.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" }));
+        }, 900);
+      if (story === "next-back") setTimeout(() => press(".stage .bar-next"), 1400);
+      setTimeout(() => el.querySelector("div")?.setAttribute("data-ready", ""), story === "next-back" ? 2400 : 1500);
+    }
     if (answering) {
       setTimeout(() => el.querySelector<HTMLButtonElement>(".win .wask")?.click(), 700);
       setTimeout(() => el.querySelector("div")?.setAttribute("data-ready", ""), 1400);
@@ -317,6 +408,7 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
   return () => {
     gone = true;
     dispose?.();
+    unanswer?.();
   };
 }
 
@@ -386,7 +478,7 @@ export function mountMoments(el: HTMLElement): () => void {
 }
 
 /** home's liquid glass controls (styles.css, `.lg`; docs/home.md, the bar) laid over live windows so the glass has
-    something to bend: the bar's pills and rounds, the clear pill, the fold's new-thread disc, the capsule and the dock.
+    something to bend: the bar's pills and rounds, the clear pill, the fold's new-thread disc and the capsule.
     the second panel is the same controls on the solid material that reduced transparency (or a browser without
     backdrop-filter) gives them, forced by the tokens on the panel, since a story cannot set the system's preference; it is
     a picture to compare, so it is inert and its controls do not repeat the first panel's names */
@@ -436,9 +528,6 @@ export function mountGlass(el: HTMLElement): () => void {
           <button class="fold-new" type="button" aria-label="new thread disc">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
           </button>
-        </div>
-        <div class="glass-dock" style={colourStyle(asking.colour)}>
-          <NewThreadDock host={asking.host} directory={asking.root} showHost={false} onOpen={() => undefined} />
         </div>
       </div>
       <figcaption>{solid ? "solid: reduced transparency, or no backdrop-filter" : "liquid glass"}</figcaption>

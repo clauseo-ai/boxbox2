@@ -77,6 +77,7 @@ and posts small patches to the ui thread once a frame.
 | `src/ui/home/`, `src/ui/window/` | home and its live windows |
 | `src/ui/thread/` | the thread view: turns, rows, the stage |
 | `src/ui/composer/` | writing a prompt, queueing, steering, starting a thread, model and effort pickers |
+| `src/ui/next/` | home, what next: the field where a thread starts, its typed place, and the list of what to do next (design.md, home: what next) |
 | `src/ui/assistant/` | the agent surfaces the neutral wire brings, standalone with their stories until the app's protocol 3 store feeds them: voice notes (record, play, peaks), pictures and files with the viewer, quotes, reactions, the reply strip, an assistant's window, card and picker (design.md, the agent surfaces on the web) |
 | `src/ui/inbox/`, `asks/` | questions and permissions |
 | `src/ui/machines/`, `settings/`, `term/`, `review/`, `history/` | machines and pairing, settings, the terminal pane, code review, past threads |

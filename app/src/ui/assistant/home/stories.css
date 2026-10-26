@@ -1,6 +1,6 @@
 /* the frames the assistant-home stories stand in: a deck window at the deck's size, the agents screen's column, and a
-   new-thread sheet at rest on the page (the sheet's own material, as composer.css draws .cz-sheet, without its fixed
-   place over the page) */
+   new-thread sheet at rest on the page (the material the composer's new-thread sheet had, before it became home's field,
+   decision 103, without a fixed place over the page) */
 
 .ahs-deck {
   --window-width: 330px;

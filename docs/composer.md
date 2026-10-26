@@ -12,12 +12,12 @@ starting a thread, input, the motion law) and is binding the same way
 |---|---|
 | `app/src/ui/composer/composer.tsx` | the component: a target, a mount, the window, the line, the queue's verbs, the menus, the full stage |
 | `app/src/ui/composer/queue.tsx` | the queue's strip above the window (one message, "+N", the edges behind, swipe and long press) and the list of every message with its verbs that a tap on it opens |
-| `app/src/ui/composer/sheet.tsx` | the new-thread sheet: machine, repos by recency, a folder finder for any other folder, checkout or fresh worktree, the progress and the failure of the first send, the hand-over to the open thread |
+| `app/src/ui/composer/new-thread.ts` | starting a thread without its drawing (`createNewThread`, the new-thread sheet's whole state moved out when the sheet became home's field, decision 103): the machine, repos by recency, the folder finder for any other folder, checkout or fresh worktree, the progress and the failure of the first send, the hand-over to the open thread |
+| `app/src/ui/next/field.tsx` | home's field, the one surface that draws `new-thread.ts`: the composer with the place chips leading its top row, the token menu, the refusal and the making line (`home.md`, `design.md`, home: what next) |
 | `app/src/ui/composer/model-menu.tsx`, `models.ts` | the model menu (favorites, the whole list by provider, search, the keys) and its rules as pure functions (tested) |
-| `app/src/ui/composer/dial.tsx`, `thumbed.tsx`, `effort.ts` | the effort meter and the dial on the sliding-thumb control the sheet's "where it runs" shares, and the ladder rules (tested) |
+| `app/src/ui/composer/dial.tsx`, `thumbed.tsx`, `effort.ts` | the effort meter and the dial on the sliding-thumb control, and the ladder rules (tested) |
 | `app/src/ui/composer/marks.ts`, `marks-data.ts`, `marks-sprite.ts`, `mark.tsx` | which provider is which mark (in the script); the marks as data (not in it: the build writes them into `index.html` as an inline svg sprite, so they are in the document when it is parsed and a mark is drawn in the first frame, with no fetch and no pop-in; the script budget was the reason); and the tile that draws one with `<use>` (`THIRD_PARTY.md`) |
 | `app/src/ui/composer/favorites.ts`, `compact.ts`, `context.tsx`, `icons.tsx` | the star's route (optimistic, newest press wins), the compact call and its state in the store, the context ring, and the icons |
-| `app/src/ui/composer/dock.tsx` | home's new-thread dock: one button in the colour of the window in view, naming repo and host |
 | `app/src/ui/composer/place.ts` | where a thread can start, as pure rules: repo root of a session, recency order, the repo filter, typed paths (tested) |
 | `app/src/ui/composer/drop.ts` | drops: what a drop holds (photos, files to mention, words) as pure rules (tested), and `fileDrop`, the target the composer puts on itself and on the stage its mount passes as `dropZone` |
 | `app/src/ui/composer/inline.ts` | the live line's markdown read inline: its runs (strong, emphasis, code), the marks gone, a mark still open dropped (tested) |
@@ -35,8 +35,9 @@ starting a thread, input, the motion law) and is binding the same way
 
 the composer is made of the same stuff as a window on home: the thread's
 own repo gradient, a lit top edge, a highlight falling from the top left
-and a long shadow, so in a violet repo you write into a violet window and
-the new-thread sheet takes the colour of the repo you pick. like every
+and a long shadow, so in a violet repo you write into a violet window
+(home's field is the exception: it stands on the neutral ground, and the
+repo you pick shows its colour in its chip, decision 105). like every
 window it carries a live tail: one line of what the agent is doing,
 rolling in on each real step, shown only when that line is not already on
 screen (the live window or the ask scrolled out of view, or home). while
@@ -76,8 +77,8 @@ white on light), with no pressed-in edge; on (send ready, a menu open, a
 retry) is the glass tinted with the accent; a press swells the lens rather
 than shrinking the key. a shell line tints the glass with its dark bed. the
 queue's strip is a drop of the same glass with its own pool; the edges
-behind it, its list, the menus, the sheet and the full stage keep the repo
-material, since they sit on grounds of their own or would stack glass on
+behind it, its list, the menus and the full stage keep the repo material
+(home's field its neutral pair), since they sit on grounds of their own or would stack glass on
 glass. without backdrop-filter none of it applies and the window and its
 pressed keys stand as above; under reduced transparency the lens keeps its
 shape and its tokens turn solid, as every lens does (`styles.css`). the
@@ -155,12 +156,15 @@ the composer is one component with a **target**:
 - **a new thread in a repo**: `{ host, directory, worktree: checkout | fresh }`.
   send creates the session with the first prompt.
 
-and three **mounts**, the same component in each:
+and three **mounts**, the same component in each. there are two places
+it mounts: the bar under a thread, and home's field (the `sheet` mount;
+the new-thread sheet and the deck's dock were retired into the field,
+decision 103):
 
 | mount | where | what changes |
 |---|---|---|
 | **bar** | the stage's dock slot under a thread (`stage.tsx`, `.stage-dock[data-slot=composer]`) | the top row (the line, the model chip, the effort chip), then the words: on one line between the plus key and send, from a second line the window's full width with the plus and send on a row of their own under them (the layout, below); the queue's strip lives above it |
-| **sheet** | the dock on the phone and deck, the new thread pill on every arrangement, `⌘n` (also plain `n` when not typing; control-n is left alone, it is the emacs next-line in every text field on a mac) | adds the place line (the machine, the recent repos and the folder finder behind it), and the fresh worktree switch; sending shows the thread being made, and when it exists the stage opens on it |
+| **sheet** | home's field (`ui/next/field.tsx`): the stage at strip and rail with no thread chosen, under the bar on the deck. `⌘n` (also plain `n` when not typing; control-n is left alone, it is the emacs next-line in every text field on a mac), the new thread pill, the folded rail's plus disc and a board machine key put the caret in it | the field passes `lead` (the repo and machine chips lead the top row, before the model and effort), `hint` ("what next?" in place of the mount's placeholder) and `menus={false}` (no `/`, `@` or `!` menu of the composer's own: the field reads those letters as tokens, decision 104); the fresh worktree switch is at the foot of the repo menu; sending shows the thread being made under the field, and when it exists the stage opens on it |
 | **full stage** | the expand control once a draft passes six lines | the draft becomes the page, with the top row at its head, back returns to the bar with the caret where it was |
 
 the composer never reads viewport geometry itself: the stage owns the
@@ -212,7 +216,7 @@ named (`attachments: any file`, below).
 | commands | `/` first, or the `/` glyph | `GET /command`, filtered by prefix; name, description, argument hint. under a thread boxbox adds its own `/compact` (it runs at once, and a typed `/compact` sent with return does the same) |
 | files | `@` after a space, or the `@` glyph | `GET /find/file?query=`, fuzzy; name lit, directory dim, line count |
 | shell | `!` first | not a list: one line saying where it runs and what the agent sees |
-| tools | the plus key left of the words (in the sheet it is the photo key) | each row has its icon in a quiet tile: add a photo, add a file (the file picker, "pdf, text or json"; a page glyph with its lines), commands, mention a file ("mention", "a file on <host>"; the plain page glyph), run in the shell, compact (under a thread: summarises the thread so far to free the context, with a ring and how full the context is), agents (under a thread: "agents, 2", opens the agents panel), write on the full stage; the first three put their glyph in the words and open their own menu. opened from the keyboard it lands on its first row: arrows walk the rows, return takes one, escape closes and returns to the plus key |
+| tools | the plus key left of the words (in home's field it is the photo key) | each row has its icon in a quiet tile: add a photo, add a file (the file picker, "pdf, text or json"; a page glyph with its lines), commands, mention a file ("mention", "a file on <host>"; the plain page glyph), run in the shell, compact (under a thread: summarises the thread so far to free the context, with a ring and how full the context is), agents (under a thread: "agents, 2", opens the agents panel), write on the full stage; the first three put their glyph in the words and open their own menu. opened from the keyboard it lands on its first row: arrows walk the rows, return takes one, escape closes and returns to the plus key |
 | model | the model chip (its provider's mark and its name), always in the top row | `GET /config/providers`; models only. it opens on the starred models and the one in use, with a quiet "all models · N" row under them; a star on every row keeps a model on the short list; with nothing starred it opens on every model under provider headers with one line about starring; typing searches every model, the starred first. the thread's model carries a check. "the thread's model, changes from this message on". it opens scrolled to the model in use, and tapping the chip never focuses the words |
 | effort | the effort chip beside it (a signal-strength meter and the word) | not a menu: the top row turns into a dial of the efforts the chosen model accepts, a segmented control with a thumb that slides between the levels, each with its bars and name, a profile's named variants after them as pills (one tap picks, one tap on the cross closes), so it is never clipped: a row that cannot fit scrolls. the thread's effort is marked, none when the daemon will choose |
 
@@ -352,7 +356,31 @@ new-thread route makes one before the session when asked.
   cmx2 a10), a ring beside compact shows how full the window is, with a tick
   where the daemon compacts by itself; a thread that reports none shows no
   ring.
-- **the sheet reads at a glance** (the native app's newthread, ported
+- **home's field reads at a glance** (decisions 103 to 105, 2026-10-26).
+  the field is the composer on the neutral ground with the place in its
+  top row: the repo chip (its mark and name, or a folder icon and "pick a
+  repo", named "repo for the new thread: <repo>" or "pick a repo on
+  <host>"), the machine chip with two machines or more ("on <host>", named
+  "machine for the new thread: <host>"), then the model and effort chips.
+  there is no title and no close: the field is home, not a surface over
+  it. a chip opens its menu under the field, over the list; the repo
+  menu's head is the finder ("find a repo, or type a path"), its rows the
+  repos (and, for a word, the same repo on your other machines, with its
+  host), the folders of a typed path with "up" and "use <folder>", then
+  "other folder", and its foot "a fresh worktree" as one switch
+  (`role="switch"`) with one line saying what the choice means, or why
+  this folder cannot have one. a pick closes the menu onto the words,
+  the caret in them. typed, `@`, `on ` and `/` open the same menus at the
+  caret (`ui/next/tokens.ts`), and a pick takes the token's letters out
+  of the words. the menu says "looking." while a folder is read, the
+  read's own words when it failed, and "nothing has run on <host> yet.
+  type a folder to start in, like ~/code." when the machine has answered
+  with no repos. its stories, which replaced the sheet's and the dock's:
+  `composer--home-field`, `-nowhere`, `-two-machines`, `-finder`,
+  `-folders`, `-typed-repo`, `-typed-model`, `-typed-machine`,
+  `-starting`, `-failed`, `-fresh`, `-model` and `-effort`.
+  **superseded by decision 103, kept for its reasons:**
+  the sheet read at a glance (the native app's newthread, ported
   2026-10-16): the title and the stage bar's round of liquid glass to close
   it (escape and the scrim still close it); one place line, as tall as a
   field, with the repo's real mark (its favicon once read), its name and
@@ -369,7 +397,8 @@ new-thread route makes one before the session when asked.
   they open by themselves. in place of the recent marks the line says
   "looking." while the machine's repos are being read, the read's own words
   when it failed, and "nothing has run on <host> yet. find a folder to start
-  in." only when the machine has answered with none. every control shows a
+  in." only when the machine has answered with none (the field's words
+  for it are above). every control shows a
   focus ring in the place's light tone, never on a tap. the composer's own
   top line still names the place too; it is the composer's to drop.
 
@@ -397,29 +426,37 @@ new-thread route makes one before the session when asked.
     says "from your next message, when the agent is done".
   - **menus fit the room.** a menu's height is the visual viewport above
     the composer less a margin (`--room`, measured on resize), never a
-    fixed `52svh`; the model menu opens scrolled to the model in use. in the
-    sheet a menu is part of the sheet (static, scrolls with it), so it never
-    reaches over the repos or off the screen.
+    fixed `52svh`; the model menu opens scrolled to the model in use. in
+    home's field a menu, the composer's model menu too, drops under the
+    field over the list and never pushes it (decision 107); in the sheet a
+    menu was part of the sheet (static, scrolling with it).
   - **the tools live behind a plus key** left of the words (decided here:
     the tools row cost a row on focus; four keys beside the words cost the
     words their width on a phone). the keys keep their names (AGENTS.md, accessibility): the
     plus is "add to the message", the menu rows are "add a photo",
     "commands", "mention a file", "run in the shell", "write on the full
-    stage". in the sheet the plus is the photo key, since nothing else
+    stage". in home's field the plus is the photo key, since nothing else
     applies to a first message.
-  - **the sheet focuses the words itself, once, inside the opening tap**
-    (`focus({preventScroll})`), because that is what raises the phone's
-    keyboard. the words are never remounted or moved while they have focus
+  - **the field focuses the words itself, inside the tap that asks for
+    it** (`focus({preventScroll})`, the field's `focus` from home's
+    `startHere` or `goHome`), because that is what raises the phone's
+    keyboard (the sheet did the same as it opened). the words are never remounted or moved while they have focus
     (since 2026-10-01): a pick, a machine switch or a fleet beat changes the
     composer's props, not its place in the tree.
-- **a new thread is easy to find.** the home bar has a "new thread" pill on
-  every arrangement (a plus on the deck, plus the word on strip and rail),
-  `⌘n` opens the sheet from anywhere, and the dock on the phone and deck is
-  a real button named "new thread in <repo> on <host>". the dock and the
-  sheet follow the window in view on the deck (its colour, repo root and
-  host) and, with nothing in view, the newest thread's repo.
-- **where a thread can start.** the place line's pickers show the machine
-  row when `agentNames` has more than one, then the recent repos (your repos
+- **a new thread is easy to find.** home's field is on screen whenever
+  home is: the stage at strip and rail with no thread chosen, under the
+  bar on the deck. the home bar has a "new thread" pill on every
+  arrangement (a plus on the deck, plus the word on strip and rail), and
+  it, `⌘n` from anywhere, `n` when not typing, the folded rail's plus disc
+  and a board machine key land on the field with the caret in it (a thread
+  on the stage steps back first, or shrinks first on the deck). the field
+  starts where you are looking, once, as it comes up: the thread on stage,
+  else the window the deck is on, else the first window, else the first
+  host (`startPlace`). the dock that once followed the window in view is
+  gone (decision 103).
+- **where a thread can start.** the field's menus (the sheet's place line
+  before them) offer the machines when `agentNames` has more than one,
+  then the recent repos (your repos
   by their newest thread, then the machine's other projects), then a
   finder: a field that filters the repos by name or
   path, or, when the text starts with `/` or `~`, lists the folders inside
@@ -429,12 +466,13 @@ new-thread route makes one before the session when asked.
   (return takes it). switching the machine or the repo moves the draft to
   the new target's key, so words typed are not lost to a pick. that holds
   for every pick that changes the target: a recent repo, a folder from the
-  finder, a machine, and the repo the sheet takes by itself once a machine's
+  finder, a machine, and the repo the field takes by itself once a machine's
   list arrives (it used to move the target without moving the words, and the
   text sat under `new:<host>:` for good). the rule is `followDraft`
   (place.ts): the words you just typed replace what the place you arrive at
   held, an empty draft moves nothing. a place with words waiting stays
-  among the recent marks with a dot, so it is one tap away (`draftedPlaces`).
+  among the recent repos, its row saying "<host> · words wait here", so it
+  is one tap away (`draftedPlaces`).
 - **a folder is one chip, whatever name it was reached by.** cmx2 names a
   git project by its resolved path ("/private/tmp/x" for "/tmp/x"), so a
   folder walked to by the name it was typed under would sit beside the
@@ -450,50 +488,60 @@ new-thread route makes one before the session when asked.
 - **a directory never seen before is allowed**, checked against the pinned
   source (cmx2 of 2026-10-01): `POST /session {directory}` takes any directory that
   exists, with no project to register, and refuses one that does not with
-  400 "directory X does not exist", which the sheet shows as the thread not
+  400 "directory X does not exist", which the field shows as the thread not
   starting. no ask was needed. a fresh worktree needs a git repo, so for a
   folder the finder has seen is not one, that choice is disabled and says
   why.
-- **a first message does not close the sheet on a guess.** it used to wait
+- **a first message does not close on a guess.** the rule was the sheet's
+  and is now home's field's, written once in `composer/new-thread.ts`. it used to wait
   up to 8 s for a window on home that might never be drawn (the sender
   drops the outbox entry on the echo, so the old lookup of the entry's
-  session found nothing). now the sheet notes the sessions it knew at send
+  session found nothing). then the sheet noted the sessions it knew at send
   and finds the new one as a session of that machine it did not have, made
-  since the send (or the one the outbox names). while it waits it says "making
-  the thread in <repo> on <host>", after 8 s it says the machine is slow and
-  keeps waiting, and on a refusal it says "the thread did not start: <why>"
+  since the send (or the one the outbox names); now it waits for the thread
+  born of its client id (below). while it waits the field says "making the
+  thread in <repo> on <host>." under it, after 8 s that the machine is slow
+  ("still making the thread in <repo>. the machine is slow to answer; it
+  opens when it is there.") and keeps waiting, with the connection down
+  "the connection is down. the thread starts on its own when it is
+  back.", and on a refusal it says "the thread did not start: <why>"
   with retry (one send, the same client id) and edit (the words go back to
-  the draft). **the sheet lets go of the screen as the message goes** (the
-  native app's decision 21, ported 2026-10-16): it slides off as a close
-  does but stays mounted, hidden and inert (`away`, held by home), so the
-  send and its state are kept while home is usable under it. the dock says
+  the draft). the chips are disabled while a thread is being made, and one
+  thread is made at a time: words typed meanwhile wait, and a send says
+  "one thread at a time. this one can start once the first is open.".
+  when the thread exists the stage opens on it out of the field's window,
+  as a tap on a window does (`onBorn` to home's `openBorn`; if a
+  transition refuses the grow the thread opens in place). the field
+  stories are `composer--home-field-starting` and
+  `composer--home-field-failed`. **superseded by decision 103, kept for
+  its reasons:** the sheet let go of the screen as the message went (the
+  native app's decision 21, ported 2026-10-16): it slid off as a close
+  does but stayed mounted, hidden and inert (`away`, held by home), so the
+  send and its state were kept while home was usable under it. the field
+  needs none of that, since it never covers home. the dock said
   what the sheet would ("making the thread in <repo> on <host>.", the slow
   line, or the connection's) in place of its place line, also as its
-  `aria-description`; a tap on the dock, the new thread pill or `⌘n` brings
-  the same sheet back as it opened. a refusal brings it back by itself with
-  the words, retry and edit, and retry lets go again. when the thread
-  exists the stage opens on it growing from the dock while the sheet is
-  away (from the sheet's window when it is up), as a tap on a window does
-  (`onOpened` to home's `openBorn`; if a transition refuses the grow the
-  thread opens in place), and the sheet goes. the strip and the rail have no
-  dock: the sheet lets go there too, and the new thread pill brings it
-  back. `composer / new thread sheet lets go` is the story.
+  `aria-description`; a tap on the dock, the new thread pill or `⌘n` brought
+  the same sheet back as it opened, and a refusal brought it back by itself
+  with the words, retry and edit. the thread grew from the dock while the
+  sheet was away.
   **which thread it opens is the one this send made, and only that one.**
   the worker says `born {clientID, key}` once, from the server's answer to
-  that client id (or from the echo, when the answer was missed); the sheet
+  that client id (or from the echo, when the answer was missed); the field
   waits for that key to be in the fleet. an earlier version guessed from
   the fleet (the one session on the machine that was not there at send), and
   opened another phone's thread, or a subagent's, when one appeared in the
   same moment; it also compared the host's clock with the phone's. the
   outbox could not be the source: the entry is dropped when the echo lands.
-- **a first message that did not start is not lost.** the sheet does not
-  close on a guess and does not drop the words: "edit" puts them back in the
-  draft, picking another place does the same (so does closing the sheet),
+- **a first message that did not start is not lost.** the field does not
+  drop the words: "edit" puts them back in the draft, picking another
+  place does the same,
   and the entry is discarded either way, since left in the outbox it sat in
   indexeddb for good and counted toward the cap. while it is failed, sending
   another is blocked ("retry or edit the message below first"), because a
-  second send would orphan the first. a send that fails after its sheet is
-  gone is restored by the sheet that opens next. its photos come back with
+  second send would orphan the first. a send that fails after its field
+  has let go of it (a reload, another tab) is restored by the field that
+  comes up next, which goes to its place when nothing is typed there. its photos come back with
   its words: an outbox view holds only their count, so the worker hands the
   photos to the page when the entry is discarded (`returned`), and they join
   the draft of the place it was written for.
@@ -507,12 +555,14 @@ new-thread route makes one before the session when asked.
   on <host>, so the thread did not start. pick another folder, or make it
   and retry.", the finder says "there is no folder at <path> on <host>." or
   "<name> is a file, not a folder.", never "said no (400)".
-- **the sheet's controls are named for the new thread** ("model for the new
+- **the field's controls are named for the new thread** ("model for the new
   thread: ...", "effort for the new thread: ...", "add a photo to the new
-  thread"), because at strip and rail the sheet and the bar under the open
-  thread are on screen together and every accessible name is unique (rule
-  5). while the sheet is open the rest of home is `inert` (a sibling of the
-  sheet, never an ancestor), since it is `aria-modal`.
+  thread", "repo for the new thread: <repo>", "machine for the new thread:
+  <host>"), because every accessible name is unique (rule 5), and the
+  sheet and the bar under the open thread were once on screen together.
+  the field is not modal: while a thread is on the stage home's field is
+  under it, faded and `inert`; the sheet, `aria-modal`, made the rest of
+  home `inert` while it was open.
 - **send's box is what is drawn.** the button is 44 wide as a disc and 96
   worded, so a click on its middle, or a tap, is a click on it; the face
   inside opens by clip. it used to be a 96 px box with its left 52 px
@@ -580,8 +630,9 @@ new-thread route makes one before the session when asked.
   the shape never flips back and forth at the width in between. the keys move
   to their row on the snap spring (`flip`) and the words glide sideways from
   their inset; the window's height changes at once, since only transform
-  animates. the sheet's words stand two lines tall over the keys, so there the
-  third line is the one that stacks; the full stage is always stacked. the
+  animates. in home's field the keys keep a row of their own under the
+  words at any length (the words stand two lines tall from 700 wide, one
+  on a phone, at 17 px, 20 px from 700 wide); the full stage is always stacked. the
   words grow to six lines, or fewer when the screen above the keyboard cannot
   hold the whole composer with six (the largest type, a short landscape
   screen): whole lines, read from the visual viewport on focus and on its own
@@ -801,7 +852,7 @@ new-thread route makes one before the session when asked.
     record once, in the same transaction as the words (nothing is moved at
     read, so nothing can fail silently there).
   - **photos come back with the words.** an unsend the daemon took, "edit" on
-    a failed send, the sheet's edit and its restore of a first message that did
+    a failed send, the field's edit and its restore of a first message that did
     not start, and a message the outbox would not take the photos of, put the
     message's photos back in the draft they came from, with its words where they
     are wanted: the worker hands them to the page (`returned`), which adds the
@@ -855,7 +906,7 @@ context with no tools and never put into the agent's context
 `app/src/ui/btw/mode.ts`, tested in `mode.test.ts`.
 
 - **offered** only on a thread whose agent answers btws
-  (`capabilities.btw`) and only in the bar under it: not the sheet, never a
+  (`capabilities.btw`) and only in the bar under it: not home's field, never a
   new thread (there is no context to ask about). where it is not offered no
   entry point shows: no slash row, no plus row, `/btw ` is plain words.
 - **entering.** `/btw` followed by a space (or a tab; a new line after it
@@ -1057,6 +1108,10 @@ when the app's protocol 3 store is wired.
   card counts them apart ("2 photos, 1 file").
 
 ### start something with an agent
+
+written for the sheet, and not built in it. home's field offers cmx
+machines and their folders only; an assistant that declares `threads` is
+not a place in the field yet (`open.md`). the design below waits for it.
 
 - **the agent row** takes the place row's spot at the sheet's head (the
   machine was a choice inside the place row; it is now the agent): a 54

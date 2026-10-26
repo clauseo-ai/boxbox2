@@ -146,7 +146,8 @@ export function parentOf(route: Route): Route | null {
 /** where back goes from a route at a layout, by the way it was asked; null when there is no back that way.
 
     - a thread on the deck covers home, so its `‹`, `esc` and the edge swipe all shrink it into its window. at
-      strip and rail it sits on stage beside the windows, the stage never empties, and there is no back at all.
+      strip and rail it sits on stage beside the windows: its way home is home's own (the field collapsed in its bar, and
+      `esc`, home.tsx; design.md, home: what next), so the route has no back.
     - machines, history and settings each have a back control at every size (`‹ windows`, `‹ machines`); `esc` does the
       same, and the deck's edge swipe too.
     - the terminal under 1000 wide covers the machines: `‹`, `esc` (when the screen does not hold focus, the

@@ -25,7 +25,8 @@
   /* a column that may be narrower than its content: the page dots of two dozen windows were wider than a phone, and the
      column grew to them, pushing the bar's pills off the screen */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  /* the bar, home's field, the windows, the page dots */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
 .home[data-arrangement="strip"] {
@@ -851,10 +852,5 @@
   text-wrap: balance;
 }
 
-/* the composer's dock under the deck (docs/composer.md, the component); its slot under a thread is the stage's */
-.home .home-dock {
-  position: relative;
-  z-index: 6;
-}
 /* the undo toast's live region (home.tsx): always there, visually hidden, so the toast's words are announced as they arrive */
 .toast-live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

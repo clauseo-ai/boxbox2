@@ -19,15 +19,12 @@ describe("a board focus and the sheets over home", () => {
   });
 
   test("a sheet with words keeps the screen and its caret; the thread opens behind it", () => {
-    expect(focusPlan("words", "none")).toEqual({ closeNewThread: false, closeAnswer: false, caret: false });
-    expect(focusPlan("none", "words")).toEqual({ closeNewThread: false, closeAnswer: false, caret: false });
-    expect(focusPlan("empty", "words")).toEqual({ closeNewThread: false, closeAnswer: false, caret: false });
+    expect(focusPlan("words")).toEqual({ closeAnswer: false, caret: false });
   });
 
   test("an empty sheet is put away and the caret goes to the thread", () => {
-    expect(focusPlan("empty", "none")).toEqual({ closeNewThread: true, closeAnswer: false, caret: true });
-    expect(focusPlan("none", "empty")).toEqual({ closeNewThread: false, closeAnswer: true, caret: true });
-    expect(focusPlan("none", "none")).toEqual({ closeNewThread: false, closeAnswer: false, caret: true });
+    expect(focusPlan("empty")).toEqual({ closeAnswer: true, caret: true });
+    expect(focusPlan("none")).toEqual({ closeAnswer: false, caret: true });
   });
 });
 
@@ -48,7 +45,7 @@ describe("which requests the app can take", () => {
     expect(focusable(fleet, "desk:nowhere", now)).toBe(false);
   });
 
-  test("a machine light maps to the host the sheet composes on, or to nothing", () => {
+  test("a machine light maps to the host home's field starts on, or to nothing", () => {
     expect(composeHost(["desk", "vm"], "vm")).toBe("vm");
     expect(composeHost(["desk", "vm"], "mini")).toBeNull();
     expect(composeHost([], "desk")).toBeNull();
