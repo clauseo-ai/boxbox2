@@ -56,6 +56,10 @@ export type EdgeMove = {
   arriving: readonly HTMLElement[];
   /** the move is over and the layout is final: called before the move's animations are let go, in the same task */
   settled: () => void;
+  /** what lies in the card's place without being inside it (home's room, under a stage with no thread on it): clipped by the
+      same edge, so nothing in it stands over a column the edge has not reached, and at the left and the right its boxes are
+      carried as the card's are, so it glides with the edge instead of jumping when the layout lets go */
+  riders?: readonly HTMLElement[];
 };
 
 type Gathered = { el: Element; at: Span; text: Align | null; wraps: boolean; paint: boolean; inside: Gathered[] };
@@ -150,11 +154,13 @@ export function moveEdge(move: EdgeMove): { stop: () => void } {
     return { stop: () => undefined };
   }
   if (side === "top") return moveTop(move);
+  const riders = move.riders ?? [];
   const was = card.getBoundingClientRect();
   const tree = gather(card, new Set([lift, rim.ring, rim.cap]));
+  const ridden = riders.map((rider) => gather(rider, new Set()));
   move.layout(true);
   const will = card.getBoundingClientRect();
-  const boxes = pair(tree, grow);
+  const boxes = [...pair(tree, grow), ...ridden.flatMap((boxed) => pair(boxed, grow))];
   if (!grow) move.layout(false);
 
   const [small, big] = grow ? [was, will] : [will, was];
@@ -176,6 +182,7 @@ export function moveEdge(move: EdgeMove): { stop: () => void } {
     const whole = `inset(0px 0px 0px 0px round ${radius})`;
     const cut = side === "left" ? `inset(0px 0px 0px ${rounded(by)}px round ${radius})` : `inset(0px ${rounded(by)}px 0px 0px round ${radius})`;
     run(play(card, grow ? [{ clipPath: cut }, { clipPath: whole }] : [{ clipPath: whole }, { clipPath: cut }], SHEET, { fill }));
+    for (const rider of riders) run(play(rider, grow ? [{ clipPath: cut }, { clipPath: whole }] : [{ clipPath: whole }, { clipPath: cut }], SHEET, { fill }));
 
     const squeeze = `scaleX(${rounded(small.width / big.width, 4)})`;
     lift.style.transformOrigin = side === "left" ? "100% 50%" : "0% 50%";
@@ -276,8 +283,13 @@ function moveTop(move: EdgeMove): { stop: () => void } {
     }
   };
   read(card, 0);
+  // a rider's blocks are placed by the rider (home's room stands its block a share of its spare height down), so each is
+  // carried by its own move from where it was to where the new layout puts it
+  const riders = move.riders ?? [];
+  const riding = riders.flatMap((rider) => [...rider.children]).map((el) => ({ el, top: el.getBoundingClientRect().top }));
   move.layout(true);
   const will = card.getBoundingClientRect();
+  const rode = riding.map(({ el, top }) => ({ el, dy: top - el.getBoundingClientRect().top })).filter(({ dy }) => Math.abs(dy) >= 0.5);
   const by = Math.abs(will.height - was.height);
   /* how far a box is carried: its top moved by the edge's travel and its height held (it hangs), > 0; it was stretched, < 0;
      it stands on the foot, 0 */
@@ -305,6 +317,8 @@ function moveTop(move: EdgeMove): { stop: () => void } {
     const whole = `inset(0px 0px 0px 0px round ${radius})`;
     const cut = `inset(${rounded(by)}px 0px 0px 0px round ${radius})`;
     run(play(card, grow ? [{ clipPath: cut }, { clipPath: whole }] : [{ clipPath: whole }, { clipPath: cut }], SHEET, { fill }));
+    // a rider is clipped by the edge too, so nothing in it stands over the row the edge has not reached
+    for (const rider of riders) run(play(rider, grow ? [{ clipPath: cut }, { clipPath: whole }] : [{ clipPath: whole }, { clipPath: cut }], SHEET, { fill }));
     const squeeze = `scaleY(${rounded(small.height / big.height, 4)})`;
     lift.style.transformOrigin = "50% 100%";
     run(play(lift, grow ? [{ transform: squeeze }, { transform: "none" }] : [{ transform: "none" }, { transform: squeeze }], SHEET, { fill }));
@@ -326,6 +340,11 @@ function moveTop(move: EdgeMove): { stop: () => void } {
       const away = `translate(0px, ${rounded(by)}px)${base === "none" ? "" : ` ${base}`}`;
       run(play(el, grow ? [{ transform: away }, { transform: base }] : [{ transform: base }, { transform: away }], SHEET, { fill }));
     });
+    for (const { el, dy } of rode) {
+      // a card that grows is laid out at its end and starts where the block was; one that shrinks ends where it will stand
+      const shift = (by: number) => `translateY(${rounded(by)}px)`;
+      run(play(el, grow ? [{ transform: shift(dy) }, { transform: "none" }] : [{ transform: "none" }, { transform: shift(-dy) }], SHEET, { fill }));
+    }
   }
   // the edge goes up as the card grows: a column that leaves goes up with it, one that arrives comes down to its place
   const way = grow ? -1 : 1;

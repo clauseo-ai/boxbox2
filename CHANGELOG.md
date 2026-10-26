@@ -11,8 +11,10 @@ workflow publishes the section whose heading matches the version in
   ("3 working", "nothing wrong", "see"), and "nothing needs you right
   now." is said only when nothing is at work. hiding the windows from
   home's bar left no control to show them again (the round was only in a
-  thread's bar); home now holds it at its top left while they are away
-  (decision 110).
+  thread's bar); home now holds it at its top left while they are away.
+  home's field and list move with the card's edge when the windows fold,
+  hide or come back, instead of waiting and jumping at the end, and the
+  round no longer stands over the windows as they arrive (decision 110).
 - **home, what next.** at the strip and the rail, with no thread chosen,
   the stage is home: one field to start a thread, and under it the threads
   that want you, stopped or finished unseen in the server's order, and

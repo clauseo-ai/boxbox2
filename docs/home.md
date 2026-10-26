@@ -260,7 +260,13 @@ design.md (the inspector and the folds) is the law; how it is built:
   one that shrinks commits in the frame its transforms end, which paints
   exactly the frame before. a move is never started on another, and a
   resize across an arrangement or the 1400 line stops it and rebuilds the
-  layout from the choice.
+  layout from the choice. home's room (ui/next) lies in the card's place
+  without being inside it while no thread is on the stage, so the move
+  takes it as a rider: clipped by the same edge, its boxes carried as the
+  card's are at the left and the right, and at the top its block carried
+  by its own move, since the room stands the block a share of its spare
+  height down (`place`, run in the same task as the layout so the
+  measure sees where it will stand).
 - **the strip folds too** (the native app's stripux and stripchevron): its
   row and bar give way to one bar as tall as the open bar (`--strip-bar`,
   64 px, 74 on a touch screen) holding the new-thread disc, a swatch per

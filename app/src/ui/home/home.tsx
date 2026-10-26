@@ -76,6 +76,8 @@ const OFFLINE_AFTER_MS = 5000;
 const CALM_MS = 1000;
 /** idle this long, a question that jumped the deck is glided to */
 const GLIDE_IDLE_MS = 4000;
+/** home's way back to the windows, put away with them, fades in this long into the move: as the edge comes to it */
+const BACK_AFTER_MS = 220;
 /** the capsule leaves after this */
 const CAPSULE_MS = 6000;
 /** a window counts as in view when this much of it shows */
@@ -712,9 +714,15 @@ export function Home(props: HomeProps) {
       rim: { ring: rimEl, cap: capEl },
       side: kind === "rail" || (kind === "windows" && arrangement() === "rail") ? "left" : kind === "inspector" ? "right" : "top",
       grow,
-      layout,
+      // home's block is placed in the same task as the layout, so the edge measures it where it will stand
+      layout: (end) => {
+        layout(end);
+        if (!open()) nextApi()?.place();
+      },
       ...columns,
       settled,
+      // home's room lies in the card's place while no thread is on it, and moves with the card's edge
+      riders: nxStageEl && !open() ? [nxStageEl] : [],
     };
     const start = (edge: Edge) => {
       const handle = edge.moveEdge(move);
@@ -1544,7 +1552,9 @@ export function Home(props: HomeProps) {
         {/* the windows put away with no thread on the stage: the round that brings them back, where a thread's bar holds it
             (the bar's own is on the thread, and the open bar is away), so home is never left with no way back to them */}
         <Show when={arrangement() !== "deck" && windowsHidden() && !open()}>
-          <div class="nx-back">
+          {/* arriving with the windows' move, it comes in under the receding edge (edge.ts clips home's room with the card) and
+              fades in as it is uncovered: the card on home is clear, so a hard cut would be an edge nobody can see */}
+          <div class="nx-back" ref={(el) => moving() === "windows" && play(el, [{ opacity: 0 }, { opacity: 1 }], FADE, { delay: BACK_AFTER_MS, fill: "backwards" })}>
             <FoldToggle form={beside()} state="hidden" round onToggle={toggleFocus} />
           </div>
         </Show>

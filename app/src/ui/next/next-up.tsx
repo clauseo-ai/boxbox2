@@ -37,6 +37,9 @@ export type NextApi = FieldApi & {
   offers: () => number;
   /** what of home's list moves in home's reorder flip when its rows change (none on the deck, where the windows are the list) */
   moving: () => Element[];
+  /** stands the block where the room as it is now puts it, at once and without a move of its own: the card's edge lays the
+      stage out and measures it in one task, and carries the block itself (home.tsx, glide; edge.ts, riders) */
+  place: () => void;
 };
 
 export type NextUpProps = {
@@ -86,9 +89,12 @@ export function NextUp(props: NextUpProps) {
   /* where the block stands in the stage (strip and rail): PLACE of the spare height down, measured when the stage or the
      block changes size, never in a frame loop. the field growing as words are typed is left out of the block's height, so
      typing never walks the field up the screen; a list that grows or shrinks moves the block, and that move plays from where
-     it was on the snap spring (a FLIP of one box, transform only). rows arriving inside the list are home's reorder flip,
-     after the calm, like the windows' (home.tsx, applyOrder) */
+     it was on the snap spring (a FLIP of one box, transform only, up and down). across, the block is left alone: the room
+     only changes width when the card's edge moves, and the edge carries the room's boxes with it (edge.ts, riders), so a
+     flip of its own would play a second move after the first. rows arriving inside the list are home's reorder flip, after
+     the calm, like the windows' (home.tsx, applyOrder) */
   let rootEl: HTMLDivElement | undefined;
+  let placeNow = () => {};
   createEffect(() => {
     const root = rootEl;
     const room = root?.parentElement;
@@ -99,8 +105,7 @@ export function NextUp(props: NextUpProps) {
     }
     let rest = 0;
     let top = -1;
-    let left = Number.NaN;
-    const measure = () => {
+    const measure = (still = false) => {
       const fieldEl = root.querySelector<HTMLElement>(".nx-field");
       const tall = fieldEl?.offsetHeight ?? 0;
       if (fieldEl && (fieldEl.querySelector("textarea")?.value ?? "") === "") rest = tall;
@@ -108,18 +113,19 @@ export function NextUp(props: NextUpProps) {
       const style = getComputedStyle(room);
       const height = room.clientHeight - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0);
       const next = Math.round(Math.max(0, height - (root.offsetHeight - grown)) * PLACE);
-      const at = room.getBoundingClientRect().left + root.offsetLeft;
       const dy = top < 0 ? 0 : top - next;
-      const dx = Number.isNaN(left) ? 0 : left - at;
       top = next;
-      left = at;
       root.style.marginTop = `${next}px`;
-      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) play(root, [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], SNAP);
+      if (!still && Math.abs(dy) > 1) play(root, [{ transform: `translateY(${dy}px)` }, { transform: "none" }], SNAP);
     };
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => measure());
     observer.observe(room);
     observer.observe(root);
-    onCleanup(() => observer.disconnect());
+    placeNow = () => measure(true);
+    onCleanup(() => {
+      observer.disconnect();
+      placeNow = () => {};
+    });
   });
 
   /* a thread stepping back: the field comes down out of the bar where its collapsed form was, the list settles in under
@@ -141,7 +147,7 @@ export function NextUp(props: NextUpProps) {
         onPlace={(p) => setPlace(() => p)}
         api={(api) => {
           field = api;
-          props.api?.({ ...api, arrive, offers: () => (lists() ? next().repos.length : 0), moving: () => (props.deck || !rootEl ? [] : [...rootEl.querySelectorAll(".nx-field, .nx-group, .nx-quiet")]) });
+          props.api?.({ ...api, arrive, offers: () => (lists() ? next().repos.length : 0), moving: () => (props.deck || !rootEl ? [] : [...rootEl.querySelectorAll(".nx-field, .nx-group, .nx-quiet")]), place: () => placeNow() });
         }}
       />
       <Show when={lists()}>

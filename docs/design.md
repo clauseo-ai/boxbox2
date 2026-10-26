@@ -951,8 +951,12 @@ below (the sheet and the dock), the dock wherever this law names it, and
   the list says "nothing needs you right now." and still offers "start
   in". with the windows put away and no thread on the stage, the round
   that shows them again stands at the room's top left, where a thread's
-  bar holds it, so home is never left without a way back to them
-  (decision 110). a
+  bar holds it, so home is never left without a way back to them; it
+  comes in under the receding edge and fades as it is uncovered, and
+  leaves under the edge the moment the windows are asked back. the
+  field and its list move with the card's edge in every fold, clipped by
+  it and carried by it, never left behind to jump when the layout lets
+  go (decision 110). a
   machine with no repos says "nothing has run on <host> yet. type a folder
   to start in, like ~/code." in the repo menu, and no machine at all "no
   machine is connected yet. add one from agents.". offline, home's bar
