@@ -6,6 +6,27 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **home, what next.** at the strip and the rail, with no thread chosen,
+  the stage is home: one field to start a thread, and under it the threads
+  that want you, stopped or finished unseen in the server's order, the
+  working fold as one row, and the repos to start in (in the inspector's
+  column at the rail 1400 and up). the stage no longer pours the first
+  window by itself. on the deck the field sits under the bar, above the
+  windows. "what next?" in every thread's bar at strip and rail, or `esc`,
+  steps the thread back to home; `esc` on the empty field goes back to
+  it. home has no flood: the field stands on a neutral ground and a repo's
+  colour is only in its chip (decisions 102, 105 to 109).
+- **the new-thread sheet and the dock become the field.** every way to
+  start (⌘n, n, the new thread pill, the folded rail's plus disc, a board
+  machine key) puts the caret in home's field. the place is typed into the
+  sentence (`@repo`, `on <machine>`, `/model`, each resolved only by a
+  pick) or tapped from the chips in the composer's top row; the send keeps
+  every rule the sheet had (decisions 103 and 104). `composer/sheet.tsx`
+  and `composer/dock.tsx` are gone; the state lives in
+  `composer/new-thread.ts`. telemetry: `perf.paint` and `perf.frames` gain
+  the value `home`. the first load reads 119.8 kb (it was 119.7); home's
+  field and list are a chunk of about 25.8 kb raw, warmed as home mounts.
+
 - **finished work clears itself.** the server sweeps home every 5 minutes
   by a person pref, the same on every device: "1 h after you've seen it"
   (default), "3 h, seen or not" or "never". it never clears a thread that
