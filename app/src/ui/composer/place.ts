@@ -1,6 +1,6 @@
 /* where a new thread can start, as pure rules: the repo a session belongs to, the repos in recency order, how a typed
-   word narrows them, and how a typed path splits into the folder to read and the part still being typed. tested; the
-   sheet and the dock only draw what these say. */
+   word narrows them, and how a typed path splits into the folder to read and the part still being typed. tested; home's
+   field (ui/next/field.tsx, through new-thread.ts) only draws what these say. */
 
 import type { Draft } from "../../sync/outbox";
 
@@ -10,7 +10,7 @@ export function repoRootOf(info: { projectID: string; directory: string }): stri
   return info.projectID.startsWith("/") ? info.projectID : info.directory;
 }
 
-/** a repo as the sheet lists it */
+/** a repo as home's field lists it */
 export type Seen = { host: string; root: string; at: number };
 
 /** the repos of one machine: the ones you have threads in, newest thread first, then the machine's other projects by

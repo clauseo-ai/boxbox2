@@ -1,4 +1,4 @@
-/* the folded windows: on the rail a 76 px column of swatches, on the strip a bar of them across the top (docs/design.md, one layout law: why the stage never empties). the page's
+/* the folded windows: on the rail a 76 px column of swatches, on the strip a bar of them across the top (docs/design.md, one layout law). the page's
    own plane, with a window folded to its colour on it: the swatch is a window's material at 44 px (the plane's tokens,
    styles.css), and the badge on its corner is ringed in the ground, which is the page's in both. */
 

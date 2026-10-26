@@ -265,7 +265,7 @@
 }
 
 /* home's controls are liquid glass (styles.css, `.lg`; the native app's decision 22): the bar's pills and rounds, the
-   fold's, the clear pill, the dock and the capsule float over the windows as the stage bar's rounds float over the log,
+   fold's, the clear pill and the capsule float over the windows as the stage bar's rounds float over the log,
    so they read as one family. the windows, swatches, sheets and every chip inside a window stay solid. the pill is
    `all: unset` for the button's defaults, so it takes the glass from the tokens rather than the class */
 .home .pill {
@@ -417,7 +417,7 @@
 
 /* a window's shadow falls 55 px below it, and the scroller clips what leaves its box: with the windows flush with its foot the
    shadow was cut flat under every card, a seam. the room is the scroller's own padding at its foot, taken back by a negative margin
-   so the windows keep their size and the pager and the dock keep their places (they paint over the room, which is only shadow) */
+   so the windows keep their size and the pager keeps its place (they paint over the room, which is only shadow) */
 .home[data-arrangement="deck"] .wins {
   --cast-room: 64px;
   display: flex;

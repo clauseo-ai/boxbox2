@@ -1,6 +1,6 @@
 /* the composer (docs/composer.md): one component with a target, an open
    session or a new thread in a repo, and three mounts: the bar under a
-   thread (and the dock on the phone's home), the sheet for a new thread,
+   thread, home's field for a new thread (the `sheet` mount, ui/next/field.tsx),
    and the full stage a draft grows into past six lines.
 
    the direction is the window: the composer is made of a window's own
@@ -84,15 +84,15 @@ export type ComposerProps = {
   mount: Mount;
   /** the thread's title, for names and the full stage */
   title?: string;
-  /** a new thread's first message went: the sheet closes into its window */
+  /** a new thread's first message went: home's field waits for its thread, which opens out of this window */
   onStarted?: (clientID: string, from: HTMLElement) => void;
   /** the element whose visibility means the agent's newest step is already on screen */
   onScreen?: () => Element | null | undefined;
   /** the person's own send went, or their typed answer to a question (not a card sent again after it was taken back): the stage takes them to the end, where it lands */
   onSent?: () => void;
-  /** take focus when mounted (the sheet) */
+  /** take focus when mounted */
   autofocus?: boolean;
-  /** why a send cannot go yet (the sheet before a folder is picked); the words are still kept */
+  /** why a send cannot go yet (home's field before a folder is picked); the words are still kept */
   blocked?: string | undefined;
   /** the thread's agents (docs/thread.md, the agents panel): how many it started, and what its row in the plus menu opens */
   agents?: { count: number; open: () => void };
@@ -242,7 +242,7 @@ export function Composer(props: ComposerProps) {
   createEffect(() => { const from = begun(); if (from !== null && tailNow() !== from) setBegun(null); });
   const line = createMemo<{ kind: string; text: string; prose: boolean; key?: string } | null>(() => {
     if (dropping()) return { kind: "", text: DROP_LINE, prose: true };
-    // the sheet's place line already says where the new thread starts: its row is the chips alone, and never repeats it
+    // home's field says where the new thread starts in its own chips: its row is the chips alone, and never repeats it
     if (props.mount !== "bar") return null;
     if (inBtw()) return { kind: "", text: BTW_FATE, prose: true };
     if (focused() || has() || steering()) return { kind: "", text: fateLine(props.mount, agent(), steering(), shell(), waitingCount(), host(), repo(), questionCount()), prose: true };
@@ -266,7 +266,7 @@ export function Composer(props: ComposerProps) {
     ),
   );
 
-  // the sheet opens on a tap: focus here, inside that gesture, is what raises the phone's keyboard
+  // a composer that mounts on a tap takes focus inside that gesture, which is what raises the phone's keyboard
   onMount(() => {
     if (props.autofocus) editor?.focus({ preventScroll: true });
   });
@@ -305,7 +305,7 @@ export function Composer(props: ComposerProps) {
     ruler.textContent = `${draft().text}\u200b`;
     const style = getComputedStyle(ruler);
     const line = parseFloat(style.lineHeight) || 24;
-    // the sheet's words are two lines tall before they type a word, the keys in the corners under them: a third line is the one
+    // home's field's words are two lines tall before they type a word, the keys in the corners under them: a third line is the one
     // that would run under a key
     const room = props.mount === "sheet" ? 2 : 1;
     const next = full() || ruler.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) > line * (room + 0.5);
@@ -382,7 +382,7 @@ export function Composer(props: ComposerProps) {
   const [commandList, setCommandList] = createSignal<CommandChoice[] | null>(null);
   const [fileList, setFileList] = createSignal<string[] | null>(null);
   const [menuProblem, setMenuProblem] = createSignal<string | null>(null);
-  // the sheet changes the target in place (a repo picked): what was read for the last one does not hold for this one
+  // home's field changes the target in place (a repo picked): what was read for the last one does not hold for this one
   createEffect(
     on(
       key,
@@ -411,7 +411,8 @@ export function Composer(props: ComposerProps) {
     }),
   );
   /* a menu fits the room it has: the space above the composer, read once as it opens and again when the keyboard moves
-     the visual viewport (an event, never a frame loop). in the sheet a menu sits in the flow and the sheet scrolls */
+     the visual viewport (an event, never a frame loop). in home's field a menu drops under the field over the list, at a
+     height of its own (next.css) */
   let rootEl: HTMLDivElement | undefined;
   const measureRoom = () => {
     if (!rootEl || props.mount === "sheet") return setRoom(null);
@@ -992,7 +993,7 @@ export function Composer(props: ComposerProps) {
     setText(card.text);
   };
 
-  /* the sheet and the bar under an open thread can be on screen together (strip and rail), so their controls are named for what they change */
+  /* home's field and the bar under an open thread are both mounted at strip and rail, so their controls are named for what they change */
   const ofThread = () => (props.mount === "sheet" ? " for the new thread" : "");
 
   /* when a pick takes effect, in the words of the a18 rule */
