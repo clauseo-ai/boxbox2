@@ -105,7 +105,7 @@ export type ComposerProps = {
   btw?: BtwActions | undefined;
   /** what leads the top row, before the model and the effort: home's field puts the place it starts in there */
   lead?: JSX.Element;
-  /** the words before any are typed, in place of the mount's own */
+  /** the placeholder in place of the mount's own (home's field: "what next?"); offline, the composer's offline words win */
   hint?: string;
   /** false: no `/`, `@` or `!` menu of the composer's own, for a field that reads those letters itself (ui/next) */
   menus?: boolean;
@@ -1209,7 +1209,7 @@ export function Composer(props: ComposerProps) {
             rows={1}
             value={draft().text}
             aria-label={label()}
-            placeholder={inBtw() ? BTW_PLACEHOLDER : (props.hint ?? placeholder(props.mount, agent(), repo(), shell()))}
+            placeholder={inBtw() ? BTW_PLACEHOLDER : (props.hint !== undefined && agent() !== "offline" ? props.hint : placeholder(props.mount, agent(), repo(), shell()))}
             enterkeyhint="enter"
             spellcheck={true}
             autofocus={props.autofocus}

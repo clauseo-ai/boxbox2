@@ -37,6 +37,8 @@ describe("send says what it will do", () => {
     expect(placeholder("bar", "working", "cmx", false)).toBe("queue a message");
     expect(placeholder("bar", "wants", "cmx", false)).toBe("or answer in your own words");
     expect(placeholder("sheet", "idle", "cmx", false)).toBe("what should it do?");
+    // home's field offline: a first message waits as a reply does, and says so as the thread's composer does
+    expect(placeholder("sheet", "offline", "cmx", false)).toBe("write now, it goes when you are back");
   });
 });
 

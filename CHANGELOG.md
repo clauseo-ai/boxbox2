@@ -21,6 +21,17 @@ workflow publishes the section whose heading matches the version in
   new thread's effort chip says "default" (decisions 102, 105 to 109). a
   strip 1200 px wide or more (a portrait monitor) now takes the layout
   table's 720 px measure, threads included; it was 640.
+- **home's field, sending.** return and tab pick a menu row only when it is
+  highlighted (an exact name, or the arrows), so "cc @alice" and return
+  sends those words, and "focus on a" stays words beside a machine called
+  vm-a; keys while an input method composes are left to it. folders walk
+  in the repo menu's own finder, with "look inside" on each folder row.
+  the repo chip says "worktree" while a fresh worktree is on, and picks
+  wait while a thread is being made. the send and the picked place live
+  in the store, so a resize across 700 px keeps them; a refusal seen from
+  another thread is said over it with retry and edit, and nothing moves
+  you home. offline the field says the composer's "write now, it goes
+  when you are back".
 - **the new-thread sheet and the dock become the field.** every way to
   start (⌘n, n, the new thread pill, the folded rail's plus disc, a board
   machine key) puts the caret in home's field. the place is typed into the

@@ -946,9 +946,11 @@ below (the sheet and the dock), the dock wherever this law names it, and
   to start in, like ~/code." in the repo menu, and no machine at all "no
   machine is connected yet. add one from agents.". offline, home's bar
   says so in its quiet line ("offline, last update 14:02") as it always
-  has; the field still takes words, a first message sent while the
-  connection is down waits in the outbox and the field says "the
-  connection is down. the thread starts on its own when it is back.", and
+  has; the field still takes words, its placeholder is the composer's
+  offline words ("write now, it goes when you are back") in place of
+  "what next?", a first message sent while the connection is down waits in
+  the outbox and the field says "the connection is down. the thread starts
+  on its own when it is back.", and
   the list renders what was last read. a read that fails is said in the
   menu in its own words; a refusal is said under the field, or over the
   thread that covers it.

@@ -18,9 +18,10 @@ export type Mount = "bar" | "sheet";
 export type SendWord = "send" | "queue" | "steer" | "answer" | "run" | "start" | "ask";
 
 export function placeholder(mount: Mount, agent: Agent, repo: string, shell: boolean): string {
+  // offline is said first, wherever the words are: a first message waits in the outbox as a reply does
+  if (agent === "offline") return "write now, it goes when you are back";
   if (mount === "sheet") return "what should it do?";
   if (shell) return "a command";
-  if (agent === "offline") return "write now, it goes when you are back";
   if (agent === "working") return "queue a message";
   if (agent === "wants") return "or answer in your own words";
   return "reply";

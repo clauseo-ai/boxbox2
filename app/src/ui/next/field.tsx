@@ -412,7 +412,7 @@ export function Field(props: FieldProps) {
                 if (row.kind === "repo")
                   return (
                     <button type="button" role="option" class="nx-row" data-active={lit() ? "" : undefined} aria-selected={lit() ? "true" : "false"} aria-label={`${repoName(row.root)} on ${row.host}, ${row.root}`} style={colourStyle(repoColour({ host: row.host, root: row.root }))} onClick={pick}>
-                      <RepoMark host={row.host} root={row.root} size={28} />
+                      <RepoMark host={row.host} root={row.root} size={26} />
                       <span class="nx-row-text">
                         <b>{repoName(row.root)}</b>
                         <small>{row.note}</small>
