@@ -24,8 +24,9 @@ workflow publishes the section whose heading matches the version in
   every rule the sheet had (decisions 103 and 104). `composer/sheet.tsx`
   and `composer/dock.tsx` are gone; the state lives in
   `composer/new-thread.ts`. telemetry: `perf.paint` and `perf.frames` gain
-  the value `home`. the first load reads 119.8 kb (it was 119.7); home's
-  field and list are a chunk of about 25.8 kb raw, warmed as home mounts.
+  the value `home`. the first load still reads 119.7 kb: the sheet and
+  the dock left it, and home's field and list are a chunk of their own
+  (about 25.8 kb raw), warmed as home mounts.
 
 - **finished work clears itself.** the server sweeps home every 5 minutes
   by a person pref, the same on every device: "1 h after you've seen it"
