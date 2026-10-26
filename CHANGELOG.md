@@ -6,13 +6,19 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **home says what is at work, and the windows always come back.** at the
+  strip and the rail the working fold is a row of home's list again
+  ("3 working", "nothing wrong", "see"), and "nothing needs you right
+  now." is said only when nothing is at work. hiding the windows from
+  home's bar left no control to show them again (the round was only in a
+  thread's bar); home now holds it at its top left while they are away
+  (decision 110).
 - **home, what next.** at the strip and the rail, with no thread chosen,
   the stage is home: one field to start a thread, and under it the threads
   that want you, stopped or finished unseen in the server's order, and
   the repos to start in, one column centred in the stage at every size and
-  standing two fifths of its spare height down. the working fold stays its
-  capsule alone, and the bar's line is not drawn when it would only repeat
-  it. the stage no longer pours the first window by itself. on the deck
+  standing two fifths of its spare height down. the bar's line is not
+  drawn when it would only repeat the working fold's capsule. the stage no longer pours the first window by itself. on the deck
   the field sits under the bar, above the windows, with "start in" under
   it when no window shows. "what next?" in every thread's bar at strip and
   rail, or `esc`, pours the thread back into its window and uncovers home;

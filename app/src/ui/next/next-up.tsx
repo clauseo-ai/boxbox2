@@ -1,9 +1,10 @@
 /* home, what next (docs/design.md, home: what next): what the stage shows at the strip and the rail when no thread is
    chosen, and the top of the deck. the field is the hero (field.tsx); under it, what to do next, assembled from what the
-   server gave (assemble.ts): the threads that need you in the inbox's order, each one tap from its verb, then the repos to
-   start in. the working fold is not repeated here: its capsule is on screen at every arrangement. on the deck the windows
-   under the field are the list already, in the same order, so the deck draws the field alone, and "start in" under it only
-   when the deck has no windows to show (all folded, or none).
+   server gave (assemble.ts): the threads that need you in the inbox's order, each one tap from its verb, then the working
+   fold, then the repos to start in. the fold's row is there at the strip and the rail although its capsule leads the
+   column: the column can be folded or put away, and a home that says "nothing needs you" over three threads at work reads
+   as broken. on the deck the windows under the field are the list already, in the same order, and the capsule is under
+   the bar, so the deck draws the field alone, and "start in" under it only when the deck has no windows to show.
 
    a chunk of its own (ui/later.ts): it is warmed the moment home mounts, and its styles are in the first load (next.css,
    imported by home), so its arrival never reorders the cascade. home mounts it once, whatever the arrangement, so the
@@ -16,6 +17,7 @@ import { Icon } from "../composer/icons";
 import type { Place } from "../composer/new-thread";
 import { warmEdge } from "../later";
 import { RepoMark } from "../repo-mark/repo-mark";
+import { type FoldKind, foldWords } from "../home/working-fold";
 import type { WindowView } from "../window/view";
 import { type NeedRow, nextUp, type RepoRow } from "./assemble";
 import { Field, type FieldApi, type FieldPlace } from "./field";
@@ -51,6 +53,12 @@ export type NextUpProps = {
   onOpen: (key: string, from: HTMLElement) => void;
   onAnswer: (key: string, from: HTMLElement) => void;
   onBorn: (key: string, from: HTMLElement) => void;
+  /** the threads folded into the working fold, in the order's order, and what each is doing: at the strip and the rail
+      home says them as a row of its own, so a stage with the windows folded or put away still says what is at work */
+  foldKeys: readonly string[];
+  kindOf: (key: string) => FoldKind;
+  /** the row's press: the fold's list, as the capsule's press opens it */
+  onFold: (from: HTMLElement) => void;
   /** escape on the empty field: the thread you came from, when you came from one */
   onEscape?: (() => void) | undefined;
   api?: (api: NextApi) => void;
@@ -69,6 +77,11 @@ export function NextUp(props: NextUpProps) {
   );
   const lists = () => !props.deck || bare();
   const needs = () => (props.deck ? [] : next().needs);
+  const working = createMemo(() => {
+    if (props.deck || props.foldKeys.length === 0) return null;
+    const busy = props.foldKeys.filter((key) => props.kindOf(key) === "working").length;
+    return { working: busy, waiting: props.foldKeys.length - busy };
+  });
 
   /* where the block stands in the stage (strip and rail): PLACE of the spare height down, measured when the stage or the
      block changes size, never in a frame loop. the field growing as words are typed is left out of the block's height, so
@@ -141,7 +154,29 @@ export function NextUp(props: NextUpProps) {
               </ul>
             </section>
           </Show>
-          <Show when={needs().length === 0 && !props.deck}>
+          <Show when={working()}>
+            {(counts) => (
+              <section class="nx-group" aria-label="working">
+                <ul class="nx-list">
+                  <li>
+                    <button type="button" class="nx-item" aria-haspopup="dialog" aria-label={workingName(counts().working, counts().waiting)} onClick={(event) => props.onFold(event.currentTarget)}>
+                      <span class="nx-beads" aria-hidden="true">
+                        <For each={props.foldKeys.slice(0, 3)}>
+                          {(key) => <Show when={props.viewOf(key)}>{(view) => <RepoMark host={view().host} root={view().root} size={MARK} />}</Show>}
+                        </For>
+                      </span>
+                      <span class="nx-text" aria-hidden="true">
+                        <b>{foldWords(counts().working, counts().waiting)}</b>
+                        <small>nothing wrong</small>
+                      </span>
+                      <span class="nx-verb" aria-hidden="true">see</span>
+                    </button>
+                  </li>
+                </ul>
+              </section>
+            )}
+          </Show>
+          <Show when={needs().length === 0 && !working() && !props.deck}>
             <p class="nx-quiet">nothing needs you right now.</p>
           </Show>
           <Show when={next().repos.length > 0}>
@@ -207,3 +242,6 @@ export function WhatNext(props: { onPress: (event: Event) => void }) {
     </button>
   );
 }
+
+/** named apart from the capsule's "4 working. show the list": both can be on screen, and every name is unique */
+const workingName = (working: number, waiting: number) => `see the working fold: ${foldWords(working, waiting)}`;

@@ -839,7 +839,7 @@ guesses.
   home, what next has its own: `home--home-next-quiet` (nothing waiting:
   every thread in the working fold, the repos to start in under the field,
   on the deck too), `-busy` (asks and a stopped thread), `-empty` (no
-  windows: "nothing needs you right now." at strip and rail, "start in"
+  windows and nothing at work: "nothing needs you right now." at strip and rail, "start in"
   in place of the ghost on the deck),
   `-offline` (the bar's quiet line over the list as last read),
   `-repo-menu` (the repo chip's menu open over the list), `-typed-token`

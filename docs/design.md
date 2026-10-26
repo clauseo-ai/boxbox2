@@ -885,9 +885,12 @@ below (the sheet and the dock), the dock wherever this law names it, and
   field's machine's repos by the new-thread recency, each "start in <repo>
   on <host>" (two folders of one name are told apart by their path, in the
   row and its name), which a tap picks into the field. as many repos as
-  the stage has room for, two to eight. the working fold is not a row: its
-  capsule is on screen at every arrangement (the rail's column, the
-  strip's row, the deck's bar), and one thing is said in one place. a row's
+  the stage has room for, two to eight. at strip and rail the working fold
+  is a row between the two ("3 working", "nothing wrong", "see", which
+  opens the fold's list), although its capsule leads the column: the
+  column can be folded or put away, and a home that said "nothing needs
+  you right now." over three threads at work read as broken (decision
+  110). the deck has no row: its capsule is under the bar. a row's
   mark is 26 px, under the two-letter size, so a repo reads as the one
   letter its window, its chip and the capsule's beads show beside it (the
   repo mark, below).
@@ -944,8 +947,12 @@ below (the sheet and the dock), the dock wherever this law names it, and
   outline stands in the first frame. clip-path, transform and opacity only;
   reduced motion takes the app's rule. `perf.paint` (control) and
   `perf.frames` (transition) call it `home`.
-- **empty, offline, failed.** with nothing waiting and no fold the list
-  says "nothing needs you right now." and still offers "start in". a
+- **empty, offline, failed.** with nothing waiting and nothing at work
+  the list says "nothing needs you right now." and still offers "start
+  in". with the windows put away and no thread on the stage, the round
+  that shows them again stands at the room's top left, where a thread's
+  bar holds it, so home is never left without a way back to them
+  (decision 110). a
   machine with no repos says "nothing has run on <host> yet. type a folder
   to start in, like ~/code." in the repo menu, and no machine at all "no
   machine is connected yet. add one from agents.". offline, home's bar

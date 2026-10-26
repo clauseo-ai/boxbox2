@@ -1541,6 +1541,13 @@ export function Home(props: HomeProps) {
         <Show when={!nextApi()}>
           <div class="nx nx-shell" aria-hidden="true" />
         </Show>
+        {/* the windows put away with no thread on the stage: the round that brings them back, where a thread's bar holds it
+            (the bar's own is on the thread, and the open bar is away), so home is never left with no way back to them */}
+        <Show when={arrangement() !== "deck" && windowsHidden() && !open()}>
+          <div class="nx-back">
+            <FoldToggle form={beside()} state="hidden" round onToggle={toggleFocus} />
+          </div>
+        </Show>
           <NextUp
             deck={arrangement() === "deck"}
             start={startPlace()}
@@ -1551,6 +1558,9 @@ export function Home(props: HomeProps) {
             onOpen={(key, from) => activate(key, from, null)}
             onAnswer={(key, from) => whenLoaded("AskSheet", () => setAskSheet({ key, from }))}
             onBorn={openBorn}
+            foldKeys={foldShown()}
+            kindOf={kindOf}
+            onFold={(from) => whenLoaded("FoldList", () => setFoldOpen(from))}
             onEscape={arrangement() !== "deck" && cameFrom() !== null ? backToThread : undefined}
             api={takeNext}
           />
