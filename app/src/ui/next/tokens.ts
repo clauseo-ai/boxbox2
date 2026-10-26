@@ -30,7 +30,8 @@ export function typedToken(text: string, caret: number, machines: readonly strin
   const machine = MACHINE.exec(before);
   if (machine && machines.length > 1) {
     const query = machine[2] ?? "";
-    if (matchMachines(machines, query).length > 0) return { kind: "machine", query, start: machine.index + (machine[1] ?? "").length, end: caret };
+    // only the start of a name: "focus on a" is words even with a machine called "vm-a"
+    if (startsMachine(machines, query)) return { kind: "machine", query, start: machine.index + (machine[1] ?? "").length, end: caret };
   }
   return null;
 }
@@ -41,6 +42,12 @@ export function withoutToken(text: string, typed: Pick<Typed, "start" | "end">):
   const tail = text.slice(typed.end).replace(/^[ \t]+/, "");
   const joint = head && tail && !/\n$/.test(head) && !/^\n/.test(tail) ? " " : "";
   return { text: `${head}${joint}${tail}`, caret: head.length + joint.length };
+}
+
+/** a machine's name starts with what was typed after `on ` */
+export function startsMachine(machines: readonly string[], query: string): boolean {
+  const q = query.toLowerCase();
+  return q !== "" && machines.some((name) => name.toLowerCase().startsWith(q));
 }
 
 /** the machines a typed start names: the ones it begins first, then the ones it is in, each once */

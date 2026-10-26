@@ -43,6 +43,13 @@ describe("a token is read where it is typed", () => {
     expect(typedToken(one, one.length, machines)?.kind).toBe("machine");
   });
 
+  test("on matches only the start of a machine's name, never letters inside it", () => {
+    const names = ["mini", "vm-a", "desk"];
+    for (const text of ["focus on a", "hello on in", "tidy it on k"]) expect(typedToken(text, text.length, names)).toBeNull();
+    const start = "fix it on de";
+    expect(typedToken(start, start.length, names)).toEqual({ kind: "machine", query: "de", start: 7, end: 12 });
+  });
+
   test("on with nothing typed after it yet offers nothing: every sentence with on in it would open a menu", () => {
     const text = "run it on ";
     expect(typedToken(text, text.length, machines)).toBeNull();
