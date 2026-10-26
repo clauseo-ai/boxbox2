@@ -135,7 +135,7 @@ is binding the same way (AGENTS.md, design law).
   whose line leaves its box or comes within 6 px of a pill, and the "home
   long repo name" story holds a 46 character repo name at every width.
   a line that would only repeat the working fold's capsule under it (every
-  thread working, every one of them folded: "3 working" over "3
+  thread on home in the fold, no window showing: "3 working" over "3
   working") is not drawn, so the capsule is the one place it is said
   (decision 106); anything more (a want, a done, offline, an update) and
   the line is back.

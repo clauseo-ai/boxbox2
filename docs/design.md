@@ -967,8 +967,8 @@ below (the sheet and the dock), the dock wherever this law names it, and
   home that beats it lands at once). they keep the first load at 119.9 kb
   of the 120 kb budget.
 - **the bar's line** does not repeat the capsule: a line that would say
-  only what the working fold's capsule under it says (every thread
-  working, all of them folded) is not drawn; a want, a done, offline or an
+  only what the working fold's capsule under it says (every thread on
+  home is in the fold, no window shows) is not drawn; a want, a done, offline or an
   update brings it back (`home.md`, the bar's line).
 
 ## starting a thread
