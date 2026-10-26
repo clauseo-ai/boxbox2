@@ -963,9 +963,9 @@ below (the sheet and the dock), the dock wherever this law names it, and
   bar's "what next?" comes with the chunk, in before any thread can be on
   the stage, and so do the reads of where a thread can start
   (`composer/place-reads.ts`) and the way home's motion rides in the edge's
-  chunk (`home/edge.ts`, `pourBack`, warmed when the page is idle; a way
-  home that beats it lands at once; the bar's button warms that chunk as it mounts). they keep the first load at 120.0 kb
-  of the 120 kb budget.
+  chunk (`home/edge.ts`, `pourBack`, warmed when the page is idle and by
+  the bar's button as it mounts; a way home that beats it lands at once).
+  they keep the first load at 120.0 kb of the 120 kb budget.
 - **the bar's line** does not repeat the capsule: a line that would say
   only what the working fold's capsule under it says (every thread on
   home is in the fold, no window shows) is not drawn; a want, a done, offline or an
