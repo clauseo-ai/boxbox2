@@ -153,6 +153,34 @@ events it saw by type, so boxbox's count can be compared with the
 daemon's. `bun bench/session.ts --words N` streams one reply of N words
 instead (N delta events), for the memory run.
 
+## the settle drive (auto-clear and unclear)
+
+`server/src/fleet/settle_live.rs`, an ignored rust test against a real dev
+daemon: the fleet actor and the cmx2 source as `main` wires them, a
+scratch store, one stream open, and real turns on the bench model. the
+sweep's hour is crossed with `Fleet::sweep_at`, a test-only command that
+runs the sweep on a clock the test picks (no production knob). it checks:
+a finished thread read through its reply is not cleared before the hour and
+is after it, with nobody looking (`away` frame on the stream, the done
+served, the `clears` row `cause = auto, away = 1` with `done_at <= seen_at`);
+an unclear brings it back (empty `away` frame) and the next sweep keeps it;
+a second unclear is refused `notcleared`; a new turn spends the kept mark
+and a sweep while a device looks clears it with an `autoCleared` frame, not
+the away line.
+
+```sh
+CMX2_PORT=4846 just cmx2          # any free port from 4840 to 4849
+BOXBOX_SETTLE_CONFIG=$PWD/.cmx2/bench/boxbox.toml \
+  cargo test --locked settle_live -- --ignored --nocapture
+```
+
+to watch auto-clear in the real ui, put `sweep_fast = true` in the `[dev]`
+section of `.cmx2/bench/boxbox.dev.toml` (a config without `[dev]` refuses
+it): `just dev` then sweeps every 10 s, `seen1h` clears a minute after the
+read and `any3h` three minutes after a thread settled, and the server says
+so in a warning at start. an away row needs no device looking (visible and
+focused within 90 s) when the sweep fires.
+
 ## the fork drive
 
 `bun bench/fork.ts`, with `just cmx2` and `just dev` running

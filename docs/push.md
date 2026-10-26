@@ -34,7 +34,11 @@ the fleet calls `Push::notify(Notice)` for every candidate event and
   ("ledger wants you", "118 passed. all four new tests...");
 - `origin`: `armed` (a person started the turn), `own_action`, `subagent`,
   `replayed`, the facts only the fleet knows;
-- `badge`: the icon's number after this notice, when the fleet knows it.
+- `badge`: the icon's number after this notice, when the fleet knows it:
+  the threads with an open need. a job notice counts only when the
+  person's home prefs say job notices are needs (`jobsAsNeeds`, off by
+  default, decision 95); an auto-clear serves a thread's done and job needs,
+  so it leaves the badge (decision 93).
 
 ### how the fleet feeds it (m4)
 
@@ -72,7 +76,10 @@ row; a notice every device already had is `duplicate`.
 report said visible and focused and is under 90 s old. a thread is
 watched when a looking device has it on stage or its window in view. the
 app reports on every change and every 30 s while looking, and sends a
-last "not looking" as a beacon on `pagehide`.
+last "not looking" as a beacon on `pagehide`. the same watch decides
+whether an auto-clear is away (no device looking at the moment of the
+sweep, so it joins the away summary) or offered as an undo to the device
+that is looking (decision 94).
 
 ## delivery
 

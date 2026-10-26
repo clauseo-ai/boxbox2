@@ -285,7 +285,7 @@ owner; every map has an eviction rule. the caps:
 | thing | cap | on overflow |
 |---|---|---|
 | journal ring | 16 mb or 100,000 entries, one ring and one epoch (`journal.rs`) | oldest entries fall out; a since key whose entries are gone gets `thread.stale` (`protocol.md`, section 9) |
-| model caps | order 300, sessions 1000, adopted 20, clears 2000, needs 500 open and 200 served, over every source's threads together | each evicts by its rule |
+| model caps | order 300, sessions 1000, adopted 20, clears 2000, kept marks 2000, needs 500 open and 200 served, over every source's threads together; the sweep's quiet times one per home window (at most 300) | each evicts by its rule; a quiet time goes when its window leaves home or gets a status |
 | stream map (`fleet/mod.rs`, `Subscriber`) | one entry per open stream: its id, an interest of 1 thread, 8 layers and 16 holds, its owner (a hash of the session token) and last confirmed ask | removed when the stream ends, falls behind, stalls on a confirm or fails a send; a post past the interest caps answers 400 |
 | confirm block (`fleet/catchup.rs`) | 1 mb of catch-up frames (each at most 256 kb) per stream, one in flight, outside the 512 kb outbound cap, drained through the stream's `pending` | a key past it goes `thread.stale`; a post meeting an unread block waits for it to drain, until the block is 30 s old (counted from when it was handed to the stream), then the stream is closed and the post answers 404; a block drained by then closes nothing |
 | tombstones (`fleet/keys.rs`) | 10,000 rows or 7 days of removals and settlements | oldest dropped, the floor rises; a cursor below it gets `reset` with reason `expired` |
@@ -878,6 +878,23 @@ utf-16 units, as cmx2 defines it.
     clear also marks the thread seen. marks live in `boxbox.db`'s
     `clears` (migration 4), capped at 2000, oldest evicted, and reach the
     app as `Thread.cleared`.
+  - the auto-clear sweep (decision 93) is a timer arm on the fleet actor
+    like the tail flush: a minute after the start, then every 5 minutes,
+    `Model::sweep` over the home windows (at most 300), one log line each
+    run. it writes the same marks with `cause`, `away`, `done_at`, `seen_at`
+    and `acked` (migration 13). the rule is the person's home prefs
+    (`person`/`home` in `prefs`, migration 12; `GET /api/prefs` `home`,
+    `PUT /api/prefs/home`, answered after the commit and told to the fleet
+    at once). `[dev] sweep_fast` runs it every 10 s with minute waits, for
+    a dev server only.
+  - `POST /api/unclear` takes `{device, deviceClass, keys, source: "undo"|"away"}`
+    and answers `Uncleared` with the keys back on home and a `refused` list
+    (`notcleared`, `unknown`). each comes back where the order puts it
+    and is kept from the sweep until its `updated` moves (`kept`, migration
+    13, capped at 2000).
+  - `POST /api/away/seen` takes `{device, deviceClass}` and answers 204: the
+    away summary's rows stay cleared and leave it; every stream hears the
+    `away` frame (`protocol.md`, control frames).
   - `GET /api/history?q&host&before&limit` reads each daemon's session
     list (`/session`, archived left out by cmx2), filters title and repo
     on the server (scanning up to four pages of 100 per host), merges

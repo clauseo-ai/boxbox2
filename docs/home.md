@@ -394,6 +394,57 @@ window, and history.
   the order's 300 a cleared window never pushes an uncleared one off:
   with 320 held, clearing the 5 newest took them out of the order and
   brought 5 older ones in.
+- **the sweep is a timer on the fleet task, not a scan per event**
+  (`Actor::sweep`, `Model::sweep`, decision 93): a minute after the start,
+  then every 5 minutes, it walks the home windows by the board's own
+  membership rule (`is_home_window`: not a subagent, not cleared, active or
+  touched in the last 12 hours), at most 300, so a first sweep after an
+  upgrade looks at what home shows and never at the hundreds of older
+  threads a machine lists. one log line per sweep, `home swept` with
+  `swept`, `cleared`, `mode`, `away` and `ms`; a `home.swept` telemetry row
+  when it cleared any. with the rule at `never` the timer still fires, spends
+  kept marks and says nothing. its eligibility, in `Model::sweepable`: no
+  status at all (busy, retry, parked on agents or on jobs alone), no queued
+  prompt, no open ask, no open fault (failed, or a turn cut off), no open
+  review, and not kept. `seen1h` counts a thread seen when a person's read
+  mark covers its newest finished reply and no done is open, measured from
+  that mark's server time: not its newest message, because a daemon can
+  leave the newest message the model heard (a step it removed) out of the
+  transcript a device reads and marks, found against the dev daemon.
+  `any3h` counts from the open done's raise, else the seen mark, else the
+  first sweep that found the thread idle at its current `updated` (kept in
+  memory per home window, so after a restart a thread with neither waits 3
+  hours from then: it errs on keeping).
+- **what an auto-clear keeps** (migration 13): the clear mark as a hand clear
+  writes it, plus `cause` (`hand` or `auto`), `away` (no device looking at
+  that moment, decision 23 through push's `looking` watch), `done_at` (the
+  done's raise, open or among the last 200 served, else when it went quiet)
+  and `seen_at` (server ms), and `acked` once the away summary is
+  acknowledged. the served done and job needs say `how: cleared`, by
+  `agent`, and telemetry `need.cleared` by `auto`.
+- **unclear and kept.** `POST /api/unclear` (keys 1 to 300, source `undo` or
+  `away`) removes each mark and writes a kept mark (`kept` table: the
+  session's `updated` then, capped at 2000 like the clears); the sweep skips
+  a kept thread until its `updated` moves past it, and spends the mark at
+  its next run. a key whose mark is already spent (it came back by itself)
+  is refused `notcleared` ("it is on home already"), which a client takes
+  as done; one the fleet does not hold, `unknown`. a hand clear drops the
+  kept mark. telemetry `thread.uncleared`.
+- **the away summary** is computed on the server: the auto-clears with
+  `away`, not acknowledged, whose mark still holds, newest clear first. it
+  travels as the id-less `away` frame (`docs/protocol.md`, settle frames)
+  whenever a clear is taken, spent or acknowledged moves it, and at a
+  stream's open when it holds a row; `POST /api/away/seen` acknowledges
+  every row at once (one sql update) and every stream hears the empty
+  list. a sweep that clears while a device is looking sends `autoCleared`
+  `{keys, at}` instead, for the undo toast.
+- **job notices are not needs by default** (decision 95, `jobsAsNeeds`
+  off): a job need is still raised, listed on `thread.needs` and served as
+  before, and the board still lights `news` for it (`docs/board.md`), but
+  the push badge (`Needs::waiting_counting`) and the order's lead
+  (`Needs::lead_counting`) leave it out, so a thread whose only need is a
+  job ranks as the idle or parked thread it is. turning the pref on
+  re-ranks at once (`PUT /api/prefs/home` tells the fleet after the commit).
 - **a count per word.** the bar's line says "2 done, 1 idle" (done is a
   finished turn nobody has seen, idle one that was seen or never ran a turn;
   a thread with no turn is not "done"), and the pill says "clear 3", the two

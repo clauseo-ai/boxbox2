@@ -29,7 +29,7 @@ as contract 2 already says.
 |---|---|
 | journal | the server's ring of changes, each encoded once as the exact bytes every stream receives |
 | entry | one journal change, with a `seq` and an sse `id` |
-| control frame | a frame that is not a journal entry: `hello`, `reset`, `caught`, `interest`, `catchup`, `thread.stale`, colours, board frames |
+| control frame | a frame that is not a journal entry: `hello`, `reset`, `caught`, `interest`, `catchup`, `thread.stale`, colours, `away` and `autoCleared`, board frames |
 | overview | every entry that is not a transcript entry: agents, threads, asks, order |
 | transcript entry | `message`, `part`, `delta`, `message.removed`, `reactions` |
 | interest | the threads a stream gets transcript entries for: the open thread (the stage), the layers under it, and the children it holds |
@@ -106,6 +106,8 @@ and still advances its cursor past it.
 | `interest` | `epoch:seq` | `ask`, `thread`, `under`, `holds`, `seq`, `stale?` (keys), `reset?` (keys) | the confirm of an interest post (section 5) |
 | `thread.stale` | none | `key` | in a reconnect catch-up: a thread in interest whose missed transcript entries the ring no longer holds (section 9) |
 | `colours`, `colour` | none | as today (`RepoColour`) | the whole map after `hello`, then each change ahead of the entry that first shows its repo |
+| `away` | none | `threads: [{key, doneAt, seenAt?, clearedAt}]` (server ms), the whole away summary, newest clear first | after the colours at a stream's open only when it holds a row (a client takes an empty summary at every `hello`), then each time a clear taken, spent or acknowledged changes it; an empty list means no line (decision 94) |
+| `autoCleared` | none | `keys`, `at` (server ms) | the sweep cleared these threads while a device was looking: a client whose document is visible offers the undo (decision 93) |
 | `board.here`, `board.gone`, `board.focus`, `board.compose` | none | as today | windows with `board=1` on the board's mac |
 | `view`, `pin`, `replaced` | none | the board wire's frames, unchanged | board daemon streams only |
 

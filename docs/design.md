@@ -113,7 +113,8 @@ becomes a list of fifty.
 
 ### clearing a window, and history
 
-a window can leave home by hand, and come back on its own.
+a window can leave home by hand or by itself once its work is finished,
+and come back on its own or with "undo" and "bring back".
 
 - **clear.** a window that is done, idle, failed or parked has a "clear"
   button in its footer; the bar has "clear N" (the done and idle ones, which the line beside it counts apart).
@@ -125,8 +126,29 @@ a window can leave home by hand, and come back on its own.
   at clear time. the thread comes back, for good, when it goes busy,
   asks, or its updated time moves past the mark (for an assistant's
   thread, its `said` time: a run that only checked something does not
-  bring it back, `home.md`, quieter runs). there is no "unclear"
-  control: coming back is what the thread does.
+  bring it back, `home.md`, quieter runs). coming back is still what a
+  thread mostly does; since settle (decision 93) a person can also take a
+  clear back, below.
+- **finished work clears itself** (decision 93). the server sweeps home
+  every 5 minutes (and a minute after it starts) by the person's rule in
+  settings, the same on every device: `seen1h` (the default) clears a
+  thread an hour after a person saw its finished reply, `any3h` three hours
+  after it settled whether seen or not, `never` leaves clearing to the
+  person. it only ever clears a top-level home window that is done or idle:
+  never one working, retrying, parked (on its agents or on background jobs
+  alone), with prompts queued, asking, failed or stopped, or waiting on a
+  review of its worktree. an auto-clear is the same mark as a hand clear,
+  marked `auto`, and it serves the thread's done and job needs, so the
+  badge drops; the thread comes back exactly as a hand-cleared one does.
+- **unclear.** an undo (the toast after a clear from this device or a
+  sweep while it is looking, or cmd-z) and "bring back" in the away list
+  take the mark back (`POST /api/unclear`): the window returns where the
+  order puts it, and the sweep leaves it alone until the thread is updated
+  again, so a thread brought back is not cleared again on the next sweep.
+- **away.** what the sweep cleared while no device was looking (decision
+  23) is the away summary, "N cleared while you were away" (decision 94),
+  the same on every device until one opens or dismisses it
+  (`POST /api/away/seen`). its threads stay cleared.
 - **motion.** the window leaves by the fade curve (opacity and the
   transform it already had), and only once it is gone does the POST go
   out; the order drop then makes the others close up by flip, measured
