@@ -191,6 +191,7 @@ what each kind shows, and what opens beneath it:
 | kind | the thing | the result | opens to |
 |---|---|---|---|
 | run | the command: program lit, flags and prefixes toned down, everything after the first pipe toned down. a chain reads "6 commands: git status, git branch, git log…" (see display rules) | evidence from its output (tests, build), `exit N` in red, a duration when 1.5 s or more | the command whole in a bed of its own (home as `~`), facts (where it ran, unless the command's bed says so with its `cd`; exit; took; when), the output head and tail in a bed headed by its line count, with "N lines not shown", the error in red |
+| run, a script | what the script does: its description, its leading comment, else "a script" (see the step group) | `started 2 agents` when it started any, else a duration when 1.5 s or more; `failed` in red | the script whole in a code block headed "script" with its copy control, highlighted as javascript (past 40 lines its first 14 fade into "show all 86 lines", as a read's bed does), facts (took; when), what it printed and returned in the output's bed headed by its line count, the images it returned, the error in red. running, the script and nothing under it yet (no output yet is not "no output") |
 | watch, type | the command it watched, or what it typed "into" it | the same | the output it saw |
 | commit | the subject, in sans | the hash as a chip | `+a -d in N files` |
 | push | `branch to origin` | a tick | nothing |
@@ -1010,7 +1011,8 @@ moves their elements in place and makes none again.
   by what it does, never its first line of code (`script.ts`): the call's
   `description` when it has one, else the script's leading comment (a
   `//` run or a block comment before any code), else "a script". its row
-  says "run" in the kind column and the name; the line says "running a
+  says "run" in the kind column and the name, and a press opens it to the
+  code itself (the row table, "run, a script"); the line says "running a
   script" (a named script's own words stand as what it is doing) and counts
   it under "ran"; on the strip it is a command, a bar from 1.2 s. a home
   window's tail line, which has only the daemon's title, says "run a
@@ -1496,6 +1498,16 @@ palette and the control are in `design.md`, code and copying).
   can be selected when the bed is cut or clipped. the newest row of a
   running turn shows its live window and has no control. the error bed, a
   read's preview and a diff have none.
+- **a script and its output** (2026-10-26: a script's row opened to
+  nothing, so what an agent ran was never on screen). an open script row
+  (cmx2's `run`) shows its code as a code block in the row: "script" on
+  the left of the header, "copy" on the right, the code highlighted as
+  javascript, scrolling on its own, at the command bed's size and inset
+  (`code.tsx`, `ScriptBed`, a chunk of its own). past 40 lines its first 14
+  fade into "show all 86 lines", which opens it in place. its output is a
+  command's: the same bed, header, copy and cap. the copy is the script
+  exactly as it was sent; a run too long to lay out is cut for the page
+  (`big-text.ts`), never in the copy.
 - **only our controls.** the sanitiser drops every class an agent's html
   carries but marked's `language-ts` on a fence's code, and every data
   attribute, so nothing it writes is drawn as our control, our block or the
@@ -1873,6 +1885,7 @@ selectable; controls never open the text callout. a copy control is named
 for what it copies and where: "copy the typescript code" (a code block, by
 the language it reads as; "copy the code" with no word), "copy the command,
 run bun test, 54 passed" and "copy the output, run bun test, 54 passed"
+("copy the script, run tidy the tree" for a script's code)
 (after the row they belong to, whose name is already told apart from every
 other row's and holds still), "copy the reply, 17:17, okay now go ahead and
 implement everythi" (by its turn: the clock and the first 40 characters of

@@ -1,4 +1,5 @@
-/* a script step's name (script.ts) wherever it is said: the row, the group's line, a home window's tail line; a part with no start
+/* a script step's name (script.ts) wherever it is said: the row, the group's line, a home window's tail line; what its row opens to
+   (the code, its facts, its output); a part with no start
    of its own dated after the part before it, so a group's time and clock read in the order the rows do; the place line's name for a
    root or home folder */
 
@@ -8,7 +9,8 @@ import { doingOf, groupLine, segmentsOf, stripKind } from "./groups";
 import { ledgerOf } from "./ledger";
 import { type Step, turnsOf } from "./model";
 import { placeName } from "./place";
-import { type RowCtx, kindOf } from "./rows";
+import { type RowCtx, kindOf, stepModel } from "./rows";
+import { scriptLabel } from "./copy-names";
 import { A_SCRIPT, leadingComment, scriptName, scriptTitle } from "./script";
 import type { WireMessage, WirePart } from "./wire";
 import { neutral } from "./fixtures/wire";
@@ -54,6 +56,31 @@ describe("a script's name", () => {
     expect(stepIn([user(), assistant([runPart({ code: `// tidy the tree\n${SCRIPT}` })])]).object).toBe("tidy the tree");
     expect(stepIn([user(), assistant([runPart({ code: SCRIPT, description: "find the slow test" })])]).object).toBe("find the slow test");
     expect(stepIn([user(), assistant([runPart({ code: "await shell.exec({ command: 'ls' })" })])]).object).toBe(A_SCRIPT);
+  });
+
+  test("its open row: the code whole, its facts, then what it printed and returned in the output's bed", () => {
+    const part = (state: Record<string, unknown>): WirePart => ({ id: "prt_run", type: "tool", callID: "c_run", tool: "run", state: { input: { code: SCRIPT }, metadata: {}, ...state } }) as unknown as WirePart;
+    const ctx: RowCtx = { reports: [], children: new Map(), thinking: "rows" };
+    const done = stepIn([user(), assistant([part({ status: "completed", output: "M app.ts\n{\n \"ok\": true\n}", time: { start: T0 + 1000, end: T0 + 3500 } })])]);
+    expect(done.code).toBe(SCRIPT);
+    const body = stepModel(done, ctx).body;
+    if (body?.k !== "script") throw new Error("no script body");
+    // the same string the store holds, never a name or a copy cut short
+    expect(body.code).toBe(SCRIPT);
+    expect(body.output?.lines).toEqual(["M app.ts", "{", " \"ok\": true", "}"]);
+    expect(body.outputLines).toBe(4);
+    expect(body.outputRaw).toBe("M app.ts\n{\n \"ok\": true\n}");
+    expect(body.facts.map((f) => f.text)).toEqual(["3 s", expect.stringMatching(/^at \d\d:\d\d:\d\d$/)]);
+    expect(body.running).toBeUndefined();
+    // running, it shows the code it is running and nothing of an output yet
+    const live = stepModel(stepIn([user(), assistant([part({ status: "running" })])]), ctx).body;
+    expect(live).toMatchObject({ k: "script", code: SCRIPT, running: true });
+    expect(live?.k === "script" && live.output).toBeUndefined();
+    // failed, it opens on its own to the code and the error under it
+    const failed = stepModel(stepIn([user(), assistant([part({ status: "error", error: "script failed (error): boom" })])]), ctx);
+    expect(failed.open).toBe(true);
+    expect(failed.body).toMatchObject({ k: "script", code: SCRIPT, error: "script failed (error): boom" });
+    expect(scriptLabel("run a script")).toBe("copy the script, run a script");
   });
 
   test("the group's line says what the script does", () => {

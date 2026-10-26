@@ -25,7 +25,7 @@ export function weighItems(items: readonly Item[]): number {
   let chars = 0;
   for (const it of items) {
     if (it.k !== "step") { chars += it.text.length; continue; }
-    chars += it.object.length + it.result.length + (it.diff?.length ?? 0) + (it.command?.length ?? 0) + (it.error?.length ?? 0) + (it.polls?.length ?? 0) + (it.typed?.length ?? 0) + (it.cwd?.length ?? 0);
+    chars += it.object.length + it.result.length + (it.diff?.length ?? 0) + (it.command?.length ?? 0) + (it.code?.length ?? 0) + (it.error?.length ?? 0) + (it.polls?.length ?? 0) + (it.typed?.length ?? 0) + (it.cwd?.length ?? 0);
     if (it.output) { for (const line of it.output.lines) chars += line.length; chars += it.output.raw?.length ?? 0; }
     if (it.hits) for (const hit of it.hits) chars += hit.length;
     if (it.spread) for (const s of it.spread) chars += s.name.length + 8;

@@ -47,6 +47,8 @@ export interface Step {
   wrote?: string;
   /** a script (cmx2's `run`): `object` is its name in words (script.ts), not its code */
   script?: true;
+  /** a script's code as the agent sent it (the same string the store holds, not a copy): what its open row shows and its copy control copies */
+  code?: string;
   /** the command as the agent sent it, whole (`object` has the leading `cd` taken off), what its copy control copies */
   command?: string;
   outputLines?: number;
@@ -419,13 +421,20 @@ function stepOf(part: ToolPart, root: string, messageAt: number): Base {
     default: {
       /* cmx2's `run` is a script of helper calls: the row names it by what it does (script.ts: its description, its leading
          comment, else "a script"), never its first line of code, and says when the script started agents (`metadata.nested`,
-         one entry per helper call; the entries carry no child ids, cmx2 ask a27) */
+         one entry per helper call; the entries carry no child ids, cmx2 ask a27). its open row shows the code itself and what it
+         printed and returned, as a command's shows its command and output */
       const command = string(input["command"]);
       const code = string(input["code"]);
       const spawned = list(meta["nested"]).filter((n) => string(record(n)?.["tool"]) === "spawn").length;
       if (command) step.object = shortCommand(command);
-      else if (code !== undefined) { step.object = scriptName(code, string(input["description"])); step.script = true; }
-      else step.object = tool.replace(/_/g, " ");
+      else if (code !== undefined) {
+        step.object = scriptName(code, string(input["description"]));
+        step.script = true;
+        step.code = code;
+        const clean = cleanOutput(out);
+        step.outputLines = clean ? clean.split("\n").length : 0;
+        if (clean) step.output = { ...headTail(clean), raw: out };
+      } else step.object = tool.replace(/_/g, " ");
       if (spawned) step.result = `started ${spawned === 1 ? "an agent" : `${spawned} agents`}`;
     }
   }

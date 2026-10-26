@@ -6,6 +6,13 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **see the script a run ran.** a script row (cmx2's `run`) opened to
+  nothing; a press now opens it to the script itself, highlighted as
+  javascript under "script" with its copy control (a long one shows its
+  first 14 lines and "show all"), when it ran and how long it took, and
+  what it printed and returned in an output bed like a command's
+  (`docs/thread.md`, code and copying).
+
 - **rename a thread.** the thread menu's "rename" opens a field holding the
   title; save sends it to the daemon (`POST
   /api/hosts/{host}/sessions/{session}/title`, cmx2's `PATCH /session/:id`

@@ -228,6 +228,8 @@ export type FileLine = { path: string; note: string; /** what the read returned 
 
 export type Body =
   | { k: "shell"; facts: Fact[]; /** the command in its bed, as it is shown (home as ~): every open shell row has one, so its copy control is always on the command */ command?: string[]; /** the command as the agent sent it, which its copy control copies */ commandRaw?: string | undefined; output?: Bed; /** how many lines the output has, which its bed's header says */ outputLines?: number | undefined; /** the output as the store holds it, for its copy control to clean and copy at the press */ outputRaw?: string | undefined; /** what the command returned as images, and how many more there were */ images?: Picture[]; more?: number; error?: string }
+  /** a script's open row (cmx2's `run`): the code whole in its own bed, its facts, then what it printed and returned in the output's bed, as a command's */
+  | { k: "script"; /** the code as the agent sent it, which its bed shows and its copy control copies */ code: string; facts: Fact[]; output?: Bed; outputLines?: number | undefined; outputRaw?: string | undefined; /** still running: no output yet is not "no output" */ running?: true; images?: Picture[]; more?: number; error?: string }
   | { k: "diff"; bar?: FileLine["bar"]; lines?: DiffLine[]; /** a write's whole content, which "show the whole diff" opens when its lines stop at 80 */ wrote?: string; none?: string; error?: string }
   | { k: "read"; files: FileLine[]; preview?: Bed; /** the preview as the file's own lines, numbered from where the read began, for its bed and the reader */ file?: { path: string; lines: string[]; from: number; total?: number | undefined; /** the read's whole output, which its bed and the reader take every line from (evidence.ts, readLines) */ raw?: string | undefined; /** how many lines the read returned, when it said */ read?: number | undefined }; /** images the row does not draw: past its cap, or dropped by the daemon */ more?: number; error?: string }
   | { k: "images"; images: Picture[]; more?: number }
@@ -522,7 +524,15 @@ export function stepModel(s: Step, ctx: RowCtx): RowModel {
       else if (s.result === "timed out") { content = [{ t: "lead", s: "nothing came" }]; text = "nothing came"; }
       break;
     }
-    default: content = [{ t: "text", s: s.object }]; text = s.object;
+    default: {
+      content = [{ t: "text", s: s.object }]; text = s.object;
+      if (s.script && s.code !== undefined) {
+        const facts: Fact[] = [];
+        if (s.ms >= 1000) facts.push({ text: dur(s.ms) });
+        facts.push({ text: `at ${clockS(s.at)}` });
+        body = { k: "script", code: s.code, facts, ...(s.output ? { output: bedOf(s.output) as Bed } : {}), outputLines: s.output ? s.outputLines : undefined, outputRaw: s.output?.raw, ...(running ? { running: true } : {}), ...pictured, ...error };
+      }
+    }
   }
   if (body === undefined && shown.length) body = { k: "images", images: shown, ...(capped.more ? { more: capped.more } : {}) };
   if (bad && s.error && body === undefined) body = { k: "error", error: s.error };

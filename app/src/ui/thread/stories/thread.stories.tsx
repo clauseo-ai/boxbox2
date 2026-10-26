@@ -11,6 +11,7 @@ import type { WireMessage } from "../wire";
 import { neutralMessage } from "../../../sync/fixtures/neutral";
 import { type Child, type FoldRow, type Row, type RowCtx, type RowModel, arrivalModel, clock, endRows, foldModel, kindOf, modelOf, rowsOf, stepModel } from "../rows";
 import { watchMeasure } from "../measure";
+import { loadHighlighter } from "../highlight";
 import { isChain } from "../shell";
 import { Answer, Ledger, MarkLine, ReportCard, RowView, SayRow, ThreadLog, TurnView, YouBubble } from "../thread";
 import { orderedStrip } from "../groups";
@@ -558,6 +559,20 @@ export const ScriptGroupLiveOnHome = scriptStory("step group, live, on a desktop
 export const ScriptGroupSettled = scriptStory("step group, settled: the script's run folded whole, named by what it did", "settled");
 export const ScriptGroupSettledOnHome = scriptStory("step group, settled, on a desktop home: a long script's bar stays in its lane", "settled", true);
 export const ScriptGroupSeveral = scriptStory("step group, settled: reads, a command and two scripts, one named by its comment", "several", true);
+/** a script's row as it opens: the code under "script", highlighted, with its copy control, its facts, then what it printed and returned */
+const LONG_SCRIPT = `// read every lane's log and say which ones are stuck\nconst lanes = ['transport', 'strip', 'composer', 'home'];\nconst out = {};\n${Array.from({ length: 44 }, (_, i) => `out.l${i} = (await shell.exec({ command: 'tail -n 2 /tmp/lane-${i}.log' })).output;`).join("\n")}\nreturn out;`;
+function scriptStep(code: string, output: string, ms: number): Step {
+  const part = { id: "x_open", type: "tool", callID: "c_x_open", tool: "run", state: { status: "completed", input: { code }, output, metadata: { calls: 2, nested: [] }, time: { start: S0 + 70_000, end: S0 + 70_000 + ms } } } as unknown as Part;
+  const msgs = [
+    { info: { id: "u_x", role: "user", time: { created: S0 } }, parts: [{ id: "u_x_p", type: "text", text: "what changed?" }] },
+    { info: { id: "a_x", role: "assistant", time: { created: S0 + 1500, completed: S0 + 200_000 } }, parts: [part] },
+  ].map((m) => neutralMessage(m as unknown as { info: Record<string, unknown>; parts: Record<string, unknown>[] }));
+  const s = turnsOf(msgs, "/w/boxbox2")[0]?.items.find((x): x is Step => x.k === "step");
+  if (!s) throw new Error("no script step");
+  return s;
+}
+export const ScriptRowOpen = story("tool run, a script, open: the code highlighted under \"script\" with its copy, its facts, what it printed and returned", async () => { const l = await cmx(); await loadHighlighter(); return stepRow(l, scriptStep(`// what changed, and the last five commits\n${SCRIPT}`, '{\n "status": " M app/src/ui/thread/code.tsx\\n M docs/thread.md",\n "log": "6a371e3 thread menu: rename a thread\\n6f1c468 first load back to 118.9 kb"\n}', 2_400), { open: true }); });
+export const ScriptRowOpenLong = story("tool run, a script, open: a long script shows its first 14 lines fading into \"show all\"", async () => { const l = await cmx(); await loadHighlighter(); return stepRow(l, scriptStep(LONG_SCRIPT, "(script finished with no output)", 12_000), { open: true }); });
 export const ScriptGroupOneLine = scriptStory("step group, settled: a one-line script, still named in words", "one-line");
 
 /* ---------- coverage: which kinds and states the fixtures really hold ---------- */

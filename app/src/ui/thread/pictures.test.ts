@@ -189,12 +189,14 @@ describe("what a row draws", () => {
     expect(pictureNames([{ filename: "" }, { filename: "" }])).toEqual(["image, 1 of 2", "image, 2 of 2"]);
   });
 
-  test("a command's images ride its body, and a tool with no body of its own gets one for them", () => {
+  test("a command's and a script's images ride their bodies, and a tool with no body of its own gets one for them", () => {
     const [shell] = stepsOf([tool("s", "bash", { command: "ls" }, { output: "x", attachments: [attach("x.png")], attachmentsDropped: 1 })]);
     expect(stepModel(shell as Step, ctx()).body).toMatchObject({ k: "shell", images: [{ filename: "x.png" }], more: 1 });
-    const [other] = stepsOf([tool("o", "run", { code: "return 1" }, { attachments: [attach("y.png")] })]);
+    const [script] = stepsOf([tool("r", "run", { code: "return 1" }, { attachments: [attach("y.png")] })]);
+    expect(modelOf({ k: "step", at: T0, end: T0, step: script as Step }, ctx()).body).toMatchObject({ k: "script", code: "return 1", images: [{ filename: "y.png" }] });
+    const [other] = stepsOf([tool("o", "browser_screenshot", { url: "https://example.com" }, { attachments: [attach("z.png")] })]);
     const m = modelOf({ k: "step", at: T0, end: T0, step: other as Step }, ctx());
-    expect(m.body).toMatchObject({ k: "images", images: [{ filename: "y.png" }] });
+    expect(m.body).toMatchObject({ k: "images", images: [{ filename: "z.png" }] });
   });
 });
 

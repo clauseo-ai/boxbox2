@@ -459,6 +459,10 @@ button.fl { border-radius: 8px; }
    tone, 40 px tall; a diff's bed is a plain block around its lines and the control */
 .bed.faded { -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), rgb(0 0 0 / .25)); mask-image: linear-gradient(#000 calc(100% - 28px), rgb(0 0 0 / .25)); }
 .bed-wrap.plain > .bed { padding-top: 8px; border-radius: 12px 12px 0 0; }
+/* a script's code in an open row (code.tsx, ScriptBed) is a code block, for its colours, at the size and inset of the command's and the
+   output's beds beside it; long, it fades into its "show all" as a file's bed does */
+.cblock.script-bed { --cb-x: var(--s3); --cb-size: 11px; --cb-r: 12px; min-width: 0; }
+.script-bed pre.faded { padding-bottom: 0; -webkit-mask-image: linear-gradient(#000 calc(100% - 28px), rgb(0 0 0 / .25)); mask-image: linear-gradient(#000 calc(100% - 28px), rgb(0 0 0 / .25)); }
 .thread button.bed-all { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 40px; padding: 0 var(--s3); font-size: 13px; font-weight: 620; color: var(--accent); border-radius: 0 0 12px 12px; }
 .bed-all i { width: 9px; height: 9px; border: 1.4px solid currentColor; border-radius: 2px; }
 @media (hover: hover) { .thread button.bed-all:hover { background: var(--hover); } }

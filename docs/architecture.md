@@ -463,7 +463,7 @@ why solid:
   the plus menu's rows, the composer's suggestions, the queue's list and
   its verbs, a report's sheet, the file reader, the spend dialog, a
   picture full size), which open through `whenLoaded` so none opens onto
-  nothing, an opened row's file bed and slip (`thread/code.tsx`, drawn
+  nothing, an opened row's file bed, script bed and slip (`thread/code.tsx`, drawn
   only in a row someone opened), an opened agent's, search's, plan's,
   files, edit's or thought row's body (`thread/bodies.tsx`), a settled
   question's record and a settled permission's line

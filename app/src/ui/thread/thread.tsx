@@ -27,7 +27,7 @@ import { ShowAll } from "./show-all";
 import { type Group, type StripMark, currentOf, foldedOf, groupClock, groupLabel, groupLine, groupsOf, lineShown, nearestMark } from "./groups";
 import { StripLane } from "./strip";
 import { reportOf } from "./report";
-import { AgentBody, DiffBed, PermitRecord, FileBed, FilesBody, HitsBody, PictureViewer, PlanBody, ReportSheet, Slip, ThoughtsBody, warmOn, whenLoaded } from "../later";
+import { AgentBody, DiffBed, PermitRecord, FileBed, FilesBody, HitsBody, PictureViewer, PlanBody, ReportSheet, ScriptBed, Slip, ThoughtsBody, warmOn, whenLoaded } from "../later";
 import { ReportGlyph } from "./report-glyph";
 import { forkLabel } from "./fork";
 import { renameSoon } from "./copy";
@@ -249,20 +249,23 @@ function BodyView(props: { b: Body; root: () => HTMLElement; now?: number | unde
         if (kind() === "permission") return <PermissionCard b={permitted()} />;
         const x = b();
         switch (x.k) {
-          case "shell": {
-            /* every open command has its bed, and its control is on it; the output's is on the output, and its header says how many lines it has. the command is copied as it was sent (the bed shows home as ~), the output whole as the store holds it, cleaned at the press, up to a cap that is said when it is reached */
-            const command: BedCopy | undefined = x.command ? { kind: "command", label: "command", name: commandLabel(props.row), text: () => ({ text: x.commandRaw ?? "" }) } : undefined;
+          case "shell":
+          case "script": {
+            /* every open command has its bed, and its control is on it; a script's code has its block, highlighted, with its own (code.tsx, ScriptBed). the output's is on the output, and its header says how many lines it has. the command is copied as it was sent (the bed shows home as ~), the script as it was sent, the output whole as the store holds it, cleaned at the press, up to a cap that is said when it is reached */
+            const command: BedCopy | undefined = x.k === "shell" && x.command ? { kind: "command", label: "command", name: commandLabel(props.row), text: () => ({ text: x.commandRaw ?? "" }) } : undefined;
             const raw = x.outputRaw;
             const output: BedCopy | undefined = raw !== undefined ? {
               kind: "output", label: plural(x.outputLines ?? x.output?.lines.length ?? 0, "line"), name: outputLabel(props.row),
               text: () => { const all = cleanOutput(raw); return all.length > COPY_OUTPUT_CAP ? { text: all.slice(0, COPY_OUTPUT_CAP), said: `copied the first ${n(COPY_OUTPUT_CAP)} characters of the output` } : { text: all }; },
               refused: x.output?.cut || x.output?.clipped ? "could not copy. only the lines shown can be selected" : undefined,
             } : undefined;
+            /* a script still running has printed nothing yet, which is not "no output" */
+            const quiet = x.k === "script" && x.running === true;
             return (
             <>
-              <Show when={x.command}>{(c) => <BedView bed={{ lines: c() }} cls="wrap" copy={command} />}</Show>
+              {x.k === "script" ? <ScriptBed code={x.code} row={props.row} /> : <Show when={x.command}>{(c) => <BedView bed={{ lines: c() }} cls="wrap" copy={command} />}</Show>}
               <Show when={x.facts.length}><Facts facts={x.facts} /></Show>
-              <Show when={x.output} fallback={<Show when={!x.error}><div class="none">no output</div></Show>}>{(o) => <OutputBed bed={o()} raw={x.outputRaw} count={x.outputLines ?? o().lines.length} copy={output} row={props.row} />}</Show>
+              <Show when={x.output} fallback={<Show when={!x.error && !quiet}><div class="none">no output</div></Show>}>{(o) => <OutputBed bed={o()} raw={x.outputRaw} count={x.outputLines ?? o().lines.length} copy={output} row={props.row} />}</Show>
               <Show when={x.images || x.more}><Pictures groups={[{ pics: x.images ?? [] }]} more={x.more} /></Show>
               <Show when={x.error}>{(e) => <BedView bed={{ lines: e().split("\n").slice(0, 12) }} cls="err" />}</Show>
             </>
