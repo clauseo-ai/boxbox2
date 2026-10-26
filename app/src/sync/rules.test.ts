@@ -403,9 +403,10 @@ describe("the server's protocol 3 tapes", () => {
     let patches = 0;
     const frames = tape("home.sse.gz");
     for (const sse of frames) {
-      // the worker routes a colours frame to the reducer as an action of its own (routeFrame), never as a journal frame
-      const raw = JSON.parse(sse.data) as Frame | { type: "colours" };
-      if (raw.type === "colours") {
+      // the worker routes a colours frame and the away list to the reducer as actions of their own (routeFrame), never as
+      // journal frames
+      const raw = JSON.parse(sse.data) as Frame | { type: "colours" } | { type: "away" };
+      if (raw.type === "colours" || raw.type === "away") {
         state = reduce(state, raw as Action).state;
         continue;
       }
@@ -419,7 +420,10 @@ describe("the server's protocol 3 tapes", () => {
     const reset = JSON.parse(end?.data ?? "{}") as Reset;
     expect(faults).toBe(0);
     expect(state.cursor?.seq).toBeLessThanOrEqual(reset.seq);
-    expect(state.fleet).toEqual(fleetOf(reset.fleet));
+    // the away list comes after every hello, empty on this tape: the rest is the reset's fleet
+    const { away, ...fleet } = state.fleet;
+    expect(away).toEqual([]);
+    expect(fleet).toEqual(fleetOf(reset.fleet));
     // the numbers the report quotes
     console.log(
       `home tape: ${frames.length} frames, ${state.counters.applied} entries applied, cursor ${state.cursor?.seq}, head ${reset.seq}, ` +
@@ -432,8 +436,8 @@ describe("the server's protocol 3 tapes", () => {
     const effects: Effect[] = [];
     const ids = new Set<string>();
     for (const sse of tape("thread.sse.gz")) {
-      const raw = JSON.parse(sse.data) as Frame | { type: "colours" };
-      if (raw.type === "colours") {
+      const raw = JSON.parse(sse.data) as Frame | { type: "colours" } | { type: "away" };
+      if (raw.type === "colours" || raw.type === "away") {
         state = reduce(state, raw as Action).state;
         continue;
       }

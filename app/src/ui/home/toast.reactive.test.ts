@@ -75,7 +75,7 @@ describe.skipIf(!reactive)("the undo toast, mounted as home mounts it", () => {
 
   test("focus in the toast is still known when an undo that lands ends it, so focus goes to the bar, not the body", () => {
     const m = manual();
-    let focusedAtEnd: boolean | null = null;
+    const atEnd: { focused: boolean | null } = { focused: null };
     let dispose = () => {};
     createRoot((d) => {
       dispose = d;
@@ -86,7 +86,7 @@ describe.skipIf(!reactive)("the undo toast, mounted as home mounts it", () => {
           const life = toastLife(undo, ring, m.clock);
           // the undo button pressed: focus is in the toast (toast.tsx, onFocusIn)
           life.set("focus", true);
-          onCleanup(() => (focusedAtEnd = life.focused()));
+          onCleanup(() => (atEnd.focused = life.focused()));
           return "toast";
         },
       }) as unknown as () => unknown;
@@ -97,7 +97,7 @@ describe.skipIf(!reactive)("the undo toast, mounted as home mounts it", () => {
     const serial = state.undo?.serial ?? -1;
     undoBusy(serial, true);
     dropUndo(serial);
-    expect(focusedAtEnd).toBe(true);
+    expect(atEnd.focused).toBe(true);
   });
 
   test("a refused undo stays on the toast; a newer clear keeps the toast mounted with the new offer; the time ends it", () => {
