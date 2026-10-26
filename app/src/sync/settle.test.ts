@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { routeFrame } from "./protocol";
-import { INITIAL_STATE, reduce } from "./reducer";
+import { type Action, INITIAL_STATE, reduce } from "./reducer";
 
 const row = { key: "desk:ses_1", doneAt: 1000, seenAt: 2000, clearedAt: 3_602_000 };
 
@@ -21,7 +21,7 @@ describe("the server's word on its own clearing (settle frames)", () => {
     expect(reset.state.fleet.away).toEqual([row]);
   });
 
-  const hello = { type: "frame", frame: { type: "hello", protocol: 3, epoch: "e1", head: 0, build: "b", stream: "s1", interest: { thread: null, under: [], holds: [] } }, id: null } as const;
+  const hello: Action = { type: "frame", frame: { type: "hello", protocol: 3, epoch: "e1", head: 0, build: "b", stream: "s1", interest: { thread: null, under: [], holds: [] } }, id: null };
   const resetFrame = { type: "frame", frame: { type: "reset", epoch: "e1", seq: 0, reason: "none", fleet: { agents: [], asks: [], order: [], threads: [] } }, id: null } as never;
 
   test("every hello empties the away list: a stale one (cached, or from the last connection) never returns", () => {
