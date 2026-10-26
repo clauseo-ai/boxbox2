@@ -220,18 +220,17 @@
   --ink: color-mix(in srgb, var(--c1) calc(var(--L) * 100%), var(--hi));
 }
 
+/* the press reaches 6 px above and below the words by padding the margin takes back, so the line keeps its height. not by
+   an absolute ::before: in webkit a positioned box among a button's words keeps the line breaks it took in the fallback
+   face when the web font arrives, so "ledger wants you," broke as "ledger wants" over "you," in a box laid out for the
+   wider fallback (docs/gotchas.md) */
 .home .sum .call {
   all: unset;
-  position: relative;
+  padding: 6px 4px;
+  margin: -6px -4px;
   color: var(--ink);
   font-weight: 600;
   cursor: pointer;
-}
-
-.home .sum .call::before {
-  content: "";
-  position: absolute;
-  inset: -6px 0;
 }
 
 .home .sum .call .comma {
@@ -239,9 +238,10 @@
   font-weight: 400;
 }
 
+/* the ring sits 4 px above and below the words and 2 px beside them, inside the padded press */
 .home .sum .call:focus-visible {
   outline: 2px solid var(--ink);
-  outline-offset: 2px;
+  outline-offset: -2px;
   border-radius: 6px;
 }
 

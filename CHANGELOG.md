@@ -6,6 +6,11 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **the bar's line no longer breaks in safari.** "ledger wants you, 2
+  working" broke as "ledger wants" over "you," with the rest hanging
+  beside it: webkit kept the fallback face's line breaks inside the call
+  once the web font arrived, because of a positioned `::before` that
+  widened its press. the press is widened by padding now (docs/gotchas.md).
 - **home says what is at work, and the windows always come back.** at the
   strip and the rail the working fold is a row of home's list again
   ("3 working", "nothing wrong", "see"), and "nothing needs you right

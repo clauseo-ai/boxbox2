@@ -828,6 +828,17 @@ in `scars.md`.
   reply, or an ask is open.
 ## home
 
+- **a positioned box among a button's words keeps the fallback face's line
+  breaks in webkit.** the bar's "ledger wants you," call had an absolute
+  `::before` for a taller press. laid out first in the fallback face, then
+  given the web font, webkit resized the box but kept the old line breaks,
+  so the phrase broke as "ledger wants" over "you," with "2 working"
+  hanging beside the second line. chrome relays it out. reproduced in a
+  WKWebView (`scripts/thumb-webkit.swift` on a page whose `@font-face` is
+  the app's): the same markup without the `::before` relays correctly,
+  as does a press widened by padding the margin takes back (home.css,
+  `.sum .call`). rule: no positioned pseudo inside a button that wraps
+  words; widen its press with padding and a negative margin.
 - **webkit keeps every finished `Element.animate()` alive, with its
   element.** a static page that fades 20 spans a second in with
   `el.animate(opacity, { fill: "backwards" })` and removes them after 3 s
