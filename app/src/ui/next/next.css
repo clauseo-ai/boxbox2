@@ -845,16 +845,18 @@
   margin: 0;
 }
 
+/* on the deck and the strip it stands clear of the thread's composer it is said over (a composer of one line and its chips,
+   about 110 px, and the card's margin), never on the words being typed; at the rail it is the windows column's foot */
 .nx-refused-line[data-arrangement="deck"] {
   left: 50%;
   translate: -50% 0;
-  bottom: calc(max(env(safe-area-inset-bottom, 0px), 0px) + 16px);
+  bottom: calc(max(env(safe-area-inset-bottom, 0px), 0px) + 136px);
 }
 
 .nx-refused-line[data-arrangement="strip"] {
   left: 50%;
   translate: -50% 0;
-  bottom: 24px;
+  bottom: 168px;
 }
 
 .nx-refused-line[data-arrangement="rail"] {
@@ -864,11 +866,11 @@
 }
 
 .undo-toast ~ .nx-refused-line[data-arrangement="deck"] {
-  bottom: calc(max(env(safe-area-inset-bottom, 0px), 0px) + 76px);
+  bottom: calc(max(env(safe-area-inset-bottom, 0px), 0px) + 196px);
 }
 
 .undo-toast ~ .nx-refused-line[data-arrangement="strip"] {
-  bottom: 88px;
+  bottom: 232px;
 }
 
 .undo-toast ~ .nx-refused-line[data-arrangement="rail"] {

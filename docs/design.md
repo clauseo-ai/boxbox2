@@ -837,8 +837,9 @@ below (the sheet and the dock), the dock wherever this law names it, and
   words given back and retry and edit, and one thread made at a time
   ("one thread at a time. this one can start once the first is open.").
   a refusal that comes while a thread covers the field is said over the
-  thread, where the undo toast sits (`ui/next/refused-line.tsx`,
-  `role="alert"`): retry, and edit, which goes home to the field with the
+  thread (`ui/next/refused-line.tsx`, `role="alert"`): at the foot of
+  the rail's windows column, and on the deck and the strip above the
+  thread's composer, never on the words being typed: retry, and edit, which goes home to the field with the
   words back; home never moves the person by itself. the place picked
   and the send in flight live in the store (`state.newThread`), so the
   field mounted again keeps both. when the thread exists the stage opens

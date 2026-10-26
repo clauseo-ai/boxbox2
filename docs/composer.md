@@ -542,8 +542,9 @@ new-thread route makes one before the session when asked.
   field: an arrangement change that mounts the field again used to drop
   them, so the thread was made and never opened. a refusal that comes
   while a thread covers the field (hidden and `inert` under it) is said
-  over the thread where the undo toast sits (`ui/next/refused-line.tsx`,
-  `role="alert"`, above the toast when both are up), with "retry"
+  over the thread (`ui/next/refused-line.tsx`, `role="alert"`; at the
+  rail's windows column's foot, above the thread's composer on the deck and
+  the strip, and above the undo toast when both are up), with "retry"
   (named "retry starting the thread in <repo>") and "edit" ("edit the
   message for <repo> in home's field"), which goes home to the field
   with the words back. home does not move the person by itself: the
