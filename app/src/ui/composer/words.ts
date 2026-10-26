@@ -250,8 +250,11 @@ export type ListState = "ready" | "loading" | "failed";
 /** the effort chip and what its dial can offer. with the list here it is the model's own accepted efforts, and a model
     that takes none has no chip. without it the chip stays: the thread's current effort is known from the session, and
     the dial offers that one with the reason the rest is missing, so reasoning is never unreachable by a failed read */
-export function effortChoices(input: { accepted: readonly string[]; current: string | null; list: ListState }): { show: boolean; label: string; known: string[]; note: string | null } {
-  const label = input.current ?? "effort";
+/** the effort chip: its word, the levels it offers, and a note while they are not here. a thread with no level of its own
+    says "effort"; a thread not yet made says "default", since the daemon picks the model's own level and does not say which
+    before the thread exists (its model list carries no default effort), so the chip names the choice rather than guess it */
+export function effortChoices(input: { accepted: readonly string[]; current: string | null; list: ListState; fresh?: boolean }): { show: boolean; label: string; known: string[]; note: string | null } {
+  const label = input.current ?? (input.fresh ? "default" : "effort");
   if (input.list === "ready") return { show: input.accepted.length > 0, label, known: [...input.accepted], note: null };
   return { show: true, label, known: input.current ? [input.current] : [], note: input.list === "failed" ? "the effort choices did not come." : "reading the effort choices." };
 }

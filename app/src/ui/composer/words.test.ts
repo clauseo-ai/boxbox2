@@ -245,6 +245,9 @@ describe("the effort chip without the model list", () => {
   });
   test("with nothing known the chip stays and says why, never hides", () => {
     expect(effortChoices({ accepted: [], current: null, list: "failed" })).toEqual({ show: true, label: "effort", known: [], note: "the effort choices did not come." });
+    // a thread not yet made runs at the model's own level, which the daemon does not name before it exists
+    expect(effortChoices({ accepted: ["low", "medium", "high"], current: null, list: "ready", fresh: true }).label).toBe("default");
+    expect(effortChoices({ accepted: ["low", "medium", "high"], current: "high", list: "ready", fresh: true }).label).toBe("high");
   });
 });
 describe("the model menu filters as you type", () => {

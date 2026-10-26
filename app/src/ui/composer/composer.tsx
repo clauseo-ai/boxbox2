@@ -477,7 +477,7 @@ export function Composer(props: ComposerProps) {
   };
   // with no pick and none on the thread, the daemon chooses the model's own default; the chip does not guess it
   const chosenEffort = () => draft().effort ?? entry()?.effort ?? null;
-  const effortChip = createMemo(() => effortChoices({ accepted: modelChoice()?.efforts ?? [], current: chosenEffort(), list: list() }));
+  const effortChip = createMemo(() => effortChoices({ accepted: modelChoice()?.efforts ?? [], current: chosenEffort(), list: list(), fresh: props.target.kind === "new" }));
   const efforts = () => effortChip().known;
   // while the list is not here the chip says the thread's model in words (never the raw id) and wears the quiet mark
   const modelLabel = () => { const id = chosenModel(); return id ? modelName(id) : "model"; };

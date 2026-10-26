@@ -326,7 +326,10 @@ new-thread route makes one before the session when asked.
 - **the effort is a meter.** one bar per level of the model's own ladder
   (none is not a bar), rising like signal strength, the bars up to the
   chosen level lit (`effort.ts`, tested); the chip is the meter and the
-  word, and with none chosen the bars are dim and the word is "effort". the
+  word, and with none chosen the bars are dim and the word is "effort"; on
+  a thread not yet made (home's field) it is "default", since the daemon
+  runs the model's own level and its model list does not name it, so the
+  chip says the choice rather than guess a level. the
   dial is a segmented control over the levels with a thumb that slides
   between them on the snap spring: the same segments are drawn light on the
   track and dark on a layer clipped to the chosen one, so nothing but
