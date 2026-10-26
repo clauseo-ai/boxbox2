@@ -2,6 +2,8 @@ data: {"type":"hello","protocol":3,"epoch":"EPOCH","head":2933,"build":"BUILD","
 
 data: {"type":"colours","colours":[]}
 
+data: {"type":"away","threads":[]}
+
 id: EPOCH:2916
 data: {"seq":2916,"type":"thread","thread":{"key":"bench:ses_32b2e0ac685443bea97d","agent":"bench","id":"ses_32b2e0ac685443bea97d","title":"bulk thread 749","created":1792053358986.0,"updated":1792053361007.0,"place":{"root":"/private/tmp/boxbox-agents-build/goldens/world/repos/site","directory":"/private/tmp/boxbox-agents-build/goldens/world/repos/site","name":"site"},"activity":{"state":"idle"},"queued":0,"model":"anthropic/claude-opus-5-5","effort":"medium","context":{"used":66,"limit":1000000,"compactAt":300000},"cost":0.000296,"tokens":{"input":64,"output":2,"cacheRead":0,"cacheWrite":0},"vcs":{"branch":"main","dirty":true},"changes":{"additions":0,"deletions":0,"files":0},"agents":0,"processes":0,"tail":[{"partID":"prt_32b2e0ac685443bea97d_00002_0","messageID":"msg_32b2e0ac685443bea97d_00002","kind":"text","role":"user","text":"say hello to bulk thread 39"},{"partID":"prt_32b2e0ac685443bea97d_00004_0","messageID":"msg_32b2e0ac685443bea97d_00004","kind":"text","role":"assistant","text":"ok, noted."}],"needs":[{"id":"done:bench:ses_32b2e0ac685443bea97d:msg_32b2e0ac685443bea97d_00004","kind":"done","key":"bench:ses_32b2e0ac685443bea97d","rank":2,"raisedAt":1792053364575,"title":"site is done","body":"ok, noted."}],"read":null}}
 

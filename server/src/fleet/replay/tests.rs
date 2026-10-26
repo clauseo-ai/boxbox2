@@ -442,14 +442,20 @@ fn hello(interest: Interest) -> String {
     )
 }
 
-/// a first stream at cursor 0: hello, the colour map and an empty reset.
+/// a first stream at cursor 0: hello, the colour map, the away list
+/// (empty) and an empty reset.
 fn opening(interest: Interest) -> String {
     let colours = serde_json::to_vec(&crate::wire::ColourFrame::Colours {
         colours: Vec::new(),
     })
     .unwrap();
+    let away = serde_json::to_vec(&crate::wire::SettleFrame::Away {
+        threads: Vec::new(),
+    })
+    .unwrap();
     hello(interest)
         + std::str::from_utf8(&crate::journal::sse_frame(None, &colours)).unwrap()
+        + std::str::from_utf8(&crate::journal::sse_frame(None, &away)).unwrap()
         + &control(
             Some(0),
             &Control::Reset {
@@ -637,8 +643,8 @@ fn protocol3_replaying_the_tape_twice_gives_the_same_journal_bytes() {
 }
 
 /// every page of every stream the bench opened while the tape ran is
-/// protocol 3: a first page leads with `hello` and the colour map, and
-/// every frame decodes as a control frame or a journal entry.
+/// protocol 3: a first page leads with `hello`, the colour map and the
+/// away list, and every frame decodes as a control frame or a journal entry.
 #[test]
 fn protocol3_every_stream_the_bench_opened_speaks_protocol_3() {
     let live = live();
@@ -653,6 +659,7 @@ fn protocol3_every_stream_the_bench_opened_speaks_protocol_3() {
         assert_eq!(hello["type"], "hello", "stream {stream:08x}");
         assert_eq!(hello["protocol"], 3);
         assert_eq!(data(&frames[1])["type"], "colours");
+        assert_eq!(data(&frames[2])["type"], "away");
         for frame in frames {
             let value = data(frame);
             let entry = value.get("seq").is_some()
@@ -665,6 +672,7 @@ fn protocol3_every_stream_the_bench_opened_speaks_protocol_3() {
             } else {
                 serde_json::from_value::<Control>(value.clone()).is_ok()
                     || serde_json::from_value::<crate::wire::ColourFrame>(value.clone()).is_ok()
+                    || serde_json::from_value::<crate::wire::SettleFrame>(value.clone()).is_ok()
             };
             assert!(decoded, "stream {stream:08x}: {}", value["type"]);
         }
@@ -705,7 +713,11 @@ fn protocol3_goldens_hello_and_reset_for_a_first_connection_at_the_end_of_the_se
     let at = end(&steps);
     let mut replay = replayed(&live, steps);
     let frames = replay.open(From::Start, at);
-    assert_eq!(frames.len(), 3, "hello, the colour map, then reset");
+    assert_eq!(
+        frames.len(),
+        4,
+        "hello, the colour map, the away list, then reset"
+    );
     golden(
         "hello-reset.sse.gz",
         &normalise(&joined(&frames), &live.epoch, &live.build),
@@ -725,16 +737,16 @@ fn protocol3_goldens_cursor_resumes_inside_and_beyond_the_journal() {
             seq,
         })
     };
-    // inside: hello, the colour map, each key that moved in the last 20
-    // entries once whole at its newest seq, then caught at the head
+    // inside: hello, the colour map, the away list, each key that moved in
+    // the last 20 entries once whole at its newest seq, then caught at the head
     let inside = replay.open(cursor(head.saturating_sub(20)), at);
     let kinds: Vec<String> = inside
         .iter()
         .map(|f| data(f)["type"].as_str().unwrap().to_owned())
         .collect();
     assert_eq!(kinds.last().map(String::as_str), Some("caught"));
-    assert!(inside.len() <= 23, "{kinds:?}");
-    let ids: Vec<u64> = inside[2..]
+    assert!(inside.len() <= 24, "{kinds:?}");
+    let ids: Vec<u64> = inside[3..]
         .iter()
         .map(|f| data(f)["seq"].as_u64().unwrap())
         .collect();
@@ -746,9 +758,9 @@ fn protocol3_goldens_cursor_resumes_inside_and_beyond_the_journal() {
         "resume-inside.sse",
         &normalise(&joined(&inside), &live.epoch, &live.build),
     );
-    // at the head: hello, the colour map and caught, then live
+    // at the head: hello, the colour map, the away list and caught, then live
     let at_head = replay.open(cursor(head), at);
-    assert_eq!(at_head.len(), 3);
+    assert_eq!(at_head.len(), 4);
     golden(
         "resume-at-head.sse",
         &normalise(&joined(&at_head), &live.epoch, &live.build),

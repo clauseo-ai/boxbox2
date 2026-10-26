@@ -564,8 +564,9 @@ pub struct AwayThread {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type")]
 pub enum SettleFrame {
-    /// the whole away summary, newest clear first: after `hello`, and each
-    /// time it changes. an empty list means no line.
+    /// the whole away summary, newest clear first: right after every
+    /// `hello` (an empty list when nothing is away), and each time it
+    /// changes. an empty list means no line.
     #[serde(rename = "away")]
     Away { threads: Vec<AwayThread> },
     /// a sweep cleared these threads while a device was looking: a client

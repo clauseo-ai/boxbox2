@@ -760,10 +760,10 @@ pub(crate) mod tests {
             std::mem::take(decoder.get_mut())
         };
         let (mut sent, mut wire) = (0usize, 0usize);
-        // hello, the colour map and the reset, read as one page
+        // hello, the colour map, the away list and the reset, read as one page
         let first = write(&mut plain).await;
         let first_zipped = write(&mut zipped).await;
-        assert_eq!(frames(&first).len(), 3);
+        assert_eq!(frames(&first).len(), 4);
         // each stream's hello names its own id; the rest is the same bytes
         let unnamed = |bytes: &[u8]| {
             let text = String::from_utf8(bytes.to_vec()).unwrap();

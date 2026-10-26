@@ -106,7 +106,7 @@ and still advances its cursor past it.
 | `interest` | `epoch:seq` | `ask`, `thread`, `under`, `holds`, `seq`, `stale?` (keys), `reset?` (keys) | the confirm of an interest post (section 5) |
 | `thread.stale` | none | `key` | in a reconnect catch-up: a thread in interest whose missed transcript entries the ring no longer holds (section 9) |
 | `colours`, `colour` | none | as today (`RepoColour`) | the whole map after `hello`, then each change ahead of the entry that first shows its repo |
-| `away` | none | `threads: [{key, doneAt, seenAt?, clearedAt}]` (server ms), the whole away summary, newest clear first | after the colours at a stream's open only when it holds a row (a client takes an empty summary at every `hello`), then each time a clear taken, spent or acknowledged changes it; an empty list means no line (decision 94) |
+| `away` | none | `threads: [{key, doneAt, seenAt?, clearedAt}]` (server ms), the whole away summary, newest clear first | after the colours at every stream's open, an empty list when nothing is away, then each time a clear taken, spent or acknowledged changes it; an empty list means no line. a client replaces its list with this frame, never at the `hello` itself, so a reconnect never shows the line going and coming back; a resume (its `reset` or `caught`) with no `away` frame after its `hello` is from a server that sends none, and the client empties its list then (decisions 94 and 101) |
 | `autoCleared` | none | `keys`, `at` (server ms) | the sweep cleared these threads while a device was looking: a client whose document is visible offers the undo (decision 93) |
 | `board.here`, `board.gone`, `board.focus`, `board.compose` | none | as today | windows with `board=1` on the board's mac |
 | `view`, `pin`, `replaced` | none | the board wire's frames, unchanged | board daemon streams only |
@@ -573,7 +573,7 @@ overview bytes.
 
 ### reconnect from a cursor
 
-`hello` first, then:
+`hello` first, the colour map and the away list (section 3), then:
 
 1. **reset** when there is no cursor (`none`), it does not parse or is
    past the head (`invalid`), its epoch is not the server's (`epoch`), or

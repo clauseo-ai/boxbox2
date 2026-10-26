@@ -441,8 +441,9 @@ window, and history.
 - **the away summary** is computed on the server: the auto-clears with
   `away`, not acknowledged, whose mark still holds, newest clear first. it
   travels as the id-less `away` frame (`docs/protocol.md`, settle frames)
-  whenever a clear is taken, spent or acknowledged moves it, and at a
-  stream's open when it holds a row; `POST /api/away/seen` acknowledges
+  whenever a clear is taken, spent or acknowledged moves it, and at every
+  stream's open, an empty list when nothing is away (decision 101);
+  `POST /api/away/seen` acknowledges
   every row at once (one sql update) and every stream hears the empty
   list. a sweep that clears while a device is looking sends `autoCleared`
   `{keys, at}` instead, for the undo toast.
@@ -555,10 +556,14 @@ is the law, and decisions 93 to 100 say why; how it is built:
 - **the away list** is fleet state outside the journal (`fleet.away`, the
   `away` frame routed like the colours: protocol.ts `settle`, the reducer's
   `away` action, kept across a reset and in indexeddb with the fleet's other
-  fields, so a cold launch paints the line in its first frame). every
-  `hello` empties it: the server sends the list after the hello only when
-  it holds a row, so a cached list the server has since dropped never comes
-  back (`settle.test.ts`). the line
+  fields, so a cold launch paints the line in its first frame). the
+  server sends the list right after every `hello`, empty when nothing is
+  away, and only that frame replaces it: a `hello` that emptied it and an
+  `away` frame that filled it again flipped the line out and back in on
+  every reconnect. a resume that ends (`reset` or `caught`) with no `away`
+  frame after its `hello` is from an older server, and the list empties
+  then (`awayDue`), so a cached list the server has since dropped never
+  comes back (`settle.test.ts`, decision 101). the line
   shows while the list holds anything this device has not acknowledged,
   and while its sheet is open; "show" opens the sheet on the list as it
   stood and then acknowledges it, the dismiss acknowledges it

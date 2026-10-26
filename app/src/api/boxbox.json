@@ -10559,7 +10559,7 @@
         "oneOf": [
           {
             "type": "object",
-            "description": "the whole away summary, newest clear first: after `hello`, and each\ntime it changes. an empty list means no line.",
+            "description": "the whole away summary, newest clear first: right after every\n`hello` (an empty list when nothing is away), and each time it\nchanges. an empty list means no line.",
             "required": [
               "threads",
               "type"

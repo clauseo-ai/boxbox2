@@ -165,8 +165,8 @@ pub struct Opening {
     pub log: u32,
 }
 
-/// a client stream's first frames (`hello`, the colour map, then a
-/// `reset` or the catch-up ending in `caught`) and its live feed.
+/// a client stream's first frames (`hello`, the colour map, the away list,
+/// then a `reset` or the catch-up ending in `caught`) and its live feed.
 #[derive(Debug)]
 pub struct Opened {
     pub frames: Vec<Bytes>,
@@ -2115,14 +2115,12 @@ impl Actor {
         }
     }
 
-    /// the away summary as it stands, for a stream that opens while it holds
-    /// a row: after the colours. none when it is empty, which is what a
-    /// client takes at every `hello` (`docs/protocol.md`, settle frames), so
-    /// a stream that opens while nothing is away costs not a byte more.
+    /// the away summary as it stands, for every stream as it opens: after
+    /// the colours, an empty list when nothing is away. the client replaces
+    /// its list with this frame, never at the `hello` itself, so a reconnect
+    /// never shows the line going and coming back (`docs/protocol.md`,
+    /// settle frames).
     fn away_frame(&self) -> Option<Bytes> {
-        if self.away.is_empty() {
-            return None;
-        }
         let frame = SettleFrame::Away {
             threads: self.away.clone(),
         };
@@ -2187,7 +2185,8 @@ impl Actor {
         fleet
     }
 
-    /// a client stream opens: `hello` and the colour map, then a `reset`
+    /// a client stream opens: `hello`, the colour map and the away list
+    /// (empty when nothing is away), then a `reset`
     /// when its cursor cannot be caught up, else the compact catch-up from
     /// it, ending in `caught`; then it is live with the interest it declared.
     fn open(&mut self, opening: &Opening) -> Opened {
@@ -2723,13 +2722,17 @@ mod tests {
         let mut actor = actor();
         actor.upstream(host(1));
         let opened = open(&mut actor, From::Start);
-        assert_eq!(kinds(&opened.frames), ["hello", "colours", "reset"]);
+        assert_eq!(kinds(&opened.frames), ["hello", "colours", "away", "reset"]);
         assert!(
             text(&opened.frames[0]).starts_with(
                 "data: {\"type\":\"hello\",\"protocol\":3,\"epoch\":\"ep\",\"head\":1"
             )
         );
-        assert!(text(&opened.frames[2]).starts_with(
+        assert_eq!(
+            text(&opened.frames[2]),
+            "data: {\"type\":\"away\",\"threads\":[]}\n\n"
+        );
+        assert!(text(&opened.frames[3]).starts_with(
             "id: ep:1\ndata: {\"type\":\"reset\",\"seq\":1,\"epoch\":\"ep\",\"reason\":\"none\""
         ));
         let mut live = opened.live;
@@ -2841,7 +2844,7 @@ mod tests {
         let ids: Vec<&str> = opened
             .frames
             .iter()
-            .skip(2)
+            .skip(3)
             .map(|f| text(f).lines().next().unwrap())
             .collect();
         assert_eq!(
@@ -2849,10 +2852,13 @@ mod tests {
             ["id: ep:3", "id: ep:3"],
             "the agent at its newest, then caught"
         );
-        assert_eq!(kinds(&opened.frames)[2..], ["agent", "caught"]);
+        assert_eq!(kinds(&opened.frames)[2..], ["away", "agent", "caught"]);
         // at the head: hello, the map, caught
         let at_head = open(&mut actor, cursor(3));
-        assert_eq!(kinds(&at_head.frames), ["hello", "colours", "caught"]);
+        assert_eq!(
+            kinds(&at_head.frames),
+            ["hello", "colours", "away", "caught"]
+        );
     }
 
     #[test]
@@ -3049,7 +3055,7 @@ mod tests {
             showing("desk:ses_1"),
             &[("desk:ses_1", at)],
         );
-        assert_eq!(kinds(&opened.frames)[2..], ["catchup", "caught"]);
+        assert_eq!(kinds(&opened.frames)[3..], ["catchup", "caught"]);
         // reset at or below the cursor: the stream heard it live; stale here
         actor.publish(&Change::ThreadReset {
             key: "desk:ses_1".into(),
@@ -3061,7 +3067,7 @@ mod tests {
             showing("desk:ses_1"),
             &[("desk:ses_1", at)],
         );
-        assert_eq!(kinds(&opened.frames)[2..], ["thread.stale", "caught"]);
+        assert_eq!(kinds(&opened.frames)[3..], ["thread.stale", "caught"]);
         // above the cursor: the overview carries the reset, and nothing more
         let opened = open_with(
             &mut actor,
@@ -3069,7 +3075,7 @@ mod tests {
             showing("desk:ses_1"),
             &[("desk:ses_1", at)],
         );
-        assert_eq!(kinds(&opened.frames)[2..], ["thread.reset", "caught"]);
+        assert_eq!(kinds(&opened.frames)[3..], ["thread.reset", "caught"]);
     }
 
     #[test]
@@ -3229,9 +3235,14 @@ mod tests {
             Colours::default(),
         );
         actor.away = actor.model.away();
-        // the store kept the clear; no session holds it yet, so there is no away line
+        // the store kept the clear; no session holds it yet, so there is no away line: the away frame after the hello is empty
         let mut early = open(&mut actor, From::Start);
-        assert!(!kinds(&early.frames).contains(&"away".to_owned()));
+        assert_eq!(&kinds(&early.frames)[..3], ["hello", "colours", "away"]);
+        assert!(
+            text(&early.frames[2]).contains(r#""threads":[]"#),
+            "{}",
+            text(&early.frames[2])
+        );
         // its thread arrives (a host read after a start, as any upsert): the summary moves with no clear moving
         actor.upstream(session_in("ses_1", "/w"));
         let live: Vec<String> = kinds(&drained(&mut early.live));
@@ -3271,7 +3282,7 @@ mod tests {
         let (mut actor, mut written) = colouring();
         actor.upstream(session_in("ses_0", "/work/old"));
         let (frames, mut live) = coloured_stream(&mut actor);
-        assert_eq!(kinds(&frames), ["hello", "colours", "reset"]);
+        assert_eq!(kinds(&frames), ["hello", "colours", "away", "reset"]);
         assert!(text(&frames[1]).starts_with(
             "data: {\"type\":\"colours\",\"colours\":[{\"host\":\"desk\",\"root\":\"/work/old\""
         ));

@@ -54,7 +54,8 @@ impl Device {
             let value = data(frame);
             let kind = value["type"].as_str().unwrap_or_default().to_owned();
             match kind.as_str() {
-                "hello" | "colours" | "colour" | "caught" | "interest" => {}
+                "hello" | "colours" | "colour" | "away" | "autoCleared" | "caught" | "interest" => {
+                }
                 "catchup" => self.catchups += 1,
                 "thread.stale" => self
                     .stale
@@ -334,8 +335,8 @@ fn run(steps: &[Step], stop_at: usize, how: Stop) -> Option<(Device, Replay, u64
         );
         assert_eq!(
             opened.frames.len(),
-            3,
-            "a clean restart: hello, the colour map, caught"
+            4,
+            "a clean restart: hello, the colour map, the away list, caught"
         );
     }
     if how == Stop::Crash {

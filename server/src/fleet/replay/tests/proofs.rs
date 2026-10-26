@@ -455,7 +455,7 @@ impl P3 {
             "hello" | "reset" | "caught" | "catchup" | "interest" | "thread.stale"
         );
         if !control {
-            if matches!(kind.as_str(), "colours" | "colour") {
+            if matches!(kind.as_str(), "colours" | "colour" | "away" | "autoCleared") {
                 return Ok(());
             }
             let entry: JournalEntry =

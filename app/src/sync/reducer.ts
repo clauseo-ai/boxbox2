@@ -263,6 +263,10 @@ export type SyncState = {
   reads: number;
   counters: Counters;
   interest: InterestState;
+  /** set from a hello until its away frame comes: the server sends one right after every hello, so a resume (its reset or
+      its `caught`) that ends with this still set is from a server that sends none, and the away list empties then.
+      in memory only */
+  awayDue?: true;
 };
 
 export const INITIAL_STATE: SyncState = { cursor: null, head: 0, fleet: EMPTY_FLEET, threads: {}, cold: {}, unfit: {}, reads: 0, counters: ZERO_COUNTERS, interest: INITIAL_INTEREST };
@@ -497,10 +501,12 @@ export function reduce(state: SyncState, action: Action): Result {
     case "colour":
       next = colour(work, state, action.colour);
       break;
-    case "away":
+    case "away": {
+      const { awayDue: _, ...rest } = state;
       work.patch(["fleet", "away"], action.threads);
-      next = { ...state, fleet: { ...state.fleet, away: action.threads } };
+      next = { ...rest, fleet: { ...state.fleet, away: action.threads } };
       break;
+    }
     case "btws":
       next = btwsFrom(work, state, action.key, action.btws);
       break;
@@ -519,9 +525,9 @@ function applyFrame(work: Work, state: SyncState, frame: Frame, id: Cursor | nul
     case "hello":
       return hello(work, state, frame, dialed);
     case "reset":
-      return reset(work, state, frame, toCool);
+      return awayHeard(work, reset(work, state, frame, toCool));
     case "caught":
-      return caught(work, state, id);
+      return awayHeard(work, caught(work, state, id));
     case "catchup":
       return catchup(work, state, frame);
     case "interest":
@@ -711,12 +717,10 @@ function hello(work: Work, state: SyncState, frame: Hello, dialed: readonly stri
   if (due && !state.interest.due) work.effects.push({ type: "interest-due" });
   work.interest = interest;
   let next: SyncState = { ...state, head: frame.head, interest };
-  // the server sends the away list after the hello only when it holds a row: a hello is an empty list, so one cached from
-  // an older connection (or the indexeddb copy a launch starts from) never comes back after the server dropped it
-  if (state.fleet.away !== undefined && state.fleet.away.length > 0) {
-    work.patch(["fleet", "away"], []);
-    next = { ...next, fleet: { ...next.fleet, away: [] } };
-  }
+  // the server sends the away list right after every hello, an empty one when nothing is away: that frame replaces the
+  // list, the hello leaves it alone (emptying it here and filling it again a frame later flipped the line out and back
+  // in on every reconnect). a server that sends none ends the resume with this still set, and the list empties then
+  next = { ...next, awayDue: true };
   // a key without `since` gets nothing from the catch-up: it is read, from the hello on (H = head)
   for (const key of keys) if (!since.has(key)) next = readKey(work, next, key, false);
   return releaseWaiting(work, next, (key) => !work.defers(key));
@@ -761,6 +765,17 @@ function confirm(work: Work, state: SyncState, frame: InterestFrame, id: Cursor 
   next = releaseWaiting(work, next, (key) => !work.defers(key));
   if (posts.length === 0) work.effects.push({ type: "confirmed", ask: frame.ask, entering: entering.length, stale: stale.size, reset: reset.size });
   return next;
+}
+
+/** the end of a resume (its reset or its `caught`): a hello with no away frame after it is from a server that sends none
+    (an older binary), and nothing is away by its word, so a list cached from an older connection (or the indexeddb copy a
+    launch starts from) never comes back */
+function awayHeard(work: Work, state: SyncState): SyncState {
+  if (!state.awayDue) return state;
+  const { awayDue: _, ...rest } = state;
+  if (state.fleet.away === undefined || state.fleet.away.length === 0) return rest;
+  work.patch(["fleet", "away"], []);
+  return { ...rest, fleet: { ...state.fleet, away: [] } };
 }
 
 /** the end of a reconnect's catch-up: the cursor is the head, and every key in interest is current (its catch-up applied,
@@ -811,8 +826,8 @@ function reset(work: Work, state: SyncState, frame: Reset, toCool: Readonly<Reco
   work.count("resets");
   const cursor = { epoch: frame.epoch, seq: frame.seq };
   // the colours (and the away list) travel outside the journal and arrive ahead of the reset on the same connection, so
-  // the snapshot has none and what the fleet holds stays as it is. the hello before them emptied the away list, so it is
-  // this connection's word, or none when the server sent none
+  // the snapshot has none and what the fleet holds stays as it is. the away frame after the hello replaced the list, so
+  // it is this connection's word (`awayHeard` empties it after this when the server sent none)
   const fleet = { ...fleetOf(frame.fleet), colours: state.fleet.colours, ...(state.fleet.away ? { away: state.fleet.away } : {}) };
   // what the snapshot changed, not the whole fleet: a thread it sends as it was keeps its identity in the ui
   changed(work, ["fleet"], state.fleet, fleet);
