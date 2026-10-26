@@ -37,7 +37,12 @@
   "status": 200,
   "body": {
    "devices": {},
-   "repos": []
+   "repos": [],
+   "home": {
+    "autoClear": "seen1h",
+    "foldWorking": true,
+    "jobsAsNeeds": false
+   }
   }
  },
  "GET /api/push": {

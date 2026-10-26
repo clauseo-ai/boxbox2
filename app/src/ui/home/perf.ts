@@ -98,7 +98,7 @@ export function launchPainted(cached: boolean, windows: number): void {
 /** an input opened something: measures from the input to the end of the first frame that rendered the response.
     the response is rendered synchronously in the handler, so the next frame paints it; a message posted from that
     frame's animation callback runs once its style, layout and paint are done, which is where the clock stops */
-export function tapped(event: Event, control: "window" | "capsule" | "back" | "answer", arrangement: "deck" | "strip" | "rail", surface: Surface): void {
+export function tapped(event: Event, control: "window" | "capsule" | "back" | "answer" | "fold", arrangement: "deck" | "strip" | "rail", surface: Surface): void {
   const start = event.timeStamp;
   let frames = 0;
   requestAnimationFrame(() => {

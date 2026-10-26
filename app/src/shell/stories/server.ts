@@ -70,6 +70,8 @@ async function answer(input: RequestInfo | URL, init?: RequestInit): Promise<Res
     const made = coloursAnswer((await request.json()) as { host: string; root: string; chosen: string | null });
     return Response.json(made.body, { status: made.status });
   }
+  // the home prefs are saved as sent, as the server answers with the document it kept
+  if (request.method === "PUT" && url.pathname === "/api/prefs/home") return Response.json(await request.json(), { status: 200 });
   let path = url.pathname;
   if (hostsAnswer) {
     if (request.method === "GET" && path === "/api/hosts") {

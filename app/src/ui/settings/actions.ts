@@ -7,6 +7,9 @@ import { deviceClass, deviceId } from "../../push/device";
 import { rememberPushKinds } from "../../push/notifications";
 import {
   type DevicePrefs,
+  type HomePrefs,
+  homePrefs,
+  setHomePrefs,
   type RepoPrefs,
   setDevicePrefs,
   setModels,
@@ -71,6 +74,31 @@ export function saveAppearance(next: DevicePrefs, changed: "theme" | "motion"): 
     try {
       const { data, error, response } = await api.PUT("/api/prefs/devices/{device}", { params: { path: { device } }, body: next });
       return data ? { ok: true, value: data } : failed(`not saved. ${said(error, response.status)}`);
+    } catch {
+      return failed(`not saved. ${UNREACHABLE}`);
+    }
+  });
+}
+
+/** the home prefs (settings, home), one document for every device. a choice shows at once (the fold folds or unfolds
+    under the screen) and is put back if the server does not keep it; a later choice that lands first is not undone by an
+    earlier one's failure */
+let homeSerial = 0;
+export function saveHome(next: HomePrefs, changed: keyof HomePrefs): Promise<Outcome<HomePrefs>> {
+  const before = homePrefs();
+  const serial = ++homeSerial;
+  setHomePrefs(next);
+  const name = changed === "autoClear" ? "setAutoClear" : changed === "foldWorking" ? "setFoldWorking" : "setJobsAsNeeds";
+  return verb(name, { surface: "settings", arg: String(next[changed]) }, async () => {
+    const failed = (error: string): Outcome<HomePrefs> => {
+      if (serial === homeSerial) setHomePrefs(before);
+      return { ok: false, error };
+    };
+    try {
+      const { data, error, response } = await api.PUT("/api/prefs/home", { body: next });
+      if (!data) return failed(`not saved. ${said(error, response.status)}`);
+      if (serial === homeSerial) setHomePrefs(data);
+      return { ok: true, value: data };
     } catch {
       return failed(`not saved. ${UNREACHABLE}`);
     }

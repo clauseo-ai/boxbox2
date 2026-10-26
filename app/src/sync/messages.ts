@@ -156,6 +156,8 @@ export type FromWorker =
   /** a board frame, as the stream had it; and a `board.gone` of the worker's own when a connection that carried one ends, since
       the next may come from a mac the board has left, or never come */
   | { type: "board"; frame: BoardFrame }
+  /** the server cleared these threads on its own while a device was looking: the page offers them back if it is in front */
+  | { type: "autoCleared"; keys: string[] }
   /** a draft's photos, read for its composer; null when the read failed and the draft still holds them unread */
   | { type: "photos"; key: string; photos: Photo[] | null }
   /** what came of a btw verb, after any record it returned was merged and its patches posted */

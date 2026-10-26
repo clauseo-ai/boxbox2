@@ -9,7 +9,7 @@
 import { unwrap } from "solid-js/store";
 import type { DeviceClass, EventEnvelope, EventKind, PropsOf } from "../../../telemetry/schema";
 import { boardCapable, deviceClass, deviceId } from "../push/device";
-import { applyPatches, boardCompose, boardFocus, boardGone, boardHere, bootSync, setCacheBlocked, setComposerNotice, setDraft, setDraftsKept, setBorn, setOpenThread, setOutbox, setReply, setStream, state, syncNeedsReload, syncSignedOut } from "../store";
+import { applyPatches, autoCleared, boardCompose, boardFocus, boardGone, boardHere, bootSync, setCacheBlocked, setComposerNotice, setDraft, setDraftsKept, setBorn, setOpenThread, setOutbox, setReply, setStream, state, syncNeedsReload, syncSignedOut } from "../store";
 import type { BtwDone, BtwOp, Emit, FromWorker, Outgoing, Query, StreamStatus, SyncCounters, ToWorker } from "./messages";
 import type { BoardFrame } from "./protocol";
 import { type Draft, type DraftMessage, type Photo, photosNotFitted, takeBackDraft } from "./outbox";
@@ -119,6 +119,9 @@ function onMessage(event: MessageEvent<FromWorker>) {
       return;
     case "board":
       onBoard(message.frame);
+      return;
+    case "autoCleared":
+      autoCleared(message.keys);
       return;
     case "photos":
       void draftPhotos().then((m) => m.read(message.key, message.photos));

@@ -97,5 +97,23 @@ export function releaseHandCleared(keys: readonly string[]): void {
   }
 }
 
+/** threads the person just brought back (the toast's undo, the away sheet's bring back) that the order has not yet brought
+    home: like a hand clear, their windows are born without the calm wait. each lets itself go after `HAND_MS` */
+const back = new Map<string, ReturnType<typeof setTimeout>>();
+
+export function broughtBack(key: string): boolean {
+  return back.has(key);
+}
+
+export function markBroughtBack(keys: readonly string[]): void {
+  for (const key of keys) {
+    clearTimeout(back.get(key));
+    back.set(
+      key,
+      setTimeout(() => back.delete(key), HAND_MS),
+    );
+  }
+}
+
 /** how long a hand-cleared mark waits for the server's order before it is let go */
 export const HAND_MS = 2500;

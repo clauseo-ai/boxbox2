@@ -41,7 +41,7 @@ describe.skipIf(!reactive)("home's window views", () => {
         });
         const make = (key: string, asks: readonly Ask[]) => {
           const thread = store.fleet.threads[key];
-          return thread ? windowView(thread, asks, store.fleet.colours, extraOf(thread)) : null;
+          return thread ? windowView(thread, asks, store.fleet.colours, extraOf(thread, true)) : null;
         };
         const viewOf = createViews(order, asksBy, (key, asks) => { made++; return make(key, asks); });
         // the list as home had it: every window's view made again whenever anything it read changed
@@ -52,7 +52,7 @@ describe.skipIf(!reactive)("home's window views", () => {
       for (const step of sim.steps) {
         setStore(produce((draft) => { for (const p of step.patches) setPath(draft as unknown as Record<string, unknown>, p); }));
         const plain = unwrap(store.fleet);
-        const fresh = plain.order.map((key) => { const thread = plain.threads[key]; return thread ? windowView(thread, Object.values(plain.asks).filter((a) => a.key === key), plain.colours, extraOf(thread)) : null; });
+        const fresh = plain.order.map((key) => { const thread = plain.threads[key]; return thread ? windowView(thread, Object.values(plain.asks).filter((a) => a.key === key), plain.colours, extraOf(thread, true)) : null; });
         expect(r.views()).toEqual(fresh);
         expect(r.before()).toEqual(fresh);
       }

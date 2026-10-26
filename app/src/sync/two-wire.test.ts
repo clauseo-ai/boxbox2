@@ -202,7 +202,7 @@ test("home's windows, their views, tail lines and bodies equal main's", () => {
     const thread = fleet.threads[key];
     if (!thread) continue;
     const asks = Object.values(fleet.asks).filter((a) => a.key === key);
-    const view = windowView(thread, asks, fleet.colours, extraOf(thread));
+    const view = windowView(thread, asks, fleet.colours, extraOf(thread, true));
     windows[key] = json({ view, name: windowName(view), tail: tailLines(thread.tail), run: runOf(thread.tail, view.state) });
   }
   expect(keys).toEqual(MAIN.home.keys);

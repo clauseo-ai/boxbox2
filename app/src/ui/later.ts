@@ -1,7 +1,7 @@
 /* the surfaces that open only after a person acts, split from the first load (architecture.md, the script budget): the
    new-thread sheet, home's answer sheet, the composer's model menu, effort dial, plus menu, suggestions (a `/`, `@` or
    `!` draft), queue list and queue verbs, an agent's report in its sheet, a file in the reader, the details' spend
-   dialog, a tool's picture full size, an opened row's file bed, script bed, slip, diff or agent's, search's, plan's, files or thoughts body, and a settled question's record. each is a chunk of its own. the shell warms them all once the launch
+   dialog, a tool's picture full size, an opened row's file bed, script bed, slip, diff or agent's, search's, plan's, files or thoughts body, and a settled question's record, home's working fold opened, its away sheet and its undo toast. each is a chunk of its own. the shell warms them all once the launch
    has painted and the page is idle (the machines, history, settings and the terminal load when first asked for), and a trigger warms its own
    at the first touch (pointerdown). a surface never opens onto nothing: its trigger opens it through `whenLoaded`,
    which opens at once when the chunk is in (solid's `lazy` then renders it in the same pass, as when it was in the
@@ -41,9 +41,19 @@ export const ThoughtsBody = lazy(() => import("./thread/bodies").then((m) => ({ 
 export const AskRecord = lazy(() => import("./asks/ask-record").then((m) => ({ default: m.AskRecord })));
 /* the line a settled permission leaves above its tool's body (same chunk): a settled row, open on it, waits on the warmed chunk */
 export const PermitRecord = lazy(() => import("./asks/ask-record").then((m) => ({ default: m.PermitRecord })));
+/* the thread's details and turns panel (thread/panel.tsx): opened by its toggle, the menu or a shortcut, and drawn in home's
+   docked inspector at the widest rail, where the stage warms it as it mounts so it paints into its fixed column */
+export const DetailsPanel = lazy(() => import("./thread/panel").then((m) => ({ default: m.Panel })));
+/* home's lists over the windows (home/lists.tsx): the working fold opened, and the threads cleared while you were away. the
+   capsule and the away line that open them stay in the first load */
+export const FoldList = lazy(() => import("./home/lists").then((m) => ({ default: m.FoldList })));
+export const AwaySheet = lazy(() => import("./home/lists").then((m) => ({ default: m.AwaySheet })));
+/* the undo toast (home/toast.tsx): drawn only after a clear, by which time the shell has warmed it; one that beats the
+   warming shows the moment the chunk lands, with its full 6 s */
+export const UndoToast = lazy(() => import("./home/toast").then((m) => ({ default: m.UndoToast })));
 
 type Surface = Component<never> & { preload: () => Promise<unknown> };
-const surfaces = { NewThreadSheet, AskSheet, ModelMenu, EffortDial, ToolsMenu, Suggestions, QueueList, QueueVerbs, ReportSheet, FileReader, SpendDialog, PictureViewer, FileBed, ScriptBed, Slip, AskRecord, PermitRecord, AgentBody, HitsBody, PlanBody, FilesBody, DiffBed, ThoughtsBody } satisfies Record<string, Surface>;
+const surfaces = { NewThreadSheet, AskSheet, ModelMenu, EffortDial, ToolsMenu, Suggestions, QueueList, QueueVerbs, ReportSheet, FileReader, SpendDialog, PictureViewer, FileBed, ScriptBed, Slip, AskRecord, PermitRecord, FoldList, AwaySheet, UndoToast, DetailsPanel, AgentBody, HitsBody, PlanBody, FilesBody, DiffBed, ThoughtsBody } satisfies Record<string, Surface>;
 export type SurfaceName = keyof typeof surfaces;
 
 const loaded = new Set<SurfaceName>();
@@ -96,5 +106,17 @@ export const starring = (): Promise<typeof import("./composer/favorites")> =>
     throw error;
   }));
 
+/* the calls that bring cleared threads back and acknowledge the away list (home/settle-api.ts) go out only after a press on
+   something that is itself a chunk (the toast, the away sheet) or on the away line, so they load the same way; home's ⌘z
+   and the line's dismiss ask for them here */
+let settle: Promise<typeof import("./home/settle-api")> | undefined;
+
+/** the settle calls, loaded once */
+export const settling = (): Promise<typeof import("./home/settle-api")> =>
+  (settle ??= import("./home/settle-api").catch((error: unknown) => {
+    settle = undefined;
+    throw error;
+  }));
+
 /** loads every surface here, the edge's motion and the stars, for the shell's idle moment after the launch */
-export const warmLater = (): Promise<unknown> => Promise.all([...Object.keys(surfaces).map((name) => warm(name as SurfaceName)), warmEdge(), starring()]);
+export const warmLater = (): Promise<unknown> => Promise.all([...Object.keys(surfaces).map((name) => warm(name as SurfaceName)), warmEdge(), starring(), settling()]);

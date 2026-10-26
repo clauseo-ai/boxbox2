@@ -25,7 +25,7 @@ import { flip, insetOf, installMotionProperties, play, prefersReducedMotion, set
 import { birth } from "../../motion/fly";
 import { FADE, SHEET, SNAP } from "../../motion/springs";
 import { composeHost, focusPlan, holdsWords, type Over } from "../../board/requests";
-import { boardCompose, boardFocus, openFocus, releaseFocus, sessionsBeat, setWindowsInView, state } from "../../store";
+import { boardCompose, boardFocus, homePrefs, openFocus, releaseFocus, sessionsBeat, setWindowsInView, state } from "../../store";
 import { type ThreadPlace, closeThread, openThread, placeInUrl } from "../../sync/client";
 import type { Ask } from "../../sync/protocol";
 import { extraOf } from "../inbox/extra";
@@ -47,7 +47,12 @@ import { createCaughtUp } from "../caught-up";
 import type { EdgeMove } from "./edge";
 import { Folded, FoldToggle, WINDOWS_ID } from "./fold";
 import { strayView } from "./layers";
-import { AskSheet, type Edge, edgeIfLoaded, NewThreadSheet, warmEdge, warmOn, whenLoaded } from "../later";
+import { AskSheet, AwaySheet, type Edge, edgeIfLoaded, FoldList, NewThreadSheet, settling, UndoToast, warmEdge, warmOn, whenLoaded } from "../later";
+import { broughtBack } from "../window/clearing";
+import type { AwayThread } from "../../sync/protocol";
+import { type FoldKind, foldOf, leaverOf } from "./working-fold";
+import { WorkingFold } from "./fold-capsule";
+import { AwayLine } from "./away-line";
 import { arrive, leave, unveil, veil } from "./parts";
 import { doing, launchPainted, startPerf, tapped, watchTransition } from "./perf";
 import { type Beside, detailsPlace } from "./windows";
@@ -57,6 +62,7 @@ import { NewThreadDock } from "../composer/dock";
 import "../asks/sheet.css";
 import "../window/window.css";
 import "./home.css";
+import "./settle.css";
 
 /** the stream may be down this long before home says so (design.md, honesty) */
 const OFFLINE_AFTER_MS = 5000;
@@ -132,8 +138,53 @@ export function Home(props: HomeProps) {
   /* —— which windows, in which order; a reorder waits for calm —— */
   const membership = createWindowKeys(() => state.fleet, now);
   windowWake = membership.wake;
-  const target = membership.keys;
+  /** the thread on the stage. declared here because the fold reads it: the thread on the stage never folds */
+  const [open, setOpen] = createSignal<string | null>(null);
+  const asksBy = createMemo(() => {
+    const by: Record<string, Ask[]> = {};
+    for (const ask of Object.values(state.fleet.asks)) (by[ask.key] ??= []).push(ask);
+    return by;
+  });
+  /* the working fold (working-fold.ts): of home's threads, those at work with nothing wrong, or parked on jobs alone, fold
+     into the capsule and have no window. each thread's standing is a memo of its own, as membership's is */
+  const kinds = keyed<FoldKind | null>(membership.keys, (key) => {
+    const thread = state.fleet.threads[key];
+    const prefs = homePrefs();
+    if (!thread || !prefs.foldWorking || open() === key) return null;
+    return foldOf(thread, asksBy()[key]?.length ?? 0, prefs.jobsAsNeeds);
+  });
+  const foldKinds = createMemo(() => {
+    const list = membership.keys();
+    const map = new Map<string, FoldKind>();
+    kinds().forEach((kind, i) => {
+      const key = list[i];
+      if (kind && key !== undefined) map.set(key, kind);
+    });
+    return map;
+  });
+  const foldKeys = createMemo(() => membership.keys().filter((key) => foldKinds().has(key)), [], { equals: sameOrder });
+  const kindOf = (key: string): FoldKind => foldKinds().get(key) ?? "working";
+  const target = createMemo(() => membership.keys().filter((key) => !foldKinds().has(key)), [], { equals: sameOrder });
+  /* the away list (the server's `away` frames): the line shows while the list holds threads this device has not seen yet,
+     and while its sheet is open. `acked` is the list this device saw, held until the server's empty list comes */
+  const awayRows = (): readonly AwayThread[] => state.fleet.away ?? [];
+  const awaySig = createMemo(() => awayRows().map((row) => `${row.key}@${row.clearedAt}`).join(" "));
+  const [acked, setAcked] = createSignal("");
+  const [awayOpen, setAwayOpen] = createSignal<{ from: HTMLElement; rows: readonly AwayThread[] } | null>(null);
+  const awayLive = createMemo(() => awayRows().length > 0 && (awaySig() !== acked() || awayOpen() !== null));
   const [order, setOrder] = createSignal<string[]>(untrack(target));
+  /* the capsule and the away line as drawn: they come and go only with the order, in its flip, so neither moves the
+     windows at a moment of its own (perf.shift); a change to the fold that leaves the capsule where it is lands at once */
+  const [foldShown, setFoldShown] = createSignal<string[]>(untrack(foldKeys));
+  const [awayShown, setAwayShown] = createSignal(untrack(awayLive));
+  /** the thread that just left the fold, while still on home: the capsule's second line names it */
+  const [leaver, setLeaver] = createSignal<{ repo: string } | null>(null);
+  const takeFold = (next: string[]) => {
+    const onHome = new Set(membership.keys());
+    const repo = leaverOf(foldShown(), next, (key) => (onHome.has(key) ? (state.fleet.threads[key]?.place?.name ?? null) : null));
+    if (repo !== null) setLeaver({ repo });
+    setFoldShown(next);
+  };
   /** which window the deck is on: the index the scroll settled at */
   const [pagerOn, setPagerOn] = createSignal(0);
   const elements = new Map<string, HTMLElement>();
@@ -144,10 +195,21 @@ export function Home(props: HomeProps) {
   const applyOrder = () => {
     clearTimeout(reorderTimer);
     const next = target();
-    if (sameOrder(next, order())) return;
+    const nextFold = foldKeys();
+    const nextAway = awayLive();
+    // the capsule or the away line coming or going moves the windows below them: that waits for calm and flips like a reorder
+    const chrome = nextFold.length > 0 !== foldShown().length > 0 || nextAway !== awayShown();
+    if (sameOrder(next, order()) && !chrome) {
+      if (!sameOrder(nextFold, foldShown())) takeFold(nextFold);
+      return;
+    }
     // the first windows (the cache, or the first snapshot) paint in place, at once
-    if (order().length === 0) {
-      setOrder(next);
+    if (order().length === 0 && foldShown().length === 0 && !awayShown()) {
+      batch(() => {
+        setOrder(next);
+        takeFold(nextFold);
+        setAwayShown(nextAway);
+      });
       return;
     }
     // a window the person just cleared has played its own exit: the hole closes at once, not after the calm
@@ -155,7 +217,9 @@ export function Home(props: HomeProps) {
     const heldNow = (key: string) => state.fleet.threads[key] !== undefined;
     const left = order().filter((key) => !next.includes(key));
     // a window the fleet no longer holds closes its hole at once too: there is nothing left to keep in place
-    const handed = left.length > 0 && left.every((key) => handCleared(key) || !heldNow(key)) && next.every((key) => held.has(key));
+    // and so does one the person just brought back (undo, bring back): it was asked for, and is born at once
+    const arriving = next.filter((key) => !held.has(key));
+    const handed = left.length + arriving.length > 0 && left.every((key) => handCleared(key) || !heldNow(key)) && arriving.every(broughtBack);
     const wait = handed ? 0 : touching ? CALM_MS : lastCalm + CALM_MS - performance.now();
     if (wait > 0) {
       reorderTimer = setTimeout(applyOrder, wait);
@@ -169,6 +233,8 @@ export function Home(props: HomeProps) {
     // the swatches of a folded rail are windows too: they close up and make room on the same spring
     flip([...elements.values(), ...swatchEls.values()], () => {
       setOrder(next);
+      takeFold(nextFold);
+      setAwayShown(nextAway);
       // the window you are looking at never slides away
       if (anchorEl && winsEl && anchorEl.isConnected) winsEl.scrollLeft += anchorEl.getBoundingClientRect().left - before;
     }, SNAP, motion());
@@ -187,7 +253,7 @@ export function Home(props: HomeProps) {
   let disposed = false;
   createEffect(
     on(
-      target,
+      [target, foldKeys, awayLive],
       () =>
         queueMicrotask(() => {
           if (!disposed) applyOrder();
@@ -201,16 +267,17 @@ export function Home(props: HomeProps) {
   });
 
   /* —— each window's view, reconciled so unchanged lines keep their identity —— */
-  const asksBy = createMemo(() => {
-    const by: Record<string, Ask[]> = {};
-    for (const ask of Object.values(state.fleet.asks)) (by[ask.key] ??= []).push(ask);
-    return by;
-  });
   /* each window's view in a memo of its own (views.ts): the slot's reconcile, the summary and the stage read it, and a frame
-     of one thread makes that thread's view alone */
-  const viewsOf = createViews(order, asksBy, (key, asks) => {
+     of one thread makes that thread's view alone. the folded threads have views too: the capsule, its list and the bar's
+     line read them */
+  const viewKeys = createMemo(() => {
+    const keys = order();
+    const held = new Set(keys);
+    return [...keys, ...foldKeys().filter((key) => !held.has(key))];
+  }, [], { equals: sameOrder });
+  const viewsOf = createViews(viewKeys, asksBy, (key, asks) => {
     const thread = state.fleet.threads[key];
-    return thread ? windowView(thread, asks, colourMap(), extraOf(thread)) : null;
+    return thread ? windowView(thread, asks, colourMap(), extraOf(thread, homePrefs().jobsAsNeeds)) : null;
   });
   const fleetKeys = sessionKeys(() => state.fleet);
   const sessionHosts = keyed(fleetKeys, (key) => state.fleet.threads[key]?.agent);
@@ -243,7 +310,6 @@ export function Home(props: HomeProps) {
   createEffect(() => setWindowsInView((open() && arrangement() === "deck") || folded() ? [] : inView()));
 
   /* —— the stage —— */
-  const [open, setOpen] = createSignal<string | null>(null);
   /* the sheet holds the place it opened at: a fleet beat or a reorder while it is open must never rebuild it, or the
      words being typed lose their element and the phone's keyboard drops (the composer would remount) */
   type Place = { host: string; directory: string | null };
@@ -270,7 +336,9 @@ export function Home(props: HomeProps) {
   /* the answer sheet over home: every pending ask of one thread, from its window's tray (asks/sheet.tsx) */
   const [askSheet, setAskSheet] = createSignal<{ key: string; from: HTMLElement } | null>(null);
   /** a sheet is on the screen (the new-thread one, mounted and not let go, or the answer sheet): home under it is inert */
-  const sheetUp = (): boolean => (sheet() !== null && !away()) || askSheet() !== null;
+  /* the working fold opened (lists.tsx): the capsule it hangs from */
+  const [foldOpen, setFoldOpen] = createSignal<HTMLElement | null>(null);
+  const sheetUp = (): boolean => (sheet() !== null && !away()) || askSheet() !== null || foldOpen() !== null || awayOpen() !== null;
   const openSheet = () => {
     if (untrack(sheet) && untrack(away)) {
       setAway(false);
@@ -451,7 +519,7 @@ export function Home(props: HomeProps) {
 
   /** what was tapped, for perf.paint: the capsule, the window's "answer" pill, or the window */
   const controlOf = (event: Event, from: HTMLElement) =>
-    from.classList.contains("capsule") ? "capsule" : event.target instanceof Element && event.target.closest(".wask, .asks-open") ? "answer" : "window";
+    from.classList.contains("capsule") ? "capsule" : from.classList.contains("wrow") ? "fold" : event.target instanceof Element && event.target.closest(".wask, .asks-open") ? "answer" : "window";
 
   const activate = (key: string, from: HTMLElement, event: Event | null) => {
     setCapsule(null);
@@ -999,6 +1067,12 @@ export function Home(props: HomeProps) {
       return;
     }
     if (typing) return;
+    // ⌘z undoes the clear the toast offers (not ⇧⌘z, the browser's redo), from anywhere but a text field, which keeps its own
+    if (event.metaKey && !event.shiftKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === "z" && state.undo && !state.undo.busy && !sheetUp()) {
+      event.preventDefault();
+      void settling().then((m) => m.undoLast());
+      return;
+    }
     if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "n" && startPlace() && !sheetUp()) {
       event.preventDefault();
       openSheet();
@@ -1117,7 +1191,8 @@ export function Home(props: HomeProps) {
     const key = open();
     return key !== null && layers().some((layer) => layer.key === key) && viewOf(key) !== null;
   });
-  const views = createMemo(() => order().map(viewOf).filter((v): v is WindowView => v !== null));
+  // the line counts every thread on home, the folded ones too: "4 working" in the line, and the capsule saying which
+  const views = createMemo(() => viewKeys().map(viewOf).filter((v): v is WindowView => v !== null));
   const summary = createMemo(() => {
     const all = views();
     const wants = all.filter((v) => v.state === "wants");
@@ -1196,6 +1271,42 @@ export function Home(props: HomeProps) {
     return view ? colourStyle(view.colour) : {};
   };
 
+  /* —— the fold, the away line, and the toast (docs/home.md, settle) —— */
+  /** a desktop's keyboard and pointer: the toast shows its ⌘z */
+  const fineKeys = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  const acknowledge = () => {
+    const seen = awaySig();
+    setAcked(seen);
+    // a call that did not land puts the line back: the list is still unseen on every device
+    void settling()
+      .then((m) => m.awaySeen())
+      .catch(() => "unreachable")
+      .then((failed) => {
+        if (failed !== null && acked() === seen) setAcked("");
+      });
+  };
+  const showAway = (from: HTMLElement) => {
+    const rows = awayRows();
+    // seen once the sheet is up: the line stays while it is open, so the sheet hangs from it and focus comes back to it
+    whenLoaded("AwaySheet", () => {
+      setAwayOpen({ from, rows });
+      acknowledge();
+    });
+  };
+  /* the count the line says: the sheet's while it is open, else the list's, else the last it had while the line waits for
+     the flip that takes it away (the list empties the moment it is seen) */
+  const awayCount = createMemo<number>((was) => awayOpen()?.rows.length ?? (awayRows().length || was), 0);
+  const settle = () => (
+    <>
+      <Show when={awayShown()}>
+        <AwayLine count={awayCount()} open={awayOpen() !== null} onShow={showAway} onDismiss={acknowledge} />
+      </Show>
+      <Show when={foldShown().length > 0}>
+        <WorkingFold keys={foldShown()} kindOf={kindOf} viewOf={viewOf} left={leaver()} open={foldOpen() !== null} onOpen={(from) => whenLoaded("FoldList", () => setFoldOpen(from))} />
+      </Show>
+    </>
+  );
+
   return (
     <div
       class="home"
@@ -1265,6 +1376,7 @@ export function Home(props: HomeProps) {
             <span class="update">update ready. it applies the next time boxbox opens.</span>
           </Show>
         </p>
+        <Show when={arrangement() !== "strip"}>{settle()}</Show>
         {/* what you do, then where you go: the bar is three rows on the rail by rule (home.css), so a pill never wraps by
             chance at some count. the phone's deck has no row for what you do: new thread is a round plus beside history and
             machines, and clear N sits at the end of the line's row */}
@@ -1326,7 +1438,11 @@ export function Home(props: HomeProps) {
         onPointerDown={() => (touching = true)}
         onScroll={onScroll}
       >
-        <For each={order()} fallback={<Empty />}>
+        {/* the strip's bar is one row and the stage starts under the row of windows: the fold and the away line lead the row */}
+        <Show when={arrangement() === "strip" && (foldShown().length > 0 || awayShown())}>
+          <div class="wlead">{settle()}</div>
+        </Show>
+        <For each={order()} fallback={<Show when={foldShown().length === 0}><Empty /></Show>}>
           {(key, index) => <Slot key={key} index={index()} />}
         </For>
       </div>
@@ -1419,6 +1535,25 @@ export function Home(props: HomeProps) {
           />
         )}
       </Show>
+      <Show when={foldOpen()}>
+        {(from) => (
+          <FoldList
+            keys={foldKeys()}
+            kindOf={kindOf}
+            viewOf={viewOf}
+            now={now()}
+            showHost={hosts() > 1}
+            arrangement={arrangement()}
+            from={from()}
+            onClose={() => setFoldOpen(null)}
+            onOpenThread={(key, el, event) => activate(key, el, event)}
+          />
+        )}
+      </Show>
+      <Show when={awayOpen()}>
+        {(at) => <AwaySheet rows={at().rows} mode={homePrefs().autoClear} arrangement={arrangement()} from={at().from} onClose={() => setAwayOpen(null)} />}
+      </Show>
+      <Show when={state.undo}>{(undo) => <UndoToast undo={undo()} arrangement={arrangement()} keys={arrangement() !== "deck" && fineKeys} />}</Show>
       <Show when={viewOf(cue() ?? "")}>{(view) => <div class="cue" aria-hidden="true" style={colourStyle(view().colour)} />}</Show>
       <Show when={capsule()}>
         {(shown) => (

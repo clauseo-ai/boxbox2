@@ -81,6 +81,7 @@ import type {
   Part,
   Reaction,
   RepoColourEntry,
+  AwayThread,
   Reset,
   ThreadEntry,
   ThreadPatch,
@@ -120,6 +121,9 @@ export type Fleet = {
   order: string[];
   /** each repo's colour as the server gave it and the person chose it, by `repoKey` (`host:root`) */
   colours: Record<string, ColourAssignment>;
+  /** the threads the server auto-cleared while nobody was looking, not yet acknowledged (`away` frames, outside the journal):
+      home's away line and sheet. absent until the first frame, and in a cache written before it existed */
+  away?: AwayThread[];
 };
 
 export const EMPTY_FLEET: Fleet = { agentNames: [], agents: {}, threads: {}, asks: {}, order: [], colours: {} };
@@ -372,6 +376,8 @@ export type Action =
   | { type: "colours"; colours: RepoColourEntry[] }
   /** one repo's colour changed, outside the journal */
   | { type: "colour"; colour: RepoColourEntry }
+  /** the server's whole away list, outside the journal: it replaces what the fleet holds */
+  | { type: "away"; threads: AwayThread[] }
   /** btws from outside the stream (the reread after a hole, a verb's own answer), merged by the same rule as the stream's
       (btw.ts), so a card shows before its echo. a thread not in memory takes nothing */
   | { type: "btws"; key: string; btws: Btw[] };
@@ -490,6 +496,10 @@ export function reduce(state: SyncState, action: Action): Result {
       break;
     case "colour":
       next = colour(work, state, action.colour);
+      break;
+    case "away":
+      work.patch(["fleet", "away"], action.threads);
+      next = { ...state, fleet: { ...state.fleet, away: action.threads } };
       break;
     case "btws":
       next = btwsFrom(work, state, action.key, action.btws);
@@ -794,9 +804,9 @@ function dropped(work: Work, state: SyncState): SyncState {
 function reset(work: Work, state: SyncState, frame: Reset, toCool: Readonly<Record<string, number>>): SyncState {
   work.count("resets");
   const cursor = { epoch: frame.epoch, seq: frame.seq };
-  // the colours travel outside the journal and arrive ahead of the reset on the same connection, so the snapshot has
-  // none and the map stays as it is
-  const fleet = { ...fleetOf(frame.fleet), colours: state.fleet.colours };
+  // the colours (and the away list) travel outside the journal and arrive ahead of the reset on the same connection, so
+  // the snapshot has none and what the fleet holds stays as it is
+  const fleet = { ...fleetOf(frame.fleet), colours: state.fleet.colours, ...(state.fleet.away ? { away: state.fleet.away } : {}) };
   // what the snapshot changed, not the whole fleet: a thread it sends as it was keeps its identity in the ui
   changed(work, ["fleet"], state.fleet, fleet);
   // the transcripts may have missed anything, and a seq of another epoch seeds nothing: every `left` goes. the threads in

@@ -98,10 +98,11 @@ export function collisionSuffixes(rows: readonly HistoryApiRow[]): Map<string, s
 }
 
 /** `colours` is the fleet's (window/colours.ts, `colourMap`), from the reactive caller */
-export function rowView(row: HistoryApiRow, held: Thread | undefined, asks: readonly Ask[], colours: ColourMap, now: number, suffix = ""): RowView {
+/** `jobsAsNeeds`: the person's home pref (store, `homePrefs`): a job notice makes a row "done" only when it is on */
+export function rowView(row: HistoryApiRow, held: Thread | undefined, asks: readonly Ask[], colours: ColourMap, now: number, suffix = "", jobsAsNeeds = false): RowView {
   // a thread the fleet holds reads its own fields; a row the fleet does not hold reads the page's copy of the cmx2 info
   const info = row.info as unknown as SessionInfo;
-  const view = held ? windowView(held, asks, colours, extraOf(held)) : null;
+  const view = held ? windowView(held, asks, colours, extraOf(held, jobsAsNeeds)) : null;
   const state: WindowState = view?.state ?? "idle";
   const title = (held ? held.title : info.title).trim() || "untitled";
   const repo = held ? (held.place?.name ?? "") : repoName(info.projectID);

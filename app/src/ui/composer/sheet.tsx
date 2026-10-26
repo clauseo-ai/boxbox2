@@ -27,7 +27,7 @@ import { Composer } from "./composer";
 import { Icon } from "./icons";
 import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentRepos, restoredDraft, splitPath } from "./place";
 import { folders, projects } from "./reads";
-import { refusedStart } from "./words";
+import { refusedStart } from "./menu-words";
 
 /** how long the sheet waits for the new thread before it says it is taking long (it keeps waiting) */
 const SLOW_MS = 8000;

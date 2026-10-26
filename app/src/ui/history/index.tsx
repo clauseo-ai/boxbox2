@@ -10,7 +10,7 @@ import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, Show
 import { createStore, reconcile } from "solid-js/store";
 import { api } from "../../api/client";
 import { leave, navigate } from "../../shell/navigation";
-import { state } from "../../store";
+import { homePrefs, state } from "../../store";
 import { said, UNREACHABLE } from "../machines/verb";
 import { RepoMark } from "../repo-mark/repo-mark";
 import { colourMap } from "../window/colours";
@@ -283,6 +283,7 @@ function HistoryRow(props: RowProps) {
       colourMap(),
       props.now(),
       props.suffix,
+      homePrefs().jobsAsNeeds,
     ),
   );
   return (

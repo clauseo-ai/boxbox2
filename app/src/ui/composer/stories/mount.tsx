@@ -10,7 +10,7 @@ import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { api } from "../../../api/client";
 import { installMotionProperties } from "../../../motion/animate";
-import { bootSync, setCompaction, setModels, setOutbox, setPrefs, state } from "../../../store";
+import { bootSync, DEFAULT_HOME, setCompaction, setModels, setOutbox, setPrefs, state } from "../../../store";
 import type { StreamStatus } from "../../../sync/messages";
 import type { Draft, OutboxView } from "../../../sync/outbox";
 import { EMPTY_FLEET } from "../../../sync/reducer";
@@ -315,7 +315,7 @@ function answerReads(models: "loading" | "failed" | undefined, compact: "hang" |
     async onRequest({ request }) {
       const url = new URL(request.url, location.href);
       // the prefs as the server keeps them: read back whole, and the favorites kept as they are sent
-      if (url.pathname === "/api/prefs" && request.method === "GET") return json(state.prefs ?? { devices: {}, repos: [], models: { favorites: [] } });
+      if (url.pathname === "/api/prefs" && request.method === "GET") return json(state.prefs ?? { devices: {}, repos: [], models: { favorites: [] }, home: DEFAULT_HOME });
       if (url.pathname === "/api/prefs/models" && request.method === "PUT") {
         if (starsRefused) return new Response(JSON.stringify({ error: { code: "unavailable", message: "the prefs could not be written. try again" } }), { status: 503, headers: { "content-type": "application/json" } });
         return json(await request.json());
@@ -356,7 +356,7 @@ function boot(setup: Pick<Setup, "entry" | "asks" | "draft" | "outbox" | "stream
   });
   if (!setup.models) setModels(HOST, setup.none ? { default: null, models: [] } : setup.many ? MODELS_MANY : MODELS);
   // the prefs are read at launch; a story has them from the start, the favorites as the server holds them
-  setPrefs({ devices: {}, repos: [], models: { favorites: setup.favorites ?? [] } });
+  setPrefs({ devices: {}, repos: [], models: { favorites: setup.favorites ?? [] }, home: DEFAULT_HOME });
 }
 
 /** the way a story acts on the page after it is painted */

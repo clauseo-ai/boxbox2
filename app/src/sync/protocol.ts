@@ -124,6 +124,13 @@ export type BoardFrame = Schemas["AppFrame"];
     holds (sent after `hello` on every connection); `colour` is one repo's change. they move no cursor and count as no entry */
 export type ColourFrame = Schemas["ColourFrame"];
 
+/** what the server tells about its own clearing (docs/home.md, settle), id-less, with no seq, outside the journal like the
+    colours: `away` is the whole list of threads auto-cleared while nobody was looking that nobody has acknowledged (sent
+    after `hello` and whenever it changes; empty is no line), to the reducer; `autoCleared` is a sweep that cleared threads
+    while some device was looking, an event for the page (the undo toast), never state */
+export type SettleFrame = Schemas["SettleFrame"];
+export type AwayThread = Schemas["AwayThread"];
+
 /** one repo's colour as the server sends it (named apart from window/repo.ts's `RepoColour`, which is the hue itself) */
 export type RepoColourEntry = Schemas["RepoColour"];
 
@@ -186,6 +193,8 @@ const BOARD_TYPES: ReadonlySet<string> = new Set<BoardFrame["type"]>(["board.her
 
 const COLOUR_TYPES: ReadonlySet<string> = new Set<ColourFrame["type"]>(["colours", "colour"]);
 
+const SETTLE_TYPES: ReadonlySet<string> = new Set<SettleFrame["type"]>(["away", "autoCleared"]);
+
 /** why a frame cannot apply (docs/protocol.md, section 3): a patch whose base the client does not hold or that does not fit
     it, or a catch-up or confirm that does not parse */
 export type Fault = "patch-error" | "read-late" | "hash-miss" | "catchup-error";
@@ -205,13 +214,15 @@ const isTranscriptEntry = (value: unknown): boolean =>
       the cursor and reconnects;
     - `board`: a board frame, to the ui as it is, and only on a stream that asked for board frames;
     - `colours`: a colour frame, to the reducer outside the journal.
+    - `settle`: an away list (to the reducer outside the journal) or an auto-clear the page is told of.
     null is a line that is no frame at all (not json, no type, an entry without its seq, a colour frame with one) */
 export type Routed =
   | { to: "journal"; frame: Frame }
   | { to: "skip"; type: string }
   | { to: "broken"; what: Fault }
   | { to: "board"; frame: BoardFrame }
-  | { to: "colours"; frame: ColourFrame };
+  | { to: "colours"; frame: ColourFrame }
+  | { to: "settle"; frame: SettleFrame };
 
 /** a data line's json, routed. the fields are the server's to get right: its document is typed from the same rust
     structs, and the reducer is exhaustive over the union. the two frames whose parse is a protocol error (a catch-up and
@@ -228,6 +239,7 @@ export function routeFrame(data: string, board: boolean): Routed | null {
   if (typeof type !== "string") return null;
   if (BOARD_TYPES.has(type)) return board ? { to: "board", frame: value as BoardFrame } : null;
   if (COLOUR_TYPES.has(type)) return "seq" in value ? null : { to: "colours", frame: value as ColourFrame };
+  if (SETTLE_TYPES.has(type)) return "seq" in value ? null : { to: "settle", frame: value as SettleFrame };
   if (type === "catchup") {
     const entries = value["entries"];
     return Array.isArray(entries) && entries.every(isTranscriptEntry) ? { to: "journal", frame: value as Catchup } : { to: "broken", what: "catchup-error" };

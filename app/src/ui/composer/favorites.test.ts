@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { type Prefs, setPrefs, state } from "../../store";
+import { DEFAULT_HOME, type Prefs, setPrefs, state } from "../../store";
 import { createFavorites, favorites, type Saved } from "./favorites";
 
-const prefsOf = (list: string[]): Prefs => ({ devices: {}, repos: [], models: { favorites: list } });
+const prefsOf = (list: string[]): Prefs => ({ devices: {}, repos: [], models: { favorites: list }, home: DEFAULT_HOME });
 const kept = (list: string[]): Promise<Saved> => Promise.resolve({ ok: true, value: { favorites: list } });
 const refused = (error: string) => (): Promise<Saved> => Promise.resolve({ ok: false, error });
 const never = () => Promise.resolve(null);

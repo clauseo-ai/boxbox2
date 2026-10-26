@@ -311,6 +311,50 @@ question's in the sheet's 19 px title type (2026-10-22).
 - **offscreen windows do not animate.** they update their text; the
   motion budget is spent where you look.
 
+### settling: the working fold, undo and the away line (2026-10-26)
+
+finished work clears itself (clearing a window, above); home says so in
+four places, each its own decision where the law was silent.
+
+- **the working fold.** windows at work with nothing wrong fold into one
+  liquid glass capsule under the bar, above the windows (at the strip,
+  leading the row of windows: a row under its one-row bar would move the
+  stage). a thread folds while it works, retries, queues or waits on its
+  agents ("working"), or waits on background jobs alone ("waiting on a
+  job"), with no ask and no open need; it leaves the moment it finishes,
+  fails, asks or gets a need, and is born where the order puts it. the
+  thread on the stage keeps its window. the capsule says "4 working" over
+  "nothing wrong, tap to see" ("2 waiting on a job" on the second line when
+  both kinds fold, "<repo> just left" for 30 s after one leaves), and holds
+  a bead per thread, its repo's mark over a 26 px line whose short bar
+  travels by transform while it works and stands still while it waits (and
+  under reduced motion). a press opens the list: "repo · title", the live
+  line, the clock, and a parked row's reason as its window says it, with
+  its clear. the capsule and the away line come and go only with a reorder,
+  inside its flip and its calm, never at a moment of their own.
+- **undo.** every clear from this device (one window, "clear N") and an
+  auto-clear while the page is in front shows a glass pill for 6 s:
+  "cleared N", "undo" in the accent, a 20 px ring draining clockwise by
+  clip-path. at the rail it sits at the column's foot, the column's width,
+  with the one thread's title under "cleared 1" and the ⌘z hint; on the deck
+  it is centred over the dock. its time stops while a pointer or focus is on
+  it. ⌘z undoes from anywhere but a text field. undo brings back exactly
+  what the clear cleared, and a failure stays on the pill in the server's
+  words with "try again".
+- **the away line.** when the server cleared threads while no device was
+  looking, a line under the bar's line says "6 cleared while you were
+  away" with "show" (the accent, underlined) and a dismiss. show opens a
+  sheet (deck) or a popover under the line (strip, rail): the same title,
+  a line for the mode ("each was done and seen more than an hour ago. they
+  are still in history." or "each was done more than 3 hours ago, seen or
+  not. they are still in history."), rows "repo · title" with "bring back"
+  and "done 13:48, seen 13:55, cleared an hour after" ("not seen", "cleared 3
+  hours after"), and "bring all back" in the accent. showing or dismissing
+  acknowledges the list on every device.
+- **job notices.** with "job notices count as needs" off (the default) a
+  background job's notice is a row in its thread: no window turns "done"
+  for it, it adds to no count, it lifts nothing and badges nothing.
+
 ### anatomy of a window
 
 ```
@@ -2228,11 +2272,16 @@ what can I do.
 ### settings
 
 **settings** (`?screen=settings`, reached from the machines header) is
-four groups of hairline rows on the ground: *this device* (appearance:
+five groups of hairline rows on the ground: *this device* (appearance:
 system, dark, light as a segmented control, a track pressed into the
 ground with the chosen option on it in the light tone; reduce motion as a
 switch whose knob moves on the snap spring by transform, "follows the
-system" until chosen and "follow the system" to go back), *what reaches
+system" until chosen and "follow the system" to go back), *home*
+(2026-10-26, the person's prefs, so every device agrees: "clear finished
+windows" as a segmented control the row's width under its words, "1 h
+after seen", "3 h, seen or not", "never"; "fold working windows" and "job
+notices count as needs" as switches; each row's hint says what it does;
+until the prefs are read the rows are disabled), *what reaches
 this device* (the notifications row below, then the four push kinds as
 switches once subscribed, and the other devices' choices read-only), and
 *new threads* (each repo with threads, most recent first: model and

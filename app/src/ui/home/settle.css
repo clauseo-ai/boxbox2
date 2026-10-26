@@ -1,0 +1,675 @@
+/* settle on home (docs/home.md, settle; design.md, the working fold, the undo toast, the away line): the working fold's
+   capsule, the away line, the lists they open (lists.tsx) and the undo toast (toast.tsx). in the first load, imported by
+   home.tsx, so a list's chunk arriving never reorders the cascade (ui/later.ts). the capsule and the toast are liquid glass
+   (styles.css, .lg's tokens), as every control floating over the windows; the lists are the ground's deep sheet. */
+
+/* —— the capsule —— */
+
+.home .wfold {
+  all: unset;
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 9px 14px 9px 16px;
+  border-radius: 24px;
+  background: var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-filter);
+  backdrop-filter: var(--lg-filter);
+  box-shadow: var(--lg-rim), var(--lg-drop);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform var(--press-t);
+}
+
+.home .wfold:active {
+  transform: scale(var(--lg-press-scale));
+}
+
+.home .wfold:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
+/* deck and rail: the bar's last row, the width of the bar */
+.home .bar .wfold,
+.home .bar .away-line {
+  order: 8;
+  flex: 1 0 100%;
+}
+
+.home .bar .away-line {
+  order: 7;
+}
+
+.home .wfold-words {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.home .wfold-words b {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.home .wfold-words small {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* the rail's column is narrow: the first line alone, unless the second counts the threads waiting on a job */
+.home[data-arrangement="rail"] .wfold-words small:not([data-waiting]) {
+  display: none;
+}
+
+.home .wfold-beads {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.home .wbead {
+  --ink: color-mix(in srgb, var(--c1) calc(var(--L) * 100%), var(--hi));
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  width: 30px;
+}
+
+.home .wbead.wmore {
+  align-self: start;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 20px;
+}
+
+/* the small line under the mark: it moves while the thread works (a short bar travelling by transform), and stands still
+   in the middle while the thread waits on a job */
+.home .wlane,
+.hsheet .hrow-lane {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink, var(--text-2)) 24%, transparent);
+}
+
+.home .wlane {
+  width: 26px;
+}
+
+.home .wlane > i,
+.hsheet .hrow-lane > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 9px;
+  border-radius: 2px;
+  background: var(--ink, var(--text-2));
+  animation: wlane 1.8s ease-in-out infinite alternate;
+}
+
+.home .wbead:nth-child(2) .wlane > i { animation-delay: -0.6s; }
+.home .wbead:nth-child(3) .wlane > i { animation-delay: -1.1s; }
+.home .wbead:nth-child(4) .wlane > i { animation-delay: -0.3s; }
+.home .wbead:nth-child(5) .wlane > i { animation-delay: -1.4s; }
+
+@keyframes wlane {
+  from { transform: translateX(0); }
+  to { transform: translateX(17px); }
+}
+
+.home .wbead[data-fold="waiting"] .wlane > i,
+.hsheet .hrow[data-fold="waiting"] .hrow-lane > i {
+  animation: none;
+  transform: translateX(8.5px);
+  opacity: 0.6;
+}
+
+/* behind the deck's stage nothing moves for nobody */
+.home[data-open] .wlane > i {
+  animation-play-state: paused;
+}
+
+.home .wfold-chev {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: var(--text-2);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* the strip: the fold and the away line lead the row of windows, a column as tall as the row */
+.home .wlead {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  width: 196px;
+}
+
+.home .wlead .wfold {
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px;
+  border-radius: 26px;
+}
+
+.home .wlead .wfold-words b {
+  white-space: normal;
+}
+
+.home .wlead .wfold-words small {
+  white-space: normal;
+}
+
+.home .wlead .wfold-beads {
+  flex-wrap: wrap;
+  margin-left: 0;
+}
+
+.home .wlead .wfold-chev {
+  position: absolute;
+  top: 18px;
+  right: 14px;
+}
+
+.home .wlead .away-line {
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-filter);
+  backdrop-filter: var(--lg-filter);
+  box-shadow: var(--lg-rim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) .wlane > i,
+  :root:not([data-motion="full"]) .hrow-lane > i {
+    animation: none;
+    transform: translateX(8.5px);
+  }
+}
+
+:root[data-motion="reduced"] .wlane > i,
+:root[data-motion="reduced"] .hrow-lane > i {
+  animation: none;
+  transform: translateX(8.5px);
+}
+
+/* —— the away line —— */
+
+.home .away-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 20px;
+}
+
+.home .away-tick {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--lg-fill);
+}
+
+.home .away-tick svg,
+.home .away-dismiss svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.home .away-words {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.home .away-show,
+.home .away-dismiss {
+  all: unset;
+  position: relative;
+  cursor: pointer;
+}
+
+.home .away-show {
+  color: var(--accent);
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* both reach past the line for a finger, as the bar's call does, so the line keeps its 20 px */
+.home .away-show::before,
+.home .away-dismiss::before {
+  content: "";
+  position: absolute;
+  inset: -12px -8px;
+}
+
+.home .away-dismiss {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  border-radius: 50%;
+  color: var(--text-2);
+}
+
+.home .away-show:focus-visible,
+.home .away-dismiss:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* —— the lists: the fold opened, and the away sheet —— */
+
+.hsheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 62;
+}
+
+.hsheet-scrim[data-deck] {
+  background: rgb(0 0 0 / 0.45);
+}
+
+.hsheet {
+  position: fixed;
+  z-index: 63;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px 20px 14px;
+  border-radius: 26px;
+  background: var(--lg-solid);
+  box-shadow: var(--lg-rim), 0 40px 80px -20px rgb(0 0 0 / 0.6);
+  color: var(--text);
+  outline: none;
+  transform-origin: top left;
+}
+
+/* the answer sheet's place on the deck (asks/sheet.css): 12 px in from the screen's edges, every corner round */
+.hsheet[data-arrangement="deck"] {
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + max(env(safe-area-inset-bottom, 0px), 0px));
+  max-height: min(85dvh, calc(100dvh - 24px));
+  padding: 10px 20px 16px;
+  border-radius: 34px;
+}
+
+.hsheet-grab {
+  display: block;
+  width: 38px;
+  height: 5px;
+  margin: 0 auto 12px;
+  border-radius: 3px;
+  background: var(--text-3);
+}
+
+.hsheet-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.hsheet-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 21px;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.hsheet:not([data-arrangement="deck"]) .hsheet-head h2 {
+  font-size: 17px;
+}
+
+/* the one close (ui/close.tsx), placed at the title's end */
+.hsheet .hsheet-close {
+  flex: none;
+  margin: -4px -6px 0 0;
+}
+
+.hsheet .hrow-act:focus-visible,
+.hsheet .hrow-open:focus-visible,
+.hsheet-all:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.hsheet-sub {
+  margin: 4px 0 6px;
+  color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.hsheet .hrows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* a row: the repo's mark, "repo · title", what is on its right (the clock, clear, bring back), then its line under the
+   title, then a working row's moving line */
+.hsheet .hrow {
+  --ink: color-mix(in srgb, var(--c1) calc(var(--L) * 100%), var(--hi));
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 11px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.hsheet .hrow:last-child {
+  border-bottom: 0;
+}
+
+.hsheet .hrow-t {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.hsheet .hrow-t b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.hsheet .hrow-open {
+  all: unset;
+  min-width: 0;
+  cursor: pointer;
+}
+
+/* the title is the row's button, and its hit area is the whole row (a window's stretched button); clear sits above it */
+.hsheet .hrow-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.hsheet .hrow-s {
+  grid-column: 2 / 4;
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--read, inherit);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hsheet .hrow-clock {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-stretch: 90%;
+}
+
+.hsheet .hrow-lane {
+  grid-column: 2 / 4;
+}
+
+.hsheet .hrow-lane > i {
+  width: 18%;
+  animation-name: hrow-lane;
+  animation-duration: 2.4s;
+}
+
+@keyframes hrow-lane {
+  from { transform: translateX(0); }
+  to { transform: translateX(455%); }
+}
+
+.hsheet .hrow[data-fold="waiting"] .hrow-lane > i {
+  transform: translateX(227%);
+}
+
+.hsheet .hrow-act {
+  all: unset;
+  position: relative;
+  z-index: 1;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--lg-fill);
+  box-shadow: var(--lg-rim);
+  font-size: 13px;
+  font-weight: 640;
+  line-height: 32px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hsheet .hrow-act:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.hsheet .hrow-done {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.hsheet-problem {
+  margin: 8px 0 0;
+  color: var(--red);
+  font-size: 13px;
+}
+
+.hsheet-all {
+  all: unset;
+  height: 48px;
+  margin-top: 12px;
+  border-radius: 16px;
+  background: var(--accent);
+  color: var(--on-accent, var(--ground));
+  font-size: 15px;
+  font-weight: 680;
+  text-align: center;
+  line-height: 48px;
+  cursor: pointer;
+}
+
+.hsheet:not([data-arrangement="deck"]) .hsheet-all {
+  height: 40px;
+  line-height: 40px;
+  font-size: 14px;
+}
+
+.hsheet-all:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (pointer: coarse) {
+  .hsheet .hrow-act {
+    height: 36px;
+    line-height: 36px;
+  }
+
+  .hsheet .hrow-act::before {
+    content: "";
+    position: absolute;
+    inset: -4px -2px;
+  }
+}
+
+/* —— the undo toast —— */
+
+.undo-toast {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+  height: 52px;
+  padding: 0 7px 0 16px;
+  border-radius: 26px;
+  background: var(--lg-fill);
+  -webkit-backdrop-filter: var(--lg-filter);
+  backdrop-filter: var(--lg-filter);
+  box-shadow: var(--lg-rim), var(--lg-drop);
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* the deck: centred over the dock, where the thumb already is */
+.undo-toast[data-arrangement="deck"] {
+  left: 50%;
+  bottom: calc(var(--inset-bottom, 0px) + 100px);
+  translate: -50% 0;
+}
+
+.undo-toast[data-arrangement="strip"] {
+  left: 50%;
+  bottom: 24px;
+  translate: -50% 0;
+}
+
+/* the rail: at the foot of its column, the column's width */
+.undo-toast[data-arrangement="rail"] {
+  left: 18px;
+  bottom: 22px;
+  width: 286px;
+  height: 58px;
+  border-radius: 29px;
+}
+
+.undo-ring {
+  position: relative;
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.undo-ring svg {
+  position: absolute;
+  inset: 0;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke-width: 2.4;
+}
+
+.undo-track {
+  stroke: var(--hairline);
+}
+
+.undo-left {
+  stroke: var(--accent);
+}
+
+.undo-words {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.undo-title {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+}
+
+.undo-error {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.undo-act {
+  all: unset;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 16px;
+  border-radius: 19px;
+  background: var(--accent);
+  color: var(--on-accent, var(--ground));
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.undo-act:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.undo-act:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.undo-act kbd {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  opacity: 0.75;
+}
+
+/* the rail's column has no room for the tick beside the words, "show" and the dismiss */
+.home[data-arrangement="rail"] .away-tick {
+  display: none;
+}

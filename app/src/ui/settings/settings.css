@@ -40,6 +40,25 @@
   gap: 3px;
 }
 
+/* a row whose control needs the width (home's three ways to clear): the words above, the track the row's width under
+   them, its options sharing it */
+.setting-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.setting-stack .segmented {
+  display: flex;
+}
+
+.setting-stack .segmented button {
+  flex: 1;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
 .setting-hint {
   font-size: var(--meta);
   color: var(--text-2);

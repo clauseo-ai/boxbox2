@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { type Agent, type Card, cardVerbs, cardWhen, cardWords, leadOf, stripName, swipeUnsends, UNSEND_AT, compactionWords, compactMeta, contextFill, DRAFTS_FULL, fateLine, matchModels, liveLine, menuOf, menuQuery, modelsNote, placeholder, proseOf, refusedStart, effortChoices, sendWord, slashShowsFill, tailPrint, tokensWords, typedAnswers, waitedWords, withFile } from "./words";
+import { type Agent, type Card, cardVerbs, cardWhen, cardWords, leadOf, stripName, swipeUnsends, UNSEND_AT, compactionWords, compactMeta, contextFill, DRAFTS_FULL, fateLine, liveLine, menuOf, menuQuery, placeholder, proseOf, effortChoices, sendWord, tailPrint, tokensWords, typedAnswers, waitedWords, withFile } from "./words";
+import { matchModels, modelsNote, refusedStart, slashShowsFill } from "./menu-words";
 
 describe("send says what it will do", () => {
   test("an idle thread sends, a working one queues, a held send steers, a question is answered", () => {

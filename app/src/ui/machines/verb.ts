@@ -17,7 +17,10 @@ export type VerbName =
   | "setTheme"
   | "setMotion"
   | "setPushKinds"
-  | "setRepoDefaults";
+  | "setRepoDefaults"
+  | "setAutoClear"
+  | "setFoldWorking"
+  | "setJobsAsNeeds";
 
 type Where = { surface: "machines" | "settings"; host?: string; arg?: string };
 

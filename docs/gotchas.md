@@ -1905,6 +1905,18 @@ its options stay in the first load: they are what a push or a window's pill land
 ask (a failed search or edit, a settled permission, thoughts under "show thinking") waits on the warmed chunk when a thread is
 opened before the launch went idle.
 
+## main was already 119.3 kb, not the recorded 118.9 (settle)
+
+two thread commits after the 118.9 kb entry (a script row opening to its script, renaming a thread) took the first load to
+119.3 kb without a line here, again because `just check` never builds the app. settle's first-load pieces (the working fold's
+capsule, the away line, the job filter, the home prefs and home's wiring; the lists, the toast and the unclear and away calls
+went to chunks from the start) took it to 121.2 kb. what moved: the composer's words only its on-demand surfaces say
+(`composer/menu-words.ts`: the slash rows' fill rule, the sheet's refusal, the model menu's filter and note), 121.0 kb, and the
+thread's details and turns panel (`thread/panel.tsx`, `DetailsPanel` in ui/later.ts), down to 118.9 kb. the panel opens through
+`whenLoaded`, so it never slides in empty, and the stage warms its chunk as it mounts, so home's docked inspector at the widest
+rail paints it into its fixed column the moment it is in, with nothing moving. measure the base before blaming a branch:
+build the commit it started from too.
+
 ## a row result is not a quiet button
 
 a row's quiet result is `<span class="row-r quiet">`, and the app's `.quiet` button rule (styles.css) gives it a 44 px min

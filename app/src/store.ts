@@ -28,6 +28,8 @@ export type Prefs = components["schemas"]["Prefs"];
 export type DevicePrefs = components["schemas"]["DevicePrefs"];
 export type RepoPrefs = components["schemas"]["RepoPrefs"];
 export type ModelPrefs = components["schemas"]["ModelPrefs"];
+/** the person's home prefs, one document for every device (settings, home): auto-clear, the working fold, job notices */
+export type HomePrefs = components["schemas"]["HomePrefs"];
 export type HostModels = components["schemas"]["HostModels"];
 export type PushDevice = components["schemas"]["PushDevice"];
 
@@ -151,6 +153,8 @@ export type State = {
       (the stage, the windows behind the sheet). this device's ui alone, never sent; the choice itself goes to the
       server and comes back as a `colour` frame (ui/window/colours.ts) */
   colourPreview: ColourPreview | null;
+  /** the clear the undo toast offers back (home/toast.tsx), or null while no toast is up. this device's ui alone */
+  undo: Undo | null;
 };
 
 /** one repo, by host and root, shown in one of the ten by name */
@@ -196,6 +200,7 @@ const [state, setState] = createStore<State>({
   composer: { drafts: {}, outbox: [], born: {}, compacting: {}, draftsFull: false, notice: null },
   board: { here: false, digits: {}, bound: {}, met: false, since: 0, focus: null, compose: null, pin: null, pairing: true },
   colourPreview: null,
+  undo: null,
 });
 
 export { state };
@@ -242,7 +247,7 @@ export async function signOut(): Promise<void> {
     await api.POST("/api/logout");
   } finally {
     threadCaches.clear();
-    setState({ gate: "signed-out", hosts: [], hostsAt: null, problem: null, fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null });
+    setState({ gate: "signed-out", hosts: [], hostsAt: null, problem: null, fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null, undo: null });
     setState("terminals", { byHost: {}, shells: {}, open: null });
     setState({ prefs: null, models: {}, modelsRead: {}, behind: null });
     setState("replies", reconcile({}));
@@ -369,7 +374,7 @@ export function setOpenThread(key: string | null): void {
 
 export function syncSignedOut(): void {
   threadCaches.clear();
-  setState({ gate: "signed-out", fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null });
+  setState({ gate: "signed-out", fleet: EMPTY_FLEET, threads: {}, openThread: null, colourPreview: null, undo: null });
   boardGone();
 }
 
@@ -441,6 +446,73 @@ export function setBehind(key: string | null): void {
 
 export function setPrefs(prefs: Prefs): void {
   setState("prefs", reconcile(prefs));
+  keepHome(homePrefs());
+}
+
+/** the server's defaults for the home prefs, which hold until the prefs are read */
+export const DEFAULT_HOME: HomePrefs = { autoClear: "seen1h", foldWorking: true, jobsAsNeeds: false };
+const HOME_KEY = "boxbox.home";
+
+/* a copy of the home prefs rides in localStorage, so a cold launch draws the fold and the job filter as the person chose
+   them before the prefs are read (the server's are the truth, as the appearance's copy is: settings/appearance.ts) */
+function keptHome(): HomePrefs {
+  try {
+    const text = typeof localStorage === "undefined" ? null : localStorage.getItem(HOME_KEY);
+    // the copy is the server's own document as it was last read; a field it lacks takes the default, as the server's read does
+    return { ...DEFAULT_HOME, ...(text ? (JSON.parse(text) as Partial<HomePrefs>) : {}) };
+  } catch {
+    return DEFAULT_HOME;
+  }
+}
+
+function keepHome(value: HomePrefs): void {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(HOME_KEY, JSON.stringify(value));
+  } catch {
+    /* storage full or blocked: the next launch reads the server's prefs a moment later, as before */
+  }
+}
+
+const launchHome = keptHome();
+
+/** the home prefs: the server's once read, this device's copy of them before */
+export function homePrefs(): HomePrefs {
+  return state.prefs?.home ?? launchHome;
+}
+
+/** the home prefs as chosen (settings, optimistic) or as the server saved them */
+export function setHomePrefs(value: HomePrefs): void {
+  if (!state.prefs) return;
+  setState("prefs", "home", reconcile(value));
+  keepHome(value);
+}
+
+/** the undo toast's one clear: the keys the server cleared, the title of the one thread when there is one, and a serial
+    so a newer clear replaces the toast and its timer (home/toast.tsx owns the 6 s) */
+export type Undo = { keys: string[]; title: string | null; serial: number; /** the unclear is out */ busy: boolean; /** why it did not come back */ error: string | null };
+let undoSerial = 0;
+
+/** a clear from this device, or one the server made while this page was in front: the toast offers it back */
+export function offerUndo(keys: readonly string[]): void {
+  if (keys.length === 0) return;
+  const only = keys.length === 1 ? state.fleet.threads[keys[0] ?? ""] : undefined;
+  setState("undo", { keys: [...keys], title: only ? only.title.trim() || "untitled" : null, serial: ++undoSerial, busy: false, error: null });
+}
+
+/** the toast is done with this clear (undone, timed out, dismissed); a newer one stays */
+export function dropUndo(serial: number): void {
+  if (state.undo?.serial === serial) setState("undo", null);
+}
+
+/** the toast's undo is out (`error` null) or came back refused or failed (`error` says why, and the toast stays) */
+export function undoState(serial: number, busy: boolean, error: string | null): void {
+  if (state.undo?.serial === serial) setState("undo", { busy, error });
+}
+
+/** the server cleared threads on its own while a device was looking (`autoCleared`): only a page in front offers it back */
+export function autoCleared(keys: readonly string[]): void {
+  if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+  offerUndo(keys);
 }
 
 export function setDevicePrefs(device: string, value: DevicePrefs): void {

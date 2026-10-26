@@ -56,7 +56,8 @@ is binding the same way (AGENTS.md, design law).
 - **home's controls are liquid glass, its windows are not** (the native
   app's decision 22). the bar's pills and rounds (new thread, clear N,
   history, machines, the windows toggle), the fold's new-thread
-  disc, rounds and toggle, the dock and the capsule float over the windows
+  disc, rounds and toggle, the dock, the capsule, the working fold's
+  capsule and the undo toast float over the windows
   as the stage bar's rounds float over the log, so they are one family:
   regular glass from `styles.css` (`.lg`'s tokens; `.home .pill` is
   `all: unset` and reads them). the folded column's disc is the glass
@@ -397,6 +398,96 @@ window, and history.
   finished turn nobody has seen, idle one that was seen or never ran a turn;
   a thread with no turn is not "done"), and the pill says "clear 3", the two
   added (`doneKeys`), named "clear 3 threads that are done or idle".
+
+## settle: the working fold, undo and the away line (2026-10-26)
+
+finished work clears itself on the server (the clearing section above, and
+`design.md`, settling); what home adds is how it reads. design.md (settling)
+is the law; how it is built:
+
+- **who folds** (`working-fold.ts`, `foldOf`, pinned by
+  `working-fold.test.ts`): a home thread that is busy, retrying, queued or
+  parked with its agents at work folds as working; one parked on background
+  jobs alone folds as waiting. any ask or any open need (after the job
+  filter below) keeps its window, so a thread leaves the fold the moment it
+  finishes, fails, asks or gets a need. the thread on the stage never
+  folds: going back on the deck always has a window to shrink into, and at
+  the strip and the rail the stage's thread keeps its ring. `foldWorking`
+  off folds nothing.
+- **the order without the fold.** home.tsx takes membership's keys and
+  splits them: each thread's fold standing is a memo of its own (`keyed`,
+  as membership's standings are), the windows' target is the rest, and the
+  views are made for both (`viewKeys`), so the capsule, its list and the
+  bar's line read the folded threads' views. the bar's line counts every
+  thread on home, folded or not.
+- **the capsule and the away line move nothing on their own** (perf.shift
+  0). they come and go only inside `applyOrder`'s flip, with the order, after
+  the same calm; a fold that changes but keeps the capsule on the screen
+  lands at once (its words, its beads). the capsule's beads are kept by key,
+  so a working thread's every frame never remakes its bead.
+- **where they sit.** deck and rail: the bar's last rows (the away line
+  above the capsule), the bar's width. the strip's bar is one row and its
+  stage starts under the row of windows, so a row under the bar would move
+  the stage: the away line and the capsule lead the row of windows instead
+  (`.wlead`, 196 px, the row's height).
+- **the capsule's words** (`foldLines`): "4 working" over "nothing wrong,
+  tap to see", or, with both kinds, "4 working" over "2 waiting on a job";
+  for 30 s after a thread leaves (`LEFT_MS`, the capsule's own timer) the
+  second line says "<repo> just left". the accessible name is the whole
+  phrase and what a press does ("4 working, 2 waiting on a job. show the
+  list"). at the rail the second line shows only when it counts the
+  waiting ones.
+- **the lists** (`lists.tsx`, one chunk: `FoldList`, `AwaySheet`) are the
+  answer sheet's shape: a sheet from the foot on the deck, a popover under
+  what opened it at the strip and the rail (under the away line's start
+  for "show"), measured once, the one close (`ui/close.tsx`), escape and a
+  press outside close, focus back to the opener. home is inert under them
+  (`sheetUp`). a fold row is a stretched button (its title, the whole row's
+  hit area) that opens the thread through the window's own path
+  (`activate`, perf control `fold`); a row parked on jobs alone keeps its
+  clear (`clearThreads`, the window's name for it). the list follows the live
+  fold and closes when it empties.
+- **the toast** (`toast.tsx`, a chunk; `undo.ts` its words, sweep and
+  time): `state.undo` in the store, set by `offerUndo` with the keys the
+  clear's answer says it cleared (`clear.tsx`), or by `autoCleared` for an
+  `autoCleared` frame (worker to page, never state) while the document is
+  visible. a newer clear replaces it. `Lifetime` owns the 6 s and holds it
+  while a pointer is over the toast, focus is in it, or its undo is out;
+  the ring is a clip-path wedge with seven points at every frame, played as
+  a decor curve, so reduced motion keeps it full while the time still
+  runs. undo (`settle-api.ts`, `undoLast`; home's `⌘z` when no text field
+  has focus and no sheet is up) posts exactly those keys with source
+  `undo`; a refusal stays on the toast with the server's words and "try
+  again". a key the server says is already back counts as back. the
+  windows it brings back are born without the calm wait
+  (`markBroughtBack`, as a hand clear's hole closes at once).
+- **the away list** is fleet state outside the journal (`fleet.away`, the
+  `away` frame routed like the colours: protocol.ts `settle`, the reducer's
+  `away` action, kept across a reset and in indexeddb with the fleet's other
+  fields, so a cold launch paints the line in its first frame). the line
+  shows while the list holds anything this device has not acknowledged,
+  and while its sheet is open; "show" opens the sheet on the list as it
+  stood and then acknowledges it, the dismiss acknowledges it
+  (`POST /api/away/seen`); the server's empty list follows and the line goes
+  with the next flip. the sheet keeps its rows when the list empties; a row
+  brought back says so and stays. the calls load with the toast and the
+  sheet (`settling()`, ui/later.ts).
+- **the job filter** (`inbox/extra.ts`, `counts`): with `jobsAsNeeds` off
+  (the default) a job need is not a need to the client: it does not make a
+  window unseen ("done"), so it adds nothing to the line's done count or
+  "clear N", and it does not keep a thread out of the fold. the server
+  leaves it out of the order and the badge (design.md, the order is the
+  inbox). history's rows read the same choice.
+- **the home prefs** (`store.ts`, `homePrefs`): the server's `prefs.home`
+  once read, a copy in localStorage (`boxbox.home`) before, so a cold launch
+  folds as the person chose. settings saves them optimistically
+  (`saveHome`, a later choice is never undone by an earlier one's failure)
+  with a `verb` row each (`setAutoClear`, `setFoldWorking`,
+  `setJobsAsNeeds`).
+- **the stories**: `home--home-as-recorded` (the fold at every width),
+  `-working-fold-open`, `-working-fold-off`, `-cleared-while-away`,
+  `-cleared-while-away-sheet`, `-undo-toast-one`, `-undo-toast-many`, and
+  `shell--settings` for the home group.
 
 ## assistants on home (2026-10-15)
 

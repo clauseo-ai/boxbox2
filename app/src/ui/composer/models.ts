@@ -3,7 +3,7 @@
    provider headers when it is shown whole. the menu draws what `arrange` returns and walks `rows` with its arrows. */
 
 import { providerKey, providerWords } from "./marks";
-import { matchModels } from "./words";
+import { matchModels } from "./menu-words";
 
 export type ModelLike = { id: string; name: string; provider: string; efforts: readonly string[] };
 

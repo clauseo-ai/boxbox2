@@ -6,7 +6,8 @@
 import { For, Show } from "solid-js";
 import type { CommandChoice } from "./reads";
 import { ContextRing } from "./context";
-import { type ContextFill, slashShowsFill } from "./words";
+import type { ContextFill } from "./words";
+import { slashShowsFill } from "./menu-words";
 
 export type SlashChoice = CommandChoice & { local?: boolean };
 

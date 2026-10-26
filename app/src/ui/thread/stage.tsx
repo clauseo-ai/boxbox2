@@ -23,7 +23,8 @@ import { placeName } from "./place";
 import { createKeyboardInset } from "../term/keyboard";
 import { holdChrome } from "../settings/appearance";
 import { floodTop } from "../settings/chrome";
-import { DetailsToggle, type DetailsData, FactsButton, Panel, type TurnsData } from "./details";
+import { DetailsToggle, type DetailsData, FactsButton, type TurnsData } from "./details";
+import { DetailsPanel, warm, whenLoaded } from "../later";
 import { factsOf, filesChanged, rosterOf, spendOf, summaryOf } from "./details-model";
 import { type DetailsRoom, docksBeside, type InspectorLink } from "./inspector";
 import { askActions, replies, settled } from "./asks";
@@ -1019,7 +1020,10 @@ export function Stage(props: StageProps) {
   onCleanup(() => { if (untrack(panel) !== null) props.room?.make(false, () => undefined); });
   /* where the panel is: home's inspector when it gave one, else docked in the stage (a sheet on the phone) */
   const shown = () => (props.inspector ? props.inspector.view() : panel());
-  const openPanel = (which: "turns" | "details" | null) => (props.inspector ? props.inspector.show(which) : showPanel(which));
+  /* the panel's body is a chunk of its own (ui/later.ts): it opens once the chunk is in, at once when warmed (the stage
+     warms it as it mounts), so a panel never slides in empty */
+  const openPanel = (which: "turns" | "details" | null) => whenLoaded("DetailsPanel", () => (props.inspector ? props.inspector.show(which) : showPanel(which)));
+  onMount(() => void warm("DetailsPanel").catch(() => undefined));
   const toggleDetails = () => openPanel(shown() === "details" ? null : "details");
   /* the panel keeps what it showed while it slides away */
   const lastPanel = createMemo<"turns" | "details">((before) => shown() ?? before, "turns");
@@ -1428,7 +1432,7 @@ export function Stage(props: StageProps) {
         </div>
         <Show when={!props.inspector}>
           <aside id={panelId} ref={panelEl} class="turns" classList={{ on: panel() !== null }} aria-label={lastPanel()} inert={panel() === null}>
-            <Panel which={lastPanel()} place={docks() ? "docked" : "sheet"} heading={sheetHeading} palette={tone()} details={detailsData} turns={turnsData} filling={data.more()} close={{ label: `close ${lastPanel()}`, run: () => showPanel(null) }} />
+            <DetailsPanel which={lastPanel()} place={docks() ? "docked" : "sheet"} heading={sheetHeading} palette={tone()} details={detailsData} turns={turnsData} filling={data.more()} close={{ label: `close ${lastPanel()}`, run: () => showPanel(null) }} />
           </aside>
         </Show>
       </div>
@@ -1438,7 +1442,7 @@ export function Stage(props: StageProps) {
       <Show when={props.inspector?.el()}>{(el) => (
         <Portal mount={el()} ref={(container) => { inspectEl = container as HTMLDivElement; container.id = panelId; }}>
           <Show when={props.inspector?.view()} keyed>{(view) => (
-            <Panel which={view} place="flat" palette={tone()} details={detailsData} turns={turnsData} filling={data.more()} close={view === "turns" ? { label: "back to details", run: () => props.inspector?.show("details") } : undefined} />
+            <DetailsPanel which={view} place="flat" palette={tone()} details={detailsData} turns={turnsData} filling={data.more()} close={view === "turns" ? { label: "back to details", run: () => props.inspector?.show("details") } : undefined} />
           )}</Show>
         </Portal>
       )}</Show>

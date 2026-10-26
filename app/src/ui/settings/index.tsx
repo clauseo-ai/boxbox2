@@ -11,8 +11,8 @@ import { modelName } from "../model-name";
 import { NotificationsRow } from "../../push/notifications-row";
 import { leave } from "../../shell/navigation";
 import { RepoMark } from "../repo-mark/repo-mark";
-import { type RepoPrefs, state } from "../../store";
-import { devicePrefs, loadModels, loadPrefs, loadPushDevices, saveAppearance, savePushKinds, saveRepo } from "./actions";
+import { type HomePrefs, homePrefs, type RepoPrefs, state } from "../../store";
+import { devicePrefs, loadModels, loadPrefs, loadPushDevices, saveAppearance, saveHome, savePushKinds, saveRepo } from "./actions";
 import { RepoColours } from "./colours";
 import { Segmented, Toggle } from "./controls";
 import "./settings.css";
@@ -27,6 +27,11 @@ const THEMES = [
   { value: "system", label: "system" },
   { value: "dark", label: "dark" },
   { value: "light", label: "light" },
+] as const;
+const CLEARS = [
+  { value: "seen1h", label: "1 h after seen" },
+  { value: "any3h", label: "3 h, seen or not" },
+  { value: "never", label: "never" },
 ] as const;
 const REDUCE = "(prefers-reduced-motion: reduce)";
 const day = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
@@ -107,6 +112,8 @@ export function Settings() {
         </div>
       </section>
 
+      <HomeGroup onProblem={setProblem} />
+
       <section class="settings-group" aria-labelledby="reach-title">
         <h2 id="reach-title">what reaches this device</h2>
         <NotificationsRow />
@@ -149,6 +156,42 @@ export function Settings() {
       <RepoDefaults onProblem={setProblem} />
 
       <RepoColours />
+    </section>
+  );
+}
+
+/** home (design.md, settings): how home settles, for every device. the server's prefs, read with the rest; until they are
+    read the rows are disabled and show this device's copy */
+export function HomeGroup(props: { onProblem: (problem: string | null) => void }) {
+  const save = async (change: Partial<HomePrefs>, changed: keyof HomePrefs) => {
+    const outcome = await saveHome({ ...homePrefs(), ...change }, changed);
+    props.onProblem(outcome.ok ? null : outcome.error);
+  };
+  const unread = () => state.prefs === null;
+  return (
+    <section class="settings-group" aria-labelledby="home-title">
+      <h2 id="home-title">home</h2>
+      <div class="setting setting-stack">
+        <span class="setting-label">
+          clear finished windows
+          <span class="setting-hint">a done or idle window leaves home on its own. never one that asks, stopped, waits on a worktree review, or has messages queued. this runs on the server, so it happens with the app closed.</span>
+        </span>
+        <Segmented label="clear finished windows" value={homePrefs().autoClear} choices={CLEARS} disabled={unread()} onChange={(autoClear) => void save({ autoClear }, "autoClear")} />
+      </div>
+      <div class="setting">
+        <span class="setting-label">
+          fold working windows
+          <span class="setting-hint">windows at work with nothing wrong fold into one capsule. one leaves it when it finishes, stops or asks.</span>
+        </span>
+        <Toggle label="fold working windows" checked={homePrefs().foldWorking} disabled={unread()} onChange={(foldWorking) => void save({ foldWorking }, "foldWorking")} />
+      </div>
+      <div class="setting">
+        <span class="setting-label">
+          job notices count as needs
+          <span class="setting-hint">off: a background job's notice is a row in its thread. it does not add to the badge or move its window.</span>
+        </span>
+        <Toggle label="job notices count as needs" checked={homePrefs().jobsAsNeeds} disabled={unread()} onChange={(jobsAsNeeds) => void save({ jobsAsNeeds }, "jobsAsNeeds")} />
+      </div>
     </section>
   );
 }

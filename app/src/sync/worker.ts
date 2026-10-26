@@ -672,6 +672,12 @@ export class Sync {
       this.dispatch(routed.frame);
       return;
     }
+    // so is the server's word on its own clearing: the away list is an action of the reducer's, an auto-clear goes to the page
+    if (routed.to === "settle") {
+      if (routed.frame.type === "away") this.dispatch({ type: "away", threads: routed.frame.threads });
+      else post({ type: "autoCleared", keys: routed.frame.keys });
+      return;
+    }
     // a board frame is outside the journal: it moves no cursor, no seq and no replay count
     if (routed.to === "board") {
       this.boardSeen = routed.frame.type !== "board.gone";

@@ -7,7 +7,7 @@
 
 import { For } from "solid-js";
 import { render } from "solid-js/web";
-import { applyPatches, bootSync, setOpenThread, setStream, state, syncNeedsReload } from "../../../store";
+import { applyPatches, bootSync, offerUndo, setOpenThread, setPrefs, setStream, state, syncNeedsReload } from "../../../store";
 import type { StreamStatus } from "../../../sync/messages";
 import { neutralPart } from "../../../sync/fixtures/neutral";
 import { type Extra, windowView } from "../../window/view";
@@ -100,7 +100,7 @@ export function mountState(el: HTMLElement, story: StateStory): () => void {
   );
 }
 
-export type HomeStory = "live" | "stray" | "answer" | "answer-two" | "ask-long" | "ask-two" | "offline" | "reload" | "long" | "stale" | "crowd" | "gone" | "empty" | "windows-hidden" | "inspector-folded" | "hidden-inspector-folded" | "inspector-turns" | "strip-folded" | "details" | "heavy";
+export type HomeStory = "live" | "stray" | "answer" | "answer-two" | "ask-long" | "ask-two" | "offline" | "reload" | "long" | "stale" | "crowd" | "gone" | "empty" | "windows-hidden" | "inspector-folded" | "hidden-inspector-folded" | "inspector-turns" | "strip-folded" | "details" | "heavy" | "fold-open" | "fold-off" | "away" | "away-open" | "toast" | "toast-many";
 
 /** what each story's device remembers of the rail and the inspector (home.tsx, `memory`): its own, so no story leaks into the next */
 const FOLDS: Partial<Record<HomeStory, Record<string, string>>> = {
@@ -208,6 +208,22 @@ function watchFirstLeave(): void {
   }, 2500);
 }
 
+/** settle's stories (docs/home.md, settle): the threads at rest in the recorded fleet cleared by the server while nobody was
+    looking, as the away frame lists them, their marks set as the server sets them so they have no window */
+function withAway(fleet: typeof final.state.fleet): typeof final.state.fleet {
+  const resting = fleet.order.filter((key) => fleet.threads[key]?.activity.state === "idle" && !Object.values(fleet.asks).some((a) => a.key === key));
+  const threads = { ...fleet.threads };
+  const away = resting.slice(0, 3).map((key, i) => {
+    const doneAt = AT - (5 + i) * 60 * 60 * 1000;
+    const seenAt = i === 2 ? undefined : doneAt + 7 * 60 * 1000;
+    const clearedAt = (seenAt ?? doneAt) + (i === 2 ? 3 : 1) * 60 * 60 * 1000 + 2 * 60 * 1000;
+    const entry = threads[key];
+    if (entry) threads[key] = { ...entry, cleared: clearedAt };
+    return { key, doneAt, clearedAt, ...(seenAt !== undefined ? { seenAt } : {}) };
+  });
+  return { ...fleet, threads, away };
+}
+
 /** the spawn-only agent the stray story's thread starts: the fleet never holds its session */
 export const STRAY = { id: "ses_stray_scout", name: "notes_scout" };
 
@@ -253,8 +269,10 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     const others = story === "heavy" ? await heavyTranscripts(asks.order.filter((key) => key !== wants)) : {};
     const threads = { ...others, [wants]: pending ? asking(transcript, pending) : transcript };
     if (gone) return;
-    const fleet = story === "long" ? withLongRepo(asks) : story === "crowd" ? withCrowd(asks) : story === "empty" ? { ...asks, threads: {}, asks: {}, order: [] } : asks;
+    const fleet = story === "long" ? withLongRepo(asks) : story === "crowd" ? withCrowd(asks) : story === "empty" ? { ...asks, threads: {}, asks: {}, order: [] } : story === "away" || story === "away-open" ? withAway(asks) : asks;
     bootSync({ fleet, threads, drafts: {}, outbox: [], stream });
+    // the home prefs as the server holds them: the fold on (its default), or off for the story that shows home without it
+    setPrefs({ devices: {}, repos: [], models: { favorites: [] }, home: { autoClear: "seen1h", foldWorking: story !== "fold-off", jobsAsNeeds: false } });
     if (story === "reload") syncNeedsReload();
     // a relaunch whose url names a thread the fleet does not hold: home must let it go, not sit inert under no layer
     if (story === "stale") setOpenThread("desk:ses_not_in_the_fleet");
@@ -266,9 +284,12 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     // the details' story asks for them from the stage's bar, as a person would: docked beside the folded rail on a landscape
     // ipad, a sheet on a portrait one, the inspector already showing them at the mac's width
     const detailing = story === "details";
+    // settle's stories press what a person would: the capsule, "show", or a clear's toast as the clear leaves it
+    const pressing = story === "fold-open" ? ".wfold" : story === "away-open" ? ".away-show" : null;
+    const toasting = story === "toast" || story === "toast-many";
     dispose = render(
       () => (
-        <div data-ready={answering || detailing || story === "stray" ? undefined : ""}>
+        <div data-ready={answering || detailing || pressing || toasting || story === "stray" ? undefined : ""}>
           <Home onMachines={() => undefined} onHistory={() => undefined} at={AT} measure={false} memory={memory} />
         </div>
       ),
@@ -278,6 +299,15 @@ export function mountHome(el: HTMLElement, story: HomeStory): () => void {
     if (detailing) {
       setTimeout(() => el.querySelector<HTMLButtonElement>(".stage-bar .details-toggle[aria-expanded=false]")?.click(), 700);
       setTimeout(() => el.querySelector("div")?.setAttribute("data-ready", ""), 1600);
+    }
+    if (pressing) {
+      setTimeout(() => el.querySelector<HTMLButtonElement>(pressing)?.click(), 700);
+      setTimeout(() => el.querySelector("div")?.setAttribute("data-ready", ""), 1500);
+    }
+    if (toasting) {
+      const resting = state.fleet.order.filter((key) => state.fleet.threads[key]?.activity.state === "idle");
+      setTimeout(() => offerUndo(story === "toast" ? resting.slice(0, 1) : state.fleet.order.slice(0, 3)), 600);
+      setTimeout(() => el.querySelector("div")?.setAttribute("data-ready", ""), 1500);
     }
     if (answering) {
       setTimeout(() => el.querySelector<HTMLButtonElement>(".win .wask")?.click(), 700);

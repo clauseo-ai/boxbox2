@@ -169,9 +169,6 @@ export const DROP_LINE = "drop a photo or a file to add it";
 /** what a composer says while this device has no room to keep drafts: what is written stays only while the page is open */
 export const DRAFTS_FULL = "this device has no room left to keep drafts, so what you write here stays only while this page is open. free some space and it saves again";
 
-/** a slash row draws the context's fill (its ring and percent) only for compact, the one command the fill is about */
-export const slashShowsFill = (choice: { name: string; local?: boolean | undefined }): boolean => choice.local === true && choice.name === "compact";
-
 /** the menu a draft opens: `/` first is a command, `@` after a space is a file, `!` first is the shell */
 export function menuOf(text: string): "/" | "@" | "!" | null {
   if (text.startsWith("/") && !/\s/.test(text.slice(1))) return "/";
@@ -248,38 +245,7 @@ export function liveLine(tail: readonly TailItem[]): { kind: string; text: strin
   return null;
 }
 
-/** what the sheet says when a first message did not start: the host's own words when they already say so, else with that
-    said first; always ending on what to do, once */
-export function refusedStart(error: string | null, photosReturned = 0): string {
-  const said = (error ?? "the machine refused it").trim().replace(/\.$/, "");
-  const head = said.includes("did not start") ? said : `the thread did not start: ${said}`;
-  // a message whose photos went back to the draft is not retried (it would start the thread with its words alone): its own words say what to do
-  if (photosReturned) return `${head}.`;
-  return head.includes("retry") ? `${head}.` : `${head}. retry sends it once, never twice.`;
-}
-
-/** the models a typed filter keeps: every word in the name, the provider or the id; the ones whose name starts with the
-    first word lead, then the ones whose name holds every word, then the rest, each in the host's own order */
-export function matchModels<M extends { id: string; name: string; provider: string }>(models: readonly M[], query: string): M[] {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return [...models];
-  const scored: Array<[M, number, number]> = [];
-  models.forEach((model, at) => {
-    const name = model.name.toLowerCase();
-    const all = `${name} ${model.provider.toLowerCase()} ${model.id.toLowerCase()}`;
-    if (!words.every((word) => all.includes(word))) return;
-    const rank = name.startsWith(words[0] ?? "") ? 0 : words.every((word) => name.includes(word)) ? 1 : 2;
-    scored.push([model, rank, at]);
-  });
-  return scored.sort((a, b) => a[1] - b[1] || a[2] - b[2]).map(([model]) => model);
-}
-
 export type ListState = "ready" | "loading" | "failed";
-
-/** what the model menu says while the host's list is not here */
-export function modelsNote(list: Exclude<ListState, "ready">): string {
-  return list === "failed" ? "the models did not come." : "reading the models.";
-}
 
 /** the effort chip and what its dial can offer. with the list here it is the model's own accepted efforts, and a model
     that takes none has no chip. without it the chip stays: the thread's current effort is known from the session, and

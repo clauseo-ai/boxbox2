@@ -14,7 +14,8 @@ import { ProviderMark } from "./mark";
 import { providerKey, providerWords } from "./marks";
 import { arrange, defaultView, type View } from "./models";
 import { modelName } from "../model-name";
-import { type ListState, modelsNote } from "./words";
+import type { ListState } from "./words";
+import { modelsNote } from "./menu-words";
 
 export type ModelChoice = HostModels["models"][number];
 

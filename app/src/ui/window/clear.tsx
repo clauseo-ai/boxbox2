@@ -5,13 +5,14 @@
    until it is gone), then the server is told, and the stream brings the order without it: home closes the others up by flip
    (home.tsx, applyOrder; a hand-cleared window skips its calm wait). nothing is deleted: the thread stays in history,
    and comes back on its own when it works, asks or is updated (server/src/fleet/model.rs). a refusal (the thread
-   started working in the meantime) puts the window back with the reason beside it. */
+   started working in the meantime) puts the window back with the reason beside it. what the server did clear, the undo
+   toast offers back for 6 s (home/toast.tsx). */
 
 import { createMemo, createRoot, createSignal, Show } from "solid-js";
 import { api } from "../../api/client";
 import { play } from "../../motion/animate";
 import { FADE } from "../../motion/springs";
-import { state } from "../../store";
+import { offerUndo, state } from "../../store";
 import { deviceIdentity } from "../../sync/client";
 import { said, UNREACHABLE } from "../machines/verb";
 import { doneKeys, doneLabel, doneName, markHandCleared, nameSuffixes, releaseHandCleared } from "./clearing";
@@ -95,7 +96,8 @@ export async function clearThreads(keys: readonly string[], source: ClearSource)
       return;
     }
     for (const refused of data.refused) back(refused.key, refused.message);
-    // the order the stream carries drops the rest
+    // the order the stream carries drops the rest, and the toast offers exactly those back (home/toast.tsx)
+    offerUndo(data.cleared);
   } catch {
     for (const key of keys) back(key, UNREACHABLE);
   }
