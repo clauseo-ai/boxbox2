@@ -1915,8 +1915,10 @@ went to chunks from the start) took it to 121.2 kb. what moved: the composer's w
 thread's details and turns panel (`thread/panel.tsx`, `DetailsPanel` in ui/later.ts), down to 118.9 kb. the panel opens through
 `whenLoaded`, so it never slides in empty, and the stage warms its chunk as it mounts, so home's docked inspector at the widest
 rail paints it into its fixed column the moment it is in, with nothing moving. the last settle commit (the deck's toast in
-the page dots' row) read 119.1 kb with no first-load code changed: renamed chunk files compress a little differently. measure
-the base before blaming a branch: build the commit it started from too.
+the page dots' row) read 119.1 kb with no first-load code changed: renamed chunk files compress a little differently. the
+review fixes after it (the undo offers' rules in `home/offers.ts`, home's live region for the toast, the home prefs read
+field by field) read 119.5 kb: 0.5 kb of headroom left. measure the base before blaming a branch: build the commit it started
+from too.
 
 ## a row result is not a quiet button
 
