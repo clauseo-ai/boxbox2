@@ -655,7 +655,7 @@
   cursor: pointer;
 }
 
-.undo-act:disabled {
+.undo-act[aria-disabled="true"] {
   opacity: 0.6;
   cursor: default;
 }

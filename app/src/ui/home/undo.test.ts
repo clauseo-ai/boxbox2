@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { dropUndo, liveUndo, offerUndo, state, type Undo, undoFailed } from "../../store";
 import { dropped, failed, offered, type Offers, settled, toastAnnouncement } from "./offers";
-import { DRAIN_FRAMES, Lifetime, TOAST_MS, toastWords, undoName, wedge } from "./undo";
+import { DRAIN_FRAMES, Lifetime, TOAST_MS, toastWords, undoName, undoOut, wedge } from "./undo";
 
 /** a clock the test moves by hand */
 function manual() {
@@ -202,5 +202,12 @@ describe("the toast's words and ring", () => {
     expect(wedge(0.5)).toBe("polygon(50% 50%, 50% 100%, 50% 100%, 50% 100%, 0% 100%, 0% 0%, 50% 0%)");
     for (const frame of DRAIN_FRAMES) expect(frame.clipPath.split(",").length).toBe(7);
     expect(DRAIN_FRAMES.map((f) => f.offset)).toEqual([0, 1 / 8, 3 / 8, 5 / 8, 7 / 8, 1]);
+  });
+});
+
+describe("the undo button while its undo is out", () => {
+  test("aria-disabled, so focus stays on it (a disabled button drops focus and the toast closing would lose it)", () => {
+    expect(undoOut({ busy: true })).toBe("true");
+    expect(undoOut({ busy: false })).toBeUndefined();
   });
 });

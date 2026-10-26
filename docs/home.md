@@ -502,8 +502,12 @@ is the law, and decisions 93 to 100 say why; how it is built:
   what opened it at the strip and the rail (under the away line's start
   for "show"), measured once, the one close (`ui/close.tsx`), escape and a
   press outside close, focus back to the opener, or to the bar's first
-  control when the opener went with the change ("bring all back" empties
-  the away line; `focus-back.ts`). home is inert under them
+  control when the opener went with the change or goes with the next
+  flip: the away sheet is seen as it opens, so its line is still drawn
+  when the sheet closes but leaves on the flip, and focus left on it would
+  drop to the body (`lineStays`, `focus-back.ts`). the line's dismiss
+  moves its focus to the bar's first control at once for the same
+  reason. home is inert under them
   (`sheetUp`). a fold row is a stretched button (its title, the whole row's
   hit area) that opens the thread through the window's own path
   (`activate`, perf control `fold`), and focus stays with the stage, not
@@ -537,7 +541,10 @@ is the law, and decisions 93 to 100 say why; how it is built:
   again", and shows even when a newer toast took over meanwhile: the failed
   offer comes back on screen and the newer one waits first in line. a key
   the server says is already back counts as back. focus in the toast when
-  it goes (its undo done) moves to the bar's first control. the toast is no
+  it goes (its undo done) moves to the bar's first control. its undo while
+  out is `aria-disabled` and ignores presses, never `disabled`: a browser
+  drops focus from a disabled button, the toast would not know focus was
+  in it, and focus would fall to the body. the toast is no
   live region: it would arrive already holding its words. home keeps one,
   empty and visually hidden, from the first paint (`.toast-live`,
   `toastAnnouncement`), and the words go into it as a toast shows. the ⌘z

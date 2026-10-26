@@ -33,7 +33,18 @@ const LEAST = 280;
 /** closes the sheet; `restore` false leaves focus where it went (a thread opened from the list: the stage has it) */
 type CloseSheet = (restore?: boolean) => void;
 
-function HomeSheet(props: { arrangement: Arrangement; from: HTMLElement; title: string; sub: string; label: string; onClose: () => void; children: JSX.Element; close?: (close: CloseSheet) => void }) {
+function HomeSheet(props: {
+  arrangement: Arrangement;
+  from: HTMLElement;
+  title: string;
+  sub: string;
+  label: string;
+  onClose: () => void;
+  children: JSX.Element;
+  close?: (close: CloseSheet) => void;
+  /** read after onClose: whether what opened it stays past home's next flip (the away line goes once it is seen) */
+  stays?: () => boolean;
+}) {
   let sheetEl: HTMLDivElement | undefined;
   let scrimEl: HTMLDivElement | undefined;
   const deck = () => props.arrangement === "deck";
@@ -58,8 +69,9 @@ function HomeSheet(props: { arrangement: Arrangement; from: HTMLElement; title: 
     const back = props.from;
     props.onClose();
     // home is inert under the sheet until it closes: focus goes back to what opened it once it is not, or to the bar's first
-    // control when that went with the change (the away line, emptied by "bring all back")
-    if (restore) queueMicrotask(() => focusBack(back, barControl));
+    // control when that went with the change or goes with the next flip (the away line, seen: it is still drawn now, and a
+    // focus left on it would drop to the body when the flip takes it)
+    if (restore) queueMicrotask(() => focusBack(back, barControl, props.stays ? !props.stays() : false));
   };
   props.close?.((restore) => void close(restore));
   onMount(() => {
@@ -197,6 +209,8 @@ export type AwaySheetProps = {
   arrangement: Arrangement;
   from: HTMLElement;
   onClose: () => void;
+  /** read after onClose: whether the away line stays past home's next flip (rows came in that this device has not seen) */
+  lineStays: () => boolean;
 };
 
 /** the threads the server cleared while you were away, each with "bring back", and "bring all back" at the foot. a row
@@ -234,6 +248,7 @@ export function AwaySheet(props: AwaySheetProps) {
       sub={awaySubtitle(props.mode)}
       label="threads cleared while you were away"
       onClose={props.onClose}
+      stays={props.lineStays}
       close={(close) => (closeIt = close)}
     >
       <ul class="hrows" aria-label="cleared threads">

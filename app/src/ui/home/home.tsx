@@ -55,6 +55,7 @@ import type { AwayThread } from "../../sync/protocol";
 import { type FoldKind, foldOf, leaverOf } from "./working-fold";
 import { WorkingFold } from "./fold-capsule";
 import { AwayLine } from "./away-line";
+import { barControl, focusBack } from "./focus-back";
 import { arrive, leave, unveil, veil } from "./parts";
 import { doing, launchPainted, startPerf, tapped, watchTransition } from "./perf";
 import { type Beside, detailsPlace } from "./windows";
@@ -1291,6 +1292,12 @@ export function Home(props: HomeProps) {
         if (failed !== null && acked() === seen) setAcked("");
       });
   };
+  /* the dismiss is seen too: the line goes with the next flip, so focus on its dismiss moves now to the bar's first control,
+     where it will still be after that flip (focus-back.ts) */
+  const dismissAway = () => {
+    acknowledge();
+    if (!awayLive()) focusBack(null, barControl);
+  };
   const showAway = (from: HTMLElement) => {
     const rows = awayRows();
     // seen once the sheet is up: the line stays while it is open, so the sheet hangs from it and focus comes back to it
@@ -1305,7 +1312,7 @@ export function Home(props: HomeProps) {
   const settle = () => (
     <>
       <Show when={awayShown()}>
-        <AwayLine count={awayCount()} open={awayOpen() !== null} onShow={showAway} onDismiss={acknowledge} />
+        <AwayLine count={awayCount()} open={awayOpen() !== null} onShow={showAway} onDismiss={dismissAway} />
       </Show>
       <Show when={foldShown().length > 0}>
         <WorkingFold keys={foldShown()} kindOf={kindOf} viewOf={viewOf} left={leaver()} open={foldOpen() !== null} onOpen={(from) => whenLoaded("FoldList", () => setFoldOpen(from))} />
@@ -1558,7 +1565,7 @@ export function Home(props: HomeProps) {
         )}
       </Show>
       <Show when={awayOpen()} keyed>
-        {(at) => <AwaySheet rows={at.rows} mode={homePrefs().autoClear} arrangement={arrangement()} from={at.from} onClose={() => setAwayOpen(null)} />}
+        {(at) => <AwaySheet rows={at.rows} mode={homePrefs().autoClear} arrangement={arrangement()} from={at.from} onClose={() => setAwayOpen(null)} lineStays={awayLive} />}
       </Show>
       {/* keyed: the toast holds the offer itself, so its time and its cleanup never read a stale accessor once an undo or the
           time lets go of it (a newer offer merges into the same store object, so the toast stays mounted through it) */}

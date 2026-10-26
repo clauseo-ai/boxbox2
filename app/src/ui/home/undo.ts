@@ -43,6 +43,13 @@ export function undoName(undo: Pick<Undo, "keys" | "title">): string {
   return undo.keys.length === 1 && undo.title !== null ? `undo clearing ${undo.title}` : `undo clearing ${undo.keys.length} threads`;
 }
 
+/** the undo button while its undo is out: aria-disabled, never disabled. a browser drops focus from a disabled button, so
+    the toast would not know focus was in it when it closes, and focus would fall to the body (toast.tsx); the press is
+    ignored while out (settle-api.ts, `undoLast`) */
+export function undoOut(undo: Pick<Undo, "busy">): "true" | undefined {
+  return undo.busy ? "true" : undefined;
+}
+
 export type Clock = {
   now: () => number;
   after: (ms: number, run: () => void) => unknown;

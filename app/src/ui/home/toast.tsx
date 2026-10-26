@@ -1,7 +1,9 @@
 /* the undo toast (docs/home.md, undo; undo.ts has its words, its sweep and its time): after a clear from this device (one
    window, or "clear N") and after the server auto-cleared threads while this page was in front, a glass pill says
    "cleared N" and offers "undo" for 6 s, a ring draining as the time runs out. the time stops while a pointer is over it,
-   while focus is in it and while its undo is out, so a person reaching for it never loses it. undo (here, or ⌘z on home,
+   while focus is in it and while its undo is out, so a person reaching for it never loses it. its undo while out is
+   aria-disabled, not disabled: a disabled button loses focus, and the toast closing would then drop focus to the body
+   instead of the bar's first control. undo (here, or ⌘z on home,
    home.tsx) brings back exactly the keys the clear cleared (settle-api.ts, `undoLast`); a newer clear replaces the toast
    and its time, except that an auto-clear waits for a hand clear's toast to end (offers.ts). its words are announced by
    home's live region, there before the toast (home.tsx), not by the toast, which would arrive already holding them. a
@@ -16,7 +18,7 @@ import type { Undo } from "../../store";
 import { barControl, focusBack } from "./focus-back";
 import { undoLast } from "./settle-api";
 import { toastLife } from "./toast-life";
-import { DRAIN_FRAMES, TOAST_MS, toastWords, undoName } from "./undo";
+import { DRAIN_FRAMES, TOAST_MS, toastWords, undoName, undoOut } from "./undo";
 
 /** the deck's toast height (settle.css): the page dots' row is 44, and the toast stands 2 px past it each way */
 const DECK_HEIGHT = 48;
@@ -93,8 +95,10 @@ export function UndoToast(props: {
         type="button"
         aria-label={props.undo.error ? `try again: ${undoName(props.undo)}` : undoName(props.undo)}
         aria-keyshortcuts={props.keys ? "Meta+Z" : undefined}
-        disabled={props.undo.busy}
-        onClick={() => void undoLast()}
+        aria-disabled={undoOut(props.undo)}
+        onClick={() => {
+          if (!props.undo.busy) void undoLast();
+        }}
       >
         {props.undo.error ? "try again" : "undo"}
         <Show when={props.keys}>
