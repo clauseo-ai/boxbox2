@@ -18,7 +18,7 @@ workflow publishes the section whose heading matches the version in
   stays until it changes (decision 97). what cleared while no device was
   looking is one line under the bar, "N cleared while you were away", with
   a sheet or popover to bring any or all back (an additive `away` frame and
-  `POST /api/away/seen`, decisions 94 and 98). migrations 12 (the `person`
+  `POST /api/away/seen`, decisions 94, 98 and 101; the server sends the away list after every hello). migrations 12 (the `person`
   prefs scope) and 13 (the clear's cause, times and away flag; the `kept`
   table). telemetry kinds `home.swept`, `thread.uncleared`, `away.seen`.
 - **the working fold.** threads at work with nothing wrong, and threads
@@ -32,7 +32,7 @@ workflow publishes the section whose heading matches the version in
 - **settings has a "home" group** with the three: clear finished windows,
   fold working windows, job notices count as needs (`GET /api/prefs`
   gains `home`, `PUT /api/prefs/home`). the thread's details panel now
-  loads as a chunk to keep the first load under its budget, at 119.6 kb
+  loads as a chunk to keep the first load under its budget, at 119.7 kb
   (decision 100).
 
 - **see the script a run ran.** a script row (cmx2's `run`) opened to
