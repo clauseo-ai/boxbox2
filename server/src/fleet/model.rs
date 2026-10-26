@@ -69,6 +69,43 @@ pub const MAX_ORDER: usize = 300;
 pub const SEEN_FOR_MS: i64 = 60 * 60 * 1000;
 /// `any3h`: how long after a thread settled the sweep clears it, seen or not.
 pub const SETTLED_FOR_MS: i64 = 3 * 60 * 60 * 1000;
+
+/// how often the auto-clear sweep runs and how long its rules wait.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SweepPace {
+    /// after a start, before the first sweep: the hosts have been read by then.
+    pub first: std::time::Duration,
+    pub every: std::time::Duration,
+    /// `seen1h`'s wait, ms.
+    pub seen_for: i64,
+    /// `any3h`'s wait, ms.
+    pub settled_for: i64,
+}
+
+impl Default for SweepPace {
+    fn default() -> Self {
+        Self {
+            first: std::time::Duration::from_secs(60),
+            every: std::time::Duration::from_secs(5 * 60),
+            seen_for: SEEN_FOR_MS,
+            settled_for: SETTLED_FOR_MS,
+        }
+    }
+}
+
+impl SweepPace {
+    /// `[dev] sweep_fast`: a sweep every 10 s, `seen1h` after a minute and
+    /// `any3h` after three, so a dev server shows auto-clear while you watch.
+    #[must_use]
+    pub fn fast() -> Self {
+        Self {
+            first: std::time::Duration::from_secs(10),
+            every: std::time::Duration::from_secs(10),
+            seen_for: 60 * 1000,
+            settled_for: 3 * 60 * 1000,
+        }
+    }
+}
 /// threads opened from history that the fleet holds beyond its host's newest
 /// 300 (`Model::adopt`). the oldest idle one goes when another comes in; a
 /// thread on a device's stage never does.
@@ -451,6 +488,8 @@ pub struct Model {
     looking: Vec<Looking>,
     /// the person's home prefs: the sweep's rule, and whether job notices count.
     home: HomePrefs,
+    /// the sweep's waits (`SweepPace`).
+    pace: SweepPace,
     /// per home window with no status, the `time.updated` it had when a sweep
     /// first found it idle and when that was (server ms): `any3h`'s last
     /// resort for when it settled. kept by the sweep alone, for the windows it
@@ -2605,6 +2644,11 @@ impl Model {
         self.home
     }
 
+    /// how long the sweep's rules wait; the defaults unless a dev config asks.
+    pub fn set_pace(&mut self, pace: SweepPace) {
+        self.pace = pace;
+    }
+
     /// a device is looking at boxbox now (decision 23: visible, focused,
     /// reported in the last 90 s).
     #[must_use]
@@ -2674,10 +2718,10 @@ impl Model {
             self.quiet.remove(key);
             return None;
         }
-        let (updated, queued, newest) = (
+        let (updated, queued, reply) = (
             session.updated,
             session.thread.queued,
-            session.turn.newest.as_ref().map(|(_, at)| *at),
+            session.turn.reply.as_ref().map(|r| r.created),
         );
         let now = self.now;
         // the first sweep to find it idle at this `updated` starts its quiet
@@ -2708,15 +2752,24 @@ impl Model {
         {
             return None;
         }
-        let seen_at = newest
-            .filter(|at| self.reads.seen(key, *at))
-            .and_then(|_| self.reads.merged(key))
+        // seen: a person's mark covers the reply its done is about, so no done is open. not the newest
+        // message: a daemon can leave the newest the model heard (a step's message it removed) out of the
+        // transcript a device reads and marks, and a thread would then never count as seen
+        let seen_at = self
+            .reads
+            .merged(key)
+            .filter(|_| done.is_none() && reply.is_none_or(|at| self.reads.seen(key, at)))
             .map(|mark| mark.marked_at);
-        let done_at = done.unwrap_or_else(|| seen_at.map_or(quiet_since, |s| s.min(quiet_since)));
+        // when it finished, for the away summary: its done, open or served lately; else when it went quiet
+        let done_at = done
+            .or_else(|| self.needs.last_served_raise(key, NeedKind::Done))
+            .unwrap_or_else(|| seen_at.map_or(quiet_since, |s| s.min(quiet_since)));
         let due = match mode {
-            AutoClear::Seen1h => seen_at.is_some_and(|seen| now - seen >= SEEN_FOR_MS),
+            AutoClear::Seen1h => seen_at.is_some_and(|seen| now - seen >= self.pace.seen_for),
             // settled: its done was raised, else it was seen through its newest, else it went quiet
-            AutoClear::Any3h => now - done.or(seen_at).unwrap_or(quiet_since) >= SETTLED_FOR_MS,
+            AutoClear::Any3h => {
+                now - done.or(seen_at).unwrap_or(quiet_since) >= self.pace.settled_for
+            }
             AutoClear::Never => false,
         };
         due.then_some(Settled { done_at, seen_at })
@@ -5263,6 +5316,21 @@ mod tests {
             Some(3),
             r#"{"id":"e","type":"process.notify","properties":{"process":{"id":"proc_1","sessionID":"ses_job","pid":1,"command":"bun test","cwd":"/w","title":"bun test","kind":"job","status":"exited","exitCode":0,"ports":[],"origin":"model","startedAt":1},"reason":"exit","detail":"118 passed"}}"#,
         );
+        // a job notice is not a need by default (decision 95): the job thread ranks as the idle thread it is
+        assert_eq!(
+            order(&model)[..4],
+            [
+                "desk:ses_err",
+                "desk:ses_rev",
+                "desk:ses_busy",
+                "desk:ses_job"
+            ]
+        );
+        let counting = model.set_home(HomePrefs {
+            jobs_as_needs: true,
+            ..HomePrefs::default()
+        });
+        assert_eq!(kinds(&counting), ["order"], "the pref re-ranks at once");
         assert_eq!(
             order(&model)[..4],
             [
@@ -7736,5 +7804,406 @@ mod tests {
         changes.extend(model.source("desk", None, SourceEvent::CaughtUp));
         assert_eq!(resets_in(&changes), ["desk:ses_1"]);
         assert_eq!(model.srev("desk:ses_1"), Some(12));
+    }
+
+    /* —— finished work clearing itself (decisions 93 to 95) —— */
+
+    const HOUR: i64 = 60 * 60 * 1000;
+
+    /// `done_thread`, read on the phone through its reply at 1000.
+    fn seen_thread() -> Model {
+        let mut model = done_thread();
+        model.read("desk:ses_1", &phone(), "msg_a", 100.0).unwrap();
+        model.drain();
+        model
+    }
+
+    fn sweep_at(model: &mut Model, at: i64) -> Swept {
+        model.at(at);
+        model.sweep().1
+    }
+
+    fn mode(model: &mut Model, auto_clear: AutoClear) {
+        model.set_home(HomePrefs {
+            auto_clear,
+            ..HomePrefs::default()
+        });
+    }
+
+    /// what `any3h` clears of a thread, with a first sweep an hour in to see it
+    /// idle and a second ten hours in, well past every wait.
+    fn cleared_late(model: &mut Model) -> Vec<String> {
+        mode(model, AutoClear::Any3h);
+        let mut cleared = sweep_at(model, 1000 + HOUR).cleared;
+        cleared.extend(sweep_at(model, 1000 + 10 * HOUR).cleared);
+        cleared
+    }
+
+    fn looking_now(model: &mut Model) {
+        model.looking(vec![Looking {
+            device: "mac".into(),
+            class: "mac".into(),
+            thread: None,
+            until: i64::MAX,
+        }]);
+    }
+
+    #[test]
+    fn seen1h_clears_a_thread_an_hour_after_it_was_seen_through_its_newest() {
+        let mut model = seen_thread();
+        assert!(sweep_at(&mut model, 1000 + HOUR - 1).cleared.is_empty());
+        let swept = sweep_at(&mut model, 1000 + HOUR);
+        assert_eq!(swept.cleared, ["desk:ses_1"]);
+        assert_eq!(swept.windows, 1);
+        assert_eq!(swept.mode, AutoClear::Seen1h);
+        assert!(swept.away, "nobody was looking");
+        assert_eq!(model.entry("desk:ses_1").unwrap().cleared, Some(100.0));
+        let clear = model.clears.get("desk:ses_1").unwrap();
+        assert_eq!(
+            (clear.cause, clear.away, clear.seen_at, clear.at),
+            (Cause::Auto, true, Some(1000), 1000 + HOUR)
+        );
+        assert!(told(&mut model).contains(&"cleared desk:ses_1".to_owned()));
+        // a cleared thread is not swept again
+        assert!(sweep_at(&mut model, 1000 + 2 * HOUR).cleared.is_empty());
+    }
+
+    #[test]
+    fn seen1h_leaves_a_thread_nobody_saw() {
+        let mut model = done_thread();
+        assert!(sweep_at(&mut model, 1000 + 11 * HOUR).cleared.is_empty());
+    }
+
+    #[test]
+    fn any3h_clears_three_hours_after_the_done_seen_or_not_and_serves_it() {
+        let mut model = done_thread();
+        mode(&mut model, AutoClear::Any3h);
+        assert!(sweep_at(&mut model, 1000 + 3 * HOUR - 1).cleared.is_empty());
+        assert_eq!(
+            sweep_at(&mut model, 1000 + 3 * HOUR).cleared,
+            ["desk:ses_1"]
+        );
+        assert!(model.needs_open().is_empty(), "the badge drops");
+        assert!(
+            told(&mut model).contains(&"served done:desk:ses_1:msg_a by agent cleared".to_owned())
+        );
+        assert_eq!(
+            model.away(),
+            [wire::AwayThread {
+                key: "desk:ses_1".into(),
+                done_at: 1000,
+                seen_at: None,
+                cleared_at: 1000 + 3 * HOUR,
+            }]
+        );
+    }
+
+    #[test]
+    fn any3h_counts_a_quiet_thread_from_the_first_sweep_that_found_it_idle() {
+        let mut model = Model::new();
+        model.at(1000);
+        event(&mut model, None, &updated("ses_1", 100, None));
+        mode(&mut model, AutoClear::Any3h);
+        assert!(
+            sweep_at(&mut model, 2000).cleared.is_empty(),
+            "now it is seen idle"
+        );
+        assert!(sweep_at(&mut model, 2000 + 3 * HOUR - 1).cleared.is_empty());
+        // touched since: its quiet starts again
+        event(&mut model, None, &updated("ses_1", 150, None));
+        assert!(sweep_at(&mut model, 2000 + 3 * HOUR).cleared.is_empty());
+        assert_eq!(
+            sweep_at(&mut model, 2000 + 6 * HOUR).cleared,
+            ["desk:ses_1"]
+        );
+    }
+
+    #[test]
+    fn never_clears_nothing_however_long() {
+        let mut model = seen_thread();
+        mode(&mut model, AutoClear::Never);
+        let swept = sweep_at(&mut model, 1000 + 10 * HOUR);
+        assert!(swept.cleared.is_empty());
+        assert_eq!(swept.windows, 0, "it does not even look");
+        assert!(model.entry("desk:ses_1").unwrap().cleared.is_none());
+    }
+
+    #[test]
+    fn the_sweep_clears_a_settled_thread_under_either_rule() {
+        let mut model = done_thread();
+        assert_eq!(cleared_late(&mut model), ["desk:ses_1"]);
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_thread_asking_for_permission() {
+        let mut model = done_thread();
+        event(
+            &mut model,
+            None,
+            r#"{"id":"e","type":"permission.asked","properties":{"id":"per_1","sessionID":"ses_1","permission":"read","patterns":[],"metadata":{},"always":[]}}"#,
+        );
+        assert!(cleared_late(&mut model).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_thread_asking_a_question() {
+        let mut model = done_thread();
+        event(
+            &mut model,
+            None,
+            r#"{"id":"e","type":"question.asked","properties":{"id":"que_1","sessionID":"ses_1","questions":[]}}"#,
+        );
+        assert!(cleared_late(&mut model).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_thread_that_failed() {
+        let mut model = done_thread();
+        event(
+            &mut model,
+            None,
+            r#"{"id":"e","type":"session.error","properties":{"sessionID":"ses_1","error":{"name":"ProviderError","data":{"message":"the provider is down"}}}}"#,
+        );
+        assert!(model.needs_open().iter().any(|n| n.kind == NeedKind::Fault));
+        assert!(cleared_late(&mut model).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_thread_that_stopped() {
+        let mut model = Model::new();
+        model.at(1000);
+        event(&mut model, None, &updated("ses_1", 100, None));
+        busy(&mut model, "ses_1");
+        reply(&mut model, "ses_1", "msg_a", "aborted");
+        idle(&mut model, "ses_1");
+        assert!(model.needs_open().iter().any(|n| n.kind == NeedKind::Fault));
+        assert!(cleared_late(&mut model).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_thread_whose_worktree_waits_on_review() {
+        let mut model = done_thread();
+        event(
+            &mut model,
+            Some(1),
+            r#"{"id":"e","type":"worktree.review.requested","properties":{"name":"fix-auth","branch":"cmx2/fix-auth","sessionID":"ses_1"}}"#,
+        );
+        assert!(cleared_late(&mut model).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_thread_with_prompts_queued() {
+        let mut model = done_thread();
+        model.sessions.get_mut("desk:ses_1").unwrap().thread.queued = 1;
+        assert!(cleared_late(&mut model).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_thread_at_work() {
+        let mut model = done_thread();
+        busy(&mut model, "ses_1");
+        assert!(cleared_late(&mut model).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_thread_parked_on_its_agents() {
+        let mut model = done_thread();
+        event(
+            &mut model,
+            None,
+            &status(
+                "ses_1",
+                r#"{"type":"idle","since":9,"parked":{"agents":1,"jobs":0}}"#,
+            ),
+        );
+        assert!(cleared_late(&mut model).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_thread_parked_on_jobs_alone() {
+        let mut model = done_thread();
+        event(
+            &mut model,
+            None,
+            &status(
+                "ses_1",
+                r#"{"type":"idle","since":9,"parked":{"agents":0,"jobs":2}}"#,
+            ),
+        );
+        assert!(cleared_late(&mut model).is_empty());
+    }
+
+    #[test]
+    fn the_sweep_never_clears_a_subagent() {
+        let mut model = Model::new();
+        model.at(1000);
+        event(&mut model, None, &updated("ses_p", 100, None));
+        event(&mut model, None, &updated("ses_c", 100, Some("ses_p")));
+        let cleared = cleared_late(&mut model);
+        assert_eq!(
+            cleared,
+            ["desk:ses_p"],
+            "the parent goes, its subagent has no window"
+        );
+    }
+
+    #[test]
+    fn the_sweep_leaves_a_thread_cleared_by_hand_as_it_was() {
+        let mut model = done_thread();
+        model.clear(&["desk:ses_1".to_owned()], &phone());
+        assert!(cleared_late(&mut model).is_empty());
+        assert_eq!(model.clears.get("desk:ses_1").unwrap().cause, Cause::Hand);
+        assert!(model.away().is_empty(), "a hand clear is never away");
+    }
+
+    #[test]
+    fn a_thread_brought_back_is_kept_from_the_sweep_until_it_is_updated() {
+        let mut model = seen_thread();
+        assert_eq!(sweep_at(&mut model, 1000 + HOUR).cleared, ["desk:ses_1"]);
+        model.drain();
+        let (changes, answers) = model.unclear(&["desk:ses_1".to_owned()]);
+        assert_eq!(answers, [("desk:ses_1".to_owned(), Ok(()))]);
+        assert!(
+            threads_of(&changes)
+                .iter()
+                .any(|t| t.key == "desk:ses_1" && t.cleared.is_none())
+        );
+        assert_eq!(
+            order(&model),
+            ["desk:ses_1"],
+            "back where its order puts it"
+        );
+        assert_eq!(
+            told(&mut model),
+            ["uncleared desk:ses_1", "kept desk:ses_1"]
+        );
+        assert!(model.away().is_empty());
+        assert!(
+            sweep_at(&mut model, 1000 + 5 * HOUR).cleared.is_empty(),
+            "kept"
+        );
+        // updated past the unclear (a rename): the kept mark is spent at the next sweep, and the
+        // rule applies again (its newest message was seen hours ago)
+        event(&mut model, None, &updated("ses_1", 200, None));
+        assert_eq!(
+            sweep_at(&mut model, 1000 + 6 * HOUR).cleared,
+            ["desk:ses_1"]
+        );
+        assert!(told(&mut model).contains(&"unkept desk:ses_1".to_owned()));
+    }
+
+    #[test]
+    fn an_unclear_refuses_a_thread_that_is_not_cleared_or_not_held() {
+        let mut model = done_thread();
+        let (changes, answers) =
+            model.unclear(&["desk:ses_1".to_owned(), "desk:ses_gone".to_owned()]);
+        assert!(changes.is_empty());
+        assert_eq!(
+            answers,
+            [
+                ("desk:ses_1".to_owned(), Err(UnclearRefused::NotCleared)),
+                (
+                    "desk:ses_gone".to_owned(),
+                    Err(UnclearRefused::NoSuchSession)
+                ),
+            ]
+        );
+        assert!(model.clears.kept("desk:ses_1").is_none());
+        // undoing a hand clear brings it back the same way
+        model.clear(&["desk:ses_1".to_owned()], &phone());
+        let (_, answers) = model.unclear(&["desk:ses_1".to_owned()]);
+        assert_eq!(answers[0].1, Ok(()));
+        assert!(model.entry("desk:ses_1").unwrap().cleared.is_none());
+    }
+
+    #[test]
+    fn a_sweep_while_a_device_looks_is_not_away() {
+        let mut model = seen_thread();
+        looking_now(&mut model);
+        let swept = sweep_at(&mut model, 1000 + HOUR);
+        assert_eq!(swept.cleared, ["desk:ses_1"]);
+        assert!(!swept.away);
+        assert!(!model.clears.get("desk:ses_1").unwrap().away);
+        assert!(model.away().is_empty(), "the looking device had the undo");
+    }
+
+    #[test]
+    fn the_away_summary_empties_when_acknowledged_and_its_threads_stay_cleared() {
+        let mut model = seen_thread();
+        sweep_at(&mut model, 1000 + HOUR);
+        assert_eq!(model.away().len(), 1);
+        model.drain();
+        assert_eq!(model.away_seen(), 1);
+        assert_eq!(told(&mut model), ["away acked"]);
+        assert!(model.away().is_empty());
+        assert!(model.entry("desk:ses_1").unwrap().cleared.is_some());
+        assert_eq!(model.away_seen(), 0);
+        assert!(told(&mut model).is_empty(), "nothing left to write");
+    }
+
+    #[test]
+    fn a_thread_that_comes_back_leaves_the_away_summary() {
+        let mut model = seen_thread();
+        sweep_at(&mut model, 1000 + HOUR);
+        assert_eq!(model.away().len(), 1);
+        busy(&mut model, "ses_1");
+        assert!(model.away().is_empty());
+        assert!(told(&mut model).contains(&"uncleared desk:ses_1".to_owned()));
+    }
+
+    /// `ses_job`'s job notice, and a done in `ses_1` whose notice carries the badge.
+    fn job_and_done(jobs_as_needs: bool) -> (Model, Option<u32>) {
+        let mut model = Model::new();
+        model.set_home(HomePrefs {
+            jobs_as_needs,
+            ..HomePrefs::default()
+        });
+        model.at(1000);
+        event(&mut model, None, &updated("ses_job", 50, None));
+        event(&mut model, None, &updated("ses_1", 100, None));
+        event(
+            &mut model,
+            Some(3),
+            r#"{"id":"e","type":"process.notify","properties":{"process":{"id":"proc_1","sessionID":"ses_job","pid":1,"command":"bun test","cwd":"/w","title":"bun test","kind":"job","status":"exited","exitCode":0,"ports":[],"origin":"model","startedAt":1},"reason":"exit","detail":"118 passed"}}"#,
+        );
+        busy(&mut model, "ses_1");
+        reply(&mut model, "ses_1", "msg_a", "stop");
+        idle(&mut model, "ses_1");
+        let badge = model.drain().into_iter().find_map(|e| match e {
+            Effect::Notice(n) if n.id.starts_with("done:") => n.badge,
+            _ => None,
+        });
+        (model, badge)
+    }
+
+    #[test]
+    fn a_job_notice_stays_out_of_the_badge_and_the_lead_unless_it_counts() {
+        let (model, badge) = job_and_done(false);
+        assert_eq!(badge, Some(1), "the done alone");
+        assert_eq!(order(&model), ["desk:ses_1", "desk:ses_job"]);
+        assert!(
+            model
+                .entry("desk:ses_job")
+                .unwrap()
+                .needs
+                .iter()
+                .any(|n| n.kind == NeedKind::Job),
+            "the wire still lists it"
+        );
+        let (model, badge) = job_and_done(true);
+        assert_eq!(badge, Some(2), "the job counts too");
+        assert_eq!(
+            order(&model),
+            ["desk:ses_1", "desk:ses_job"],
+            "both are news, newest first"
+        );
+        // the job thread leads an idle thread only when it counts
+        let (mut off, _) = job_and_done(false);
+        let (mut on, _) = job_and_done(true);
+        for model in [&mut off, &mut on] {
+            model.read("desk:ses_1", &phone(), "msg_a", 100.0).unwrap();
+        }
+        assert_eq!(order(&off), ["desk:ses_1", "desk:ses_job"]);
+        assert_eq!(order(&on), ["desk:ses_job", "desk:ses_1"]);
     }
 }

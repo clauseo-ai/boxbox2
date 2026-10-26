@@ -683,6 +683,7 @@ fn with_no_board_stream_the_actor_holds_nothing_and_runs_no_timer() {
         unasked: Vec::new(),
         away: Vec::new(),
         next_sweep: tokio::time::Instant::now(),
+        sweep_every: std::time::Duration::from_secs(300),
     };
     for n in 0..300 {
         let mut changes = Vec::new();

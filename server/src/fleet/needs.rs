@@ -397,6 +397,17 @@ impl Needs {
             .min()
     }
 
+    /// when the session's newest need of `kind` among those served lately was
+    /// raised (the served ring holds the last `MAX_SERVED`).
+    #[must_use]
+    pub fn last_served_raise(&self, key: &str, kind: NeedKind) -> Option<i64> {
+        self.served
+            .iter()
+            .filter(|n| n.key == key && n.kind == kind)
+            .map(|n| n.raised_at)
+            .max()
+    }
+
     /// every open need, in no order.
     pub fn open_iter(&self) -> impl Iterator<Item = &Need> {
         self.open.values()

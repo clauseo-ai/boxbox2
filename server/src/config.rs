@@ -109,6 +109,10 @@ pub struct CookieConfig {
 pub struct DevConfig {
     /// the vite dev server the asset routes proxy to.
     pub vite: Url,
+    /// the auto-clear sweep every 10 s, with its waits in minutes, not hours
+    /// (`fleet::model::SweepPace::fast`): for seeing auto-clear on a dev
+    /// server. a config without `[dev]` cannot ask for it.
+    pub sweep_fast: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -277,6 +281,8 @@ struct CacheFile {
 #[serde(deny_unknown_fields)]
 struct DevFile {
     vite: String,
+    #[serde(default)]
+    sweep_fast: bool,
 }
 
 #[derive(Default, Deserialize)]
@@ -419,6 +425,7 @@ impl Config {
             dev: match file.dev {
                 Some(dev) => Some(DevConfig {
                     vite: http_url(&dev.vite).map_err(|e| format!("dev.vite: {e}"))?,
+                    sweep_fast: dev.sweep_fast,
                 }),
                 None => None,
             },
@@ -926,6 +933,24 @@ mod tests {
     fn parse(text: &str) -> Result<Config, String> {
         let file: File = toml::from_str(text).map_err(|e| e.to_string())?;
         Config::from_file(file, Path::new("/etc/boxbox"))
+    }
+
+    #[test]
+    fn sweep_fast_is_a_dev_setting_and_off_unless_asked() {
+        let dev = |extra: &str| {
+            parse(&format!(
+                "password = \"long enough\"\n[dev]\nvite = \"http://127.0.0.1:3002\"\n{extra}"
+            ))
+            .unwrap()
+            .dev
+            .unwrap()
+        };
+        assert!(!dev("").sweep_fast);
+        assert!(dev("sweep_fast = true").sweep_fast);
+        assert!(
+            parse("password = \"long enough\"\nsweep_fast = true").is_err(),
+            "only [dev] takes it"
+        );
     }
 
     #[test]

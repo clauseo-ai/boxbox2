@@ -385,6 +385,16 @@ pub(super) fn flush_tails(at: i64) {
     write(at, Input::FlushTails);
 }
 
+/// the home prefs the actor started with, as the tape's first command: a
+/// replay starts from them (tapes recorded before them start as job
+/// notices counting, `replay::recorded_home`).
+pub(super) fn home(at: i64, home: &crate::prefs::HomePrefs) {
+    match serde_json::value::to_raw_value(home) {
+        Ok(home) => write(at, Input::Command(tape::Command::Home { home })),
+        Err(error) => warn!(%error, "the home prefs did not serialize; the recording misses them"),
+    }
+}
+
 pub(super) fn sweep(at: i64) {
     write(at, Input::Sweep);
 }

@@ -340,6 +340,14 @@ async fn start_fleet(
             adopted: restored.adopted,
             colours: restored.colours,
             home: restored.home,
+            sweep: if config.dev.as_ref().is_some_and(|dev| dev.sweep_fast) {
+                tracing::warn!(
+                    "[dev] sweep_fast: the auto-clear sweep runs every 10 s and its waits are minutes, not hours"
+                );
+                fleet::model::SweepPace::fast()
+            } else {
+                fleet::model::SweepPace::default()
+            },
             tails,
             resumed,
         },

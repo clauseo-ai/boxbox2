@@ -353,7 +353,7 @@ mod tests {
                          VALUES ('n1', 'ask', 'vm-a-main:oc_2', 1, 't', 'b');
                      INSERT INTO needs (id, kind, session, raised_at, title, body, served_at)
                          VALUES ('n2', 'ask', 'vm-a-main:oc_3', 1, 't', 'b', 2);
-                     INSERT INTO clears VALUES ('vm-a-main:oc_4', 1.0, 1);
+                     INSERT INTO clears (session, mark, cleared_at) VALUES ('vm-a-main:oc_4', 1.0, 1);
                      INSERT INTO adopted VALUES ('vm-a-main:oc_5', '{}', 1);
                      INSERT INTO read_marks VALUES ('phone', 'vm-b-main:oc_6', 1.0, 'm', 1);",
                 )

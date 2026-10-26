@@ -67,6 +67,15 @@ pub enum ReplayError {
     Step { step: usize, what: String },
 }
 
+/// the home prefs the recordings were made under: a job notice was a need
+/// then, in the badge and the order.
+fn recorded_home() -> crate::prefs::HomePrefs {
+    crate::prefs::HomePrefs {
+        jobs_as_needs: true,
+        ..crate::prefs::HomePrefs::default()
+    }
+}
+
 pub struct Replay {
     actor: Actor,
     tails: mpsc::Receiver<TailRequest>,
@@ -78,7 +87,9 @@ pub struct Replay {
 
 impl Replay {
     /// an actor as a fresh server from before repo colours started one (the
-    /// recording predates them, so this one gives none), with an empty store, a journal
+    /// recording predates them, so this one gives none) and before job notices
+    /// stopped counting as needs (decision 95: the recorded order ranks them),
+    /// with an empty store, a journal
     /// of `epoch` (the recorded one, so recorded cursors mean what they meant)
     /// and `build` for `hello`.
     pub fn new(epoch: &str, build: &str) -> Self {
@@ -90,8 +101,10 @@ impl Replay {
     pub fn with_journal(journal: Journal, build: &str) -> Self {
         let (tails_tx, tails) = mpsc::channel(TAIL_REQUESTS);
         let (push, captured) = Push::capturing(1 << 16);
+        let mut model = super::Model::new();
+        model.set_home(recorded_home());
         let actor = Actor {
-            model: super::Model::new(),
+            model,
             journal,
             encoder: super::Encoder::new(),
             keys: super::StreamKeys::new(),
@@ -110,6 +123,7 @@ impl Replay {
             unasked: Vec::new(),
             away: Vec::new(),
             next_sweep: tokio::time::Instant::now(),
+            sweep_every: std::time::Duration::from_secs(300),
         };
         Self {
             actor,
@@ -141,6 +155,7 @@ impl Replay {
             Vec::new(),
             super::Colours::assigning(),
         );
+        replay.actor.model.set_home(recorded_home());
         replay
     }
 

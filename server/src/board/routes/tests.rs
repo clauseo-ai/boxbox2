@@ -50,6 +50,7 @@ fn real_fleet(
             adopted: Vec::new(),
             colours: fleet::colours::Colours::default(),
             home: crate::prefs::HomePrefs::default(),
+            sweep: crate::fleet::model::SweepPace::default(),
             tails: mpsc::channel(fleet::TAIL_REQUESTS).0,
             resumed: fleet::persist::Resumed::fresh(),
         },

@@ -54,6 +54,8 @@ pub mod read;
 pub mod record;
 #[cfg(test)]
 mod replay;
+#[cfg(test)]
+mod settle_live;
 pub mod summary;
 #[cfg(any(test, feature = "record"))]
 pub mod tape;
@@ -113,10 +115,6 @@ pub const MAX_HOLDS: usize = 16;
 const PERSIST_CAPACITY: usize = 1024;
 /// served needs `GET /api/needs` lists.
 pub const SERVED_LISTED: usize = 50;
-/// how long after a start the first sweep runs: the hosts have been read by then.
-const SWEEP_FIRST: Duration = Duration::from_secs(60);
-/// how often the auto-clear sweep runs after that (decision 93).
-const SWEEP_EVERY: Duration = Duration::from_secs(5 * 60);
 /// tail reads waiting for the reader: more than the windows there can be
 /// (`model::MAX_ORDER`). when it is full a request is not queued and the
 /// session goes back to unread, so the next change to it asks again.
@@ -422,6 +420,8 @@ pub struct Wiring {
     pub colours: Colours,
     /// the person's home prefs.
     pub home: HomePrefs,
+    /// how often the auto-clear sweep runs and how long it waits.
+    pub sweep: model::SweepPace,
     /// where window tails to read go (`upstream/tails.rs`).
     pub tails: mpsc::Sender<TailRequest>,
     /// the stream as `boxbox.db` kept it (`persist::resume`).
@@ -944,7 +944,10 @@ pub fn spawn(
         wiring.colours,
     );
     // no session is held yet, so this moves no order
+    #[cfg(feature = "record")]
+    record::home(crate::now_ms(), &wiring.home);
     model.set_home(wiring.home);
+    model.set_pace(wiring.sweep);
     let broken = model.resume(resumed.model);
     info!(
         epoch = resumed.epoch,
@@ -976,7 +979,8 @@ pub fn spawn(
         cursors: resumed.cursors,
         unasked: Vec::new(),
         away: Vec::new(),
-        next_sweep: tokio::time::Instant::now() + SWEEP_FIRST,
+        next_sweep: tokio::time::Instant::now() + wiring.sweep.first,
+        sweep_every: wiring.sweep.every,
     };
     actor.away = actor.model.away();
     if resumed.rewrite || broken > 0 {
@@ -1087,6 +1091,7 @@ struct Actor {
     away: Vec<AwayThread>,
     /// when the auto-clear sweep runs next.
     next_sweep: tokio::time::Instant,
+    sweep_every: Duration,
 }
 
 /// where the model's effects go.
@@ -1233,7 +1238,7 @@ impl Actor {
                 () = tokio::time::sleep(until(deltas_due)), if deltas_due.is_some() => self.flush_deltas(),
                 () = tokio::time::sleep(until(due)), if due.is_some() => self.flush_tails(),
                 () = tokio::time::sleep_until(self.next_sweep) => {
-                    self.next_sweep = tokio::time::Instant::now() + SWEEP_EVERY;
+                    self.next_sweep = tokio::time::Instant::now() + self.sweep_every;
                     self.sweep(crate::now_ms());
                 }
                 // exists only while a board listens and its picture may move
@@ -2104,8 +2109,14 @@ impl Actor {
         }
     }
 
-    /// the away summary as it stands, as every stream gets it after the colours.
+    /// the away summary as it stands, for a stream that opens while it holds
+    /// a row: after the colours. none when it is empty, which is what a
+    /// client takes at every `hello` (`docs/protocol.md`, settle frames), so
+    /// a stream that opens while nothing is away costs not a byte more.
     fn away_frame(&self) -> Option<Bytes> {
+        if self.away.is_empty() {
+            return None;
+        }
         let frame = SettleFrame::Away {
             threads: self.away.clone(),
         };
@@ -2622,7 +2633,8 @@ mod tests {
             cursors: std::collections::HashMap::new(),
             unasked: Vec::new(),
             away: Vec::new(),
-            next_sweep: tokio::time::Instant::now() + SWEEP_FIRST,
+            next_sweep: tokio::time::Instant::now(),
+            sweep_every: Duration::from_secs(300),
         }
     }
 
@@ -3461,6 +3473,7 @@ mod tests {
                 adopted: Vec::new(),
                 colours: Colours::default(),
                 home: HomePrefs::default(),
+                sweep: model::SweepPace::default(),
                 tails: mpsc::channel(TAIL_REQUESTS).0,
                 resumed,
             },
