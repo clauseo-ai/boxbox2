@@ -6,6 +6,34 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **finished work clears itself.** the server sweeps home every 5 minutes
+  by a person pref, the same on every device: "1 h after you've seen it"
+  (default), "3 h, seen or not" or "never". it never clears a thread that
+  is working, parked, queued, asking, failed or stopped, or waits on a
+  worktree review; an auto-clear is a clear mark with `cause: auto`, and the
+  thread comes back when it goes busy, as before (decision 93).
+  `POST /api/unclear` takes a clear back, so there is now an unclear: every
+  clear from this device and every auto-clear in front of you shows
+  "cleared N" with undo for 6 s (cmd-z on a mac), and a brought-back thread
+  stays until it changes (decision 97). what cleared while no device was
+  looking is one line under the bar, "N cleared while you were away", with
+  a sheet or popover to bring any or all back (an additive `away` frame and
+  `POST /api/away/seen`, decisions 94 and 98). migrations 12 (the `person`
+  prefs scope) and 13 (the clear's cause, times and away flag; the `kept`
+  table). telemetry kinds `home.swept`, `thread.uncleared`, `away.seen`.
+- **the working fold.** threads at work with nothing wrong, and threads
+  waiting on a background job, fold into one capsule under the bar ("4
+  working, 2 waiting on a job") that opens to a list; a thread leaves it the
+  moment it finishes, fails, asks or gets a need (decision 96).
+- **job notices are not needs by default.** a background job's notice stays
+  a row in its thread and keeps the board's `news` light, but no longer
+  counts toward the badge, the "wants you" count or the order unless the
+  person turns "job notices count as needs" on (decision 95).
+- **settings has a "home" group** with the three: clear finished windows,
+  fold working windows, job notices count as needs (`GET /api/prefs`
+  gains `home`, `PUT /api/prefs/home`). the thread's details panel now
+  loads as a chunk to keep the first load at 118.9 kb (decision 100).
+
 - **see the script a run ran.** a script row (cmx2's `run`) opened to
   nothing; a press now opens it to the script itself, highlighted as
   javascript under "script" with its copy control (a long one shows its

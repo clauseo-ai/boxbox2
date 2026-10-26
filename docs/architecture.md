@@ -468,6 +468,10 @@ why solid:
   files, edit's or thought row's body (`thread/bodies.tsx`), a settled
   question's record and a settled permission's line
   (`asks/ask-record.tsx`; a pending ask's card stays in the first load),
+  home's working fold opened and its away sheet (`home/lists.tsx`; the
+  capsule and the away line stay in the first load), the undo toast with
+  the unclear and away calls (`home/toast.tsx`, `home/settle-api.ts`),
+  the thread's details panel (`thread/panel.tsx`, decision 100),
   the model menu's stars, the moves that
   land a press on a row in a closed group (`thread/land.ts`, read at the
   press), and the stage card's edge in motion

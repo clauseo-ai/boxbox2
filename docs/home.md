@@ -458,7 +458,7 @@ window, and history.
 
 finished work clears itself on the server (the clearing section above, and
 `design.md`, settling); what home adds is how it reads. design.md (settling)
-is the law; how it is built:
+is the law, and decisions 93 to 100 say why; how it is built:
 
 - **who folds** (`working-fold.ts`, `foldOf`, pinned by
   `working-fold.test.ts`): a home thread that is busy, retrying, queued or
