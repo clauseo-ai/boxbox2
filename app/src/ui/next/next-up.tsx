@@ -9,11 +9,12 @@
    imported by home), so its arrival never reorders the cascade. home mounts it once, whatever the arrangement, so the
    field and its words live through a resize across 700 px. */
 
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { play } from "../../motion/animate";
 import { SHEET, SNAP } from "../../motion/springs";
 import { Icon } from "../composer/icons";
 import type { Place } from "../composer/new-thread";
+import { warmEdge } from "../later";
 import { RepoMark } from "../repo-mark/repo-mark";
 import type { WindowView } from "../window/view";
 import { type NeedRow, nextUp, type RepoRow } from "./assemble";
@@ -188,6 +189,8 @@ function Need(props: { row: NeedRow; onOpen: (key: string, from: HTMLElement) =>
     press, or escape with no field focused, and the thread pours back while the field drops out of the bar. it comes with
     the field's chunk, which home warms as it mounts, so it is in before any thread can be on the stage */
 export function WhatNext(props: { onPress: (event: Event) => void }) {
+  // the way home's motion is the edge's chunk (ui/later.ts): a thread on the stage, however it came, is when it is next wanted
+  onMount(() => void warmEdge().catch(() => undefined));
   return (
     <button class="bar-next" type="button" aria-label="what next? go home" aria-keyshortcuts="Escape" onClick={(event) => props.onPress(event)}>
       <span class="bar-next-words">what next?</span>

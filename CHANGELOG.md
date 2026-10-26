@@ -31,7 +31,7 @@ workflow publishes the section whose heading matches the version in
   in the store, so a resize across 700 px keeps them; a refusal seen from
   another thread is said over it with retry and edit, and nothing moves
   you home. offline the field says the composer's "write now, it goes
-  when you are back". the first load reads 119.9 kb (122,827 bytes) of
+  when you are back". the first load reads 120.0 kb (122,845 bytes, 35 under) of
   the 120 kb budget, from 119.7: the way home's motion moved into the
   edge's chunk and the new thread's place reads into the field's, to make
   room.
