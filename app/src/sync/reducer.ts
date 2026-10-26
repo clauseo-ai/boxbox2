@@ -711,6 +711,12 @@ function hello(work: Work, state: SyncState, frame: Hello, dialed: readonly stri
   if (due && !state.interest.due) work.effects.push({ type: "interest-due" });
   work.interest = interest;
   let next: SyncState = { ...state, head: frame.head, interest };
+  // the server sends the away list after the hello only when it holds a row: a hello is an empty list, so one cached from
+  // an older connection (or the indexeddb copy a launch starts from) never comes back after the server dropped it
+  if (state.fleet.away !== undefined && state.fleet.away.length > 0) {
+    work.patch(["fleet", "away"], []);
+    next = { ...next, fleet: { ...next.fleet, away: [] } };
+  }
   // a key without `since` gets nothing from the catch-up: it is read, from the hello on (H = head)
   for (const key of keys) if (!since.has(key)) next = readKey(work, next, key, false);
   return releaseWaiting(work, next, (key) => !work.defers(key));
@@ -805,7 +811,8 @@ function reset(work: Work, state: SyncState, frame: Reset, toCool: Readonly<Reco
   work.count("resets");
   const cursor = { epoch: frame.epoch, seq: frame.seq };
   // the colours (and the away list) travel outside the journal and arrive ahead of the reset on the same connection, so
-  // the snapshot has none and what the fleet holds stays as it is
+  // the snapshot has none and what the fleet holds stays as it is. the hello before them emptied the away list, so it is
+  // this connection's word, or none when the server sent none
   const fleet = { ...fleetOf(frame.fleet), colours: state.fleet.colours, ...(state.fleet.away ? { away: state.fleet.away } : {}) };
   // what the snapshot changed, not the whole fleet: a thread it sends as it was keeps its identity in the ui
   changed(work, ["fleet"], state.fleet, fleet);
