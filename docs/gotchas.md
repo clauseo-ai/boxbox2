@@ -1441,6 +1441,17 @@ a url's `?thread=` naming a session the fleet does not hold (archived, another i
   splitting the sheets of `ui/later.ts` off without it moved 9.8 kb into
   lazy chunks and took 0.2 kb off the first load (it became seven
   preloaded files); with it the first load is one file, 114.8 kb.
+- **a style sheet's name costs the first load's script.** the entry
+  script names the first load's style sheet by its hash, and every lazy
+  chunk's style sheet in its preload map. so a change to `next.css` (or
+  any first-load css) that adds no script at all still changes the script:
+  a new hash compresses better or worse, and the recent repos' rules in
+  `next.css` took the first load 60 bytes over its 122,880 (a fix to the
+  bar's call did the same, f9bcc48). a style sheet of a lazy chunk's own
+  costs its one preload entry instead (35 bytes). rule: read the bytes
+  from `bun scripts/compress.ts` after `vite build` for a css-only change
+  too, and pay for it by moving script that belongs to a chunk into it,
+  never by fishing for a hash that compresses well.
 - **tests are not in `tsc -p app`.** the root `tsc -p .` checks them: a
   signature change that only a test calls breaks `just check` while the
   app's own check passes.

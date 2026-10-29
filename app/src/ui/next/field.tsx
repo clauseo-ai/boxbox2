@@ -29,6 +29,7 @@ import { repoColour } from "../window/colours";
 import { colourStyle, type RepoColour, repoName } from "../window/repo";
 import { composing, firstActive, menuKey, type Row } from "./keys";
 import { matchMachines, matchModels, type TokenKind, type Typed, typedToken, withoutToken } from "./tokens";
+import "./recent.css";
 
 /** the field's own material: a neutral pair on the plane's recipe, so the composer is a quiet surface of the ground and
     not any repo's (decision 105, design.md: home, what next) */
@@ -293,6 +294,13 @@ export function Field(props: FieldProps) {
     ),
   );
 
+  /* a repo picked from outside the menu (a recent chip above the field, "start in" under it): the menu's own pick, the
+     caret after the words */
+  const pickFrom = (host: string, dir: string) => {
+    close();
+    if (nt.pickRepo(dir, host)) caretTo(words()?.value.length ?? 0);
+  };
+
   props.onPlace?.({ host: nt.host, repos: nt.repos, lastAt: nt.lastAt });
   props.api?.({
     retry: nt.retry,
@@ -307,10 +315,7 @@ export function Field(props: FieldProps) {
     startOn: (machine) => {
       if (nt.machines().includes(machine)) nt.pickMachine(machine);
     },
-    pick: (host, dir) => {
-      close();
-      if (nt.pickRepo(dir, host)) caretTo(words()?.value.length ?? 0);
-    },
+    pick: pickFrom,
     empty: () => (words()?.value ?? "") === "",
   });
 
@@ -380,6 +385,23 @@ export function Field(props: FieldProps) {
 
   return (
     <section class="nx-field" ref={root} aria-label="start a thread" data-menu={menu() ? "" : undefined}>
+      {/* the repos you used last, one tap each, above the field (design.md, home: what next, recent repos): quieter than
+          the field's own chips, the chosen one pressed */}
+      <Show when={nt.recents().length > 0}>
+        <div class="nx-recent" role="group" aria-label="recent repos">
+          <For each={nt.recents()}>
+            {(chip) => {
+              const on = () => chip.host === nt.host() && chip.root === chosen();
+              return (
+                <button type="button" class="nx-recent-chip" aria-label={chip.name} aria-pressed={on() ? "true" : "false"} disabled={nt.making()} onPointerDown={(e) => e.preventDefault()} onClick={() => pickFrom(chip.host, chip.root)}>
+                  <span class="nx-recent-name">{chip.repo}</span>
+                  <Show when={chip.machine}>{(machine) => <span class="nx-recent-on" aria-hidden="true">{machine()}</span>}</Show>
+                </button>
+              );
+            }}
+          </For>
+        </div>
+      </Show>
       <Composer target={nt.target()} mount="sheet" hint="what next?" menus={false} colour={GROUND} blocked={nt.blocked()} onStarted={(id, from) => {
           sentFrom = from;
           nt.started(id);

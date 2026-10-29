@@ -7,12 +7,14 @@
    the bar, so the deck draws the field alone, and "start in" under it only when the deck has no windows to show.
 
    a chunk of its own (ui/later.ts): it is warmed the moment home mounts, and its styles are in the first load (next.css,
-   imported by home), so its arrival never reorders the cascade. home mounts it once, whatever the arrangement, so the
+   imported by home), so its arrival never reorders the cascade (the recent repos' recent.css, imported by the field, is
+   the one sheet that comes with it; its selectors are its own). home mounts it once, whatever the arrangement, so the
    field and its words live through a resize across 700 px. */
 
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { play } from "../../motion/animate";
 import { FADE, SHEET, SNAP } from "../../motion/springs";
+import { state } from "../../store";
 import { Icon } from "../composer/icons";
 import type { Place } from "../composer/new-thread";
 import { warmEdge } from "../later";
@@ -51,7 +53,8 @@ export type NextUpProps = {
   /** the deck draws the field alone, and "start in" under it when it shows no window (all folded, or none); the strip and
       the rail draw the list */
   deck: boolean;
-  start: Place | null;
+  /** the thread you are looking at (on stage, the deck's page, else the first window): a new thread starts in its place */
+  looking: string | null;
   /** home's windows in the server's order, and their views */
   order: readonly string[];
   viewOf: (key: string) => WindowView | null;
@@ -79,6 +82,14 @@ export type NextUpProps = {
 
 export function NextUp(props: NextUpProps) {
   let field: FieldApi | undefined;
+  /* a new thread starts where you are looking, else on the first machine. the field takes it once, as it comes up, and keeps
+     what is picked in it after that */
+  const start = (): Place | null => {
+    const thread = props.looking ? state.fleet.threads[props.looking] : undefined;
+    if (thread) return { host: thread.agent, directory: thread.place?.root ?? null };
+    const host = state.fleet.agentNames[0];
+    return host ? { host, directory: null } : null;
+  };
   /* the field's machine and its repos in recency order: the field owns them (composer/new-thread.ts), the list reads them */
   const [place, setPlace] = createSignal<FieldPlace | null>(null);
   /* the repos there is room for under what needs you: the stage's height less the field and the rows above (on the deck,
@@ -159,7 +170,7 @@ export function NextUp(props: NextUpProps) {
       <div class="nx" ref={rootEl} data-deck={props.deck ? "" : undefined}>
         <h1 class="nx-title">what next?</h1>
         <Field
-          start={props.start}
+          start={start()}
           onBorn={props.onBorn}
           {...(props.onEscape ? { onEscape: props.onEscape } : {})}
           onPlace={(p) => setPlace(() => p)}

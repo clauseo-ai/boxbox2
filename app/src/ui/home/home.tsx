@@ -322,21 +322,15 @@ export function Home(props: HomeProps) {
   createEffect(() => setWindowsInView((open() && arrangement() === "deck") || folded() ? [] : inView()));
 
   /* —— the stage —— */
-  type Place = { host: string; directory: string | null };
-  /* a new thread starts where you are looking: the thread on stage, else the window the deck is on, else the first window,
-     else the first host. the field takes it once, as it comes up, and keeps what is picked in it after that */
-  const startPlace = createMemo<Place | null>(
-    () => {
-      const list = order();
-      const key = open() ?? (arrangement() === "deck" ? list[Math.min(pagerOn(), list.length - 1)] : list[0]);
-      const thread = key ? state.fleet.threads[key] : undefined;
-      if (thread) return { host: thread.agent, directory: thread.place?.root ?? null };
-      const host = state.fleet.agentNames[0];
-      return host ? { host, directory: null } : null;
-    },
-    null,
-    { equals: (a, b) => a?.host === b?.host && a?.directory === b?.directory },
-  );
+  /* where you are looking, for where a new thread starts (the field's chunk turns it into a place, next-up.tsx): the thread
+     on stage, else the window the deck is on, else the first window */
+  const looking = () => {
+    const list = order();
+    return open() ?? (arrangement() === "deck" ? list[Math.min(pagerOn(), list.length - 1)] : list[0]) ?? null;
+  };
+  /* somewhere to start: a machine. every thread is one machine's (the reducer drops a machine's threads with it), so this
+     is the field's own start place being there, without its chunk */
+  const canStart = () => state.fleet.agentNames.length > 0;
   /* home's field (ui/next, a chunk warmed as home mounts): its verbs once it has drawn, and a press that beat it waits for
      it. `cameFrom` is the thread home was reached from, which escape on the empty field goes back to */
   let next: NextApi | undefined;
@@ -1489,7 +1483,7 @@ export function Home(props: HomeProps) {
             chance at some count. the phone's deck has no row for what you do: new thread is a round plus beside history and
             machines, and clear N sits at the end of the line's row */}
         <div class="pills acts">
-          <Show when={arrangement() !== "deck" && startPlace()}>
+          <Show when={arrangement() !== "deck" && canStart()}>
             <button class="pill new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onClick={(event) => startHere(event)}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               <span class="new-word" aria-hidden="true">new thread</span>
@@ -1527,7 +1521,7 @@ export function Home(props: HomeProps) {
               <path d="M8 7.75h.01M8 16.25h.01" />
             </svg>
           </button>
-          <Show when={arrangement() === "deck" && startPlace()}>
+          <Show when={arrangement() === "deck" && canStart()}>
             <button class="pill icon new" type="button" aria-label="new thread" aria-keyshortcuts="Meta+N" onClick={(event) => startHere(event)}>
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
             </button>
@@ -1550,7 +1544,7 @@ export function Home(props: HomeProps) {
         </Show>
           <NextUp
             deck={arrangement() === "deck"}
-            start={startPlace()}
+            looking={looking()}
             order={order()}
             viewOf={viewOf}
             now={now()}

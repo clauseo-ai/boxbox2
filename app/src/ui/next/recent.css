@@ -1,0 +1,131 @@
+/* the recent repos above home's field (field.tsx; docs/design.md, home: what next, recent repos). one row in the
+   field's column, quieter than the field's own chips: the pill's radius and the chips' sans, a hairline edge on the
+   ground and no fill until pressed. wide, the chips share the row and a long name ends in an ellipsis, so it
+   never wraps; on a phone the row scrolls across with no bar, snapping to a chip, out to the screen's edges while its
+   first chip stands at the field's edge. on a short screen (a phone on its side, a keyboard that shrinks the page) it
+   goes, so the field keeps its room.
+
+   its own file, imported by the field's chunk rather than in next.css: the first load's script names next.css's hash, and
+   a new hash there can cost the first load bytes it does not have (docs/gotchas.md). its selectors are its own, so arriving
+   with the chunk reorders nothing */
+.nx-recent {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.nx-recent-chip {
+  all: unset;
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 200px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  box-shadow: var(--pill-edge);
+  font-family: var(--sans);
+  font-stretch: 104%;
+  font-size: 13px;
+  font-weight: 540;
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform var(--press-t);
+}
+
+.nx-recent-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nx-recent-on {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+.nx-recent-chip[aria-pressed="true"] {
+  background: var(--knob);
+  color: var(--text);
+  font-weight: 620;
+}
+
+.nx-recent-chip:not(:disabled):active {
+  transform: scale(0.96);
+}
+
+.nx-recent-chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.nx-recent-chip:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .nx-recent-chip:not(:disabled, [aria-pressed="true"]):hover {
+    background: var(--hover);
+    color: var(--text);
+  }
+}
+
+@media (pointer: coarse) {
+  .nx-recent-chip {
+    height: 40px;
+    border-radius: 20px;
+  }
+}
+
+@media (max-width: 699px) {
+  .nx-recent {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    /* the outline of a focused chip is inside the scroller's box, so it is not cut at the top and the bottom */
+    padding-block: 4px;
+    margin-block: -4px 8px;
+  }
+
+  .nx-recent::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nx-recent-chip {
+    flex: none;
+    scroll-snap-align: start;
+  }
+
+  /* the deck's field stands inside its gutters: the row runs out to the screen's edges, its first chip at the field's */
+  .home[data-arrangement="deck"] .nx-recent {
+    --nx-gutter: calc((100vw - var(--window-width)) / 2);
+    margin-inline: calc(0px - var(--nx-gutter));
+    padding-inline: var(--nx-gutter);
+    scroll-padding-inline: var(--nx-gutter);
+  }
+}
+
+@media (max-height: 520px) {
+  .nx-recent {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nx-recent-chip {
+    transition: none;
+  }
+
+  .nx-recent {
+    scroll-behavior: auto;
+  }
+}

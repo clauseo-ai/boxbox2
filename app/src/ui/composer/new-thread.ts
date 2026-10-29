@@ -17,7 +17,7 @@ import { type NewPlace, type NewSent, setNewThread, state } from "../../store";
 import { discardSend, loadDraftPhotos, retrySend, saveDraft } from "../../sync/client";
 import { type OutboxView, type Target, targetKey } from "../../sync/outbox";
 import { repoName } from "../window/repo";
-import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentRepos, restoredDraft, splitPath } from "./place";
+import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentChips, recentRepos, restoredDraft, splitPath } from "./place";
 import { folders, projects } from "./place-reads";
 import { blockedWords, bornKey, makingWords as makingSaid, orphanOf, refusedOf, slowIn } from "./send-life";
 
@@ -36,6 +36,8 @@ const markRestored = (clientID: string) => {
 const BROWSE_PAUSE_MS = 160;
 /** the repos offered as rows while a word filters them */
 const ROWS = 40;
+/** the recent repos offered as chips above home's field (docs/design.md, home: what next): one row, at most this many */
+const RECENT_CHIPS = 5;
 
 export type Place = { host: string; directory: string | null };
 
@@ -87,6 +89,12 @@ export function createNewThread(options: NewThreadOptions) {
   const repos = createMemo(() => {
     const read = listed();
     return recentRepos(seen(), host(), read?.ok ? read.value : []).filter(Boolean);
+  });
+  /* the repos you used last on any machine still connected, for the chips above the field: a pick of one is pickRepo, so a
+     repo on another machine moves the field there as a menu row found elsewhere does */
+  const recents = createMemo(() => {
+    const live = new Set(machines());
+    return recentChips(seen().filter((s) => live.has(s.host)), host(), repos(), repoName, RECENT_CHIPS);
   });
   /** when you last had a thread in a repo, for the words beside it */
   const lastAt = (at: string, root: string): number | null => {
@@ -321,6 +329,7 @@ export function createNewThread(options: NewThreadOptions) {
     isPlain,
     machines,
     repos,
+    recents,
     offered,
     waiting,
     lastAt,

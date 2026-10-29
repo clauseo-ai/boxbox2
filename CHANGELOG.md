@@ -6,6 +6,14 @@ workflow publishes the section whose heading matches the version in
 
 ## unreleased
 
+- **home's field offers your recent repos.** a row of up to five chips
+  above the field, the repos of your newest threads on any machine and
+  then the field's machine's own recents, starts a thread in one with one
+  tap, switching machine when the repo is on another (its machine is
+  named on the chip). on a phone the row scrolls across; on a short
+  screen it goes, so the field keeps its room. the chips' styles load
+  with the field's chunk, and where a new thread starts moved there too,
+  so the first load stays inside its budget.
 - **the bar's line no longer breaks in safari.** "ledger wants you, 2
   working" broke as "ledger wants" over "you," with the rest hanging
   beside it: webkit kept the fallback face's line breaks inside the call

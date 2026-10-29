@@ -878,6 +878,37 @@ below (the sheet and the dock), the dock wherever this law names it, and
   row (never "other folder"); arrows walk a menu, return or tab picks the
   highlighted row, escape closes it and keeps the words, and a press
   outside closes it.
+- **recent repos** (2026-10-29). a row of chips stands directly above
+  the field, in its column at every size, so an empty home offers where
+  to start before a word is typed: the repos you used last on any machine
+  still connected, newest thread first, then the field's machine's own
+  recents (`recentRepos`) to fill it, five at most (`composer/place.ts`,
+  `recentChips`, tested). a chip says the repo's name, and the machine's
+  name after it, quieter, only when the repo is on another machine than
+  the field's. each is a real button named "start in <repo>" ("start in
+  <repo> on <machine>" for another machine, the path after a comma for two
+  of one name on a machine), and a tap is the repo menu's own pick
+  (`pickRepo`): the draft follows, another machine's repo moves the field
+  there, and the caret goes to the words. the chosen one is pressed
+  (`aria-pressed`); all are disabled while a thread is being made; with
+  no recent the row is not drawn. the chips are quieter than the field's
+  own: the pill's full radius, the sans at 13 px, a hairline edge and no
+  fill on the ground, the pressed one on the knob's fill in the full ink;
+  32 px tall, 40 on a coarse pointer. wide, the chips share one row and a
+  long name ends in an ellipsis, never a wrap; under 700 px the row scrolls
+  across with no visible bar, snapping to a chip, out to the screen's
+  edges while its first chip stands at the field's edge; under 520 px of
+  height (a phone on its side, a keyboard that shrinks the page) the row
+  is not drawn, so the field keeps its room. a press scales a chip as a
+  key does; reduced motion takes it away. its styles are
+  `ui/next/recent.css`, in the field's chunk rather than `next.css`
+  (the one style sheet of home's that arrives with a chunk; its selectors
+  are its own, so the arrival reorders nothing): a changed `next.css`
+  renames the first load's style sheet, and that name alone cost the
+  first load 60 bytes it did not have (`gotchas.md`). the "start in" list
+  under the field at strip and rail still says the field's machine's
+  repos with their age; the chips are the one-tap row, the list the
+  detail.
 - **what next** (the list, at strip and rail). under the field, in the
   server's order and never ranked here: "waiting on you", the threads that
   want you, stopped, or finished unseen, each a row with its verb (answer
@@ -980,7 +1011,9 @@ below (the sheet and the dock), the dock wherever this law names it, and
   (`composer/place-reads.ts`) and the way home's motion rides in the edge's
   chunk (`home/edge.ts`, `pourBack`, warmed when the page is idle and by
   the bar's button as it mounts; a way home that beats it lands at once).
-  they keep the first load at 119.9 kb of the 120 kb budget.
+  they keep the first load at 119.9 kb of the 120 kb budget (122,774 of
+  122,880 bytes on 2026-10-29, after the place a new thread starts from
+  moved into the field's chunk, `next-up.tsx`, `start`).
 - **the bar's line** does not repeat the capsule: a line that would say
   only what the working fold's capsule under it says (every thread on
   home is in the fold, no window shows) is not drawn; a want, a done, offline or an

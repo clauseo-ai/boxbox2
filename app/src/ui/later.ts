@@ -7,7 +7,8 @@
    which opens at once when the chunk is in (solid's `lazy` then renders it in the same pass, as when it was in the
    first load) and, for a press that beat the warming, opens it the moment the chunk lands (a read from the worker's
    precache). their styles stay in the first load, imported by their hosts, so a chunk arriving never reorders the
-   cascade. */
+   cascade; the one exception is the field's recent repos (next/recent.css), whose selectors are their own, so their
+   arrival reorders nothing (docs/gotchas.md, a style sheet's name costs the first load's script). */
 
 import { type Component, lazy } from "solid-js";
 

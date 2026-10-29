@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Draft } from "../../sync/outbox";
-import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentRepos, repoRootOf, restoredDraft, splitPath } from "./place";
+import { canonicalDirectory, directoryOfTyped, draftedPlaces, followDraft, isDrafted, looksLikePath, matchRepos, recentChips, recentRepos, repoRootOf, restoredDraft, splitPath } from "./place";
 
 describe("the repo a thread belongs to", () => {
   test("a project root is the repo, not the worktree a thread runs in", () => {
@@ -33,6 +33,41 @@ describe("repos by recency", () => {
   test("a machine with no threads lists its projects, and one with nothing lists nothing", () => {
     expect(recentRepos([], "desk", [{ directory: "/a", updated: 1 }])).toEqual(["/a"]);
     expect(recentRepos([], "desk", [])).toEqual([]);
+  });
+});
+
+describe("the recent repos above home's field", () => {
+  const name = (root: string) => root.slice(root.lastIndexOf("/") + 1);
+  const sessions = [
+    { host: "desk", root: "/code/api", at: 10 },
+    { host: "mini", root: "/srv/infra", at: 40 },
+    { host: "desk", root: "/code/web", at: 30 },
+    { host: "desk", root: "/code/api", at: 50 },
+    { host: "desk", root: "", at: 99 },
+  ];
+  test("your threads on every machine, newest first, one chip per repo and machine, a thread with no repo left out", () => {
+    expect(recentChips(sessions, "desk", [], name, 5).map((c) => `${c.host}:${c.root}`)).toEqual(["desk:/code/api", "mini:/srv/infra", "desk:/code/web"]);
+  });
+  test("the field's machine's other recents fill the row up to the limit, never repeating a repo", () => {
+    const chips = recentChips(sessions, "desk", ["/code/api", "/code/new", "/code/old", "/code/more"], name, 5);
+    expect(chips.map((c) => c.root)).toEqual(["/code/api", "/srv/infra", "/code/web", "/code/new", "/code/old"]);
+    expect(recentChips(sessions, "desk", [], name, 2)).toHaveLength(2);
+    expect(recentChips([], "desk", [], name, 5)).toEqual([]);
+  });
+  test("only a repo on another machine says its machine, in its words and its name", () => {
+    const [api, infra] = recentChips(sessions, "desk", [], name, 5);
+    expect(api).toMatchObject({ repo: "api", machine: null, name: "start in api" });
+    expect(infra).toMatchObject({ repo: "infra", machine: "mini", name: "start in infra on mini" });
+    // the field moved to mini: now desk's repos are the elsewhere ones
+    expect(recentChips(sessions, "mini", [], name, 5)[0]).toMatchObject({ machine: "desk", name: "start in api on desk" });
+  });
+  test("two repos of one name on one machine are told apart by their path, so every name is its own", () => {
+    const twins = [
+      { host: "desk", root: "/code/app", at: 2 },
+      { host: "desk", root: "/fork/app", at: 1 },
+      { host: "mini", root: "/code/app", at: 0 },
+    ];
+    expect(recentChips(twins, "desk", [], name, 5).map((c) => c.name)).toEqual(["start in app, /code/app", "start in app, /fork/app", "start in app on mini"]);
   });
 });
 

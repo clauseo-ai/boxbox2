@@ -26,6 +26,34 @@ export function recentRepos(sessions: readonly Seen[], host: string, projects: r
   return [...first, ...new Set(rest)];
 }
 
+/** a recent repo as home's chips above the field offer it: where it is, and the words it is said in */
+export type RecentChip = { host: string; root: string; repo: string; machine: string | null; name: string };
+
+/** the repos you used last, on any machine, for the chips above home's field: the ones you have threads in, newest thread
+    first, then the field's machine's own recents (`recentRepos`, its projects included) until there are `limit`. a repo on
+    another machine than the field's says its machine; two of one name on one machine are told apart by their path in the
+    name, so every chip's name is its own */
+export function recentChips(sessions: readonly Seen[], host: string, hostRepos: readonly string[], repoName: (root: string) => string, limit: number): RecentChip[] {
+  const newest = new Map<string, Seen>();
+  for (const seen of sessions) {
+    if (!seen.root || !seen.host) continue;
+    const key = `${seen.host}\n${seen.root}`;
+    const had = newest.get(key);
+    if (!had || seen.at > had.at) newest.set(key, seen);
+  }
+  const places = [...newest.values()].sort((a, b) => b.at - a.at).map((seen) => ({ host: seen.host, root: seen.root }));
+  for (const root of hostRepos) if (root && !newest.has(`${host}\n${root}`)) places.push({ host, root });
+  const taken = places.slice(0, Math.max(0, limit));
+  const count = new Map<string, number>();
+  for (const at of taken) count.set(`${at.host}\n${repoName(at.root)}`, (count.get(`${at.host}\n${repoName(at.root)}`) ?? 0) + 1);
+  return taken.map((at) => {
+    const repo = repoName(at.root);
+    const machine = at.host === host ? null : at.host;
+    const twin = (count.get(`${at.host}\n${repo}`) ?? 0) > 1;
+    return { host: at.host, root: at.root, repo, machine, name: `start in ${repo}${machine ? ` on ${machine}` : ""}${twin ? `, ${at.root}` : ""}` };
+  });
+}
+
 /** the repos a typed word narrows to: every word must be in the name or the path, names first. no word is every repo */
 export function matchRepos(repos: readonly string[], query: string): string[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
